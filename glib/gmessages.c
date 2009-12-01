@@ -1359,6 +1359,7 @@ g_logv (const gchar   *log_domain,
           if ((test_level & G_LOG_FLAG_FATAL) && !masquerade_fatal)
             {
 #ifdef G_OS_WIN32
+#ifndef _DEBUG
               if (win32_keep_fatal_message)
                 {
                   gchar *locale_msg = g_locale_from_utf8 (fatal_msg_buf, -1, NULL, NULL, NULL);
@@ -1366,6 +1367,7 @@ g_logv (const gchar   *log_domain,
                   MessageBox (NULL, locale_msg, NULL,
                               MB_ICONERROR|MB_SETFOREGROUND);
                 }
+#endif /* !_DEBUG */
 #endif /* !G_OS_WIN32 */
 
               _g_log_abort (!(test_level & G_LOG_FLAG_RECURSION));
@@ -2676,6 +2678,7 @@ handled:
   if (log_level & G_LOG_FLAG_FATAL)
     {
 #ifdef G_OS_WIN32
+#ifndef _DEBUG
       if (!g_test_initialized ())
         {
           gchar *locale_msg = NULL;
@@ -2685,6 +2688,7 @@ handled:
                       MB_ICONERROR | MB_SETFOREGROUND);
           g_free (locale_msg);
         }
+#endif /* !_DEBUG */
 #endif /* !G_OS_WIN32 */
 
       _g_log_abort (!(log_level & G_LOG_FLAG_RECURSION));
