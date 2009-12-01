@@ -894,7 +894,11 @@ parse_application_element (GMarkupParseContext  *context,
        * it for backward compatibility
        */
       if (stamp)
+#if defined (_MSC_VER) && (_MSC_VER >= 1300)
+        ai->stamp = (time_t) _atoi64 (stamp);
+#else
         ai->stamp = (time_t) atol (stamp);
+#endif
       else
         ai->stamp = time (NULL);
     }
