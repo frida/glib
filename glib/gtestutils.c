@@ -637,7 +637,12 @@ static void     gtest_default_log_handler       (const gchar    *log_domain,
                                                  GLogLevelFlags  log_level,
                                                  const gchar    *message,
                                                  gpointer        unused_data);
-
+static void     g_default_assertion_handler     (const char     *domain,
+                                                 const char     *file,
+                                                 int             line,
+                                                 const char     *func,
+                                                 const char     *message,
+                                                 gpointer       user_data) G_GNUC_NORETURN;
 
 typedef enum {
   G_TEST_RUN_SUCCESS,
@@ -692,6 +697,8 @@ static GTestConfig mutable_test_config_vars = {
 };
 const GTestConfig * const g_test_config_vars = &mutable_test_config_vars;
 static gboolean  no_g_set_prgname = FALSE;
+static GAssertionFunc assertion_handler = g_default_assertion_handler;
+static gpointer assertion_handler_data = NULL;
 
 /* --- functions --- */
 const char*
@@ -2307,11 +2314,20 @@ gtest_default_log_handler (const gchar    *log_domain,
 }
 
 void
-g_assertion_message (const char     *domain,
-                     const char     *file,
-                     int             line,
-                     const char     *func,
-                     const char     *message)
+g_assertion_set_handler (GAssertionFunc handler,
+                         gpointer user_data)
+{
+  assertion_handler_data = user_data;
+  assertion_handler = handler;
+}
+
+static void
+g_default_assertion_handler (const char     *domain,
+                             const char     *file,
+                             int             line,
+                             const char     *func,
+                             const char     *message,
+                             gpointer       user_data)
 {
   char lstr[32];
   char *s;
@@ -2354,6 +2370,16 @@ g_assertion_message (const char     *domain,
     }
   else
     abort ();
+}
+
+void
+g_assertion_message (const char     *domain,
+                     const char     *file,
+                     int             line,
+                     const char     *func,
+                     const char     *message)
+{
+  assertion_handler (domain, file, line, func, message, assertion_handler_data);
 }
 
 void
