@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{f8aaa7d9-68dd-4c52-b65f-419c68bb3e42}</ProjectGuid>
+    <OutputType>lib</OutputType>
+    <TopBldDir>../</TopBldDir>
+  </PropertyGroup>
+  <Import Project="$(TopBldDir)glib-common.props" />
+  <PropertyGroup>
+    <AssemblyName>gobject-$(GLibVersionApi)</AssemblyName>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>
+        %(AdditionalIncludeDirectories);
+        $(IntDir)/gobject;
+      </AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>
+        G_LOG_DOMAIN="GLib-GObject";
+        GOBJECT_COMPILATION;
+        G_DISABLE_CONST_RETURNS;
+        %(PreprocessorDefinitions)
+      </PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup>
+    <InstallInclude>
+      <SubDirectory>glib-$(VersionApi)/gobject</SubDirectory>
+    </InstallInclude>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <Package Include="glib-$(GLibVersionApi)" />
+    <Package Include="gthread-$(GLibVersionApi)" />
+    <Package Include="libffi" />
+    <InstallPkgConfig Include="$(TopBldDir)gobject-$(VersionApi).pc.in" />
+    <!-- Header installation -->
+    <InstallInclude Include="glib-types.h" />
+    <InstallInclude Include="gbinding.h" />
+    <InstallInclude Include="gboxed.h" />
+    <InstallInclude Include="gclosure.h" />
+    <InstallInclude Include="genums.h" />
+    <InstallInclude Include="gmarshal.h" />
+    <InstallInclude Include="gobject.h" />
+    <InstallInclude Include="gobjectnotifyqueue.c" />
+    <InstallInclude Include="gparam.h" />
+    <InstallInclude Include="gparamspecs.h" />
+    <InstallInclude Include="gsignal.h" />
+    <InstallInclude Include="gsourceclosure.h" />
+    <InstallInclude Include="gtype.h" />
+    <InstallInclude Include="gtypemodule.h" />
+    <InstallInclude Include="gtypeplugin.h" />
+    <InstallInclude Include="gvalue.h" />
+    <InstallInclude Include="gvaluearray.h" />
+    <InstallInclude Include="gvaluecollector.h" />
+    <InstallInclude Include="gvaluetypes.h" />
+    <!-- Compile: GObject -->
+    <ClCompile Include="gatomicarray.c" />
+    <ClCompile Include="gbinding.c" />
+    <ClCompile Include="gboxed.c" />
+    <ClCompile Include="gclosure.c" />
+    <ClCompile Include="genums.c" />
+    <ClCompile Include="gmarshal.c" />
+    <ClCompile Include="gobject.c" />
+    <ClCompile Include="gparam.c" />
+    <ClCompile Include="gparamspecs.c" />
+    <ClCompile Include="gsignal.c" />
+    <ClCompile Include="gsourceclosure.c" />
+    <ClCompile Include="gtype.c" />
+    <ClCompile Include="gtypemodule.c" />
+    <ClCompile Include="gtypeplugin.c" />
+    <ClCompile Include="gvalue.c" />
+    <ClCompile Include="gvaluearray.c" />
+    <ClCompile Include="gvaluetransform.c" />
+    <ClCompile Include="gvaluetypes.c" />
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath)\HSBuild\HSBuild.GLib.targets" />
+  <Import Project="$(MSBuildExtensionsPath)\HSBuild\HSBuild.C.targets" />
+</Project>

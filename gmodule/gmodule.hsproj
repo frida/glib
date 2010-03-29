@@ -1,0 +1,39 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{12D4EDB3-F4B9-45ce-9CBF-17D559277C38}</ProjectGuid>
+    <OutputType>lib</OutputType>
+    <TopBldDir>../</TopBldDir>
+  </PropertyGroup>
+  <Import Project="$(TopBldDir)glib-common.props" />
+  <PropertyGroup>
+    <AssemblyName>gmodule-$(GLibVersionApi)</AssemblyName>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>
+        G_LOG_DOMAIN="GModule";
+        %(PreprocessorDefinitions)
+      </PreprocessorDefinitions>
+    </ClCompile>
+    <InstallInclude>
+      <SubDirectory>glib-$(GLibVersionApi)</SubDirectory>
+    </InstallInclude>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <Package Include="glib-$(GLibVersionApi)" />
+    <InFile Include="gmoduleconf.h.in">
+      <Expressions>
+        s/@G_MODULE_IMPL@/G_MODULE_IMPL_WIN32/g;
+        s/@G_MODULE_HAVE_DLERROR@/1/g;
+        s/@G_MODULE_NEED_USCORE@/0/g;
+        s/@G_MODULE_BROKEN_RTLD_GLOBAL@/0/g
+      </Expressions>
+    </InFile>
+    <ClCompile Include="gmodule.c" />
+    <InstallPkgConfig Include="$(TopBldDir)gmodule*-$(GLibVersionApi).pc.in" />
+    <InstallInclude Include="gmodule.h" />
+  </ItemGroup>
+
+  <Import Project="$(MSBuildExtensionsPath)\HSBuild\HSBuild.C.targets" />
+</Project>

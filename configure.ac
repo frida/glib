@@ -30,7 +30,7 @@ m4_define(glib_configure_ac)
 # <mclasen> on the unstable (ie master), interface age = 0
 
 m4_define([glib_major_version], [2])
-m4_define([glib_minor_version], [43])
+m4_define([glib_minor_version], [42])
 m4_define([glib_micro_version], [0])
 m4_define([glib_interface_age], [0])
 m4_define([glib_binary_age],
@@ -245,6 +245,10 @@ AC_ARG_ENABLE(rebuilds,
               [AS_HELP_STRING([--disable-rebuilds],
                               [disable all source autogeneration rules])],,
               [enable_rebuilds=yes])
+AC_ARG_ENABLE(proxy_libintl,
+              [AC_HELP_STRING([--enable-proxy-libintl],
+                              [use built-in stub gettext impl instead of GNU gettext  [default=no]])],,
+              [enable_proxy_libintl=no])
 
 GLIB_TESTS
 
@@ -450,18 +454,36 @@ dnl
 dnl gettext support
 dnl
 
-ALL_LINGUAS="`grep -v '^#' "$srcdir/po/LINGUAS" | tr '\n' ' '`"
-AC_SUBST([CONFIG_STATUS_DEPENDENCIES],['$(top_srcdir)/po/LINGUAS'])
-GLIB_GNU_GETTEXT
+AC_MSG_CHECKING([whether to use GNU gettext or internal proxy-libintl])
+AM_CONDITIONAL(USE_PROXY_LIBINTL, [test "x$enable_proxy_libintl" != "xno"])
+if test "x$enable_proxy_libintl" = "xno"; then
+  AC_MSG_RESULT([no])
+  ALL_LINGUAS="`grep -v '^#' "$srcdir/po/LINGUAS" | tr '\n' ' '`"
+  AC_SUBST([CONFIG_STATUS_DEPENDENCIES],['$(top_srcdir)/po/LINGUAS'])
+  GLIB_GNU_GETTEXT
 
-if test "$gt_cv_have_gettext" != "yes" ; then
-  AC_MSG_ERROR([
+  if test "$gt_cv_have_gettext" != "yes" ; then
+    AC_MSG_ERROR([
 *** You must have either have gettext support in your C library, or use the 
 *** GNU gettext library. (http://www.gnu.org/software/gettext/gettext.html
 ])
-fi
+  fi
 
-LIBS="$INTLLIBS $LIBS"
+  LIBS="$INTLLIBS $LIBS"
+else
+  AC_MSG_RESULT([yes])
+
+  libintl_h_INCLUDES='-I$(top_srcdir)/proxy-libintl'
+  AC_SUBST(libintl_h_INCLUDES)
+
+  INTLLIBS=""
+  AC_SUBST(INTLLIBS)
+
+  [$as_echo "#define ENABLE_NLS 1" >>confdefs.h]
+  [$as_echo "#define HAVE_BIND_TEXTDOMAIN_CODESET 1" >>confdefs.h]
+  [$as_echo "#define HAVE_GETTEXT 1" >>confdefs.h]
+  [$as_echo "#define HAVE_DCGETTEXT 1" >>confdefs.h]
+fi
 
 GETTEXT_PACKAGE=glib20
 AC_SUBST(GETTEXT_PACKAGE)
@@ -3555,7 +3577,7 @@ AC_SUBST(config_h_INCLUDES)
 #   $(top_builddir)/glib: for glibconfig.h
 #   $(top_srcdir)/glib:   for glib.h
 #   $(top_srcdir):        for everything
-glib_INCLUDES='$(config_h_INCLUDES) -I$(top_builddir)/glib -I$(top_srcdir)/glib -I$(top_srcdir)'
+glib_INCLUDES='$(config_h_INCLUDES) $(libintl_h_INCLUDES) -I$(top_builddir)/glib -I$(top_srcdir)/glib -I$(top_srcdir)'
 AC_SUBST(glib_INCLUDES)
 
 # gobject:
@@ -3625,6 +3647,7 @@ gio/tests/services/Makefile
 gio/tests/services/org.gtk.GDBus.Examples.ObjectManager.service
 gio/tests/modules/Makefile
 po/Makefile.in
+proxy-libintl/Makefile
 docs/Makefile
 docs/reference/Makefile
 docs/reference/glib/Makefile
