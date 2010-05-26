@@ -629,6 +629,16 @@ g_socket (gint     domain,
 	fcntl (fd, F_SETFD, flags);
       }
   }
+#else
+  if (type == SOCK_DGRAM)
+  {
+    DWORD bytes_returned = 0;
+    BOOL new_behavior = FALSE;
+
+    /* Disable connection reset error on ICMP port unreachable. */
+    WSAIoctl (fd, SIO_UDP_CONNRESET, &new_behavior, sizeof (new_behavior),
+        NULL, 0, &bytes_returned, NULL, NULL);
+  }
 #endif
 
   return fd;
