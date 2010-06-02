@@ -483,6 +483,61 @@ GSourceFuncs g_unix_signal_funcs =
 G_LOCK_DEFINE_STATIC (main_context_list);
 static GSList *main_context_list = NULL;
 
+#ifdef G_OS_WIN32
+
+#define G_WIN32_TIME_RESYNC_THRESHOLD_SECONDS 30
+
+typedef struct _GWin32TimeSnapshot
+{
+  gboolean initialized;
+
+  GTimeVal system_time;
+  LARGE_INTEGER frequency;
+  LARGE_INTEGER counter;
+} GWin32TimeSnapshot;
+
+G_LOCK_DEFINE_STATIC (g_win32_start_time);
+static GWin32TimeSnapshot g_win32_start_time = { 0, };
+
+static void
+g_win32_get_system_time_now (GTimeVal *result)
+{
+  guint64 time64;
+
+  GetSystemTimeAsFileTime ((FILETIME *) &time64);
+
+  /* Convert from 100s of nanoseconds since 1601-01-01
+   * to Unix epoch. Yes, this is Y2038 unsafe.
+   */
+  time64 -= G_GINT64_CONSTANT (116444736000000000);
+  time64 /= 10;
+
+  result->tv_sec = time64 / 1000000;
+  result->tv_usec = time64 % 1000000;
+}
+
+static void
+g_win32_update_start_time (GWin32TimeSnapshot * start_time)
+{
+  g_win32_get_system_time_now (&start_time->system_time);
+
+  QueryPerformanceFrequency (&start_time->frequency);
+  QueryPerformanceCounter (&start_time->counter);
+}
+
+static guint64
+g_win32_get_elapsed_microseconds_since (GWin32TimeSnapshot * ts)
+{
+  LARGE_INTEGER counter;
+
+  QueryPerformanceCounter (&counter);
+
+  return ((counter.QuadPart - ts->counter.QuadPart) * G_USEC_PER_SEC) /
+      ts->frequency.QuadPart;
+}
+
+#endif /* G_OS_WIN32 */
+
 GSourceFuncs g_timeout_funcs =
 {
   NULL, /* prepare */
@@ -2663,22 +2718,32 @@ g_get_current_time (GTimeVal *result)
   result->tv_sec = r.tv_sec;
   result->tv_usec = r.tv_usec;
 #else
-  FILETIME ft;
-  guint64 time64;
+  GTimeVal system_time;
 
   g_return_if_fail (result != NULL);
 
-  GetSystemTimeAsFileTime (&ft);
-  memmove (&time64, &ft, sizeof (FILETIME));
+  G_LOCK (g_win32_start_time);
 
-  /* Convert from 100s of nanoseconds since 1601-01-01
-   * to Unix epoch. Yes, this is Y2038 unsafe.
-   */
-  time64 -= G_GINT64_CONSTANT (116444736000000000);
-  time64 /= 10;
+  if (G_UNLIKELY (!g_win32_start_time.initialized))
+    {
+      g_win32_update_start_time (&g_win32_start_time);
+      g_win32_start_time.initialized = TRUE;
+    }
 
-  result->tv_sec = time64 / 1000000;
-  result->tv_usec = time64 % 1000000;
+  memcpy (result, &g_win32_start_time.system_time, sizeof (GTimeVal));
+  g_time_val_add (result,
+      g_win32_get_elapsed_microseconds_since (&g_win32_start_time));
+
+  g_win32_get_system_time_now (&system_time);
+
+  if (G_UNLIKELY (ABS (system_time.tv_sec - result->tv_sec) >=
+      G_WIN32_TIME_RESYNC_THRESHOLD_SECONDS))
+    {
+      g_win32_update_start_time (&g_win32_start_time);
+      memcpy (result, &g_win32_start_time.system_time, sizeof (GTimeVal));
+    }
+
+  G_UNLOCK (g_win32_start_time);
 #endif
 }
 
