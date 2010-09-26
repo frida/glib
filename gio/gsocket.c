@@ -3647,6 +3647,9 @@ update_select_events (GSocket *socket)
   GList *l;
   WSAEVENT event;
 
+  if (socket->priv->closed)
+    return;
+
   ensure_event (socket);
 
   event_mask = 0;
