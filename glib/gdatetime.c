@@ -46,6 +46,7 @@
 /* Prologue {{{1 */
 
 #include "config.h"
+#include "glibconfig.h" /* for G_OS_WIN32 */
 
 #include <stdlib.h>
 #include <string.h>
