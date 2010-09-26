@@ -562,9 +562,11 @@ registry_cache_get_node_for_key_recursive (GNode    *node,
                                            gint      n_parent_watches)
 {
   RegistryCacheItem *item;
-  gchar *component = key_name,
-        *c         = strchr (component, '/');
+  gchar *component, *c;
   GNode *child;
+
+  component = key_name;
+  c = strchr (component, '/');
 
   if (c != NULL)
     *c = 0;
@@ -900,7 +902,7 @@ g_registry_backend_write_one (const char *key_name,
   GNode    *node;
   gboolean  changed;
 
-  const gchar *type_string = g_variant_get_type_string (variant);
+  const gchar *type_string;
 
   action = user_data;
   self = G_REGISTRY_BACKEND (action->self);
@@ -909,6 +911,7 @@ g_registry_backend_write_one (const char *key_name,
   value.type = REG_NONE;
   value.ptr = NULL;
 
+  type_string = g_variant_get_type_string (variant);
   switch (type_string[0])
     {
       case 'b': case 'y': case 'n': case 'q': case 'i': case 'u':
