@@ -3165,7 +3165,8 @@ update_condition (GSocket *socket)
   WSANETWORKEVENTS events;
   GIOCondition condition;
 
-  if (WSAEnumNetworkEvents (socket->priv->fd,
+  if (!socket->priv->closed &&
+      WSAEnumNetworkEvents (socket->priv->fd,
 			    socket->priv->event,
 			    &events) == 0)
     {
