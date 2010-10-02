@@ -1020,9 +1020,11 @@ void
 _g_io_modules_ensure_loaded (void)
 {
   static gboolean loaded_dirs = FALSE;
+#ifndef GLIB_STATIC_COMPILATION
   const char *module_path;
   GIOModuleScope *scope;
   const gchar *module_dir;
+#endif
 
   _g_io_modules_ensure_extension_points_registered ();
   
@@ -1031,6 +1033,8 @@ _g_io_modules_ensure_loaded (void)
   if (!loaded_dirs)
     {
       loaded_dirs = TRUE;
+
+#ifndef GLIB_STATIC_COMPILATION
       scope = g_io_module_scope_new (G_IO_MODULE_SCOPE_BLOCK_DUPLICATES);
 
       /* First load any overrides, extras */
@@ -1058,6 +1062,7 @@ _g_io_modules_ensure_loaded (void)
       g_io_modules_scan_all_in_directory_with_scope (module_dir, scope);
 
       g_io_module_scope_free (scope);
+#endif
 
       /* Initialize types from built-in "modules" */
       g_type_ensure (g_null_settings_backend_get_type ());
