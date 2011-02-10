@@ -26,29 +26,11 @@
 
 G_BEGIN_DECLS
 
-#if defined (_MSC_VER) && !defined(_WIN64)
-
-/* Make it clear that we mean the struct with 32-bit st_size and
- * 32-bit st_*time fields as that is how the 32-bit GLib DLL normally
- * has been compiled. If you get a compiler warning when calling
- * g_stat(), do take it seriously and make sure that the type of
- * struct stat the code in GLib fills in matches the struct the type
- * of struct stat you pass to g_stat(). To avoid hassle, to get file
- * attributes just use the GIO API instead which doesn't use struct
- * stat.
- *
- * Sure, it would be nicer to use a struct with 64-bit st_size and
- * 64-bit st_*time fields, but changing that now would break ABI. And
- * in MinGW, a plain "struct stat" is the one with 32-bit st_size and
- * st_*time fields.
- */
-
-typedef struct _stat32 GStatBuf;
-
+#ifdef G_OS_WIN32
+/* We want 64-bit file size support */
+typedef struct _stati64 GStatBuf;
 #else
-
 typedef struct stat GStatBuf;
-
 #endif
 
 #if defined(G_OS_UNIX) && !defined(G_STDIO_NO_WRAP_ON_UNIX)
