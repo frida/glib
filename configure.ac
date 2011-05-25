@@ -263,6 +263,11 @@ AC_ARG_ENABLE(proxy_libintl,
               [AC_HELP_STRING([--enable-proxy-libintl],
                               [use built-in stub gettext impl instead of GNU gettext  [default=no]])],,
               [enable_proxy_libintl=no])
+AC_ARG_ENABLE(tests,
+              [AC_HELP_STRING([--enable-tests],
+                              [enable tests [default=yes]])],,
+              [enable_tests=yes])
+AM_CONDITIONAL(ENABLE_TESTS, [test x$enable_tests = xyes])
 
 GLIB_TESTS
 
