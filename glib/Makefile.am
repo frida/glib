@@ -31,7 +31,13 @@ else
 MAYBE_PCRE = pcre 
 endif
 
-SUBDIRS = libcharset $(PRINTF_SUBDIR) $(MAYBE_PCRE) update-pcre . tests
+if ENABLE_TESTS
+MAYBE_TESTS = tests
+else
+MAYBE_TESTS =
+endif
+
+SUBDIRS = libcharset $(PRINTF_SUBDIR) $(MAYBE_PCRE) update-pcre . $(MAYBE_TESTS)
 DIST_SUBDIRS = libcharset gnulib pcre update-pcre tests
 
 AM_CPPFLAGS = 				\
