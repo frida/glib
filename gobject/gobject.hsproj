@@ -19,6 +19,7 @@
         G_LOG_DOMAIN="GLib-GObject";
         GOBJECT_COMPILATION;
         G_DISABLE_CONST_RETURNS;
+        FFI_BUILDING;
         %(PreprocessorDefinitions)
       </PreprocessorDefinitions>
     </ClCompile>
