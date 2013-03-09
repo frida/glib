@@ -2219,7 +2219,9 @@ void load_user_special_dirs_macos (gchar **table);
 static void
 load_user_special_dirs_unlocked (void)
 {
+#ifdef HAVE_COCOA
   load_user_special_dirs_macos (g_user_special_dirs);
+#endif
 }
 
 #elif defined(G_OS_WIN32)

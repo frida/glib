@@ -22,6 +22,11 @@ option('runtime_dir',
        value: '',
        description: 'Directory for transient runtime state [default: /run]')
 
+option('cocoa',
+       type : 'feature',
+       value : 'auto',
+       description : 'build with Cocoa features on macOS')
+
 option('selinux',
        type : 'feature',
        value : 'auto',
