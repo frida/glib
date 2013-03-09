@@ -801,7 +801,7 @@ endif
 glib_have_os_x_9_or_later = false
 glib_have_carbon = false
 glib_have_cocoa = false
-if host_system == 'darwin'
+if host_system == 'darwin' and get_option('cocoa').allowed()
   add_languages('objc', native: false, required: true)
   objcc = meson.get_compiler('objc')
 
@@ -2269,7 +2269,7 @@ enable_dtrace = false
 # Since dtrace support is opt-in we just error out if it was requested but
 # is not available. We don't bother with autodetection yet.
 if want_dtrace
-  if glib_have_carbon
+  if host_system == 'darwin'
     error('GLib dtrace support not yet compatible with macOS dtrace')
   endif
   dtrace = find_program('dtrace', required : true) # error out if not found
