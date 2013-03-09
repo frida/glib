@@ -1004,7 +1004,7 @@ endif
 osx_ldflags = []
 glib_have_carbon = false
 glib_have_cocoa = false
-if host_system == 'darwin' and subsystem == 'macos'
+if host_system == 'darwin' and subsystem == 'macos' and get_option('cocoa').allowed()
   add_languages('objc', native: false, required: true)
   objcc = meson.get_compiler('objc')
   if not objcc.compiles('''#include <AvailabilityMacros.h>
@@ -2632,7 +2632,7 @@ endif
 dtrace_option = get_option('dtrace')
 enable_dtrace = dtrace_option.allowed()
 
-if glib_have_carbon
+if host_system == 'darwin'
   if dtrace_option.enabled()
     error('GLib dtrace support not yet compatible with macOS dtrace')
   else
