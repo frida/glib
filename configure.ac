@@ -161,10 +161,12 @@ case $host in
   *-*-linux*)
     glib_os_linux=yes
     ;;
+  *-apple-*)
+    glib_os_apple=yes
+    ;;
   *-*-qnx*)
     AC_DEFINE(HAVE_QNX, 1, [Define to 1 if host is QNX])
     AC_DEFINE(_QNX_SOURCE, 1, [Define on QNX to activate all library features])
-    ;;
 esac
 
 AC_MSG_RESULT([$glib_native_win32])
@@ -183,24 +185,7 @@ AC_MSG_RESULT([$glib_native_android])
 AC_SUBST(LIB_EXE_MACHINE_FLAG)
 
 glib_have_carbon=no
-AC_MSG_CHECKING([for Mac OS X Carbon support])
-AC_TRY_CPP([
-#include <Carbon/Carbon.h>
-#include <CoreServices/CoreServices.h>
-], glib_have_carbon=yes)
-
-AC_MSG_RESULT([$glib_have_carbon])
-
 glib_have_cocoa=no
-AC_MSG_CHECKING([for Mac OS X Cocoa support])
-AC_TRY_CPP([
-#include <Cocoa/Cocoa.h>
-#ifdef GNUSTEP_BASE_VERSION
-#error "Detected GNUstep, not Cocoa"
-#endif
-], glib_have_cocoa=yes)
-
-AC_MSG_RESULT([$glib_have_cocoa])
 
 AM_CONDITIONAL(OS_WIN32, [test "$glib_native_win32" = "yes"])
 AM_CONDITIONAL(OS_WIN32_X64, [test "$LIB_EXE_MACHINE_FLAG" = "X64"])
@@ -2634,8 +2619,8 @@ AC_ARG_ENABLE([dtrace],
 have_dtrace=no
 AC_MSG_CHECKING([whether to include dtrace tracing support])
 AS_IF([ test "x$enable_dtrace" != xno], [
-  if test x$glib_have_carbon = xyes; then
-    AC_MSG_RESULT([no (not yet compatible with MacOS dtrace)])
+  if test "$glib_os_apple" = "yes"; then
+    AC_MSG_RESULT([no (not yet compatible with Apple's dtrace)])
   else 
     AC_MSG_RESULT([yes])
     AC_CHECK_PROGS(DTRACE, dtrace)
