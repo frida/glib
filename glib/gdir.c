@@ -220,6 +220,7 @@ g_dir_new_from_dirp (gpointer dirp)
   return dir;
 #else
   g_assert_not_reached ();
+  return NULL;
 #endif
 }
 
