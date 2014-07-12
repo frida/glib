@@ -4,6 +4,7 @@ include $(top_srcdir)/glib.mk
 AM_CPPFLAGS = 				\
 	$(glib_INCLUDES) 		\
 	-DG_LOG_DOMAIN=\"GModule\" 	\
+	$(GLIB_STATIC_FLAGS)		\
 	@GLIB_DEBUG_FLAGS@ 		\
 	-DG_DISABLE_DEPRECATED
 

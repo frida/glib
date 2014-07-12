@@ -1020,7 +1020,7 @@ void
 _g_io_modules_ensure_loaded (void)
 {
   static gboolean loaded_dirs = FALSE;
-#ifndef GLIB_STATIC_COMPILATION
+#ifndef GIO_STATIC_COMPILATION
   const char *module_path;
   GIOModuleScope *scope;
   const gchar *module_dir;
@@ -1034,7 +1034,7 @@ _g_io_modules_ensure_loaded (void)
     {
       loaded_dirs = TRUE;
 
-#ifndef GLIB_STATIC_COMPILATION
+#ifndef GIO_STATIC_COMPILATION
       scope = g_io_module_scope_new (G_IO_MODULE_SCOPE_BLOCK_DUPLICATES);
 
       /* First load any overrides, extras */

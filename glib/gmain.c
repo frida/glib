@@ -529,6 +529,16 @@ GSourceFuncs g_idle_funcs =
   NULL
 };
 
+void
+_g_main_deinit (void)
+{
+  if (default_main_context != NULL)
+    {
+      g_main_context_unref (default_main_context);
+      default_main_context = NULL;
+    }
+}
+
 /**
  * g_main_context_ref:
  * @context: a #GMainContext
@@ -2644,7 +2654,7 @@ static ULONGLONG (*g_GetTickCount64) (void) = NULL;
 static guint32 g_win32_tick_epoch = 0;
 
 void
-g_clock_win32_init (void)
+_g_clock_win32_init (void)
 {
   HMODULE kernel32;
 
