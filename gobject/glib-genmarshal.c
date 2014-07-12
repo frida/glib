@@ -794,6 +794,8 @@ main (int   argc,
   GSList *slist, *files = NULL;
   gint i;
 
+  glib_init ();
+
   /* parse args and do fast exits */
   parse_args (&argc, &argv);
 
