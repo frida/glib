@@ -1000,6 +1000,8 @@ g_dbus_address_get_stream_sync (const gchar   *address,
 
 /* ---------------------------------------------------------------------------------------------------- */
 
+#ifndef GIO_STATIC_COMPILATION
+
 #ifdef G_OS_UNIX
 static gchar *
 get_session_address_dbus_launch (GError **error)
@@ -1428,12 +1430,15 @@ get_session_address_dbus_launch (GError **error)
 }
 #endif
 
+#endif /* !GIO_STATIC_COMPILATION */
+
 /* ---------------------------------------------------------------------------------------------------- */
 
 static gchar *
 get_session_address_platform_specific (GError **error)
 {
   gchar *ret;
+#ifndef GIO_STATIC_COMPILATION
 #if defined (G_OS_UNIX) || defined(G_OS_WIN32)
   /* need to handle OS X in a different way since 'dbus-launch --autolaunch' probably won't work there */
   ret = get_session_address_dbus_launch (error);
@@ -1444,6 +1449,13 @@ get_session_address_platform_specific (GError **error)
                G_IO_ERROR,
                G_IO_ERROR_FAILED,
                _("Cannot determine session bus address (not implemented for this OS)"));
+#endif
+#else
+  ret = NULL;
+  g_set_error (error,
+               G_IO_ERROR,
+               G_IO_ERROR_FAILED,
+               _("Session bus not available for static GIO"));
 #endif
   return ret;
 }

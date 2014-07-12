@@ -109,4 +109,14 @@
 
 #undef __GLIB_H_INSIDE__
 
+G_BEGIN_DECLS
+
+GLIB_AVAILABLE_IN_2_42
+void                            glib_init                               (void);
+
+GLIB_AVAILABLE_IN_2_42
+void                            glib_deinit                             (void);
+
+G_END_DECLS
+
 #endif /* __G_LIB_H__ */

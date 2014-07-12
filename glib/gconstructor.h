@@ -20,25 +20,35 @@
 
 #define G_HAS_CONSTRUCTORS 1
 
-#define G_DEFINE_CONSTRUCTOR(_func) static void __attribute__((constructor)) _func (void);
-#define G_DEFINE_DESTRUCTOR(_func) static void __attribute__((destructor)) _func (void);
+#define _G_DEFINE_CONSTRUCTOR(_func) static void __attribute__((constructor)) _func (void);
+#define _G_DEFINE_DESTRUCTOR(_func) static void __attribute__((destructor)) _func (void);
 
 #elif defined (_MSC_VER) && (_MSC_VER >= 1500)
 /* Visual studio 2008 and later has _Pragma */
 
 #define G_HAS_CONSTRUCTORS 1
 
-#define G_DEFINE_CONSTRUCTOR(_func) \
+#if GLIB_SIZEOF_VOID_P == 4
+#define _G_PRESERVE_SYMBOL(_symbol) __pragma(comment(linker, "/include:_" G_STRINGIFY (_symbol)))
+#else
+#define _G_PRESERVE_SYMBOL(_symbol) __pragma(comment(linker, "/include:" G_STRINGIFY (_symbol)))
+#endif
+
+#define _G_DEFINE_CONSTRUCTOR(_func) \
   static void _func(void); \
   static int _func ## _wrapper(void) { _func(); return 0; } \
   __pragma(section(".CRT$XCU",read)) \
-  __declspec(allocate(".CRT$XCU")) static int (* _array ## _func)(void) = _func ## _wrapper;
+  __declspec(allocate(".CRT$XCU")) static int (* _array ## _func)(void) = _func ## _wrapper; \
+  void _func ## _ (void) { (void) _array ## _func; } \
+  _G_PRESERVE_SYMBOL (_func ## _)
 
-#define G_DEFINE_DESTRUCTOR(_func) \
+#define _G_DEFINE_DESTRUCTOR(_func) \
   static void _func(void); \
   static int _func ## _constructor(void) { atexit (_func); return 0; } \
   __pragma(section(".CRT$XCU",read)) \
-  __declspec(allocate(".CRT$XCU")) static int (* _array ## _func)(void) = _func ## _constructor;
+  __declspec(allocate(".CRT$XCU")) static int (* _array ## _func)(void) = _func ## _constructor; \
+  void _func ## _ (void) { (void) _array ## _func; } \
+  _G_PRESERVE_SYMBOL (_func ## _)
 
 #elif defined (_MSC_VER)
 
@@ -48,16 +58,16 @@
 #define G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA 1
 #define G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA 1
 
-#define G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(_func) \
+#define _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(_func) \
   section(".CRT$XCU",read)
-#define G_DEFINE_CONSTRUCTOR(_func) \
+#define _G_DEFINE_CONSTRUCTOR(_func) \
   static void _func(void); \
   static int _func ## _wrapper(void) { _func(); return 0; } \
   __declspec(allocate(".CRT$XCU")) static int (*p)(void) = _func ## _wrapper;
 
-#define G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
+#define _G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
   section(".CRT$XCU",read)
-#define G_DEFINE_DESTRUCTOR(_func) \
+#define _G_DEFINE_DESTRUCTOR(_func) \
   static void _func(void); \
   static int _func ## _constructor(void) { atexit (_func); return 0; } \
   __declspec(allocate(".CRT$XCU")) static int (* _array ## _func)(void) = _func ## _constructor;
@@ -73,14 +83,14 @@
 #define G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA 1
 #define G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA 1
 
-#define G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(_func) \
+#define _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(_func) \
   init(_func)
-#define G_DEFINE_CONSTRUCTOR(_func) \
+#define _G_DEFINE_CONSTRUCTOR(_func) \
   static void _func(void);
 
-#define G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
+#define _G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
   fini(_func)
-#define G_DEFINE_DESTRUCTOR(_func) \
+#define _G_DEFINE_DESTRUCTOR(_func) \
   static void _func(void);
 
 #else
@@ -89,3 +99,42 @@
 
 #endif
 
+#ifdef GLIB_STATIC_COMPILATION
+
+#define G_DEFINE_CONSTRUCTOR(_func) \
+  _G_DEFINE_CONSTRUCTOR (_func ## _register); \
+  void _glib_register_constructor (void (*) (void)); \
+  static void _func (void); \
+  static void _func ## _register (void) { _glib_register_constructor (_func); }
+#define G_DEFINE_DESTRUCTOR(_func) \
+  _G_DEFINE_CONSTRUCTOR (_func ## _register); \
+  void _glib_register_destructor (void (*) (void)); \
+  static void _func (void); \
+  static void _func ## _register (void) { _glib_register_destructor (_func); }
+
+#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
+#define G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(_func) \
+  static void _func ## _register (void); \
+  _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS (_func ## _register)
+#endif
+
+#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
+#define G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
+  static void _func ## _register (void); \
+  _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS (_func ## _register)
+#endif
+
+#else
+
+#define G_DEFINE_CONSTRUCTOR _G_DEFINE_CONSTRUCTOR
+#define G_DEFINE_DESTRUCTOR _G_DEFINE_DESTRUCTOR
+
+#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
+#define G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS
+#endif
+
+#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
+#define G_DEFINE_DESTRUCTOR_PRAGMA_ARGS _G_DEFINE_DESTRUCTOR_PRAGMA_ARGS
+#endif
+
+#endif

@@ -52,6 +52,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include "gtinylist.c"
+
 static void
 g_thread_abort (gint         status,
                 const gchar *function)
@@ -152,6 +154,9 @@ g_mutex_unlock (GMutex *mutex)
 
 /* {{{1 GRecMutex */
 
+static CRITICAL_SECTION g_thread_rec_mutex_lock;
+static GTinyList *g_thread_rec_mutexes = NULL;
+
 static CRITICAL_SECTION *
 g_rec_mutex_impl_new (void)
 {
@@ -160,14 +165,28 @@ g_rec_mutex_impl_new (void)
   cs = g_slice_new (CRITICAL_SECTION);
   InitializeCriticalSection (cs);
 
+  EnterCriticalSection (&g_thread_rec_mutex_lock);
+  g_thread_rec_mutexes = g_tinylist_prepend (g_thread_rec_mutexes, cs);
+  LeaveCriticalSection (&g_thread_rec_mutex_lock);
+
   return cs;
+}
+
+static void
+g_rec_mutex_impl_finalize (CRITICAL_SECTION *cs)
+{
+  DeleteCriticalSection (cs);
+  g_slice_free (CRITICAL_SECTION, cs);
 }
 
 static void
 g_rec_mutex_impl_free (CRITICAL_SECTION *cs)
 {
-  DeleteCriticalSection (cs);
-  g_slice_free (CRITICAL_SECTION, cs);
+  EnterCriticalSection (&g_thread_rec_mutex_lock);
+  g_thread_rec_mutexes = g_tinylist_remove (g_thread_rec_mutexes, cs);
+  LeaveCriticalSection (&g_thread_rec_mutex_lock);
+
+  g_rec_mutex_impl_finalize (cs);
 }
 
 static CRITICAL_SECTION *
@@ -504,8 +523,11 @@ g_system_thread_set_name (const gchar *name)
 
 /* {{{1 SRWLock and CONDITION_VARIABLE emulation (for Windows XP) */
 
+static gboolean         g_thread_xp_initialized = FALSE;
 static CRITICAL_SECTION g_thread_xp_lock;
 static DWORD            g_thread_xp_waiter_tls;
+static GTinyList       *g_thread_xp_srws = NULL;
+static GTinyList       *g_thread_xp_conds = NULL;
 
 /* {{{2 GThreadWaiter utility class for CONDITION_VARIABLE emulation */
 typedef struct _GThreadXpWaiter GThreadXpWaiter;
@@ -573,6 +595,16 @@ g_thread_xp_InitializeSRWLock (gpointer mutex)
   *(GThreadSRWLock * volatile *) mutex = NULL;
 }
 
+static void
+g_thread_xp_FreeSRWLock (GThreadSRWLock * lock)
+{
+  if (lock->ever_shared)
+    DeleteCriticalSection (&lock->atomicity);
+
+  DeleteCriticalSection (&lock->writer_lock);
+  free (lock);
+}
+
 static void __stdcall
 g_thread_xp_DeleteSRWLock (gpointer mutex)
 {
@@ -580,11 +612,11 @@ g_thread_xp_DeleteSRWLock (gpointer mutex)
 
   if (lock)
     {
-      if (lock->ever_shared)
-        DeleteCriticalSection (&lock->atomicity);
+      EnterCriticalSection (&g_thread_xp_lock);
+      g_thread_xp_srws = g_tinylist_remove (g_thread_xp_srws, lock);
+      LeaveCriticalSection (&g_thread_xp_lock);
 
-      DeleteCriticalSection (&lock->writer_lock);
-      free (lock);
+      g_thread_xp_FreeSRWLock (lock);
     }
 }
 
@@ -617,6 +649,9 @@ g_thread_xp_get_srwlock (GThreadSRWLock * volatile *lock)
           result->writer_locked = FALSE;
           result->ever_shared = FALSE;
           *lock = result;
+
+          g_thread_xp_srws = g_tinylist_prepend (g_thread_xp_srws,
+                                                     result);
         }
 
       LeaveCriticalSection (&g_thread_xp_lock);
@@ -788,12 +823,24 @@ g_thread_xp_InitializeConditionVariable (gpointer cond)
 }
 
 static void __stdcall
+g_thread_xp_FreeConditionVariable (GThreadXpCONDITION_VARIABLE * cv)
+{
+  free (cv);
+}
+
+static void __stdcall
 g_thread_xp_DeleteConditionVariable (gpointer cond)
 {
   GThreadXpCONDITION_VARIABLE *cv = *(GThreadXpCONDITION_VARIABLE * volatile *) cond;
 
   if (cv)
-    free (cv);
+    {
+      EnterCriticalSection (&g_thread_xp_lock);
+      g_thread_xp_conds = g_tinylist_remove (g_thread_xp_conds, cv);
+      LeaveCriticalSection (&g_thread_xp_lock);
+
+      g_thread_xp_FreeConditionVariable (cv);
+    }
 }
 
 static GThreadXpCONDITION_VARIABLE * __stdcall
@@ -822,6 +869,13 @@ g_thread_xp_get_condition_variable (GThreadXpCONDITION_VARIABLE * volatile *cond
         {
           free (result);
           result = *cond;
+        }
+      else
+        {
+          EnterCriticalSection (&g_thread_xp_lock);
+          g_thread_xp_conds = g_tinylist_prepend (g_thread_xp_conds,
+                                                      result);
+          LeaveCriticalSection (&g_thread_xp_lock);
         }
     }
 
@@ -946,6 +1000,30 @@ g_thread_xp_init (void)
   g_thread_xp_waiter_tls = TlsAlloc ();
 
   g_thread_impl_vtable = g_thread_xp_impl_vtable;
+
+  g_thread_xp_initialized = TRUE;
+}
+
+static void
+g_thread_xp_deinit (void)
+{
+  if (!g_thread_xp_initialized)
+    return;
+
+  g_tinylist_foreach (g_thread_xp_conds,
+                      (GFunc) g_thread_xp_FreeConditionVariable, NULL);
+  g_tinylist_free (g_thread_xp_conds);
+  g_thread_xp_conds = NULL;
+
+  g_tinylist_foreach (g_thread_xp_srws,
+                      (GFunc) g_thread_xp_FreeSRWLock, NULL);
+  g_tinylist_free (g_thread_xp_srws);
+  g_thread_xp_srws = NULL;
+
+  TlsFree (g_thread_xp_waiter_tls);
+  DeleteCriticalSection (&g_thread_xp_lock);
+
+  g_thread_xp_initialized = FALSE;
 }
 
 /* {{{1 Epilogue */
@@ -982,16 +1060,17 @@ g_thread_lookup_native_funcs (void)
 }
 
 void
-g_thread_win32_init (void)
+_g_thread_init (void)
 {
   if (!g_thread_lookup_native_funcs ())
     g_thread_xp_init ();
 
+  InitializeCriticalSection (&g_thread_rec_mutex_lock);
   InitializeCriticalSection (&g_private_lock);
 }
 
 void
-g_thread_win32_thread_detach (void)
+_g_thread_win32_thread_detach (void)
 {
   gboolean dtors_called;
 
@@ -1026,6 +1105,29 @@ g_thread_win32_thread_detach (void)
 
   if (g_thread_impl_vtable.CallThisOnThreadExit)
     g_thread_impl_vtable.CallThisOnThreadExit ();
+}
+
+void
+_g_thread_deinit (void)
+{
+  GPrivateDestructor *cur, *next;
+
+  for (cur = g_private_destructors; cur; cur = next)
+    {
+      next = cur->next;
+      TlsFree (cur->index);
+      free (cur);
+    }
+
+  g_tinylist_foreach (g_thread_rec_mutexes, (GFunc) g_rec_mutex_impl_finalize,
+                      NULL);
+  g_tinylist_free (g_thread_rec_mutexes);
+  g_thread_rec_mutexes = NULL;
+
+  DeleteCriticalSection (&g_thread_rec_mutex_lock);
+  DeleteCriticalSection (&g_private_lock);
+
+  g_thread_xp_deinit ();
 }
 
 /* vim:set foldmethod=marker: */

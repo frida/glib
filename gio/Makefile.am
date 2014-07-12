@@ -24,6 +24,7 @@ uninstall-ms-lib:
 AM_CPPFLAGS = \
 	-DG_LOG_DOMAIN=\"GLib-GIO\"			\
 	$(gmodule_INCLUDES)				\
+	$(GLIB_STATIC_FLAGS)				\
 	$(GLIB_DEBUG_FLAGS)				\
 	-DGIO_COMPILATION				\
 	-DGIO_MODULE_DIR=\"$(GIO_MODULE_DIR)\"	
@@ -341,6 +342,8 @@ giowin32include_HEADERS = \
 endif
 
 libgio_2_0_la_SOURCES =		\
+	gio-init.c 		\
+	gio-init.h 		\
 	gappinfo.c 		\
 	gappinfoprivate.h	\
 	gasynchelper.c 		\

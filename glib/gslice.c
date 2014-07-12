@@ -42,6 +42,7 @@
 
 #include "gslice.h"
 
+#include "glib-init.h"
 #include "gmain.h"
 #include "gmem.h"               /* gslice.h */
 #include "gstrfuncs.h"
@@ -52,6 +53,8 @@
 #include "glib_trace.h"
 
 #include "valgrind.h"
+
+#include "gtinylist.c"
 
 /**
  * SECTION:memory_slices
@@ -266,6 +269,7 @@ static gpointer     slab_allocator_alloc_chunk       (gsize      chunk_size);
 static void         slab_allocator_free_chunk        (gsize      chunk_size,
                                                       gpointer   mem);
 static void         private_thread_memory_cleanup    (gpointer   data);
+static void         allocator_cleanup                (void);
 static gpointer     allocator_memalign               (gsize      alignment,
                                                       gsize      memsize);
 static void         allocator_memfree                (gsize      memsize,
@@ -451,6 +455,12 @@ g_slice_init_nomessage (void)
   allocator->max_slab_chunk_size_for_magazine_cache = MAX_SLAB_CHUNK_SIZE (allocator);
   if (allocator->config.always_malloc || allocator->config.bypass_magazines)
     allocator->max_slab_chunk_size_for_magazine_cache = 0;      /* non-optimized cases */
+}
+
+void
+_g_slice_deinit (void)
+{
+  allocator_cleanup ();
 }
 
 static inline guint
@@ -1364,25 +1374,41 @@ slab_allocator_free_chunk (gsize    chunk_size,
  * if none is provided, we implement malloc(3)-based alloc-only page alignment
  */
 
+static GTinyList *slab_allocations = NULL;
 #if !(HAVE_COMPLIANT_POSIX_MEMALIGN || HAVE_MEMALIGN || HAVE_VALLOC)
 static GTrashStack *compat_valloc_trash = NULL;
 #endif
+
+static void
+allocator_cleanup (void)
+{
+  g_tinylist_foreach (slab_allocations, (GFunc) free, NULL);
+  g_tinylist_free (slab_allocations);
+  slab_allocations = NULL;
+#if !(HAVE_COMPLIANT_POSIX_MEMALIGN || HAVE_MEMALIGN || HAVE_VALLOC)
+  compat_valloc_trash = NULL;
+#endif
+}
 
 static gpointer
 allocator_memalign (gsize alignment,
                     gsize memsize)
 {
   gpointer aligned_memory = NULL;
+  gpointer allocated_memory = NULL;
   gint err = ENOMEM;
 #if     HAVE_COMPLIANT_POSIX_MEMALIGN
   err = posix_memalign (&aligned_memory, alignment, memsize);
+  allocated_memory = aligned_memory;
 #elif   HAVE_MEMALIGN
   errno = 0;
   aligned_memory = memalign (alignment, memsize);
+  allocated_memory = aligned_memory;
   err = errno;
 #elif   HAVE_VALLOC
   errno = 0;
   aligned_memory = valloc (memsize);
+  allocated_memory = aligned_memory;
   err = errno;
 #else
   /* simplistic non-freeing page allocator */
@@ -1392,6 +1418,7 @@ allocator_memalign (gsize alignment,
     {
       const guint n_pages = 16;
       guint8 *mem = malloc (n_pages * sys_page_size);
+      allocated_memory = mem;
       err = errno;
       if (mem)
         {
@@ -1405,6 +1432,8 @@ allocator_memalign (gsize alignment,
     }
   aligned_memory = g_trash_stack_pop (&compat_valloc_trash);
 #endif
+  if (allocated_memory != NULL)
+    slab_allocations = g_tinylist_prepend (slab_allocations, allocated_memory);
   if (!aligned_memory)
     errno = err;
   return aligned_memory;
@@ -1415,6 +1444,7 @@ allocator_memfree (gsize    memsize,
                    gpointer mem)
 {
 #if     HAVE_COMPLIANT_POSIX_MEMALIGN || HAVE_MEMALIGN || HAVE_VALLOC
+  slab_allocations = g_tinylist_remove (slab_allocations, mem);
   free (mem);
 #else
   mem_assert (memsize <= sys_page_size);

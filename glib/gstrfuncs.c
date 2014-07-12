@@ -50,6 +50,7 @@
 
 #include "gstrfuncs.h"
 
+#include "glib-init.h"
 #include "gprintf.h"
 #include "gprintfint.h"
 #include "glibintl.h"
@@ -318,11 +319,12 @@ const guint16 * const g_ascii_table = ascii_table_data;
 #endif
 
 #ifdef USE_XLOCALE
+static locale_t C_locale = NULL;
+
 static locale_t
 get_C_locale (void)
 {
   static gsize initialized = FALSE;
-  static locale_t C_locale = NULL;
 
   if (g_once_init_enter (&initialized))
     {
@@ -3074,4 +3076,16 @@ one_matched:
   g_strfreev (alternates);
 
   return matched;
+}
+
+void
+_g_strfuncs_deinit (void)
+{
+#ifdef USE_XLOCALE
+  if (C_locale != NULL)
+    {
+      freelocale (C_locale);
+      C_locale = NULL;
+    }
+#endif
 }
