@@ -4368,13 +4368,26 @@ G_DEFINE_CONSTRUCTOR(gobject_init_ctor)
 # error Your platform/compiler is missing constructor support
 #endif
 
+void
+gobject_init (void)
+{
+#ifdef GLIB_STATIC_COMPILATION
+  gobject_init_ctor ();
+#endif
+}
+
 static void
 gobject_init_ctor (void)
 {
+  static gboolean initialized = FALSE;
   const gchar *env_string;
   GTypeInfo info;
   TypeNode *node;
   GType type;
+
+  if (initialized)
+    return;
+  initialized = TRUE;
 
   G_WRITE_LOCK (&type_rw_lock);
 

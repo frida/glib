@@ -168,5 +168,17 @@
 
 #undef __GIO_GIO_H_INSIDE__
 
-#endif /* __G_IO_H__ */
+G_BEGIN_DECLS
 
+GLIB_AVAILABLE_IN_2_42
+void                            gio_init (void);
+
+GLIB_AVAILABLE_IN_2_42
+void                            gio_shutdown (void);
+
+GLIB_AVAILABLE_IN_2_42
+void                            gio_deinit (void);
+
+G_END_DECLS
+
+#endif /* __G_IO_H__ */

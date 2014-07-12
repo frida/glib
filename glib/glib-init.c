@@ -229,19 +229,165 @@ g_debug_init (void)
 }
 
 static void
-glib_init (void)
+glib_perform_init (void)
 {
+#ifdef G_OS_WIN32
+  _g_clock_win32_init ();
+#endif
+  _g_thread_init ();
   g_messages_prefixed_init ();
   g_debug_init ();
 }
 
-#if defined (G_OS_WIN32)
-
-BOOL WINAPI DllMain (HINSTANCE hinstDLL,
-                     DWORD     fdwReason,
-                     LPVOID    lpvReserved);
-
+#ifdef G_OS_WIN32
 HMODULE glib_dll;
+#endif
+
+#ifdef GLIB_STATIC_COMPILATION
+
+extern void _proxy_libintl_deinit (void);
+
+static volatile gboolean glib_initialized = FALSE;
+
+static XtorFunc *constructors = NULL;
+static gint num_constructors = 0;
+
+static XtorFunc *destructors = NULL;
+static gint num_destructors = 0;
+
+#define XTORS_CLEAR(x)                            \
+  G_STMT_START{                                   \
+  if (x != NULL)                                  \
+    {                                             \
+      free (x);                                   \
+      x = NULL;                                   \
+    }                                             \
+  num_ ## x = 0;                                  \
+  }G_STMT_END
+#define XTORS_APPEND(x, f)                        \
+  G_STMT_START{                                   \
+  (num_ ## x)++;                                  \
+  x = realloc (x, num_ ## x * sizeof (XtorFunc)); \
+  x[(num_ ## x) - 1] = f;                         \
+  }G_STMT_END
+
+void
+glib_init (void)
+{
+  gint i;
+
+  if (glib_initialized)
+    return;
+  glib_initialized = TRUE;
+
+  glib_perform_init ();
+
+  for (i = 0; i != num_constructors; i++)
+    constructors[i] ();
+  XTORS_CLEAR (constructors);
+}
+
+void
+glib_shutdown (void)
+{
+  _g_thread_pool_shutdown ();
+  _g_main_shutdown ();
+}
+
+void
+glib_deinit (void)
+{
+  gint i;
+
+  if (!glib_initialized)
+    return;
+
+  glib_shutdown ();
+
+  for (i = num_destructors - 1; i >= 0; i--)
+    destructors[i] ();
+  XTORS_CLEAR (destructors);
+
+  _g_main_deinit ();
+  _g_strfuncs_deinit ();
+
+  glib_initialized = FALSE;
+
+# if defined (G_OS_WIN32) && defined (THREADS_WIN32)
+  _g_thread_win32_thread_detach ();
+#endif
+
+  _g_thread_deinit ();
+  _g_slice_deinit ();
+  _proxy_libintl_deinit ();
+}
+
+void
+_glib_register_constructor (XtorFunc constructor)
+{
+  if (glib_initialized)
+    constructor ();
+  else
+    XTORS_APPEND (constructors, constructor);
+}
+
+void
+_glib_register_destructor (XtorFunc destructor)
+{
+  XTORS_APPEND (destructors, destructor);
+}
+
+# if defined (G_OS_WIN32) && defined (THREADS_WIN32)
+
+static void WINAPI
+glib_tls_callback (HINSTANCE hinstDLL,
+                   DWORD     fdwReason,
+                   LPVOID    lpvReserved)
+{
+  if (fdwReason == DLL_THREAD_DETACH && glib_initialized)
+    _g_thread_win32_thread_detach ();
+}
+
+#  if GLIB_SIZEOF_VOID_P == 8
+#   pragma comment (linker, "/INCLUDE:_tls_used")
+#   pragma comment (linker, "/INCLUDE:_xl_b")
+#   pragma const_seg(".CRT$XLB")
+    EXTERN_C const
+#  else
+#   pragma comment (linker, "/INCLUDE:__tls_used")
+#   pragma comment (linker, "/INCLUDE:__xl_b")
+#   pragma data_seg(".CRT$XLB")
+    EXTERN_C
+#  endif
+
+PIMAGE_TLS_CALLBACK _xl_b = glib_tls_callback;
+
+#if GLIB_SIZEOF_VOID_P == 8
+#   pragma const_seg()
+#  else
+#   pragma data_seg()
+#  endif
+
+# endif
+
+#else /* !GLIB_STATIC_COMPILATION */
+
+void
+glib_init (void)
+{
+}
+
+void
+glib_shutdown (void)
+{
+}
+
+void
+glib_deinit (void)
+{
+}
+
+# if defined (G_OS_WIN32)
 
 BOOL WINAPI
 DllMain (HINSTANCE hinstDLL,
@@ -252,16 +398,12 @@ DllMain (HINSTANCE hinstDLL,
     {
     case DLL_PROCESS_ATTACH:
       glib_dll = hinstDLL;
-      g_clock_win32_init ();
-#ifdef THREADS_WIN32
-      g_thread_win32_init ();
-#endif
-      glib_init ();
+      glib_perform_init ();
       break;
 
     case DLL_THREAD_DETACH:
 #ifdef THREADS_WIN32
-      g_thread_win32_thread_detach ();
+      _g_thread_win32_thread_detach ();
 #endif
       break;
 
@@ -273,19 +415,21 @@ DllMain (HINSTANCE hinstDLL,
   return TRUE;
 }
 
-#elif defined (G_HAS_CONSTRUCTORS)
+# elif defined (G_HAS_CONSTRUCTORS)
 
-#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(glib_init_ctor)
-#endif
+# ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
+# pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(glib_init_ctor)
+# endif
 G_DEFINE_CONSTRUCTOR(glib_init_ctor)
 
 static void
 glib_init_ctor (void)
 {
-  glib_init ();
+  glib_perform_init ();
 }
 
-#else
-# error Your platform/compiler is missing constructor support
+# else
+#  error Your platform/compiler is missing constructor support
+# endif
+
 #endif

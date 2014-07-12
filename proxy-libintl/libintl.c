@@ -229,6 +229,16 @@ setup (void)
     }
 }
 
+void
+_proxy_libintl_deinit (void)
+{
+  if (current_domain != NULL)
+    {
+      free (current_domain);
+      current_domain = NULL;
+    }
+}
+
 #define IMPLEMENT(fn, parlist, parlist2)	\
 char *						\
 g_libintl_ ## fn parlist			\

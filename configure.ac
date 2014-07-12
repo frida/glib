@@ -518,13 +518,23 @@ AS_IF([test "$glib_native_win32" = "yes"], [
     AC_MSG_ERROR([Can not build both shared and static at the same time on Windows.])
   fi
   if test x$enable_static = xyes; then
-    glib_win32_static_compilation=yes
+    glib_enable_static_compilation=yes
     GLIB_WIN32_STATIC_COMPILATION_DEFINE="#define GLIB_STATIC_COMPILATION 1
-#define GOBJECT_STATIC_COMPILATION 1"
+#define GOBJECT_STATIC_COMPILATION 1
+#define GIO_STATIC_COMPILATION 1"
     AC_SUBST(GLIB_WIN32_STATIC_COMPILATION_DEFINE)
   fi
+], [
+  if test x$enable_static = xyes -a x$enable_shared = xno; then
+    glib_enable_static_compilation=yes
+  fi
 ])
-AM_CONDITIONAL(OS_WIN32_AND_DLL_COMPILATION, [test x$glib_native_win32 = xyes -a x$glib_win32_static_compilation != xyes])
+AM_CONDITIONAL(OS_WIN32_AND_DLL_COMPILATION, [test x$glib_native_win32 = xyes -a x$glib_enable_static_compilation != xyes])
+
+if test x$glib_enable_static_compilation = xyes; then
+  GLIB_STATIC_FLAGS="-DGLIB_STATIC_COMPILATION=1 -DGOBJECT_STATIC_COMPILATION=1 -DGIO_STATIC_COMPILATION=1"
+  AC_SUBST(GLIB_STATIC_FLAGS)
+fi
 
 # Checks for library functions.
 AC_FUNC_ALLOCA
@@ -3374,9 +3384,10 @@ case $host in
     ;;
 esac
 glib_static_compilation=""
-if test x$glib_win32_static_compilation = xyes; then
+if test x$glib_enable_static_compilation = xyes; then
   glib_static_compilation="#define GLIB_STATIC_COMPILATION 1
-#define GOBJECT_STATIC_COMPILATION 1"
+#define GOBJECT_STATIC_COMPILATION 1
+#define GIO_STATIC_COMPILATION 1"
 fi
 ])
 
