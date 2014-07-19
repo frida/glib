@@ -515,11 +515,52 @@ g_system_thread_wait (GRealThread *thread)
   win32_check_for_error (WAIT_FAILED != WaitForSingleObject (wt->handle, INFINITE));
 }
 
+#ifdef _MSC_VER
+
+#define MS_VC_EXCEPTION 0x406D1388
+
+typedef struct _THREADNAME_INFO THREADNAME_INFO;
+
+#pragma pack (push, 8)
+
+struct _THREADNAME_INFO
+{
+  DWORD dwType;
+  LPCSTR szName;
+  DWORD dwThreadID;
+  DWORD dwFlags;
+};
+
+#pragma pack (pop)
+
+void
+g_system_thread_set_name (const gchar *name)
+{
+   THREADNAME_INFO info;
+   info.dwType = 0x1000;
+   info.szName = name;
+   info.dwThreadID = -1;
+   info.dwFlags = 0;
+
+   __try
+     {
+       RaiseException (MS_VC_EXCEPTION, 0, sizeof (info) / sizeof (ULONG_PTR),
+                       (ULONG_PTR *) &info);
+     }
+   __except (EXCEPTION_EXECUTE_HANDLER)
+     {
+     }
+}
+
+#else
+
 void
 g_system_thread_set_name (const gchar *name)
 {
   /* FIXME: implement */
 }
+
+#endif
 
 /* {{{1 SRWLock and CONDITION_VARIABLE emulation (for Windows XP) */
 
