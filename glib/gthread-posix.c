@@ -1284,10 +1284,10 @@ g_system_thread_exit (void)
 void
 g_system_thread_set_name (const gchar *name)
 {
-#ifdef HAVE_SYS_PRCTL_H
-#ifdef PR_SET_NAME
+#if defined (HAVE_SYS_PRCTL_H) && defined (PR_SET_NAME)
   prctl (PR_SET_NAME, name, 0, 0, 0, 0);
-#endif
+#elif defined (__APPLE__)
+  pthread_setname_np (name);
 #endif
 }
 
