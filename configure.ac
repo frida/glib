@@ -1113,7 +1113,12 @@ AS_IF([test $glib_native_win32 = yes], [
                                         [res_query("test", 0, 0, (void *)0, 0);],
                                         [AC_MSG_RESULT([in -lbind])
                                          NETWORK_LIBS="-lbind $NETWORK_LIBS"],
-                                        [AC_MSG_ERROR(not found)])])
+				        [LIBS="-lsocket $save_libs"
+					 AC_TRY_LINK([#include <resolv.h>],
+						    [res_query("test", 0, 0, (void *)0, 0);],
+						    [AC_MSG_RESULT([in -lsocket])
+						     NETWORK_LIBS="-lsocket $NETWORK_LIBS"],
+						    [AC_MSG_ERROR(not found)])])])
                LIBS="$save_libs"])
   AC_CHECK_FUNC(socket, :, AC_CHECK_LIB(socket, socket,
 				        [NETWORK_LIBS="-lsocket $NETWORK_LIBS"],
