@@ -730,6 +730,18 @@ _g_get_unix_mounts (void)
 
   return return_list;
 }
+#elif HAVE_QNX
+static char *
+get_mtab_monitor_file (void)
+{
+  return NULL;
+}
+
+static GList *
+_g_get_unix_mounts (void)
+{
+  return NULL;
+}
 #else
 #error No _g_get_unix_mounts() implementation for system
 #endif
@@ -1121,6 +1133,12 @@ _g_get_unix_mount_points (void)
   return g_list_reverse (return_list);
 }
 #elif defined(__INTERIX)
+static GList *
+_g_get_unix_mount_points (void)
+{
+  return _g_get_unix_mounts ();
+}
+#elif HAVE_QNX
 static GList *
 _g_get_unix_mount_points (void)
 {
