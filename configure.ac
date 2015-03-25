@@ -161,6 +161,9 @@ case $host in
   *-*-linux*)
     glib_os_linux=yes
     ;;
+  *-*-qnx*)
+    AC_DEFINE(HAVE_QNX, 1, [Define to 1 if host is QNX])
+    ;;
 esac
 
 AC_MSG_RESULT([$glib_native_win32])
