@@ -77,6 +77,10 @@ installed_tests_template_tap = files('template-tap.test.in')
 
 add_project_arguments('-D_GNU_SOURCE', language: 'c')
 
+if host_system == 'qnx'
+  add_project_arguments('-D_QNX_SOURCE', language: 'c')
+endif
+
 # Disable strict aliasing;
 # see https://bugzilla.gnome.org/show_bug.cgi?id=791622
 if cc.has_argument('-fno-strict-aliasing')
