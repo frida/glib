@@ -154,6 +154,7 @@ case $host in
     ;;
   *-*-qnx*)
     AC_DEFINE(HAVE_QNX, 1, [Define to 1 if host is QNX])
+    AC_DEFINE(_QNX_SOURCE, 1, [Define on QNX to activate all library features])
     ;;
 esac
 
