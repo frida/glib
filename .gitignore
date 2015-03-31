@@ -46,3 +46,7 @@ README
 ChangeLog
 /glib-lcov.info
 /glib-lcov/
+
+*.sln.cache
+x86
+x86_64
