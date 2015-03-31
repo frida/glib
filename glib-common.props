@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="3.5" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <Import Project="$(MSBuildExtensionsPath)\HSBuild\HSBuild.C.Default.props" />
+
+  <PropertyGroup>
+    <VersionMajor>2</VersionMajor>
+    <VersionMinor>46</VersionMinor>
+    <VersionMicro>0</VersionMicro>
+    <Version>$(VersionMajor).$(VersionMinor).$(VersionMicro)</Version>
+    <VersionApi>$(VersionMajor).0</VersionApi>
+    <GLibVersionApi>$(VersionApi)</GLibVersionApi>
+
+    <GLibInterfaceAge>0</GLibInterfaceAge>
+    <GLibBinaryAge>$(VersionMinor)0$(VersionMicro)</GLibBinaryAge>
+
+    <DisableConfigHeaderGeneration>true</DisableConfigHeaderGeneration>
+
+    <SedPath>&quot;$(HSBuildToolPath)sed&quot;</SedPath>
+  </PropertyGroup>
+
+  <Import Project="$(MSBuildExtensionsPath)\HSBuild\HSBuild.C.props" />
+  <Import Project="$(MSBuildExtensionsPath)\HSBuild\Frida.props" />
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <ForceIncludes>$(TopBldDir)msvc_recommended_pragmas.h;$(IntDir)config.h</ForceIncludes>
+      <AdditionalIncludeDirectories>
+        $(IntDir);
+        $(TopBldDir);
+        $(TopBldDir)glib;
+        %(AdditionalIncludeDirectories)
+      </AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>
+        GLIB_STATIC_COMPILATION;
+        %(PreprocessorDefinitions);
+      </PreprocessorDefinitions>
+    </ClCompile>
+
+    <InFile>
+      <Expressions>
+        s/@GLIB_MAJOR_VERSION@/$(VersionMajor)/g;
+        s/@GLIB_MINOR_VERSION@/$(VersionMinor)/g;
+        s/@GLIB_MICRO_VERSION@/$(VersionMicro)/g;
+        s/@GLIB_INTERFACE_AGE@/$(GLibInterfaceAge)/g;
+        s/@GLIB_BINARY_AGE@/$(GLibBinaryAge)/g;
+        s/@GLIB_VERSION@/$(Version)/g;
+        s/@VERSION@/$(Version)/g
+      </Expressions>
+    </InFile>
+
+    <ResourceCompile>
+      <SubstitutionExpressions>
+        s/@GLIB_MAJOR_VERSION@/$(VersionMajor)/g;
+        s/@GLIB_MINOR_VERSION@/$(VersionMinor)/g;
+        s/@GLIB_MICRO_VERSION@/$(VersionMicro)/g;
+        s/@GLIB_INTERFACE_AGE@/$(GLibInterfaceAge)/g;
+        s/@GLIB_BINARY_AGE@/$(GLibBinaryAge)/g;
+        s/@GLIB_VERSION@/$(Version)/g;
+        s/@VERSION@/$(Version)/g;
+        s/@LT_CURRENT_MINUS_AGE@/HSBuild/g
+      </SubstitutionExpressions>
+    </ResourceCompile>
+
+    <InstallPkgConfig>
+      <SubstitutionExpressions>
+        %(SubstitutionExpressions);
+        s/@EXEEXT@/.exe/g;
+        s/@G_MODULE_SUPPORTED@/true/g;
+        s/@G_MODULE_LDFLAGS@//g;
+        s/@G_MODULE_LIBS@//g;
+        s/@G_THREAD_CFLAGS@//g;
+        s/@G_THREAD_LIBS@//g;
+        s/@LIBFFI_LIBS@/-lffi/g;
+        s/@ZLIB_LIBS@/-lz/g;
+        s/@CARBON_LIBS@//g;
+        s/@COCOA_LIBS@//g;
+        s/@SELINUX_LIBS@//g;
+      </SubstitutionExpressions>
+    </InstallPkgConfig>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ConfigPreprocessor Include="PACKAGE_DATADIR &quot;invalid-for-win32&quot;" />
+
+    <InFile Include="$(TopBldDir)config.h.win32.in">
+      <OutputFileName>config.h</OutputFileName>
+    </InFile>
+  </ItemGroup>
+
+</Project>
