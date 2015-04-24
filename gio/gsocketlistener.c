@@ -798,6 +798,7 @@ accept_ready (GSocket      *accept_socket,
       g_task_return_error (task, error);
     }
 
+  free_sources (g_task_get_task_data (task));
   g_object_unref (task);
   return FALSE;
 }
@@ -842,7 +843,7 @@ g_socket_listener_accept_socket_async (GSocketListener     *listener,
 			 task,
 			 cancellable,
 			 g_main_context_get_thread_default ());
-  g_task_set_task_data (task, sources, (GDestroyNotify) free_sources);
+  g_task_set_task_data (task, sources, NULL);
 }
 
 /**
