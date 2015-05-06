@@ -1214,6 +1214,14 @@ g_system_thread_new (GThreadFunc   thread_func,
 
   posix_check_cmd (pthread_attr_init (&attr));
 
+#ifdef HAVE_QNX
+  if (stack_size == 0)
+  {
+    /* Default stack size on QNX is 128KB, let's bump it to 2MB */
+    stack_size = 2 * 1024 * 1024;
+  }
+#endif
+
 #ifdef HAVE_PTHREAD_ATTR_SETSTACKSIZE
   if (stack_size)
     {
