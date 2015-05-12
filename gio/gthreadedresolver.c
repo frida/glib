@@ -263,7 +263,7 @@ lookup_by_address_finish (GResolver     *resolver,
 
 #if defined(G_OS_UNIX)
 
-#ifdef __BIONIC__
+#if defined(__BIONIC__) && !defined(C_IN)
 /* Copy from bionic/libc/private/arpa_nameser_compat.h
  * and bionic/libc/private/arpa_nameser.h */
 typedef struct {
@@ -800,8 +800,10 @@ free_records (GList *records)
 }
 
 #if defined(G_OS_UNIX)
-#ifdef __BIONIC__
+#if defined(__BIONIC__)
+#if !defined(C_IN)
 #define C_IN 1
+#endif
 int res_query(const char *, int, int, u_char *, int);
 #endif
 #endif
