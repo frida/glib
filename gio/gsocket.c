@@ -4511,8 +4511,13 @@ g_socket_receive_message (GSocket                 *socket,
       }
 
     /* control */
+#ifdef HAVE_QNX
+    msg.msg_control = g_alloca (1024);
+    msg.msg_controllen = 1024;
+#else
     msg.msg_control = g_alloca (2048);
     msg.msg_controllen = 2048;
+#endif
 
     /* flags */
     if (flags != NULL)
