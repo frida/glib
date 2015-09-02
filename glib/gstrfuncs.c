@@ -1244,6 +1244,7 @@ g_ascii_strtoll (const gchar *nptr,
 const gchar *
 g_strerror (gint errnum)
 {
+#ifdef G_OS_WIN32
   gchar *msg;
   gchar *tofree = NULL;
   const gchar *ret;
@@ -1257,6 +1258,9 @@ g_strerror (gint errnum)
   g_free (tofree);
   errno = saved_errno;
   return ret;
+#else
+  return strerror (errnum);
+#endif
 }
 
 /**

@@ -419,6 +419,7 @@ g_local_file_get_parse_name (GFile *file)
   char *escaped_path;
   
   filename = G_LOCAL_FILE (file)->filename;
+#ifdef G_OS_WIN32
   if (get_filename_charset (&charset))
     {
       utf8_filename = (char *)filename;
@@ -448,6 +449,11 @@ g_local_file_get_parse_name (GFile *file)
 	  g_free (roundtripped_filename);
 	}
     }
+#else
+  utf8_filename = (char *)filename;
+  free_utf8_filename = FALSE;
+  is_valid_utf8 = FALSE; /* Can't guarantee this */
+#endif
 
   if (utf8_filename != NULL &&
       name_is_valid_for_display (utf8_filename, is_valid_utf8))
