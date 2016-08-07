@@ -6,7 +6,13 @@ include $(top_srcdir)/glib.mk
 
 ACLOCAL_AMFLAGS = -I m4macros ${ACLOCAL_FLAGS}
 
-SUBDIRS = . m4macros glib gmodule gthread gobject gio po docs tests
+if USE_PROXY_LIBINTL
+MAYBE_PROXYLIBINTL = proxy-libintl
+else
+MAYBE_PROXYLIBINTL = po
+endif
+
+SUBDIRS = . $(MAYBE_PROXYLIBINTL) m4macros glib gmodule gthread gobject gio docs tests
 DIST_SUBDIRS = $(SUBDIRS) build
 
 bin_SCRIPTS = glib-gettextize
