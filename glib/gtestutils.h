@@ -233,6 +233,17 @@ typedef void (*GTestFixtureFunc) (gpointer      fixture,
                                         } G_STMT_END
 #endif /* !G_DISABLE_ASSERT */
 
+typedef void (*GAssertionFunc)          (const char     *domain,
+                                         const char     *file,
+                                         int             line,
+                                         const char     *func,
+                                         const char     *message,
+                                         gpointer        user_data);
+
+GLIB_AVAILABLE_IN_2_68
+void g_assertion_set_handler            (GAssertionFunc handler,
+                                         gpointer user_data);
+
 GLIB_AVAILABLE_IN_ALL
 int     g_strcmp0                       (const char     *str1,
                                          const char     *str2);
