@@ -41,6 +41,9 @@ G_BEGIN_DECLS
 typedef struct _GIOChannel	GIOChannel;
 typedef struct _GIOFuncs        GIOFuncs;
 
+typedef void (* GIOChannelCloseConvertersFunc) (GIOChannel * channel);
+typedef void (* GIOChannelResetConvertersFunc) (GIOChannel * channel);
+
 typedef enum
 {
   G_IO_ERROR_NONE,
@@ -121,8 +124,8 @@ struct _GIOChannel
   guint is_writeable   : 1;	/* ditto */
   guint is_seekable    : 1;	/* ditto */
 
-  gpointer reserved1;	
-  gpointer reserved2;	
+  GIOChannelCloseConvertersFunc close_converters;
+  GIOChannelResetConvertersFunc reset_converters;
 };
 
 typedef gboolean (*GIOFunc) (GIOChannel   *source,
