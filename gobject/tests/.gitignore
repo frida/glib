@@ -9,9 +9,10 @@ param
 properties
 qdata
 reference
+signal-handler
 signals
 threadtests
 type
-valuearray
+value
 private
 marshalers.[ch]

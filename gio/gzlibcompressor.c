@@ -426,7 +426,6 @@ g_zlib_compressor_convert (GConverter *converter,
     }
 
   g_assert_not_reached ();
-  return G_CONVERTER_ERROR;
 }
 
 static void

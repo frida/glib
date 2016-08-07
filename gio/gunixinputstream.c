@@ -31,7 +31,6 @@
 #include <glib/gstdio.h>
 #include <glib/glib-unix.h>
 #include "gioerror.h"
-#include "gsimpleasyncresult.h"
 #include "gunixinputstream.h"
 #include "gcancellable.h"
 #include "gasynchelper.h"
@@ -65,7 +64,7 @@ enum {
 struct _GUnixInputStreamPrivate {
   int fd;
   guint close_fd : 1;
-  guint can_poll : 1;
+  guint is_pipe_or_socket : 1;
 };
 
 static void g_unix_input_stream_pollable_iface_init (GPollableInputStreamInterface *iface);
@@ -197,8 +196,10 @@ g_unix_input_stream_set_property (GObject         *object,
     {
     case PROP_FD:
       unix_stream->priv->fd = g_value_get_int (value);
-      unix_stream->priv->can_poll = isatty (unix_stream->priv->fd) ||
-          (lseek (unix_stream->priv->fd, 0, SEEK_CUR) == -1 && errno == ESPIPE);
+      if (lseek (unix_stream->priv->fd, 0, SEEK_CUR) == -1 && errno == ESPIPE)
+	unix_stream->priv->is_pipe_or_socket = TRUE;
+      else
+	unix_stream->priv->is_pipe_or_socket = FALSE;
       break;
     case PROP_CLOSE_FD:
       unix_stream->priv->close_fd = g_value_get_boolean (value);
@@ -346,7 +347,7 @@ g_unix_input_stream_read (GInputStream  *stream,
 
   poll_fds[0].fd = unix_stream->priv->fd;
   poll_fds[0].events = G_IO_IN;
-  if (unix_stream->priv->can_poll &&
+  if (unix_stream->priv->is_pipe_or_socket &&
       g_cancellable_make_pollfd (cancellable, &poll_fds[1]))
     nfds = 2;
   else
@@ -459,6 +460,7 @@ g_unix_input_stream_close_async (GInputStream        *stream,
   GError *error = NULL;
 
   task = g_task_new (stream, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_unix_input_stream_close_async);
   g_task_set_priority (task, io_priority);
 
   if (g_unix_input_stream_close (stream, cancellable, &error))
@@ -481,7 +483,7 @@ g_unix_input_stream_close_finish (GInputStream  *stream,
 static gboolean
 g_unix_input_stream_pollable_can_poll (GPollableInputStream *stream)
 {
-  return G_UNIX_INPUT_STREAM (stream)->priv->can_poll;
+  return G_UNIX_INPUT_STREAM (stream)->priv->is_pipe_or_socket;
 }
 
 static gboolean

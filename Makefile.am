@@ -6,19 +6,7 @@ include $(top_srcdir)/glib.mk
 
 ACLOCAL_AMFLAGS = -I m4macros ${ACLOCAL_FLAGS}
 
-if USE_PROXY_LIBINTL
-MAYBE_PROXYLIBINTL = proxy-libintl
-else
-MAYBE_PROXYLIBINTL = po
-endif
-
-if ENABLE_TESTS
-MAYBE_TESTS = tests
-else
-MAYBE_TESTS =
-endif
-
-SUBDIRS = . $(MAYBE_PROXYLIBINTL) m4macros glib gmodule gthread gobject gio docs $(MAYBE_TESTS)
+SUBDIRS = . m4macros glib gmodule gthread gobject gio po docs tests
 DIST_SUBDIRS = $(SUBDIRS) build
 
 bin_SCRIPTS = glib-gettextize
@@ -29,7 +17,6 @@ endif
 
 AM_CPPFLAGS = 					\
 	-DG_LOG_DOMAIN=g_log_domain_glib 	\
-	@GLIB_STATIC_FLAGS@ 			\
 	@GLIB_DEBUG_FLAGS@ 			\
 	-DG_DISABLE_DEPRECATED 			\
 	-DGLIB_COMPILATION

@@ -39,8 +39,12 @@
 #include "gdbusprivate.h"
 #include "giomodule-priv.h"
 #include "gdbusdaemon.h"
+#include "gstdio.h"
 
 #ifdef G_OS_UNIX
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <gio/gunixsocketaddress.h>
 #endif
 
@@ -64,6 +68,7 @@
  */
 
 static gchar *get_session_address_platform_specific (GError **error);
+static gchar *get_session_address_dbus_launch       (GError **error);
 
 /* ---------------------------------------------------------------------------------------------------- */
 
@@ -638,7 +643,7 @@ g_dbus_address_connect (const gchar   *address_entry,
   else if (g_strcmp0 (address_entry, "autolaunch:") == 0)
     {
       gchar *autolaunch_address;
-      autolaunch_address = get_session_address_platform_specific (error);
+      autolaunch_address = get_session_address_dbus_launch (error);
       if (autolaunch_address != NULL)
         {
           ret = g_dbus_address_try_connect_one (autolaunch_address, NULL, cancellable, error);
@@ -860,6 +865,7 @@ g_dbus_address_get_stream (const gchar         *address,
   data->address = g_strdup (address);
 
   task = g_task_new (NULL, cancellable, callback, user_data);
+  g_task_set_source_tag (task, g_dbus_address_get_stream);
   g_task_set_task_data (task, data, (GDestroyNotify) get_stream_data_free);
   g_task_run_in_thread (task, get_stream_thread_func);
   g_object_unref (task);
@@ -868,7 +874,7 @@ g_dbus_address_get_stream (const gchar         *address,
 /**
  * g_dbus_address_get_stream_finish:
  * @res: A #GAsyncResult obtained from the GAsyncReadyCallback passed to g_dbus_address_get_stream().
- * @out_guid: %NULL or return location to store the GUID extracted from @address, if any.
+ * @out_guid: (optional) (out): %NULL or return location to store the GUID extracted from @address, if any.
  * @error: Return location for error or %NULL.
  *
  * Finishes an operation started with g_dbus_address_get_stream().
@@ -905,7 +911,7 @@ g_dbus_address_get_stream_finish (GAsyncResult        *res,
 /**
  * g_dbus_address_get_stream_sync:
  * @address: A valid D-Bus address.
- * @out_guid: %NULL or return location to store the GUID extracted from @address, if any.
+ * @out_guid: (optional) (out): %NULL or return location to store the GUID extracted from @address, if any.
  * @cancellable: (allow-none): A #GCancellable or %NULL.
  * @error: Return location for error or %NULL.
  *
@@ -987,7 +993,48 @@ g_dbus_address_get_stream_sync (const gchar   *address,
 
 /* ---------------------------------------------------------------------------------------------------- */
 
-#ifndef GIO_STATIC_COMPILATION
+/*
+ * Return the address of XDG_RUNTIME_DIR/bus if it exists, belongs to
+ * us, and is a socket, and we are on Unix.
+ */
+static gchar *
+get_session_address_xdg (void)
+{
+#ifdef G_OS_UNIX
+  gchar *ret = NULL;
+  gchar *bus;
+  gchar *tmp;
+  GStatBuf buf;
+
+  bus = g_build_filename (g_get_user_runtime_dir (), "bus", NULL);
+
+  /* if ENOENT, EPERM, etc., quietly don't use it */
+  if (g_stat (bus, &buf) < 0)
+    goto out;
+
+  /* if it isn't ours, we have incorrectly inherited someone else's
+   * XDG_RUNTIME_DIR; silently don't use it
+   */
+  if (buf.st_uid != geteuid ())
+    goto out;
+
+  /* if it isn't a socket, silently don't use it */
+  if ((buf.st_mode & S_IFMT) != S_IFSOCK)
+    goto out;
+
+  tmp = g_dbus_address_escape_value (bus);
+  ret = g_strconcat ("unix:path=", tmp, NULL);
+  g_free (tmp);
+
+out:
+  g_free (bus);
+  return ret;
+#else
+  return NULL;
+#endif
+}
+
+/* ---------------------------------------------------------------------------------------------------- */
 
 #ifdef G_OS_UNIX
 static gchar *
@@ -1022,6 +1069,13 @@ get_session_address_dbus_launch (GError **error)
   if (machine_id == NULL)
     {
       g_prefix_error (error, _("Cannot spawn a message bus without a machine-id: "));
+      goto out;
+    }
+
+  if (g_getenv ("DISPLAY") == NULL)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                   _("Cannot autolaunch D-Bus without X11 $DISPLAY"));
       goto out;
     }
 
@@ -1115,9 +1169,9 @@ get_session_address_dbus_launch (GError **error)
   g_free (old_dbus_verbose);
   return ret;
 }
-#endif
 
-#ifdef G_OS_WIN32
+/* end of G_OS_UNIX case */
+#elif defined(G_OS_WIN32)
 
 #define DBUS_DAEMON_ADDRESS_INFO "DBusDaemonAddressInfo"
 #define DBUS_DAEMON_MUTEX "DBusDaemonMutex"
@@ -1309,6 +1363,25 @@ idle_timeout_cb (GDBusDaemon *daemon, gpointer user_data)
   g_main_loop_quit (loop);
 }
 
+/* Satisfies STARTF_FORCEONFEEDBACK */
+static void
+turn_off_the_starting_cursor (void)
+{
+  MSG msg;
+  BOOL bRet;
+
+  PostQuitMessage (0);
+
+  while ((bRet = GetMessage (&msg, 0, 0, 0)) != 0)
+    {
+      if (bRet == -1)
+        continue;
+
+      TranslateMessage (&msg);
+      DispatchMessage (&msg);
+    }
+}
+
 __declspec(dllexport) void CALLBACK g_win32_run_session_bus (HWND hwnd, HINSTANCE hinst, char *cmdline, int nCmdShow);
 
 __declspec(dllexport) void CALLBACK
@@ -1318,6 +1391,8 @@ g_win32_run_session_bus (HWND hwnd, HINSTANCE hinst, char *cmdline, int nCmdShow
   GMainLoop *loop;
   const char *address;
   GError *error = NULL;
+
+  turn_off_the_starting_cursor ();
 
   if (g_getenv ("GDBUS_DAEMON_DEBUG") != NULL)
     open_console_window ();
@@ -1415,9 +1490,17 @@ get_session_address_dbus_launch (GError **error)
 
   return address;
 }
-#endif
-
-#endif /* !GIO_STATIC_COMPILATION */
+#else /* neither G_OS_UNIX nor G_OS_WIN32 */
+static gchar *
+get_session_address_dbus_launch (GError **error)
+{
+  g_set_error (error,
+               G_IO_ERROR,
+               G_IO_ERROR_FAILED,
+               _("Cannot determine session bus address (not implemented for this OS)"));
+  return NULL;
+}
+#endif /* neither G_OS_UNIX nor G_OS_WIN32 */
 
 /* ---------------------------------------------------------------------------------------------------- */
 
@@ -1425,26 +1508,31 @@ static gchar *
 get_session_address_platform_specific (GError **error)
 {
   gchar *ret;
-#ifndef GIO_STATIC_COMPILATION
-#if defined (G_OS_UNIX) || defined(G_OS_WIN32)
-  /* need to handle OS X in a different way since 'dbus-launch --autolaunch' probably won't work there */
-  ret = get_session_address_dbus_launch (error);
-#else
-  /* TODO: implement for OS X */
-  ret = NULL;
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Cannot determine session bus address (not implemented for this OS)"));
-#endif
-#else
-  ret = NULL;
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Session bus not available for static GIO"));
-#endif
-  return ret;
+
+  /* Use XDG_RUNTIME_DIR/bus if it exists and is suitable. This is appropriate
+   * for systems using the "a session is a user-session" model described in
+   * <http://lists.freedesktop.org/archives/dbus/2015-January/016522.html>,
+   * and implemented in dbus >= 1.9.14 and sd-bus.
+   *
+   * On systems following the more traditional "a session is a login-session"
+   * model, this will fail and we'll fall through to X11 autolaunching
+   * (dbus-launch) below.
+   */
+  ret = get_session_address_xdg ();
+
+  if (ret != NULL)
+    return ret;
+
+  /* TODO (#694472): try launchd on OS X, like
+   * _dbus_lookup_session_address_launchd() does, since
+   * 'dbus-launch --autolaunch' probably won't work there
+   */
+
+  /* As a last resort, try the "autolaunch:" transport. On Unix this means
+   * X11 autolaunching; on Windows this means a different autolaunching
+   * mechanism based on shared memory.
+   */
+  return get_session_address_dbus_launch (error);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1469,7 +1557,7 @@ g_dbus_address_get_for_bus_sync (GBusType       bus_type,
                                  GCancellable  *cancellable,
                                  GError       **error)
 {
-  gchar *ret;
+  gchar *ret, *s = NULL;
   const gchar *starter_bus;
   GError *local_error;
 
@@ -1482,8 +1570,10 @@ g_dbus_address_get_for_bus_sync (GBusType       bus_type,
     {
       guint n;
       _g_dbus_debug_print_lock ();
+      s = _g_dbus_enum_to_string (G_TYPE_BUS_TYPE, bus_type);
       g_print ("GDBus-debug:Address: In g_dbus_address_get_for_bus_sync() for bus type '%s'\n",
-               _g_dbus_enum_to_string (G_TYPE_BUS_TYPE, bus_type));
+               s);
+      g_free (s);
       for (n = 0; n < 3; n++)
         {
           const gchar *k;
@@ -1570,18 +1660,18 @@ g_dbus_address_get_for_bus_sync (GBusType       bus_type,
   if (G_UNLIKELY (_g_dbus_debug_address ()))
     {
       _g_dbus_debug_print_lock ();
+      s = _g_dbus_enum_to_string (G_TYPE_BUS_TYPE, bus_type);
       if (ret != NULL)
         {
           g_print ("GDBus-debug:Address: Returning address '%s' for bus type '%s'\n",
-                   ret,
-                   _g_dbus_enum_to_string (G_TYPE_BUS_TYPE, bus_type));
+                   ret, s);
         }
       else
         {
           g_print ("GDBus-debug:Address: Cannot look-up address bus type '%s': %s\n",
-                   _g_dbus_enum_to_string (G_TYPE_BUS_TYPE, bus_type),
-                   local_error ? local_error->message : "");
+                   s, local_error ? local_error->message : "");
         }
+      g_free (s);
       _g_dbus_debug_print_unlock ();
     }
 

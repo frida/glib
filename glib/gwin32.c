@@ -45,10 +45,26 @@
 #endif
 #include <errno.h>
 #include <ctype.h>
-#include <strsafe.h>
 #if defined(_MSC_VER) || defined(__DMC__)
 #  include <io.h>
 #endif /* _MSC_VER || __DMC__ */
+
+#define MODERN_API_FAMILY 2
+
+#if WINAPI_FAMILY == MODERN_API_FAMILY
+/* This is for modern UI Builds, where we can't use LoadLibraryW()/GetProcAddress() */
+/* ntddk.h is found in the WDK, and MinGW */
+#include <ntddk.h>
+
+#ifdef _MSC_VER
+#pragma comment (lib, "ntoskrnl.lib")
+#endif
+#elif defined (__MINGW32__)
+/* mingw-w64, not MinGW, has winternl.h */
+#include <ntdef.h>
+#else
+#include <winternl.h>
+#endif
 
 #include "glib.h"
 #include "gthreadprivate.h"
@@ -176,7 +192,7 @@ g_win32_error_message (gint error)
 {
   gchar *retval;
   wchar_t *msg = NULL;
-  int nchars;
+  size_t nchars;
 
   FormatMessageW (FORMAT_MESSAGE_ALLOCATE_BUFFER
 		  |FORMAT_MESSAGE_IGNORE_INSERTS
@@ -186,12 +202,12 @@ g_win32_error_message (gint error)
   if (msg != NULL)
     {
       nchars = wcslen (msg);
-      
-      if (nchars > 2 && msg[nchars-1] == '\n' && msg[nchars-2] == '\r')
-	msg[nchars-2] = '\0';
-      
+
+      if (nchars >= 2 && msg[nchars-1] == L'\n' && msg[nchars-2] == L'\r')
+        msg[nchars-2] = L'\0';
+
       retval = g_utf16_to_utf8 (msg, -1, NULL, NULL, NULL);
-      
+
       LocalFree (msg);
     }
   else
@@ -517,8 +533,6 @@ g_win32_get_package_installation_subdirectory (const gchar *package,
 
 #endif
 
-#define gwin32condmask(base,var) VerSetConditionMask (base, var, VER_GREATER_EQUAL)
-
 /**
  * g_win32_check_windows_version:
  * @major: major version of Windows
@@ -551,42 +565,77 @@ g_win32_check_windows_version (const gint major,
                                const GWin32OSType os_type)
 {
   OSVERSIONINFOEXW osverinfo;
-  gboolean test_os_type;
-  const DWORDLONG conds = gwin32condmask (gwin32condmask (gwin32condmask (0, VER_MAJORVERSION), VER_MINORVERSION), VER_SERVICEPACKMAJOR);
+  gboolean is_ver_checked = FALSE;
+  gboolean is_type_checked = FALSE;
+
+#if WINAPI_FAMILY != MODERN_API_FAMILY
+  /* For non-modern UI Apps, use the LoadLibraryW()/GetProcAddress() thing */
+  typedef NTSTATUS (WINAPI fRtlGetVersion) (PRTL_OSVERSIONINFOEXW);
+
+  fRtlGetVersion *RtlGetVersion;
+  HMODULE hmodule;
+#endif
+  /* We Only Support Checking for XP or later */
+  g_return_val_if_fail (major >= 5 && (major <=6 || major == 10), FALSE);
+  g_return_val_if_fail ((major >= 5 && minor >= 1) || major >= 6, FALSE);
+
+  /* Check for Service Pack Version >= 0 */
+  g_return_val_if_fail (spver >= 0, FALSE);
+
+#if WINAPI_FAMILY != MODERN_API_FAMILY
+  hmodule = LoadLibraryW (L"ntdll.dll");
+  g_return_val_if_fail (hmodule != NULL, FALSE);
+
+  RtlGetVersion = (fRtlGetVersion *) GetProcAddress (hmodule, "RtlGetVersion");
+  g_return_val_if_fail (RtlGetVersion != NULL, FALSE);
+#endif
 
   memset (&osverinfo, 0, sizeof (OSVERSIONINFOEXW));
   osverinfo.dwOSVersionInfoSize = sizeof (OSVERSIONINFOEXW);
-  osverinfo.dwPlatformId = VER_PLATFORM_WIN32_NT;
-  osverinfo.dwMajorVersion = major;
-  osverinfo.dwMinorVersion = minor;
-  osverinfo.wServicePackMajor = spver;
+  RtlGetVersion (&osverinfo);
 
-  switch (os_type)
+  /* check the OS and Service Pack Versions */
+  if (osverinfo.dwMajorVersion > major)
+    is_ver_checked = TRUE;
+  else if (osverinfo.dwMajorVersion == major)
     {
-      case G_WIN32_OS_WORKSTATION:
-        osverinfo.wProductType = VER_NT_WORKSTATION;
-        test_os_type = TRUE;
-        break;
-      case G_WIN32_OS_SERVER:
-        osverinfo.wProductType = VER_NT_SERVER;
-        test_os_type = TRUE;
-        break;
-      default:
-        test_os_type = FALSE;
-        break;
+      if (osverinfo.dwMinorVersion > minor)
+        is_ver_checked = TRUE;
+      else if (osverinfo.dwMinorVersion == minor)
+        if (osverinfo.wServicePackMajor >= spver)
+          is_ver_checked = TRUE;
     }
 
-  if (test_os_type)
-    return VerifyVersionInfoW (&osverinfo,
-                               VER_MAJORVERSION | VER_MINORVERSION | VER_SERVICEPACKMAJOR | VER_PRODUCT_TYPE,
-                               gwin32condmask (conds, VER_PRODUCT_TYPE));
-  else
-    return VerifyVersionInfoW (&osverinfo,
-                               VER_MAJORVERSION | VER_MINORVERSION | VER_SERVICEPACKMAJOR,
-                               conds);
-}
+  /* Check OS Type */
+  if (is_ver_checked)
+    {
+      switch (os_type)
+        {
+          case G_WIN32_OS_ANY:
+            is_type_checked = TRUE;
+            break;
+          case G_WIN32_OS_WORKSTATION:
+            if (osverinfo.wProductType == VER_NT_WORKSTATION)
+              is_type_checked = TRUE;
+            break;
+          case G_WIN32_OS_SERVER:
+            if (osverinfo.wProductType == VER_NT_SERVER ||
+                osverinfo.wProductType == VER_NT_DOMAIN_CONTROLLER)
+              is_type_checked = TRUE;
+            break;
+          default:
+            /* shouldn't get here normally */
+            g_warning ("Invalid os_type specified");
+            break;
+        }
+    }
 
-#undef gwin32condmask
+#if WINAPI_FAMILY != MODERN_API_FAMILY
+  FreeLibrary (hmodule);
+#endif
+
+  return is_ver_checked && is_type_checked;
+}
 
 /**
  * g_win32_get_windows_version:
@@ -730,192 +779,6 @@ g_win32_get_command_line (void)
     result[i] = g_utf16_to_utf8 (args[i], -1, NULL, NULL, NULL);
   result[i] = NULL;
 
+  LocalFree (args);
   return result;
-}
-
-#define CWM_DISPATCH      (WM_USER + 0)
-#define DISPATCH_TIMER_ID (1)
-
-#define IS_DISPATCHER_MESSAGE(umsg) \
-    ((umsg) == CWM_DISPATCH || (umsg) == WM_TIMER)
-
-struct _GWin32Dispatcher
-{
-  GWin32DispatchMode mode;
-  GMainContext * main_context;
-
-  ATOM klass;
-  HWND window;
-  gboolean message_posted;
-  gboolean is_dispatching_message;
-  HHOOK foreground_idle_hook;
-};
-
-static LRESULT CALLBACK g_win32_dispatcher_window_proc (HWND hwnd, UINT umsg,
-    WPARAM wparam, LPARAM lparam);
-static DWORD CALLBACK g_win32_dispatcher_on_foreground_idle (int code,
-    DWORD wParam, LONG lParam);
-
-static DWORD g_win32_dispatcher_tls = TLS_OUT_OF_INDEXES;
-
-static gpointer
-g_win32_dispatcher_init (gpointer data)
-{
-  g_win32_dispatcher_tls = TlsAlloc ();
-  return NULL;
-}
-
-GWin32Dispatcher *
-g_win32_dispatcher_new (GWin32DispatchMode mode, GMainContext * main_context)
-{
-  static GOnce init_once = G_ONCE_INIT;
-  GWin32Dispatcher * dispatcher;
-  WNDCLASSW wndclass;
-  WCHAR wndclass_name[64];
-
-  g_once (&init_once, g_win32_dispatcher_init, NULL);
-
-  dispatcher = g_new0 (GWin32Dispatcher, 1);
-  dispatcher->mode = mode;
-  dispatcher->main_context = main_context;
-
-  memset (&wndclass, 0, sizeof (wndclass));
-  wndclass.style = 0;
-  wndclass.lpfnWndProc = g_win32_dispatcher_window_proc;
-  wndclass.cbWndExtra = 0;
-  wndclass.hInstance = GetModuleHandleW (NULL);
-  wndclass.hIcon = NULL;
-  wndclass.hCursor = NULL;
-  wndclass.hbrBackground = NULL;
-  wndclass.lpszMenuName = NULL;
-  StringCbPrintfW (wndclass_name, sizeof (wndclass_name),
-      L"GWin32Dispatcher_%p", dispatcher);
-  wndclass.lpszClassName = wndclass_name;
-
-  dispatcher->klass = RegisterClassW (&wndclass);
-  g_assert (dispatcher->klass != 0);
-
-  dispatcher->window =
-      CreateWindowW ((LPWSTR) MAKEINTATOM (dispatcher->klass),
-                     wndclass.lpszClassName, 0, 0, 0, 1, 1, NULL, NULL,
-                     GetModuleHandle (NULL), NULL);
-  g_assert (dispatcher->window != NULL);
-
-  SetWindowLongPtr (dispatcher->window, GWLP_USERDATA,
-      GPOINTER_TO_SIZE (dispatcher));
-
-  g_assert (TlsGetValue (g_win32_dispatcher_tls) == NULL);
-  TlsSetValue (g_win32_dispatcher_tls, dispatcher);
-
-  dispatcher->foreground_idle_hook = SetWindowsHookEx (WH_FOREGROUNDIDLE,
-      (HOOKPROC) g_win32_dispatcher_on_foreground_idle, NULL,
-      GetCurrentThreadId ());
-
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    SetTimer (dispatcher->window, DISPATCH_TIMER_ID, 0, NULL);
-
-  return dispatcher;
-}
-
-void
-g_win32_dispatcher_destroy (GWin32Dispatcher * dispatcher)
-{
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    KillTimer (dispatcher->window, DISPATCH_TIMER_ID);
-
-  UnhookWindowsHookEx (dispatcher->foreground_idle_hook);
-
-  g_assert (TlsGetValue (g_win32_dispatcher_tls) == dispatcher);
-  TlsSetValue (g_win32_dispatcher_tls, NULL);
-
-  DestroyWindow (dispatcher->window);
-
-  UnregisterClassW ((LPWSTR) MAKEINTATOM (dispatcher->klass),
-                    GetModuleHandleW (NULL));
-
-  g_free (dispatcher);
-}
-
-glong
-g_win32_dispatcher_dispatch_message (GWin32Dispatcher * dispatcher,
-    gconstpointer msg)
-{
-  const MSG * m = msg;
-  LRESULT result;
-
-  g_assert_cmpint (dispatcher->mode, ==, G_DISPATCH_MAINLOOP);
-
-  if (m->hwnd == dispatcher->window && IS_DISPATCHER_MESSAGE (m->message))
-    return 0;
-
-  SetTimer (dispatcher->window, DISPATCH_TIMER_ID, 0, NULL);
-
-  dispatcher->is_dispatching_message = TRUE;
-  result = DispatchMessage (msg);
-  dispatcher->is_dispatching_message = FALSE;
-
-  KillTimer (dispatcher->window, DISPATCH_TIMER_ID);
-
-  return result;
-}
-
-static gboolean
-g_win32_dispatcher_needs_wakeup (GWin32Dispatcher * dispatcher)
-{
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    return TRUE;
-
-  return dispatcher->is_dispatching_message;
-}
-
-static LRESULT CALLBACK
-g_win32_dispatcher_window_proc (HWND hwnd, UINT umsg, WPARAM wparam,
-    LPARAM lparam)
-{
-  if (IS_DISPATCHER_MESSAGE (umsg))
-    {
-      GWin32Dispatcher * dispatcher;
-
-      dispatcher = GSIZE_TO_POINTER (GetWindowLongPtr (hwnd, GWLP_USERDATA));
-      if (dispatcher != NULL)
-        {
-          KillTimer (hwnd, DISPATCH_TIMER_ID);
-          dispatcher->message_posted = TRUE;
-
-          if (g_win32_dispatcher_needs_wakeup (dispatcher))
-            {
-              g_main_context_iteration (dispatcher->main_context, FALSE);
-
-              while (GetQueueStatus (QS_ALLINPUT) == 0)
-                {
-                  g_main_context_iteration (dispatcher->main_context, TRUE);
-                }
-            }
-
-          dispatcher->message_posted = FALSE;
-          SetTimer (hwnd, DISPATCH_TIMER_ID, 0, NULL);
-        }
-    }
-
-  return DefWindowProcW (hwnd, umsg, wparam, lparam);
-}
-
-static DWORD CALLBACK
-g_win32_dispatcher_on_foreground_idle (int code, DWORD wParam, LONG lParam)
-{
-  GWin32Dispatcher * dispatcher;
-
-  dispatcher = TlsGetValue (g_win32_dispatcher_tls);
-  g_assert (dispatcher != NULL);
-
-  if (code == HC_ACTION && !dispatcher->message_posted &&
-      g_win32_dispatcher_needs_wakeup (dispatcher))
-    {
-      dispatcher->message_posted = TRUE;
-
-      PostMessage (dispatcher->window, CWM_DISPATCH, 0, 0);
-    }
-
-  return CallNextHookEx (dispatcher->foreground_idle_hook, code,
-      wParam, lParam);
 }

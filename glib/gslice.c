@@ -42,7 +42,6 @@
 
 #include "gslice.h"
 
-#include "glib-init.h"
 #include "gmain.h"
 #include "gmem.h"               /* gslice.h */
 #include "gstrfuncs.h"
@@ -53,8 +52,6 @@
 #include "glib_trace.h"
 
 #include "valgrind.h"
-
-#include "gtinylist.c"
 
 /**
  * SECTION:memory_slices
@@ -269,7 +266,6 @@ static gpointer     slab_allocator_alloc_chunk       (gsize      chunk_size);
 static void         slab_allocator_free_chunk        (gsize      chunk_size,
                                                       gpointer   mem);
 static void         private_thread_memory_cleanup    (gpointer   data);
-static void         allocator_cleanup                (void);
 static gpointer     allocator_memalign               (gsize      alignment,
                                                       gsize      memsize);
 static void         allocator_memfree                (gsize      memsize,
@@ -455,12 +451,6 @@ g_slice_init_nomessage (void)
   allocator->max_slab_chunk_size_for_magazine_cache = MAX_SLAB_CHUNK_SIZE (allocator);
   if (allocator->config.always_malloc || allocator->config.bypass_magazines)
     allocator->max_slab_chunk_size_for_magazine_cache = 0;      /* non-optimized cases */
-}
-
-void
-_g_slice_deinit (void)
-{
-  allocator_cleanup ();
 }
 
 static inline guint
@@ -883,7 +873,11 @@ thread_memory_magazine2_free (ThreadMemory *tmem,
  * mechanism can be changed with the [`G_SLICE=always-malloc`][G_SLICE]
  * environment variable.
  *
- * Returns: a pointer to the allocated block, cast to a pointer to @type
+ * This can never return %NULL as the minimum allocation size from
+ * `sizeof (@type)` is 1 byte.
+ *
+ * Returns: (not nullable): a pointer to the allocated block, cast to a pointer
+ *    to @type
  *
  * Since: 2.10
  */
@@ -902,13 +896,19 @@ thread_memory_magazine2_free (ThreadMemory *tmem,
  * be changed with the [`G_SLICE=always-malloc`][G_SLICE]
  * environment variable.
  *
+ * This can never return %NULL as the minimum allocation size from
+ * `sizeof (@type)` is 1 byte.
+ *
+ * Returns: (not nullable): a pointer to the allocated block, cast to a pointer
+ *    to @type
+ *
  * Since: 2.10
  */
 
 /**
  * g_slice_dup:
  * @type: the type to duplicate, typically a structure name
- * @mem: the memory to copy into the allocated block
+ * @mem: (not nullable): the memory to copy into the allocated block
  *
  * A convenience macro to duplicate a block of memory using
  * the slice allocator.
@@ -920,7 +920,10 @@ thread_memory_magazine2_free (ThreadMemory *tmem,
  * be changed with the [`G_SLICE=always-malloc`][G_SLICE]
  * environment variable.
  *
- * Returns: a pointer to the allocated block, cast to a pointer to @type
+ * This can never return %NULL.
+ *
+ * Returns: (not nullable): a pointer to the allocated block, cast to a pointer
+ *    to @type
  *
  * Since: 2.14
  */
@@ -938,6 +941,8 @@ thread_memory_magazine2_free (ThreadMemory *tmem,
  * Note that the exact release behaviour can be changed with the
  * [`G_DEBUG=gc-friendly`][G_DEBUG] environment variable, also see
  * [`G_SLICE`][G_SLICE] for related debugging options.
+ *
+ * If @mem is %NULL, this macro does nothing.
  *
  * Since: 2.10
  */
@@ -957,6 +962,8 @@ thread_memory_magazine2_free (ThreadMemory *tmem,
  * [`G_DEBUG=gc-friendly`][G_DEBUG] environment variable, also see
  * [`G_SLICE`][G_SLICE] for related debugging options.
  *
+ * If @mem_chain is %NULL, this function does nothing.
+ *
  * Since: 2.10
  */
 
@@ -974,7 +981,8 @@ thread_memory_magazine2_free (ThreadMemory *tmem,
  * be changed with the [`G_SLICE=always-malloc`][G_SLICE]
  * environment variable.
  *
- * Returns: a pointer to the allocated memory block
+ * Returns: a pointer to the allocated memory block, which will be %NULL if and
+ *    only if @mem_size is 0
  *
  * Since: 2.10
  */
@@ -1032,7 +1040,8 @@ g_slice_alloc (gsize mem_size)
  * mechanism can be changed with the [`G_SLICE=always-malloc`][G_SLICE]
  * environment variable.
  *
- * Returns: a pointer to the allocated block
+ * Returns: a pointer to the allocated block, which will be %NULL if and only
+ *    if @mem_size is 0
  *
  * Since: 2.10
  */
@@ -1053,7 +1062,10 @@ g_slice_alloc0 (gsize mem_size)
  * Allocates a block of memory from the slice allocator
  * and copies @block_size bytes into it from @mem_block.
  *
- * Returns: a pointer to the allocated memory block
+ * @mem_block must be non-%NULL if @block_size is non-zero.
+ *
+ * Returns: a pointer to the allocated memory block, which will be %NULL if and
+ *    only if @mem_size is 0
  *
  * Since: 2.14
  */
@@ -1079,6 +1091,8 @@ g_slice_copy (gsize         mem_size,
  * specified upon allocation. Note that the exact release behaviour
  * can be changed with the [`G_DEBUG=gc-friendly`][G_DEBUG] environment
  * variable, also see [`G_SLICE`][G_SLICE] for related debugging options.
+ *
+ * If @mem_block is %NULL, this function does nothing.
  *
  * Since: 2.10
  */
@@ -1139,6 +1153,8 @@ g_slice_free1 (gsize    mem_size,
  * Note that the exact release behaviour can be changed with the
  * [`G_DEBUG=gc-friendly`][G_DEBUG] environment variable, also see
  * [`G_SLICE`][G_SLICE] for related debugging options.
+ *
+ * If @mem_chain is %NULL, this function does nothing.
  *
  * Since: 2.10
  */
@@ -1374,41 +1390,25 @@ slab_allocator_free_chunk (gsize    chunk_size,
  * if none is provided, we implement malloc(3)-based alloc-only page alignment
  */
 
-static GTinyList *slab_allocations = NULL;
 #if !(HAVE_COMPLIANT_POSIX_MEMALIGN || HAVE_MEMALIGN || HAVE_VALLOC)
 static GTrashStack *compat_valloc_trash = NULL;
 #endif
-
-static void
-allocator_cleanup (void)
-{
-  g_tinylist_foreach (slab_allocations, (GFunc) free, NULL);
-  g_tinylist_free (slab_allocations);
-  slab_allocations = NULL;
-#if !(HAVE_COMPLIANT_POSIX_MEMALIGN || HAVE_MEMALIGN || HAVE_VALLOC)
-  compat_valloc_trash = NULL;
-#endif
-}
 
 static gpointer
 allocator_memalign (gsize alignment,
                     gsize memsize)
 {
   gpointer aligned_memory = NULL;
-  gpointer allocated_memory = NULL;
   gint err = ENOMEM;
 #if     HAVE_COMPLIANT_POSIX_MEMALIGN
   err = posix_memalign (&aligned_memory, alignment, memsize);
-  allocated_memory = aligned_memory;
 #elif   HAVE_MEMALIGN
   errno = 0;
   aligned_memory = memalign (alignment, memsize);
-  allocated_memory = aligned_memory;
   err = errno;
 #elif   HAVE_VALLOC
   errno = 0;
   aligned_memory = valloc (memsize);
-  allocated_memory = aligned_memory;
   err = errno;
 #else
   /* simplistic non-freeing page allocator */
@@ -1418,7 +1418,6 @@ allocator_memalign (gsize alignment,
     {
       const guint n_pages = 16;
       guint8 *mem = malloc (n_pages * sys_page_size);
-      allocated_memory = mem;
       err = errno;
       if (mem)
         {
@@ -1432,8 +1431,6 @@ allocator_memalign (gsize alignment,
     }
   aligned_memory = g_trash_stack_pop (&compat_valloc_trash);
 #endif
-  if (allocated_memory != NULL)
-    slab_allocations = g_tinylist_prepend (slab_allocations, allocated_memory);
   if (!aligned_memory)
     errno = err;
   return aligned_memory;
@@ -1444,7 +1441,6 @@ allocator_memfree (gsize    memsize,
                    gpointer mem)
 {
 #if     HAVE_COMPLIANT_POSIX_MEMALIGN || HAVE_MEMALIGN || HAVE_VALLOC
-  slab_allocations = g_tinylist_remove (slab_allocations, mem);
   free (mem);
 #else
   mem_assert (memsize <= sys_page_size);

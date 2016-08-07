@@ -41,12 +41,12 @@
 
 #include "gthread.h"
 
-#include "glib-init.h"
 #include "gthreadprivate.h"
 #include "gslice.h"
 #include "gmessages.h"
 #include "gstrfuncs.h"
 #include "gmain.h"
+#include "gutils.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -60,9 +60,6 @@
 #ifdef HAVE_SCHED_H
 #include <sched.h>
 #endif
-#ifdef HAVE_SYS_PRCTL_H
-#include <sys/prctl.h>
-#endif
 #ifdef G_OS_WIN32
 #include <windows.h>
 #endif
@@ -72,43 +69,13 @@
 #define USE_NATIVE_MUTEX
 #endif
 
-#include "gtinylist.c"
-
-static pthread_mutex_t g_thread_state_lock;
-
-#if !defined(USE_NATIVE_MUTEX)
-static GTinyList *g_thread_mutexes = NULL;
-static GTinyList *g_thread_conds = NULL;
-#endif
-static GTinyList *g_thread_rec_mutexes = NULL;
-static GTinyList *g_thread_rwlocks = NULL;
-static GTinyList *g_thread_privates = NULL;
-
-static void
-g_thread_state_add (GTinyList ** list,
-                    gpointer item)
-{
-  pthread_mutex_lock (&g_thread_state_lock);
-  *list = g_tinylist_prepend (*list, item);
-  pthread_mutex_unlock (&g_thread_state_lock);
-}
-
-static void
-g_thread_state_remove (GTinyList ** list,
-                       gpointer item)
-{
-  pthread_mutex_lock (&g_thread_state_lock);
-  *list = g_tinylist_remove (*list, item);
-  pthread_mutex_unlock (&g_thread_state_lock);
-}
-
 static void
 g_thread_abort (gint         status,
                 const gchar *function)
 {
   fprintf (stderr, "GLib (gthread-posix.c): Unexpected error from C library during '%s': %s.  Aborting.\n",
            function, strerror (status));
-  abort ();
+  g_abort ();
 }
 
 /* {{{1 GMutex */
@@ -138,7 +105,7 @@ g_mutex_impl_new (void)
   if G_UNLIKELY ((status = pthread_mutex_init (mutex, pattr)) != 0)
     g_thread_abort (status, "pthread_mutex_init");
 
-#ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
+#ifdef PTHREAD_ADAPTIVE_MUTEX_NP
   pthread_mutexattr_destroy (&attr);
 #endif
 
@@ -162,8 +129,6 @@ g_mutex_get_impl (GMutex *mutex)
       impl = g_mutex_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&mutex->p, NULL, impl))
         g_mutex_impl_free (impl);
-      else
-        g_thread_state_add (&g_thread_mutexes, impl);
       impl = mutex->p;
     }
 
@@ -206,8 +171,6 @@ void
 g_mutex_init (GMutex *mutex)
 {
   mutex->p = g_mutex_impl_new ();
-
-  g_thread_state_add (&g_thread_mutexes, mutex->p);
 }
 
 /**
@@ -227,8 +190,6 @@ g_mutex_init (GMutex *mutex)
 void
 g_mutex_clear (GMutex *mutex)
 {
-  g_thread_state_remove (&g_thread_mutexes, mutex->p);
-
   g_mutex_impl_free (mutex->p);
 }
 
@@ -341,8 +302,6 @@ g_rec_mutex_get_impl (GRecMutex *rec_mutex)
       impl = g_rec_mutex_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&rec_mutex->p, NULL, impl))
         g_rec_mutex_impl_free (impl);
-      else
-        g_thread_state_add (&g_thread_rec_mutexes, impl);
       impl = rec_mutex->p;
     }
 
@@ -386,8 +345,6 @@ void
 g_rec_mutex_init (GRecMutex *rec_mutex)
 {
   rec_mutex->p = g_rec_mutex_impl_new ();
-
-  g_thread_state_add (&g_thread_rec_mutexes, rec_mutex->p);
 }
 
 /**
@@ -408,8 +365,6 @@ g_rec_mutex_init (GRecMutex *rec_mutex)
 void
 g_rec_mutex_clear (GRecMutex *rec_mutex)
 {
-  g_thread_state_remove (&g_thread_rec_mutexes, rec_mutex->p);
-
   g_rec_mutex_impl_free (rec_mutex->p);
 }
 
@@ -507,8 +462,6 @@ g_rw_lock_get_impl (GRWLock *lock)
       impl = g_rw_lock_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&lock->p, NULL, impl))
         g_rw_lock_impl_free (impl);
-      else
-        g_thread_state_add (&g_thread_rwlocks, impl);
       impl = lock->p;
     }
 
@@ -550,8 +503,6 @@ void
 g_rw_lock_init (GRWLock *rw_lock)
 {
   rw_lock->p = g_rw_lock_impl_new ();
-
-  g_thread_state_add (&g_thread_rwlocks, rw_lock->p);
 }
 
 /**
@@ -571,8 +522,6 @@ g_rw_lock_init (GRWLock *rw_lock)
 void
 g_rw_lock_clear (GRWLock *rw_lock)
 {
-  g_thread_state_remove (&g_thread_rwlocks, rw_lock->p);
-
   g_rw_lock_impl_free (rw_lock->p);
 }
 
@@ -737,8 +686,6 @@ g_cond_get_impl (GCond *cond)
       impl = g_cond_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&cond->p, NULL, impl))
         g_cond_impl_free (impl);
-      else
-        g_thread_state_add (&g_thread_conds, impl);
       impl = cond->p;
     }
 
@@ -767,8 +714,6 @@ void
 g_cond_init (GCond *cond)
 {
   cond->p = g_cond_impl_new ();
-
-  g_thread_state_add (&g_thread_conds, cond->p);
 }
 
 /**
@@ -788,8 +733,6 @@ g_cond_init (GCond *cond)
 void
 g_cond_clear (GCond *cond)
 {
-  g_thread_state_remove (&g_thread_conds, cond->p);
-
   g_cond_impl_free (cond->p);
 }
 
@@ -1088,10 +1031,6 @@ g_private_get_impl (GPrivate *key)
           g_private_impl_free (impl);
           impl = key->p;
         }
-      else
-        {
-          g_thread_state_add (&g_thread_privates, key);
-        }
     }
 
   return impl;
@@ -1214,19 +1153,13 @@ g_system_thread_new (GThreadFunc   thread_func,
 
   posix_check_cmd (pthread_attr_init (&attr));
 
-#ifdef HAVE_QNX
-  if (stack_size == 0)
-  {
-    /* Default stack size on QNX is 128KB, let's bump it to 2MB */
-    stack_size = 2 * 1024 * 1024;
-  }
-#endif
-
 #ifdef HAVE_PTHREAD_ATTR_SETSTACKSIZE
   if (stack_size)
     {
 #ifdef _SC_THREAD_STACK_MIN
-      stack_size = MAX (sysconf (_SC_THREAD_STACK_MIN), stack_size);
+      long min_stack_size = sysconf (_SC_THREAD_STACK_MIN);
+      if (min_stack_size >= 0)
+        stack_size = MAX (min_stack_size, stack_size);
 #endif /* _SC_THREAD_STACK_MIN */
       /* No error check here, because some systems can't do it and
        * we simply don't want threads to fail because of that. */
@@ -1292,10 +1225,10 @@ g_system_thread_exit (void)
 void
 g_system_thread_set_name (const gchar *name)
 {
-#if defined(HAVE_SYS_PRCTL_H) && defined(PR_SET_NAME)
-  prctl (PR_SET_NAME, name, 0, 0, 0, 0); /* on Linux */
+#if defined(HAVE_PTHREAD_SETNAME_NP_WITH_TID)
+  pthread_setname_np (pthread_self(), name); /* on Linux and Solaris */
 #elif defined(HAVE_PTHREAD_SETNAME_NP_WITHOUT_TID)
-  pthread_setname_np(name); /* on OS X and iOS */
+  pthread_setname_np (name); /* on OS X and iOS */
 #endif
 }
 
@@ -1364,7 +1297,7 @@ g_mutex_clear (GMutex *mutex)
   if G_UNLIKELY (mutex->i[0] != 0)
     {
       fprintf (stderr, "g_mutex_clear() called on uninitialised or locked mutex\n");
-      abort ();
+      g_abort ();
     }
 }
 
@@ -1390,7 +1323,7 @@ g_mutex_unlock_slowpath (GMutex *mutex,
   if G_UNLIKELY (prev == 0)
     {
       fprintf (stderr, "Attempt to unlock mutex that was not locked\n");
-      abort ();
+      g_abort ();
     }
 
   syscall (__NR_futex, &mutex->i[0], (gsize) FUTEX_WAKE_PRIVATE, (gsize) 1, NULL);
@@ -1513,70 +1446,6 @@ g_cond_wait_until (GCond  *cond,
 }
 
 #endif
-
-void
-_g_thread_init (void)
-{
-  pthread_mutexattr_t *pattr = NULL;
-  gint status;
-#ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
-  pthread_mutexattr_t attr;
-
-  pthread_mutexattr_init (&attr);
-  pthread_mutexattr_settype (&attr, PTHREAD_MUTEX_ADAPTIVE_NP);
-  pattr = &attr;
-#endif
-
-  if G_UNLIKELY ((status = pthread_mutex_init (&g_thread_state_lock, pattr)) != 0)
-    g_thread_abort (status, "pthread_mutex_init");
-
-#ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
-  pthread_mutexattr_destroy (&attr);
-#endif
-}
-
-void
-_g_thread_deinit (void)
-{
-  GTinyList *cur;
-  gint status;
-
-  for (cur = g_thread_privates; cur; cur = cur->next)
-    {
-      GPrivate *key = cur->data;
-      g_private_replace (key, NULL);
-    }
-  for (cur = g_thread_privates; cur; cur = cur->next)
-    {
-      GPrivate *key = cur->data;
-      g_private_impl_free (key->p);
-    }
-  g_tinylist_free (g_thread_privates);
-  g_thread_privates = NULL;
-
-#if !defined(USE_NATIVE_MUTEX)
-  g_tinylist_foreach (g_thread_conds, (GFunc) g_cond_impl_free, NULL);
-  g_tinylist_free (g_thread_conds);
-  g_thread_conds = NULL;
-#endif
-
-  g_tinylist_foreach (g_thread_rwlocks, (GFunc) g_rw_lock_impl_free, NULL);
-  g_tinylist_free (g_thread_rwlocks);
-  g_thread_rwlocks = NULL;
-
-  g_tinylist_foreach (g_thread_rec_mutexes, (GFunc) g_rec_mutex_impl_free, NULL);
-  g_tinylist_free (g_thread_rec_mutexes);
-  g_thread_rec_mutexes = NULL;
-
-#if !defined(USE_NATIVE_MUTEX)
-  g_tinylist_foreach (g_thread_mutexes, (GFunc) g_mutex_impl_free, NULL);
-  g_tinylist_free (g_thread_mutexes);
-  g_thread_mutexes = NULL;
-#endif
-
-  if G_UNLIKELY ((status = pthread_mutex_destroy (&g_thread_state_lock)) != 0)
-    g_thread_abort (status, "pthread_mutex_destroy");
-}
 
   /* {{{1 Epilogue */
 /* vim:set foldmethod=marker: */

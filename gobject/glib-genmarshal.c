@@ -412,9 +412,9 @@ generate_marshal (const gchar *signame,
       g_fprintf (fout, "%s%s data2);\n", indent (ind), pad ("gpointer"));
 
       /* cfile marshal variables */
-      g_fprintf (fout, "  register GMarshalFunc_%s callback;\n", signame);
-      g_fprintf (fout, "  register GCClosure *cc = (GCClosure*) closure;\n");
-      g_fprintf (fout, "  register gpointer data1, data2;\n");
+      g_fprintf (fout, "  GMarshalFunc_%s callback;\n", signame);
+      g_fprintf (fout, "  GCClosure *cc = (GCClosure*) closure;\n");
+      g_fprintf (fout, "  gpointer data1, data2;\n");
       if (sig->rarg->setter)
 	g_fprintf (fout, "  %s v_return;\n", sig->rarg->ctype);
 
@@ -794,8 +794,6 @@ main (int   argc,
   GSList *slist, *files = NULL;
   gint i;
 
-  glib_init ();
-
   /* parse args and do fast exits */
   parse_args (&argc, &argv);
 
@@ -995,10 +993,10 @@ parse_args (gint    *argc_p,
           gchar *equal = argv[i] + 8;
 
 	  if (*equal == '=')
-	    marshaller_prefix = g_strdup (equal + 1);
+	    marshaller_prefix = equal + 1;
 	  else if (i + 1 < argc)
 	    {
-	      marshaller_prefix = g_strdup (argv[i + 1]);
+	      marshaller_prefix = argv[i + 1];
 	      argv[i] = NULL;
 	      i += 1;
 	    }

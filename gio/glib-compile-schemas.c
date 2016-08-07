@@ -469,6 +469,13 @@ key_state_end_default (KeyState  *state,
   state->default_value = g_variant_parse (state->type,
                                           state->unparsed_default_value->str,
                                           NULL, NULL, error);
+  if (!state->default_value)
+    {
+      gchar *type = g_variant_type_dup_string (state->type);
+      g_prefix_error (error, "failed to parse <default> value of type '%s': ", type);
+      g_free (type);
+    }
+
   key_state_check_range (state, error);
 }
 
@@ -1745,6 +1752,7 @@ parse_gschema_files (gchar    **files,
       GMarkupParseContext *context;
       gchar *contents;
       gsize size;
+      gint line, col;
 
       if (!g_file_get_contents (filename, &contents, &size, &error))
         {
@@ -1776,7 +1784,8 @@ parse_gschema_files (gchar    **files,
             g_hash_table_remove (state.enum_table, item->data);
 
           /* let them know */
-          fprintf (stderr, "%s: %s.  ", filename, error->message);
+          g_markup_parse_context_get_position (context, &line, &col);
+          fprintf (stderr, "%s:%d:%d  %s.  ", filename, line, col, error->message);
           g_clear_error (&error);
 
           if (strict)

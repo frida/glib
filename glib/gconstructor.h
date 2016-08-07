@@ -22,35 +22,51 @@
 
 #define G_HAS_CONSTRUCTORS 1
 
-#define _G_DEFINE_CONSTRUCTOR(_func) static void __attribute__((constructor)) _func (void);
-#define _G_DEFINE_DESTRUCTOR(_func) static void __attribute__((destructor)) _func (void);
+#define G_DEFINE_CONSTRUCTOR(_func) static void __attribute__((constructor)) _func (void);
+#define G_DEFINE_DESTRUCTOR(_func) static void __attribute__((destructor)) _func (void);
 
 #elif defined (_MSC_VER) && (_MSC_VER >= 1500)
 /* Visual studio 2008 and later has _Pragma */
 
 #define G_HAS_CONSTRUCTORS 1
 
-#if GLIB_SIZEOF_VOID_P == 4
-#define _G_PRESERVE_SYMBOL(_symbol) __pragma(comment(linker, "/include:_" G_STRINGIFY (_symbol)))
+/* We do some weird things to avoid the constructors being optimized
+ * away on VS2015 if WholeProgramOptimization is enabled. First we
+ * make a reference to the array from the wrapper to make sure its
+ * references. Then we use a pragma to make sure the wrapper function
+ * symbol is always included at the link stage. Also, the symbols
+ * need to be extern (but not dllexport), even though they are not
+ * really used from another object file.
+ */
+
+/* We need to account for differences between the mangling of symbols
+ * for Win32 (x86) and x64 programs, as symbols on Win32 are prefixed
+ * with an underscore but symbols on x64 are not.
+ */
+#ifdef _WIN64
+#define G_MSVC_SYMBOL_PREFIX ""
 #else
-#define _G_PRESERVE_SYMBOL(_symbol) __pragma(comment(linker, "/include:" G_STRINGIFY (_symbol)))
+#define G_MSVC_SYMBOL_PREFIX "_"
 #endif
 
-#define _G_DEFINE_CONSTRUCTOR(_func) \
-  static void _func(void); \
-  static int _func ## _wrapper(void) { _func(); return 0; } \
-  __pragma(section(".CRT$XCU",read)) \
-  __declspec(allocate(".CRT$XCU")) static int (* _array ## _func)(void) = _func ## _wrapper; \
-  void _func ## _ (void) { (void) _array ## _func; } \
-  _G_PRESERVE_SYMBOL (_func ## _)
+#define G_DEFINE_CONSTRUCTOR(_func) G_MSVC_CTOR (_func, G_MSVC_SYMBOL_PREFIX)
+#define G_DEFINE_DESTRUCTOR(_func) G_MSVC_DTOR (_func, G_MSVC_SYMBOL_PREFIX)
 
-#define _G_DEFINE_DESTRUCTOR(_func) \
+#define G_MSVC_CTOR(_func,_sym_prefix) \
   static void _func(void); \
-  static int _func ## _constructor(void) { atexit (_func); return 0; } \
+  extern int (* _array ## _func)(void);              \
+  int _func ## _wrapper(void) { _func(); g_slist_find (NULL,  _array ## _func); return 0; } \
+  __pragma(comment(linker,"/include:" _sym_prefix # _func "_wrapper")) \
   __pragma(section(".CRT$XCU",read)) \
-  __declspec(allocate(".CRT$XCU")) static int (* _array ## _func)(void) = _func ## _constructor; \
-  void _func ## _ (void) { (void) _array ## _func; } \
-  _G_PRESERVE_SYMBOL (_func ## _)
+  __declspec(allocate(".CRT$XCU")) int (* _array ## _func)(void) = _func ## _wrapper;
+
+#define G_MSVC_DTOR(_func,_sym_prefix) \
+  static void _func(void); \
+  extern int (* _array ## _func)(void);              \
+  int _func ## _constructor(void) { atexit (_func); g_slist_find (NULL,  _array ## _func); return 0; } \
+   __pragma(comment(linker,"/include:" _sym_prefix # _func "_constructor")) \
+  __pragma(section(".CRT$XCU",read)) \
+  __declspec(allocate(".CRT$XCU")) int (* _array ## _func)(void) = _func ## _constructor;
 
 #elif defined (_MSC_VER)
 
@@ -60,16 +76,16 @@
 #define G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA 1
 #define G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA 1
 
-#define _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(_func) \
+#define G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(_func) \
   section(".CRT$XCU",read)
-#define _G_DEFINE_CONSTRUCTOR(_func) \
+#define G_DEFINE_CONSTRUCTOR(_func) \
   static void _func(void); \
   static int _func ## _wrapper(void) { _func(); return 0; } \
   __declspec(allocate(".CRT$XCU")) static int (*p)(void) = _func ## _wrapper;
 
-#define _G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
+#define G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
   section(".CRT$XCU",read)
-#define _G_DEFINE_DESTRUCTOR(_func) \
+#define G_DEFINE_DESTRUCTOR(_func) \
   static void _func(void); \
   static int _func ## _constructor(void) { atexit (_func); return 0; } \
   __declspec(allocate(".CRT$XCU")) static int (* _array ## _func)(void) = _func ## _constructor;
@@ -85,59 +101,19 @@
 #define G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA 1
 #define G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA 1
 
-#define _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(_func) \
+#define G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(_func) \
   init(_func)
-#define _G_DEFINE_CONSTRUCTOR(_func) \
+#define G_DEFINE_CONSTRUCTOR(_func) \
   static void _func(void);
 
-#define _G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
+#define G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
   fini(_func)
-#define _G_DEFINE_DESTRUCTOR(_func) \
+#define G_DEFINE_DESTRUCTOR(_func) \
   static void _func(void);
 
 #else
 
 /* constructors not supported for this compiler */
-
-#endif
-
-#ifdef GLIB_STATIC_COMPILATION
-
-#define G_DEFINE_CONSTRUCTOR(_func) \
-  _G_DEFINE_CONSTRUCTOR (_func ## _register); \
-  void _glib_register_constructor (void (*) (void)); \
-  static void _func (void); \
-  static void _func ## _register (void) { _glib_register_constructor (_func); }
-#define G_DEFINE_DESTRUCTOR(_func) \
-  _G_DEFINE_CONSTRUCTOR (_func ## _register); \
-  void _glib_register_destructor (void (*) (void)); \
-  static void _func (void); \
-  static void _func ## _register (void) { _glib_register_destructor (_func); }
-
-#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
-#define G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(_func) \
-  static void _func ## _register (void); \
-  _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS (_func ## _register)
-#endif
-
-#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
-#define G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
-  static void _func ## _register (void); \
-  _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS (_func ## _register)
-#endif
-
-#else
-
-#define G_DEFINE_CONSTRUCTOR _G_DEFINE_CONSTRUCTOR
-#define G_DEFINE_DESTRUCTOR _G_DEFINE_DESTRUCTOR
-
-#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
-#define G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS
-#endif
-
-#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
-#define G_DEFINE_DESTRUCTOR_PRAGMA_ARGS _G_DEFINE_DESTRUCTOR_PRAGMA_ARGS
-#endif
 
 #endif
 

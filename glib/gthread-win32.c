@@ -52,15 +52,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "gtinylist.c"
-
 static void
 g_thread_abort (gint         status,
                 const gchar *function)
 {
   fprintf (stderr, "GLib (gthread-win32.c): Unexpected error from C library during '%s': %s.  Aborting.\n",
            strerror (status), function);
-  abort ();
+  g_abort ();
 }
 
 /* Starting with Vista and Windows 2008, we have access to the
@@ -154,9 +152,6 @@ g_mutex_unlock (GMutex *mutex)
 
 /* {{{1 GRecMutex */
 
-static CRITICAL_SECTION g_thread_rec_mutex_lock;
-static GTinyList *g_thread_rec_mutexes = NULL;
-
 static CRITICAL_SECTION *
 g_rec_mutex_impl_new (void)
 {
@@ -165,28 +160,14 @@ g_rec_mutex_impl_new (void)
   cs = g_slice_new (CRITICAL_SECTION);
   InitializeCriticalSection (cs);
 
-  EnterCriticalSection (&g_thread_rec_mutex_lock);
-  g_thread_rec_mutexes = g_tinylist_prepend (g_thread_rec_mutexes, cs);
-  LeaveCriticalSection (&g_thread_rec_mutex_lock);
-
   return cs;
-}
-
-static void
-g_rec_mutex_impl_finalize (CRITICAL_SECTION *cs)
-{
-  DeleteCriticalSection (cs);
-  g_slice_free (CRITICAL_SECTION, cs);
 }
 
 static void
 g_rec_mutex_impl_free (CRITICAL_SECTION *cs)
 {
-  EnterCriticalSection (&g_thread_rec_mutex_lock);
-  g_thread_rec_mutexes = g_tinylist_remove (g_thread_rec_mutexes, cs);
-  LeaveCriticalSection (&g_thread_rec_mutex_lock);
-
-  g_rec_mutex_impl_finalize (cs);
+  DeleteCriticalSection (cs);
+  g_slice_free (CRITICAL_SECTION, cs);
 }
 
 static CRITICAL_SECTION *
@@ -390,7 +371,7 @@ g_private_get_impl (GPrivate *key)
             }
 
           /* Ditto, due to the unlocked access on the fast path */
-          if (InterlockedCompareExchangePointer (&key->p, GSIZE_TO_POINTER (impl), NULL) != NULL)
+          if (InterlockedCompareExchangePointer (&key->p, impl, NULL) != NULL)
             g_thread_abort (0, "g_private_get_impl(2)");
         }
       LeaveCriticalSection (&g_private_lock);
@@ -515,60 +496,73 @@ g_system_thread_wait (GRealThread *thread)
   win32_check_for_error (WAIT_FAILED != WaitForSingleObject (wt->handle, INFINITE));
 }
 
-#ifdef _MSC_VER
+#define EXCEPTION_SET_THREAD_NAME ((DWORD) 0x406D1388)
 
-#define MS_VC_EXCEPTION 0x406D1388
+#ifndef _MSC_VER
+static void *SetThreadName_VEH_handle = NULL;
 
-typedef struct _THREADNAME_INFO THREADNAME_INFO;
-
-#pragma pack (push, 8)
-
-struct _THREADNAME_INFO
+static LONG __stdcall
+SetThreadName_VEH (PEXCEPTION_POINTERS ExceptionInfo)
 {
-  DWORD dwType;
-  LPCSTR szName;
-  DWORD dwThreadID;
-  DWORD dwFlags;
-};
+  if (ExceptionInfo->ExceptionRecord != NULL &&
+      ExceptionInfo->ExceptionRecord->ExceptionCode == EXCEPTION_SET_THREAD_NAME)
+    return EXCEPTION_CONTINUE_EXECUTION;
 
-#pragma pack (pop)
+  return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif
 
-void
-g_system_thread_set_name (const gchar *name)
+typedef struct _THREADNAME_INFO
+{
+  DWORD  dwType;	/* must be 0x1000 */
+  LPCSTR szName;	/* pointer to name (in user addr space) */
+  DWORD  dwThreadID;	/* thread ID (-1=caller thread) */
+  DWORD  dwFlags;	/* reserved for future use, must be zero */
+} THREADNAME_INFO;
+
+static void
+SetThreadName (DWORD  dwThreadID,
+               LPCSTR szThreadName)
 {
    THREADNAME_INFO info;
+   DWORD infosize;
+
    info.dwType = 0x1000;
-   info.szName = name;
-   info.dwThreadID = -1;
+   info.szName = szThreadName;
+   info.dwThreadID = dwThreadID;
    info.dwFlags = 0;
 
+   infosize = sizeof (info) / sizeof (DWORD);
+
+#ifdef _MSC_VER
    __try
      {
-       RaiseException (MS_VC_EXCEPTION, 0, sizeof (info) / sizeof (ULONG_PTR),
-                       (ULONG_PTR *) &info);
+       RaiseException (EXCEPTION_SET_THREAD_NAME, 0, infosize, (DWORD *) &info);
      }
    __except (EXCEPTION_EXECUTE_HANDLER)
      {
      }
-}
-
 #else
+   /* Without a debugger we *must* have an exception handler,
+    * otherwise raising an exception will crash the process.
+    */
+   if ((!IsDebuggerPresent ()) && (SetThreadName_VEH_handle == NULL))
+     return;
+
+   RaiseException (EXCEPTION_SET_THREAD_NAME, 0, infosize, (DWORD *) &info);
+#endif
+}
 
 void
 g_system_thread_set_name (const gchar *name)
 {
-  /* FIXME: implement */
+  SetThreadName ((DWORD) -1, name);
 }
-
-#endif
 
 /* {{{1 SRWLock and CONDITION_VARIABLE emulation (for Windows XP) */
 
-static gboolean         g_thread_xp_initialized = FALSE;
 static CRITICAL_SECTION g_thread_xp_lock;
 static DWORD            g_thread_xp_waiter_tls;
-static GTinyList       *g_thread_xp_srws = NULL;
-static GTinyList       *g_thread_xp_conds = NULL;
 
 /* {{{2 GThreadWaiter utility class for CONDITION_VARIABLE emulation */
 typedef struct _GThreadXpWaiter GThreadXpWaiter;
@@ -636,16 +630,6 @@ g_thread_xp_InitializeSRWLock (gpointer mutex)
   *(GThreadSRWLock * volatile *) mutex = NULL;
 }
 
-static void
-g_thread_xp_FreeSRWLock (GThreadSRWLock * lock)
-{
-  if (lock->ever_shared)
-    DeleteCriticalSection (&lock->atomicity);
-
-  DeleteCriticalSection (&lock->writer_lock);
-  free (lock);
-}
-
 static void __stdcall
 g_thread_xp_DeleteSRWLock (gpointer mutex)
 {
@@ -653,11 +637,11 @@ g_thread_xp_DeleteSRWLock (gpointer mutex)
 
   if (lock)
     {
-      EnterCriticalSection (&g_thread_xp_lock);
-      g_thread_xp_srws = g_tinylist_remove (g_thread_xp_srws, lock);
-      LeaveCriticalSection (&g_thread_xp_lock);
+      if (lock->ever_shared)
+        DeleteCriticalSection (&lock->atomicity);
 
-      g_thread_xp_FreeSRWLock (lock);
+      DeleteCriticalSection (&lock->writer_lock);
+      free (lock);
     }
 }
 
@@ -690,9 +674,6 @@ g_thread_xp_get_srwlock (GThreadSRWLock * volatile *lock)
           result->writer_locked = FALSE;
           result->ever_shared = FALSE;
           *lock = result;
-
-          g_thread_xp_srws = g_tinylist_prepend (g_thread_xp_srws,
-                                                     result);
         }
 
       LeaveCriticalSection (&g_thread_xp_lock);
@@ -863,25 +844,13 @@ g_thread_xp_InitializeConditionVariable (gpointer cond)
   *(GThreadXpCONDITION_VARIABLE * volatile *) cond = NULL;
 }
 
-static void
-g_thread_xp_FreeConditionVariable (GThreadXpCONDITION_VARIABLE * cv)
-{
-  free (cv);
-}
-
 static void __stdcall
 g_thread_xp_DeleteConditionVariable (gpointer cond)
 {
   GThreadXpCONDITION_VARIABLE *cv = *(GThreadXpCONDITION_VARIABLE * volatile *) cond;
 
   if (cv)
-    {
-      EnterCriticalSection (&g_thread_xp_lock);
-      g_thread_xp_conds = g_tinylist_remove (g_thread_xp_conds, cv);
-      LeaveCriticalSection (&g_thread_xp_lock);
-
-      g_thread_xp_FreeConditionVariable (cv);
-    }
+    free (cv);
 }
 
 static GThreadXpCONDITION_VARIABLE * __stdcall
@@ -910,13 +879,6 @@ g_thread_xp_get_condition_variable (GThreadXpCONDITION_VARIABLE * volatile *cond
         {
           free (result);
           result = *cond;
-        }
-      else
-        {
-          EnterCriticalSection (&g_thread_xp_lock);
-          g_thread_xp_conds = g_tinylist_prepend (g_thread_xp_conds,
-                                                      result);
-          LeaveCriticalSection (&g_thread_xp_lock);
         }
     }
 
@@ -1041,30 +1003,6 @@ g_thread_xp_init (void)
   g_thread_xp_waiter_tls = TlsAlloc ();
 
   g_thread_impl_vtable = g_thread_xp_impl_vtable;
-
-  g_thread_xp_initialized = TRUE;
-}
-
-static void
-g_thread_xp_deinit (void)
-{
-  if (!g_thread_xp_initialized)
-    return;
-
-  g_tinylist_foreach (g_thread_xp_conds,
-                      (GFunc) g_thread_xp_FreeConditionVariable, NULL);
-  g_tinylist_free (g_thread_xp_conds);
-  g_thread_xp_conds = NULL;
-
-  g_tinylist_foreach (g_thread_xp_srws,
-                      (GFunc) g_thread_xp_FreeSRWLock, NULL);
-  g_tinylist_free (g_thread_xp_srws);
-  g_thread_xp_srws = NULL;
-
-  TlsFree (g_thread_xp_waiter_tls);
-  DeleteCriticalSection (&g_thread_xp_lock);
-
-  g_thread_xp_initialized = FALSE;
 }
 
 /* {{{1 Epilogue */
@@ -1101,17 +1039,24 @@ g_thread_lookup_native_funcs (void)
 }
 
 void
-_g_thread_init (void)
+g_thread_win32_init (void)
 {
   if (!g_thread_lookup_native_funcs ())
     g_thread_xp_init ();
 
-  InitializeCriticalSection (&g_thread_rec_mutex_lock);
   InitializeCriticalSection (&g_private_lock);
+
+#ifndef _MSC_VER
+  SetThreadName_VEH_handle = AddVectoredExceptionHandler (1, &SetThreadName_VEH);
+  if (SetThreadName_VEH_handle == NULL)
+    {
+      /* This is bad, but what can we do? */
+    }
+#endif
 }
 
 void
-_g_thread_win32_thread_detach (void)
+g_thread_win32_thread_detach (void)
 {
   gboolean dtors_called;
 
@@ -1149,26 +1094,15 @@ _g_thread_win32_thread_detach (void)
 }
 
 void
-_g_thread_deinit (void)
+g_thread_win32_process_detach (void)
 {
-  GPrivateDestructor *cur, *next;
-
-  for (cur = g_private_destructors; cur; cur = next)
+#ifndef _MSC_VER
+  if (SetThreadName_VEH_handle != NULL)
     {
-      next = cur->next;
-      TlsFree (cur->index);
-      free (cur);
+      RemoveVectoredExceptionHandler (SetThreadName_VEH_handle);
+      SetThreadName_VEH_handle = NULL;
     }
-
-  g_tinylist_foreach (g_thread_rec_mutexes, (GFunc) g_rec_mutex_impl_finalize,
-                      NULL);
-  g_tinylist_free (g_thread_rec_mutexes);
-  g_thread_rec_mutexes = NULL;
-
-  DeleteCriticalSection (&g_thread_rec_mutex_lock);
-  DeleteCriticalSection (&g_private_lock);
-
-  g_thread_xp_deinit ();
+#endif
 }
 
 /* vim:set foldmethod=marker: */

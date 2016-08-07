@@ -23,7 +23,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "gio-init.h"
 #include "giotypes.h"
 #include "gsocket.h"
 #include "gdbusprivate.h"
@@ -174,6 +173,7 @@ _g_socket_read_with_control_messages (GSocket                 *socket,
   data->num_messages = num_messages;
 
   task = g_task_new (socket, cancellable, callback, user_data);
+  g_task_set_source_tag (task, _g_socket_read_with_control_messages);
   g_task_set_task_data (task, data, (GDestroyNotify) read_with_control_data_free);
 
   if (g_socket_condition_check (socket, G_IO_IN))
@@ -232,14 +232,11 @@ ensure_required_types (void)
 
 typedef struct
 {
-  gint refcount;
+  volatile gint refcount;
   GThread *thread;
   GMainContext *context;
   GMainLoop *loop;
 } SharedThreadData;
-
-static volatile SharedThreadData * gdbus_shared_thread_data = NULL;
-G_LOCK_DEFINE_STATIC (gdbus_shared_thread_data);
 
 static gpointer
 gdbus_shared_thread_func (gpointer user_data)
@@ -255,24 +252,15 @@ gdbus_shared_thread_func (gpointer user_data)
   return NULL;
 }
 
-static gboolean
-quit_main_loop (gpointer user_data)
-{
-  GMainLoop *loop = user_data;
-  g_main_loop_quit (loop);
-  return FALSE;
-}
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 static SharedThreadData *
 _g_dbus_shared_thread_ref (void)
 {
+  static gsize shared_thread_data = 0;
   SharedThreadData *ret;
 
-  G_LOCK (gdbus_shared_thread_data);
-
-  if (gdbus_shared_thread_data == NULL)
+  if (g_once_init_enter (&shared_thread_data))
     {
       SharedThreadData *data;
 
@@ -280,52 +268,36 @@ _g_dbus_shared_thread_ref (void)
       ensure_required_types ();
 
       data = g_new0 (SharedThreadData, 1);
-      data->refcount = 1; /* Keep it around until deinit */
+      data->refcount = 0;
       
       data->context = g_main_context_new ();
       data->loop = g_main_loop_new (data->context, FALSE);
       data->thread = g_thread_new ("gdbus",
                                    gdbus_shared_thread_func,
                                    data);
-
-      gdbus_shared_thread_data = data;
+      /* We can cast between gsize and gpointer safely */
+      g_once_init_leave (&shared_thread_data, (gsize) data);
     }
 
-  ret = gdbus_shared_thread_data;
-  ret->refcount++;
-
-  G_UNLOCK (gdbus_shared_thread_data);
-
+  ret = (SharedThreadData*) shared_thread_data;
+  g_atomic_int_inc (&ret->refcount);
   return ret;
 }
 
 static void
 _g_dbus_shared_thread_unref (SharedThreadData *data)
 {
-  G_LOCK (gdbus_shared_thread_data);
-
-  if (--data->refcount == 0)
+  /* TODO: actually destroy the shared thread here */
+#if 0
+  g_assert (data != NULL);
+  if (g_atomic_int_dec_and_test (&data->refcount))
     {
-      GSource *idle_source;
-
-      idle_source = g_idle_source_new ();
-      g_source_set_priority (idle_source, G_PRIORITY_LOW);
-      g_source_set_callback (idle_source,
-                             quit_main_loop,
-                             data->loop,
-                             NULL);
-      g_source_attach (idle_source, data->context);
-      g_source_unref (idle_source);
-
-      g_thread_join (data->thread);
-
+      g_main_loop_quit (data->loop);
+      //g_thread_join (data->thread);
       g_main_loop_unref (data->loop);
       g_main_context_unref (data->context);
-      g_free (data);
-      gdbus_shared_thread_data = NULL;
-  }
-
-  G_UNLOCK (gdbus_shared_thread_data);
+    }
+#endif
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -400,10 +372,6 @@ struct GDBusWorker
 
 static void _g_dbus_worker_unref (GDBusWorker *worker);
 
-static GSList * gdbus_workers = NULL;
-G_LOCK_DEFINE_STATIC (gdbus_workers);
-static GCond gdbus_workers_cond;
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 typedef struct
@@ -469,11 +437,6 @@ _g_dbus_worker_unref (GDBusWorker *worker)
       g_free (worker->read_buffer);
 
       g_free (worker);
-
-      G_LOCK (gdbus_workers);
-      gdbus_workers = g_slist_remove (gdbus_workers, worker);
-      g_cond_signal (&gdbus_workers_cond);
-      G_UNLOCK (gdbus_workers);
     }
 }
 
@@ -1129,6 +1092,7 @@ write_message_async (GDBusWorker         *worker,
                      gpointer             user_data)
 {
   data->task = g_task_new (NULL, NULL, callback, user_data);
+  g_task_set_source_tag (data->task, write_message_async);
   data->total_written = 0;
   write_message_continue_writing (data);
 }
@@ -1697,11 +1661,6 @@ _g_dbus_worker_new (GIOStream                              *stream,
   g_source_attach (idle_source, worker->shared_thread_data->context);
   g_source_unref (idle_source);
 
-  G_LOCK (gdbus_workers);
-  gdbus_workers = g_slist_prepend (gdbus_workers, worker);
-  g_cond_signal (&gdbus_workers_cond);
-  G_UNLOCK (gdbus_workers);
-
   return worker;
 }
 
@@ -1963,21 +1922,6 @@ _g_dbus_initialize (void)
         }
 
       g_once_init_leave (&initialized, 1);
-    }
-}
-
-void
-_g_dbus_shutdown (void)
-{
-  G_LOCK (gdbus_workers);
-  while (gdbus_workers != NULL)
-    g_cond_wait (&gdbus_workers_cond, &G_LOCK_NAME (gdbus_workers));
-  G_UNLOCK (gdbus_workers);
-
-  if (gdbus_shared_thread_data)
-    {
-      g_assert_cmpint (gdbus_shared_thread_data->refcount, ==, 1); /* if not, there's a leak */
-      _g_dbus_shared_thread_unref (gdbus_shared_thread_data);
     }
 }
 
