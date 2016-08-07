@@ -4,7 +4,13 @@
 ## Process this file with automake to produce Makefile.in
 include $(top_srcdir)/glib.mk
 
-SUBDIRS = . tests
+if ENABLE_TESTS
+MAYBE_TESTS = tests
+else
+MAYBE_TESTS =
+endif
+
+SUBDIRS = . $(MAYBE_TESTS)
 
 AM_CPPFLAGS = 					\
 	-DG_LOG_DOMAIN=\"GLib-GObject\"		\
