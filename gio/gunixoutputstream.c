@@ -65,7 +65,7 @@ enum {
 struct _GUnixOutputStreamPrivate {
   int fd;
   guint close_fd : 1;
-  guint is_pipe_or_socket : 1;
+  guint can_poll : 1;
 };
 
 static void g_unix_output_stream_pollable_iface_init (GPollableOutputStreamInterface *iface);
@@ -181,6 +181,17 @@ g_unix_output_stream_file_descriptor_based_iface_init (GFileDescriptorBasedIface
   iface->get_fd = (int (*) (GFileDescriptorBased *))g_unix_output_stream_get_fd;
 }
 
+static gboolean
+fd_is_pollable (int fd)
+{
+  struct stat st;
+
+  if (fstat (fd, &st) == -1)
+    return TRUE;
+
+  return !S_ISREG (st.st_mode);
+}
+
 static void
 g_unix_output_stream_set_property (GObject         *object,
 				   guint            prop_id,
@@ -195,10 +206,7 @@ g_unix_output_stream_set_property (GObject         *object,
     {
     case PROP_FD:
       unix_stream->priv->fd = g_value_get_int (value);
-      if (lseek (unix_stream->priv->fd, 0, SEEK_CUR) == -1 && errno == ESPIPE)
-	unix_stream->priv->is_pipe_or_socket = TRUE;
-      else
-	unix_stream->priv->is_pipe_or_socket = FALSE;
+      unix_stream->priv->can_poll = fd_is_pollable (unix_stream->priv->fd);
       break;
     case PROP_CLOSE_FD:
       unix_stream->priv->close_fd = g_value_get_boolean (value);
@@ -348,7 +356,7 @@ g_unix_output_stream_write (GOutputStream  *stream,
   poll_fds[0].events = G_IO_OUT;
   nfds++;
 
-  if (unix_stream->priv->is_pipe_or_socket &&
+  if (unix_stream->priv->can_poll &&
       g_cancellable_make_pollfd (cancellable, &poll_fds[1]))
     nfds++;
 
@@ -455,7 +463,7 @@ g_unix_output_stream_writev (GOutputStream        *stream,
   poll_fds[0].events = G_IO_OUT;
   nfds++;
 
-  if (unix_stream->priv->is_pipe_or_socket &&
+  if (unix_stream->priv->can_poll &&
       g_cancellable_make_pollfd (cancellable, &poll_fds[1]))
     nfds++;
 
@@ -572,7 +580,7 @@ g_unix_output_stream_close_finish (GOutputStream  *stream,
 static gboolean
 g_unix_output_stream_pollable_can_poll (GPollableOutputStream *stream)
 {
-  return G_UNIX_OUTPUT_STREAM (stream)->priv->is_pipe_or_socket;
+  return G_UNIX_OUTPUT_STREAM (stream)->priv->can_poll;
 }
 
 static gboolean
