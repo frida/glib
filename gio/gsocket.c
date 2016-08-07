@@ -4625,7 +4625,7 @@ G_STMT_START { \
     } \
   else \
     { \
-      _msg->msg_controllen = 2048; \
+      _msg->msg_controllen = 2016; /* upper limit on QNX */ \
       _msg->msg_control = g_alloca (_msg->msg_controllen); \
     } \
  \
