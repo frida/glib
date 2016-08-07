@@ -192,6 +192,8 @@ g_io_channel_init (GIOChannel *channel)
   channel->buf_size = G_IO_NICE_BUF_SIZE;
   channel->read_cd = (GIConv) -1;
   channel->write_cd = (GIConv) -1;
+  channel->close_converters = NULL;
+  channel->reset_converters = NULL;
   channel->read_buf = NULL; /* Lazy allocate buffers */
   channel->encoded_read_buf = NULL;
   channel->write_buf = NULL;
@@ -241,10 +243,8 @@ g_io_channel_unref (GIOChannel *channel)
       else
         g_io_channel_purge (channel);
       g_free (channel->encoding);
-      if (channel->read_cd != (GIConv) -1)
-        g_iconv_close (channel->read_cd);
-      if (channel->write_cd != (GIConv) -1)
-        g_iconv_close (channel->write_cd);
+      if (channel->close_converters != NULL)
+        channel->close_converters (channel);
       g_free (channel->line_term);
       if (channel->read_buf)
         g_string_free (channel->read_buf, TRUE);
@@ -1139,10 +1139,8 @@ g_io_channel_seek_position (GIOChannel  *channel,
         g_string_truncate (channel->read_buf, 0);
 
       /* Conversion state no longer matches position in file */
-      if (channel->read_cd != (GIConv) -1)
-        g_iconv (channel->read_cd, NULL, NULL, NULL, NULL);
-      if (channel->write_cd != (GIConv) -1)
-        g_iconv (channel->write_cd, NULL, NULL, NULL, NULL);
+      if (channel->reset_converters != NULL)
+        channel->reset_converters (channel);
 
       if (channel->encoded_read_buf)
         {
@@ -1260,6 +1258,24 @@ g_io_channel_get_buffered (GIOChannel *channel)
   g_return_val_if_fail (channel != NULL, FALSE);
 
   return channel->use_buffer;
+}
+
+static void
+g_io_channel_on_close_converters (GIOChannel * channel)
+{
+  if (channel->read_cd != (GIConv) -1)
+    g_iconv_close (channel->read_cd);
+  if (channel->write_cd != (GIConv) -1)
+    g_iconv_close (channel->write_cd);
+}
+
+static void
+g_io_channel_on_reset_converters (GIOChannel * channel)
+{
+  if (channel->read_cd != (GIConv) -1)
+    g_iconv (channel->read_cd, NULL, NULL, NULL, NULL);
+  if (channel->write_cd != (GIConv) -1)
+    g_iconv (channel->write_cd, NULL, NULL, NULL, NULL);
 }
 
 /**
@@ -1426,6 +1442,9 @@ g_io_channel_set_encoding (GIOChannel	*channel,
 
   channel->read_cd = read_cd;
   channel->write_cd = write_cd;
+
+  channel->close_converters = g_io_channel_on_close_converters;
+  channel->reset_converters = g_io_channel_on_reset_converters;
 
   g_free (channel->encoding);
   channel->encoding = g_strdup (encoding);
