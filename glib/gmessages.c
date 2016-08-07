@@ -1029,6 +1029,8 @@ g_log_remove_handler (const gchar *log_domain,
 #define CHAR_IS_SAFE(wc) (!((wc < 0x20 && wc != '\t' && wc != '\n' && wc != '\r') || \
 			    (wc == 0x7f) || \
 			    (wc >= 0x80 && wc < 0xa0)))
+
+#ifdef G_OS_WIN32
      
 static gchar*
 strdup_convert (const gchar *string,
@@ -1074,6 +1076,8 @@ strdup_convert (const gchar *string,
 	}
     }
 }
+
+#endif
 
 /* For a radix of 8 we need at most 3 output bytes for 1 input
  * byte. Additionally we might need up to 2 output bytes for the
@@ -2297,6 +2301,7 @@ g_log_writer_format_fields (GLogLevelFlags   log_level,
   else
     {
       GString *msg;
+#ifdef G_OS_WIN32
       const gchar *charset;
 
       msg = g_string_new (message);
@@ -2313,7 +2318,12 @@ g_log_writer_format_fields (GLogLevelFlags   log_level,
           g_string_append (gstring, lstring);
           g_free (lstring);
         }
+#else
+      msg = g_string_new (message);
+      escape_string (msg);
 
+      g_string_append (gstring, msg->str); /* assume UTF-8 */
+#endif
       g_string_free (msg, TRUE);
     }
 
@@ -3183,6 +3193,7 @@ g_print (const gchar *format,
     local_glib_print_func (string);
   else
     {
+#ifdef G_OS_WIN32
       const gchar *charset;
 
       if (g_get_charset (&charset))
@@ -3194,6 +3205,9 @@ g_print (const gchar *format,
           fputs (lstring, stdout);
           g_free (lstring);
         }
+#else
+      fputs (string, stdout); /* assume UTF-8 */
+#endif
       fflush (stdout);
     }
   g_free (string);
@@ -3262,6 +3276,7 @@ g_printerr (const gchar *format,
     local_glib_printerr_func (string);
   else
     {
+#ifdef G_OS_WIN32
       const gchar *charset;
 
       if (g_get_charset (&charset))
@@ -3273,6 +3288,9 @@ g_printerr (const gchar *format,
           fputs (lstring, stderr);
           g_free (lstring);
         }
+#else
+      fputs (string, stderr); /* assume UTF-8 */
+#endif
       fflush (stderr);
     }
   g_free (string);
