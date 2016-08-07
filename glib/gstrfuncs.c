@@ -1288,7 +1288,9 @@ g_strerror (gint errnum)
   if (!msg)
     {
       gchar buf[1024];
+#ifdef G_OS_WIN32
       GError *error = NULL;
+#endif
 
 #if defined(G_OS_WIN32)
       strerror_s (buf, sizeof (buf), errnum);
@@ -1305,13 +1307,16 @@ g_strerror (gint errnum)
       g_strlcpy (buf, strerror (errnum), sizeof (buf));
       msg = buf;
 #endif
+#ifdef G_OS_WIN32
       if (!g_get_charset (NULL))
         {
           msg = g_locale_to_utf8 (msg, -1, NULL, NULL, &error);
           if (error)
             g_print ("%s\n", error->message);
         }
-      else if (msg == (const gchar *)buf)
+      else
+#endif
+      if (msg == (const gchar *)buf)
         msg = g_strdup (buf);
 
       g_hash_table_insert (errors, GINT_TO_POINTER (errnum), (char *) msg);
@@ -1345,8 +1350,10 @@ g_strsignal (gint signum)
 
 #ifdef HAVE_STRSIGNAL
   msg = strsignal (signum);
+# ifdef G_OS_WIN32
   if (!g_get_charset (NULL))
     msg = tofree = g_locale_to_utf8 (msg, -1, NULL, NULL, NULL);
+# endif
 #endif
 
   if (!msg)
