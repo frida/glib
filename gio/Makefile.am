@@ -246,7 +246,11 @@ platform_libadd += win32/libgiowin32.la
 platform_deps += win32/libgiowin32.la
 endif
 
-SUBDIRS += . tests
+SUBDIRS += .
+
+if ENABLE_TESTS
+SUBDIRS += tests
+endif
 
 if HAVE_FAM
 SUBDIRS += fam
