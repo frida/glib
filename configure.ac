@@ -533,13 +533,23 @@ AS_IF([test "$glib_native_win32" = "yes"], [
     AC_MSG_ERROR([Can not build both shared and static at the same time on Windows.])
   fi
   if test x$enable_static = xyes; then
-    glib_win32_static_compilation=yes
+    glib_enable_static_compilation=yes
     GLIB_WIN32_STATIC_COMPILATION_DEFINE="#define GLIB_STATIC_COMPILATION 1
-#define GOBJECT_STATIC_COMPILATION 1"
+#define GOBJECT_STATIC_COMPILATION 1
+#define GIO_STATIC_COMPILATION 1"
     AC_SUBST(GLIB_WIN32_STATIC_COMPILATION_DEFINE)
   fi
+], [
+  if test x$enable_static = xyes -a x$enable_shared = xno; then
+    glib_enable_static_compilation=yes
+  fi
 ])
-AM_CONDITIONAL(OS_WIN32_AND_DLL_COMPILATION, [test x$glib_native_win32 = xyes -a x$glib_win32_static_compilation != xyes])
+AM_CONDITIONAL(OS_WIN32_AND_DLL_COMPILATION, [test x$glib_native_win32 = xyes -a x$glib_enable_static_compilation != xyes])
+
+if test x$glib_enable_static_compilation = xyes; then
+  GLIB_STATIC_FLAGS="-DGLIB_STATIC_COMPILATION=1 -DGOBJECT_STATIC_COMPILATION=1 -DGIO_STATIC_COMPILATION=1"
+  AC_SUBST(GLIB_STATIC_FLAGS)
+fi
 
 # Checks for library functions.
 AC_FUNC_ALLOCA
@@ -1132,30 +1142,7 @@ AC_ARG_ENABLE(included-printf,
               [AS_HELP_STRING([--enable-included-printf],
                               [use included printf [default=auto]])],
               enable_included_printf="$enableval")
-
-need_included_printf=no
-if test "x$enable_included_printf" = "xyes" ; then
-  need_included_printf=yes
-fi
-if test "$ac_cv_func_vsnprintf_c99" != "yes" ; then
-  need_included_printf=yes
-fi
-if test "$ac_cv_func_printf_unix98" != "yes" ; then
-  need_included_printf=yes
-fi
-if test "x$ac_cv_sizeof_long_long" = "x8" &&
-   test -z "$glib_cv_long_long_format" ; then
-  need_included_printf=yes
-fi
-
-if test "x$enable_included_printf" = "xno" && 
-   test "x$need_included_printf" = "xyes" ; then
-  AC_MSG_ERROR([
-*** Your C library's printf doesn't appear to have the features that
-*** GLib needs, but you specified --enable-included-printf=no.])
-fi
-
-enable_included_printf=$need_included_printf
+enable_included_printf=yes
 
 AM_CONDITIONAL(HAVE_GOOD_PRINTF, test "$enable_included_printf" != "yes")
 AS_IF([test "$enable_included_printf" != "yes"], [
@@ -3235,9 +3222,10 @@ case $host in
     ;;
 esac
 glib_static_compilation=""
-if test x$glib_win32_static_compilation = xyes; then
+if test x$glib_enable_static_compilation = xyes; then
   glib_static_compilation="#define GLIB_STATIC_COMPILATION 1
-#define GOBJECT_STATIC_COMPILATION 1"
+#define GOBJECT_STATIC_COMPILATION 1
+#define GIO_STATIC_COMPILATION 1"
 fi
 ])
 

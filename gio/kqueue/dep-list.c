@@ -30,6 +30,12 @@
 
 #include "dep-list.h"
 
+/* Use GLib memory allocation */
+#undef calloc
+#undef free
+#define calloc  g_malloc_n
+#define free    g_free
+
 static gboolean kdl_debug_enabled = FALSE;
 #define perror_msg if (kdl_debug_enabled) g_warning
 

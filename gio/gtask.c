@@ -23,6 +23,7 @@
 
 #include "gasyncresult.h"
 #include "gcancellable.h"
+#include "gconstructor.h"
 #include "glib-private.h"
 
 #include "glibintl.h"
@@ -594,6 +595,13 @@ G_DEFINE_TYPE_WITH_CODE (GTask, g_task, G_TYPE_OBJECT,
                                                 g_task_async_result_iface_init);
                          g_task_thread_pool_init ();)
 
+#ifdef G_HAS_CONSTRUCTORS
+#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
+#pragma G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(g_task_deinit)
+#endif
+G_DEFINE_DESTRUCTOR(g_task_deinit)
+#endif /* G_HAS_CONSTRUCTORS */
+
 static GThreadPool *task_pool;
 static GMutex task_pool_mutex;
 static GPrivate task_private = G_PRIVATE_INIT (NULL);
@@ -616,6 +624,16 @@ static gint tasks_running;
 #define G_TASK_WAIT_TIME_BASE 100000
 #define G_TASK_WAIT_TIME_MULTIPLIER 1.03
 #define G_TASK_WAIT_TIME_MAX (30 * 60 * 1000000)
+
+static void
+g_task_deinit (void)
+{
+  if (task_pool)
+    {
+      g_thread_pool_free (task_pool, TRUE, FALSE);
+      task_pool = NULL;
+    }
+}
 
 static void
 g_task_init (GTask *task)
