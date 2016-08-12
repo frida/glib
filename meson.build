@@ -239,6 +239,7 @@ headers = [
   'sys/statvfs.h',
   'sys/sysctl.h',
   'sys/time.h', # MSC does not come with this by default
+  'time64.h',
   'sys/times.h',
   'sys/types.h',
   'sys/uio.h',
@@ -425,6 +426,7 @@ functions = [
   'strtoull_l',
   'symlink',
   'timegm',
+  'timegm64',
   'unsetenv',
   'uselocale',
   'utimes',
