@@ -39,6 +39,9 @@
 #include <sys/time.h>
 #endif
 #include <time.h>
+#ifdef HAVE_TIME64_H
+#include <time64.h>
+#endif
 #ifndef G_OS_WIN32
 #include <errno.h>
 #endif /* G_OS_WIN32 */
@@ -324,6 +327,8 @@ mktime_utc (struct tm *tm)
     retval -= 1;
   
   retval = ((((retval * 24) + tm->tm_hour) * 60) + tm->tm_min) * 60 + tm->tm_sec;
+#elif defined (HAVE_TIMEGM64)
+  retval = timegm64 (tm);
 #else
   retval = timegm (tm);
 #endif /* !HAVE_TIMEGM */

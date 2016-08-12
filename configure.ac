@@ -529,7 +529,7 @@ fi
 # Checks for library functions.
 AC_FUNC_ALLOCA
 AC_CHECK_FUNCS(mmap posix_memalign memalign valloc fsync pipe2 issetugid)
-AC_CHECK_FUNCS(timegm gmtime_r)
+AC_CHECK_FUNCS(timegm timegm64 gmtime_r)
 AC_FUNC_STRERROR_R()
 
 AC_CACHE_CHECK([for __libc_enable_secure], glib_cv_have_libc_enable_secure,
@@ -717,7 +717,7 @@ AC_CHECK_HEADERS([linux/magic.h])
 AC_CHECK_HEADERS([termios.h])
 
 # Some versions of MSC lack these
-AC_CHECK_HEADERS([dirent.h sys/time.h])
+AC_CHECK_HEADERS([dirent.h sys/time.h time64.h])
 
 # We don't care about this, but we need to keep including it in
 # glibconfig.h for backward compatibility
