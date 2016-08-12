@@ -1184,7 +1184,7 @@ lookup_uid_data (uid_t uid)
 
   data = g_new0 (UidData, 1);
 
-#if defined(HAVE_GETPWUID_R)
+#if defined (HAVE_GETPWUID_R) && !defined (__BIONIC__)
   getpwuid_r (uid, &pwbuf, buffer, sizeof(buffer), &pwbufp);
 #else
   pwbufp = getpwuid (uid);
