@@ -631,7 +631,7 @@ g_get_user_database_entry (void)
         gint error;
         gchar *logname;
 
-#  if defined (HAVE_GETPWUID_R)
+#  if defined (HAVE_GETPWUID_R) && !defined (__BIONIC__)
         struct passwd pwd;
 #    ifdef _SC_GETPW_R_SIZE_MAX
         /* This reurns the maximum length */
