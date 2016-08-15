@@ -24,8 +24,20 @@
 #pragma warning(disable:4101) /* unreferenced local variable */
 #pragma warning(error:4150)
 
+#pragma warning(disable:4018)	/* No signed/unsigned warnings */
+#pragma warning(disable:4068)	/* No unknown pragma warnings */
+#pragma warning(disable:4090)	/* No different qualifiers warnings */
+#pragma warning(disable:4116)	/* No unnamed type definition warnings */
+#pragma warning(disable:4146)	/* No unary minus operator warnings */
 #pragma warning(disable:4244)	/* No possible loss of data warnings */
+#pragma warning(disable:4267)	/* No possible loss of data warnings */
 #pragma warning(disable:4305)   /* No truncation from int to char warnings */
+#pragma warning(disable:4311)	/* No pointer truncation warnings */
+#pragma warning(disable:4312)	/* No conversion to greater size warnings */
+#pragma warning(disable:4334)	/* No result of 32-bit shift implicitly converted to 64 bits warnings */
+#pragma warning(disable:4715)	/* No control paths warnings */
+#pragma warning(disable:4716)	/* No must-return-a-value warnings */
+#pragma warning(disable:4996)	/* No deprecation warnings */
 
 #pragma warning(error:4819) /* The file contains a character that cannot be represented in the current code page */
 
