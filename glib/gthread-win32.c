@@ -343,7 +343,7 @@ g_private_get_impl (GPrivate *key)
             }
 
           /* Ditto, due to the unlocked access on the fast path */
-          if (InterlockedCompareExchangePointer (&key->p, impl, NULL) != NULL)
+          if (InterlockedCompareExchangePointer (&key->p, (PVOID) impl, NULL) != NULL)
             g_thread_abort (0, "g_private_get_impl(2)");
         }
       LeaveCriticalSection (&g_private_lock);
