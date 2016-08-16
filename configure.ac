@@ -528,7 +528,7 @@ fi
 
 # Checks for library functions.
 AC_FUNC_ALLOCA
-AC_CHECK_FUNCS(mmap posix_memalign memalign valloc fsync pipe2 issetugid)
+AC_CHECK_FUNCS(mmap posix_memalign memalign valloc fsync pipe2 issetugid mkostemp)
 AC_CHECK_FUNCS(timegm timegm64 gmtime_r)
 AC_FUNC_STRERROR_R()
 

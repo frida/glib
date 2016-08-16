@@ -2425,8 +2425,15 @@ retry:
   /* Message was too large, so dump to temporary file
    * and pass an FD to the journal
    */
+#ifdef HAVE_MKOSTEMP
   if ((buf_fd = mkostemp (path, O_CLOEXEC|O_RDWR)) < 0)
     return -1;
+#else
+  buf_fd = mkstemp (path);
+  if (buf_fd < 0)
+    return -1;
+  fcntl (buf_fd, F_SETFD, FD_CLOEXEC);
+#endif
 
   if (unlink (path) < 0)
     {
