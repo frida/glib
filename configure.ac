@@ -551,7 +551,7 @@ fi
 # Checks for library functions.
 AC_FUNC_ALLOCA
 AC_CHECK_FUNCS(mmap posix_memalign memalign valloc fsync pipe2 issetugid)
-AC_CHECK_FUNCS(timegm timegm64 gmtime_r strerror_r)
+AC_CHECK_FUNCS(timegm timegm64 gmtime_r strerror_r mkostemp)
 
 AC_CACHE_CHECK([for __libc_enable_secure], glib_cv_have_libc_enable_secure,
   [AC_TRY_LINK([#include <unistd.h>
