@@ -50,6 +50,7 @@
 
 #include "gstrfuncs.h"
 
+#include "glib-init.h"
 #include "gprintf.h"
 #include "gprintfint.h"
 #include "glibintl.h"
@@ -316,7 +317,8 @@ static const guint16 ascii_table_data[256] = {
 
 const guint16 * const g_ascii_table = ascii_table_data;
 
-#if defined (HAVE_NEWLOCALE) && \
+#if !defined (GLIB_STATIC_COMPILATION) && \
+    defined (HAVE_NEWLOCALE) && \
     defined (HAVE_USELOCALE) && \
     defined (HAVE_STRTOD_L) && \
     defined (HAVE_STRTOULL_L) && \
@@ -325,11 +327,12 @@ const guint16 * const g_ascii_table = ascii_table_data;
 #endif
 
 #ifdef USE_XLOCALE
+static locale_t C_locale = NULL;
+
 static locale_t
 get_C_locale (void)
 {
   static gsize initialized = FALSE;
-  static locale_t C_locale = NULL;
 
   if (g_once_init_enter (&initialized))
     {
@@ -3453,6 +3456,14 @@ g_ascii_string_to_unsigned (const gchar  *str,
   if (out_num != NULL)
     *out_num = number;
   return TRUE;
+}
+
+void
+_g_strfuncs_deinit (void)
+{
+#ifdef USE_XLOCALE
+  g_clear_pointer (&C_locale, freelocale);
+#endif
 }
 
 G_DEFINE_QUARK (g-number-parser-error-quark, g_number_parser_error)

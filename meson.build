@@ -195,6 +195,7 @@ endif
 if get_option('default_library') == 'static'
     glibconfig_conf.set('GLIB_STATIC_COMPILATION', '1')
     glibconfig_conf.set('GOBJECT_STATIC_COMPILATION', '1')
+    glibconfig_conf.set('GIO_STATIC_COMPILATION', '1')
 endif
 
 # Cygwin glib port maintainers made it clear
@@ -783,7 +784,11 @@ have_good_vsnprintf = false
 have_good_snprintf = false
 have_good_printf = false
 
-if host_system == 'windows' and (cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl')
+if get_option('default_library') == 'static'
+  glib_conf.set('HAVE_C99_SNPRINTF', false)
+  glib_conf.set('HAVE_C99_VSNPRINTF', false)
+  glib_conf.set('HAVE_UNIX98_PRINTF', false)
+elif host_system == 'windows' and (cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl')
   # Unfortunately the Visual Studio 2015+ implementations of C99-style
   # snprintf and vsnprintf don't seem to be quite good enough.
   # (Sorry, I don't know exactly what is the problem,
@@ -1871,21 +1876,27 @@ if not libz_dep.found()
   endif
 endif
 
-# First check in libc, fallback to libintl, and as last chance build
-# proxy-libintl subproject.
-# FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
-# implementations. This could be extended if issues are found in some platforms.
-if cc.has_function('ngettext')
-  libintl = []
-  have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset')
+if get_option('default_library') == 'static'
+  subdir('proxy-libintl')
+  libintl = intl_dep
+  have_bind_textdomain_codeset = true
 else
-  libintl = cc.find_library('intl', required : false)
-  if not libintl.found()
-    libintl = subproject('proxy-libintl').get_variable('intl_dep')
-    have_bind_textdomain_codeset = true  # proxy-libintl supports it
+  # First check in libc, fallback to libintl, and as last chance build
+  # proxy-libintl subproject.
+  # FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
+  # implementations. This could be extended if issues are found in some platforms.
+  if cc.has_function('ngettext')
+    libintl = []
+    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset')
   else
-    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset',
-                                                   dependencies : libintl)
+    libintl = cc.find_library('intl', required : false)
+    if not libintl.found()
+      libintl = subproject('proxy-libintl').get_variable('intl_dep')
+      have_bind_textdomain_codeset = true  # proxy-libintl supports it
+    else
+      have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset',
+                                                     dependencies : libintl)
+    endif
   endif
 endif
 
