@@ -62,7 +62,7 @@ gmoduleconf_h = configure_file(input : 'gmoduleconf.h.in',
 install_headers(['gmodule.h'], subdir : 'glib-2.0')
 
 gmodule_sources = ['gmodule.c']
-if host_system == 'windows'
+if host_system == 'windows' and get_option('default_library') != 'static'
   gmodule_win_rc = configure_file(
     input: 'gmodule.rc.in',
     output: 'gmodule.rc',
