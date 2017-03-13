@@ -187,9 +187,10 @@ if get_option('default_library') != 'static'
   endif
 endif
 
-if host_system == 'windows' and get_option('default_library') == 'static'
+if get_option('default_library') == 'static'
     glibconfig_conf.set('GLIB_STATIC_COMPILATION', '1')
     glibconfig_conf.set('GOBJECT_STATIC_COMPILATION', '1')
+    glibconfig_conf.set('GIO_STATIC_COMPILATION', '1')
 endif
 
 # Cygwin glib port maintainers made it clear
@@ -743,7 +744,11 @@ have_good_vsnprintf = false
 have_good_snprintf = false
 have_good_printf = false
 
-if host_system == 'windows' and cc.get_id() == 'msvc'
+if get_option('default_library') == 'static'
+  glib_conf.set('HAVE_C99_SNPRINTF', false)
+  glib_conf.set('HAVE_C99_VSNPRINTF', false)
+  glib_conf.set('HAVE_UNIX98_PRINTF', false)
+elif host_system == 'windows' and cc.get_id() == 'msvc'
   # Unfortunately the Visual Studio 2015+ implementations of C99-style
   # snprintf and vsnprintf don't seem to be quite good enough.
   # (Sorry, I don't know exactly what is the problem,
@@ -875,6 +880,7 @@ main (void)
       glib_conf.set('HAVE_UNIX98_PRINTF', have_good_printf)
   endif
 endif
+using_system_printf = have_good_vsnprintf and have_good_snprintf and have_good_printf
 
 if host_system == 'windows'
   glib_conf.set_quoted('EXEEXT', '.exe')
@@ -882,15 +888,14 @@ else
   glib_conf.set('EXEEXT', '')
 endif
 
-if have_good_vsnprintf and have_good_snprintf and have_good_printf
+if using_system_printf
   # Our printf is 'good' only if vsnpintf()/snprintf()/printf() supports C99 well enough
   glib_conf.set('HAVE_GOOD_PRINTF', 1)
 else
   glib_conf.set('HAVE_VASPRINTF', 1)
 endif
 
-glibconfig_conf.set('GLIB_USING_SYSTEM_PRINTF',
-                    have_good_vsnprintf and have_good_snprintf and have_good_printf)
+glibconfig_conf.set('GLIB_USING_SYSTEM_PRINTF', using_system_printf)
 
 # Check whether the printf() family supports Unix98 %n$ positional parameters
 # AC_FUNC_PRINTF_UNIX98
@@ -1761,21 +1766,27 @@ if not libz_dep.found()
   endif
 endif
 
-# First check in libc, fallback to libintl, and as last chance build
-# proxy-libintl subproject.
-# FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
-# implementations. This could be extended if issues are found in some platforms.
-if cc.has_function('ngettext')
-  libintl = []
-  have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset')
+if get_option('default_library') == 'static'
+  subdir('proxy-libintl')
+  libintl = intl_dep
+  have_bind_textdomain_codeset = true
 else
-  libintl = cc.find_library('intl', required : false)
-  if not libintl.found()
-    libintl = subproject('proxy-libintl').get_variable('intl_dep')
-    have_bind_textdomain_codeset = true  # proxy-libintl supports it
+  # First check in libc, fallback to libintl, and as last chance build
+  # proxy-libintl subproject.
+  # FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
+  # implementations. This could be extended if issues are found in some platforms.
+  if cc.has_function('ngettext')
+    libintl = []
+    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset')
   else
-    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset',
-                                                   dependencies : libintl)
+    libintl = cc.find_library('intl', required : false)
+    if not libintl.found()
+      libintl = subproject('proxy-libintl').get_variable('intl_dep')
+      have_bind_textdomain_codeset = true  # proxy-libintl supports it
+    else
+      have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset',
+                                                     dependencies : libintl)
+    endif
   endif
 endif
 
