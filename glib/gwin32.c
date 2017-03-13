@@ -839,7 +839,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
  * attached to a process, from DllMain().
  */
 void
-g_console_win32_init (void)
+_g_console_win32_init (void)
 {
   struct
     {
@@ -1221,7 +1221,7 @@ g_win32_veh_handler (PEXCEPTION_POINTERS ExceptionInfo)
 }
 
 void
-g_crash_handler_win32_init (void)
+_g_crash_handler_win32_init (void)
 {
   if (WinVEH_handle != NULL)
     return;
@@ -1238,7 +1238,7 @@ g_crash_handler_win32_init (void)
 }
 
 void
-g_crash_handler_win32_deinit (void)
+_g_crash_handler_win32_deinit (void)
 {
   if (WinVEH_handle != NULL)
     RemoveVectoredExceptionHandler (WinVEH_handle);
