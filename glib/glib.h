@@ -115,4 +115,26 @@
 
 #undef __GLIB_H_INSIDE__
 
+G_BEGIN_DECLS
+
+GLIB_AVAILABLE_IN_2_68
+void                            glib_init                               (void);
+
+GLIB_AVAILABLE_IN_2_68
+void                            glib_shutdown                           (void);
+
+GLIB_AVAILABLE_IN_2_68
+void                            glib_deinit                             (void);
+
+GLIB_AVAILABLE_IN_2_68
+void                            glib_prepare_to_fork                    (void);
+
+GLIB_AVAILABLE_IN_2_68
+void                            glib_recover_from_fork_in_parent        (void);
+
+GLIB_AVAILABLE_IN_2_68
+void                            glib_recover_from_fork_in_child         (void);
+
+G_END_DECLS
+
 #endif /* __G_LIB_H__ */
