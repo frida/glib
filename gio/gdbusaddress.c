@@ -1021,6 +1021,8 @@ g_dbus_address_get_stream_sync (const gchar   *address,
   return ret;
 }
 
+#ifndef GIO_STATIC_COMPILATION
+
 /* ---------------------------------------------------------------------------------------------------- */
 
 /*
@@ -1221,6 +1223,20 @@ get_session_address_dbus_launch (GError **error)
 }
 #endif /* neither G_OS_UNIX nor G_OS_WIN32 */
 
+#else /* !GIO_STATIC_COMPILATION */
+
+static gchar *
+get_session_address_dbus_launch (GError **error)
+{
+  g_set_error (error,
+               G_IO_ERROR,
+               G_IO_ERROR_FAILED,
+               _("Session bus not available for static GIO"));
+  return NULL;
+}
+
+#endif /* GIO_STATIC_COMPILATION */
+
 /* ---------------------------------------------------------------------------------------------------- */
 
 static gchar *
@@ -1228,6 +1244,7 @@ get_session_address_platform_specific (GError **error)
 {
   gchar *ret;
 
+#ifndef GIO_STATIC_COMPILATION
   /* Use XDG_RUNTIME_DIR/bus if it exists and is suitable. This is appropriate
    * for systems using the "a session is a user-session" model described in
    * <http://lists.freedesktop.org/archives/dbus/2015-January/016522.html>,
@@ -1252,6 +1269,15 @@ get_session_address_platform_specific (GError **error)
    * mechanism based on shared memory.
    */
   return get_session_address_dbus_launch (error);
+#else
+  ret = NULL;
+  g_set_error (error,
+               G_IO_ERROR,
+               G_IO_ERROR_FAILED,
+               _("Session bus not available for static GIO"));
+#endif
+
+  return ret;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
