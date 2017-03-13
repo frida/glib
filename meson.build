@@ -176,9 +176,10 @@ if get_option('default_library') != 'static'
   endif
 endif
 
-if host_system == 'windows' and get_option('default_library') == 'static'
+if get_option('default_library') == 'static'
     glibconfig_conf.set('GLIB_STATIC_COMPILATION', '1')
     glibconfig_conf.set('GOBJECT_STATIC_COMPILATION', '1')
+    glibconfig_conf.set('GIO_STATIC_COMPILATION', '1')
 endif
 
 # FIXME: what about Cygwin (G_WITH_CYGWIN)
@@ -711,7 +712,10 @@ endif
 have_good_vsnprintf = false
 have_good_snprintf = false
 
-if host_system == 'windows' and cc.get_id() == 'msvc'
+if get_option('default_library') == 'static'
+  glib_conf.set('HAVE_C99_SNPRINTF', false)
+  glib_conf.set('HAVE_C99_VSNPRINTF', false)
+elif host_system == 'windows' and cc.get_id() == 'msvc'
   # Unfortunately the Visual Studio 2015+ implementations of C99-style
   # snprintf and vsnprintf don't seem to be quite good enough.
   # (Sorry, I don't know exactly what is the problem,
@@ -1656,16 +1660,21 @@ libm = cc.find_library('m', required : false)
 libffi_dep = subproject('libffi').get_variable('ffi_dep')
 libz_dep = subproject('zlib').get_variable('zlib_dep')
 
-# First check in libc, fallback to libintl, and as last chance build
-# proxy-libintl subproject.
-# FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
-# implementations. This could be extended if issues are found in some platforms.
-if cc.has_function('ngettext')
-  libintl = []
+if get_option('default_library') == 'static'
+  subdir('proxy-libintl')
+  libintl = intl_dep
 else
-  libintl = cc.find_library('intl', required : false)
-  if not libintl.found()
-    libintl = subproject('proxy-libintl').get_variable('intl_dep')
+  # First check in libc, fallback to libintl, and as last chance build
+  # proxy-libintl subproject.
+  # FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
+  # implementations. This could be extended if issues are found in some platforms.
+  if cc.has_function('ngettext')
+    libintl = []
+  else
+    libintl = cc.find_library('intl', required : false)
+    if not libintl.found()
+      libintl = subproject('proxy-libintl').get_variable('intl_dep')
+    endif
   endif
 endif
 

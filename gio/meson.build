@@ -466,6 +466,7 @@ else
 endif
 
 gio_sources = files(
+  'gio-init.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',
@@ -780,14 +781,19 @@ else
   gio_dtrace_hdr = []
 endif
 
+internal_objects = []
+foreach dep : internal_deps
+  internal_objects += dep.extract_all_objects()
+endforeach
+
 libgio = library('gio-2.0',
   gioenumtypes_h, gioenumtypes_c, gnetworking_h, gio_sources,
   gio_dtrace_hdr, gio_dtrace_obj,
+  objects : internal_objects,
   version : library_version,
   soversion : soversion,
   install : true,
   include_directories : [configinc, gioinc],
-  link_with : internal_deps,
   #  '$(gio_win32_res_ldflag)',
   dependencies : [libz_dep, libdl_dep, libmount_dep, libglib_dep,
                   libgobject_dep, libgmodule_dep, selinux_dep, xattr_dep,

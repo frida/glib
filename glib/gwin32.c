@@ -827,7 +827,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
  * attached to a process, from DllMain().
  */
 void
-g_console_win32_init (void)
+_g_console_win32_init (void)
 {
   struct
     {
