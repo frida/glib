@@ -3,14 +3,23 @@ configure_file(input : 'glibconfig.h.in', output : 'glibconfig.h',
   install_dir : join_paths(get_option('libdir'), 'glib-2.0/include'),
   configuration : glibconfig_conf)
 
+internal_deps = []
+
+if get_option('default_library') == 'static'
+  internal_deps += intl_lib
+endif
+
 subdir('libcharset')
+internal_deps += charset_lib
+
 if not use_system_pcre
   subdir('pcre')
+  internal_deps += libpcre
 endif
-if have_good_vsnprintf and have_good_snprintf
-  gnulib_lib = []
-else
+
+if not using_system_printf
   subdir('gnulib')
+  internal_deps += gnulib_lib
 endif
 
 glib_headers = files(
@@ -181,6 +190,7 @@ glib_sources = files(
   'gthreadpool.c',
   'gtimer.c',
   'gtimezone.c',
+  'gtinylist.c',
   'gtranslit.c',
   'gtrashstack.c',
   'gtree.c',
@@ -204,13 +214,15 @@ glib_sources = files(
 )
 
 if host_system == 'windows'
-  glib_win_rc = configure_file(
-    input: 'glib.rc.in',
-    output: 'glib.rc',
-    configuration: glibconfig_conf,
-  )
-  glib_win_res = windows.compile_resources(glib_win_rc)
-  glib_sources += [glib_win_res]
+  if get_option('default_library') != 'static'
+    glib_win_rc = configure_file(
+      input: 'glib.rc.in',
+      output: 'glib.rc',
+      configuration: glibconfig_conf,
+    )
+    glib_win_res = windows.compile_resources(glib_win_rc)
+    glib_sources += [glib_win_res]
+  endif
   glib_sources += files('gwin32.c', 'gspawn-win32.c', 'giowin32.c')
   platform_deps = [winsock2, cc.find_library('winmm')]
 else
@@ -234,16 +246,21 @@ if use_pcre_static_flag
   pcre_static_args = ['-DPCRE_STATIC']
 endif
 
+internal_objects = []
+foreach dep : internal_deps
+  internal_objects += dep.extract_all_objects()
+endforeach
+
 libglib = library('glib-2.0',
   glib_dtrace_obj, glib_dtrace_hdr,
   sources : [deprecated_sources, glib_sources],
+  objects : internal_objects,
   version : library_version,
   soversion : soversion,
   install : true,
   # intl.lib is not compatible with SAFESEH
   link_args : [noseh_link_args, glib_link_flags, win32_ldflags],
   include_directories : configinc,
-  link_with : [charset_lib, gnulib_lib],
   dependencies : [pcre, thread_dep, libintl, librt] + libiconv + platform_deps,
   c_args : ['-DG_LOG_DOMAIN="GLib"', '-DGLIB_COMPILATION'] + pcre_static_args + glib_hidden_visibility_args
 )

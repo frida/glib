@@ -2,7 +2,7 @@
 # has been moved into glib now
 
 gthread_sources = ['gthread-impl.c']
-if host_system == 'windows'
+if host_system == 'windows' and get_option('default_library') != 'static'
   gthread_win_rc = configure_file(
     input: 'gthread.rc.in',
     output: 'gthread.rc',
