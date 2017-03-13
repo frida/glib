@@ -60,3 +60,7 @@ ChangeLog
 # Meson
 /meson-build/
 /subprojects/*/
+
+*.sln.cache
+x86
+x86_64

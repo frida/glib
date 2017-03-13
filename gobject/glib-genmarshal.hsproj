@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{829C52A1-72B5-4121-B2A8-F1D1BBB1A02F}</ProjectGuid>
+    <TopBldDir>../</TopBldDir>
+  </PropertyGroup>
+  <Import Project="$(TopBldDir)glib-common.props" />
+  <PropertyGroup>
+    <BuildInstallTargets>
+      $(BuildInstallTargets);
+      InstallGenmarshal;
+    </BuildInstallTargets>
+  </PropertyGroup>
+  <Import Project="$(MSBuildExtensionsPath)\HSBuild\HSBuild.Utility.targets" />
+  <ItemGroup>
+    <InFile Include="$(AssemblyName).in" />
+  </ItemGroup>
+  <Target Name="InstallGenmarshal">
+    <Copy SourceFiles="$(IntDir)$(AssemblyName)" DestinationFiles="$(OutDir)$(BinaryOutputSubDir)$(TargetName).py" SkipUnchangedFiles="true">
+      <Output TaskParameter="DestinationFiles" ItemName="FileWrites" />
+    </Copy>
+  </Target>
+</Project>
