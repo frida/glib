@@ -19,10 +19,6 @@
 #include "config.h"
 #include "glibconfig.h"
 
-#if defined(HAVE_POSIX_MEMALIGN) && !defined(_XOPEN_SOURCE)
-#define _XOPEN_SOURCE 600       /* posix_memalign() */
-#endif
-#include <stdlib.h>             /* posix_memalign() */
 #include <string.h>
 #include <errno.h>
 
@@ -38,6 +34,7 @@
 
 #include "gslice.h"
 
+#include "glib-init.h"
 #include "gmain.h"
 #include "gmem.h"               /* gslice.h */
 #include "gstrfuncs.h"
@@ -48,6 +45,7 @@
 #include "gthreadprivate.h"
 #include "glib_trace.h"
 #include "gprintf.h"
+#include "gtinylist.h"
 
 #include "gvalgrind.h"
 
@@ -264,6 +262,7 @@ static gpointer     slab_allocator_alloc_chunk       (gsize      chunk_size);
 static void         slab_allocator_free_chunk        (gsize      chunk_size,
                                                       gpointer   mem);
 static void         private_thread_memory_cleanup    (gpointer   data);
+static void         allocator_cleanup                (void);
 static gpointer     allocator_memalign               (gsize      alignment,
                                                       gsize      memsize);
 static void         allocator_memfree                (gsize      memsize,
@@ -414,22 +413,25 @@ g_slice_init_nomessage (void)
   mem_assert ((sys_page_size & (sys_page_size - 1)) == 0);
   slice_config_init (&allocator->config);
   allocator->min_page_size = sys_page_size;
-#if HAVE_POSIX_MEMALIGN || HAVE_MEMALIGN
-  /* allow allocation of pages up to 8KB (with 8KB alignment).
-   * this is useful because many medium to large sized structures
-   * fit less than 8 times (see [4]) into 4KB pages.
-   * we allow very small page sizes here, to reduce wastage in
-   * threads if only small allocations are required (this does
-   * bear the risk of increasing allocation times and fragmentation
-   * though).
-   */
-  allocator->min_page_size = MAX (allocator->min_page_size, 4096);
-  allocator->max_page_size = MAX (allocator->min_page_size, 8192);
-  allocator->min_page_size = MIN (allocator->min_page_size, 128);
-#else
-  /* we can only align to system page size */
-  allocator->max_page_size = sys_page_size;
-#endif
+  if (glib_mem_table->memalign)
+    {
+      /* allow allocation of pages up to 8KB (with 8KB alignment).
+       * this is useful because many medium to large sized structures
+       * fit less than 8 times (see [4]) into 4KB pages.
+       * we allow very small page sizes here, to reduce wastage in
+       * threads if only small allocations are required (this does
+       * bear the risk of increasing allocation times and fragmentation
+       * though).
+       */
+      allocator->min_page_size = MAX (allocator->min_page_size, 4096);
+      allocator->max_page_size = MAX (allocator->min_page_size, 8192);
+      allocator->min_page_size = MIN (allocator->min_page_size, 128);
+    }
+  else
+    {
+      /* we can only align to system page size */
+      allocator->max_page_size = sys_page_size;
+    }
   if (allocator->config.always_malloc)
     {
       allocator->contention_counters = NULL;
@@ -452,6 +454,12 @@ g_slice_init_nomessage (void)
   allocator->max_slab_chunk_size_for_magazine_cache = MAX_SLAB_CHUNK_SIZE (allocator);
   if (allocator->config.always_malloc || allocator->config.bypass_magazines)
     allocator->max_slab_chunk_size_for_magazine_cache = 0;      /* non-optimized cases */
+}
+
+void
+_g_slice_deinit (void)
+{
+  allocator_cleanup ();
 }
 
 static inline guint
@@ -1385,64 +1393,67 @@ slab_allocator_free_chunk (gsize    chunk_size,
 }
 
 /* --- memalign implementation --- */
-#ifdef HAVE_MALLOC_H
-#include <malloc.h>             /* memalign() */
-#endif
-
-/* from config.h:
- * define HAVE_POSIX_MEMALIGN           1 // if free(posix_memalign(3)) works, <stdlib.h>
- * define HAVE_MEMALIGN                 1 // if free(memalign(3)) works, <malloc.h>
- * define HAVE_VALLOC                   1 // if free(valloc(3)) works, <stdlib.h> or <malloc.h>
- * if none is provided, we implement malloc(3)-based alloc-only page alignment
- */
-
-#if !(HAVE_POSIX_MEMALIGN || HAVE_MEMALIGN || HAVE_VALLOC)
+static GTinyList *slab_allocations = NULL;
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 static GTrashStack *compat_valloc_trash = NULL;
 G_GNUC_END_IGNORE_DEPRECATIONS
-#endif
+
+static void
+allocator_cleanup (void)
+{
+  g_tinylist_foreach (slab_allocations, (GFunc) glib_mem_table->free, NULL);
+  g_tinylist_free (slab_allocations);
+  slab_allocations = NULL;
+  compat_valloc_trash = NULL;
+}
 
 static gpointer
 allocator_memalign (gsize alignment,
                     gsize memsize)
 {
-  gpointer aligned_memory = NULL;
+  gpointer aligned_memory;
   gint err = ENOMEM;
-#if     HAVE_POSIX_MEMALIGN
-  err = posix_memalign (&aligned_memory, alignment, memsize);
-#elif   HAVE_MEMALIGN
-  errno = 0;
-  aligned_memory = memalign (alignment, memsize);
-  err = errno;
-#elif   HAVE_VALLOC
-  errno = 0;
-  aligned_memory = valloc (memsize);
-  err = errno;
-#else
-  /* simplistic non-freeing page allocator */
-  mem_assert (alignment == sys_page_size);
-  mem_assert (memsize <= sys_page_size);
-  if (!compat_valloc_trash)
+
+  if (glib_mem_table->memalign)
     {
-      const guint n_pages = 16;
-      guint8 *mem = malloc (n_pages * sys_page_size);
+      aligned_memory = glib_mem_table->memalign (alignment, memsize);
       err = errno;
-      if (mem)
-        {
-          gint i = n_pages;
-          guint8 *amem = (guint8*) ALIGN ((gsize) mem, sys_page_size);
-          if (amem != mem)
-            i--;        /* mem wasn't page aligned */
-          G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-          while (--i >= 0)
-            g_trash_stack_push (&compat_valloc_trash, amem + i * sys_page_size);
-          G_GNUC_END_IGNORE_DEPRECATIONS
-        }
     }
-  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-  aligned_memory = g_trash_stack_pop (&compat_valloc_trash);
-  G_GNUC_END_IGNORE_DEPRECATIONS
-#endif
+  else
+    {
+      gpointer allocated_memory = NULL;
+
+      /* simplistic non-freeing page allocator */
+      mem_assert (alignment == sys_page_size);
+      mem_assert (memsize <= sys_page_size);
+      if (!compat_valloc_trash)
+        {
+          const guint n_pages = 16;
+          guint8 *mem = glib_mem_table->malloc (n_pages * sys_page_size);
+          allocated_memory = mem;
+          err = errno;
+          if (mem)
+            {
+              gint i = n_pages;
+              guint8 *amem = (guint8*) ALIGN ((gsize) mem, sys_page_size);
+              if (amem != mem)
+                i--;        /* mem wasn't page aligned */
+              G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+              while (--i >= 0)
+                g_trash_stack_push (&compat_valloc_trash,
+                                    amem + i * sys_page_size);
+              G_GNUC_END_IGNORE_DEPRECATIONS
+            }
+        }
+      G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+      aligned_memory = g_trash_stack_pop (&compat_valloc_trash);
+      G_GNUC_END_IGNORE_DEPRECATIONS
+
+      if (allocated_memory != NULL)
+        slab_allocations = g_tinylist_prepend (slab_allocations,
+                                               allocated_memory);
+    }
+
   if (!aligned_memory)
     errno = err;
   return aligned_memory;
@@ -1452,14 +1463,17 @@ static void
 allocator_memfree (gsize    memsize,
                    gpointer mem)
 {
-#if     HAVE_POSIX_MEMALIGN || HAVE_MEMALIGN || HAVE_VALLOC
-  free (mem);
-#else
-  mem_assert (memsize <= sys_page_size);
-  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-  g_trash_stack_push (&compat_valloc_trash, mem);
-  G_GNUC_END_IGNORE_DEPRECATIONS
-#endif
+  if (glib_mem_table->memalign)
+    {
+      glib_mem_table->free (mem);
+    }
+  else
+    {
+      mem_assert (memsize <= sys_page_size);
+      G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+      g_trash_stack_push (&compat_valloc_trash, mem);
+      G_GNUC_END_IGNORE_DEPRECATIONS
+    }
 }
 
 static void
@@ -1572,7 +1586,8 @@ smc_tree_branch_grow_L (SmcBranch   *branch,
   unsigned int new_size = old_size + sizeof (branch->entries[0]);
   SmcEntry *entry;
   mem_assert (index <= branch->n_entries);
-  branch->entries = (SmcEntry*) realloc (branch->entries, new_size);
+  branch->entries = (SmcEntry*) glib_mem_table->realloc (branch->entries,
+                                                         new_size);
   if (!branch->entries)
     smc_tree_abort (errno);
   entry = branch->entries + index;
@@ -1616,13 +1631,16 @@ smc_tree_insert (SmcKType key,
   ix1 = SMC_BRANCH_HASH (key);
   if (!smc_tree_root)
     {
-      smc_tree_root = calloc (SMC_TRUNK_COUNT, sizeof (smc_tree_root[0]));
+      smc_tree_root = glib_mem_table->calloc (SMC_TRUNK_COUNT,
+                                              sizeof (smc_tree_root[0]));
       if (!smc_tree_root)
         smc_tree_abort (errno);
     }
   if (!smc_tree_root[ix0])
     {
-      smc_tree_root[ix0] = calloc (SMC_BRANCH_COUNT, sizeof (smc_tree_root[0][0]));
+      smc_tree_root[ix0] =
+          glib_mem_table->calloc (SMC_BRANCH_COUNT,
+                                  sizeof (smc_tree_root[0][0]));
       if (!smc_tree_root[ix0])
         smc_tree_abort (errno);
     }
@@ -1679,7 +1697,7 @@ smc_tree_remove (SmcKType key)
           if (!smc_tree_root[ix0][ix1].n_entries)
             {
               /* avoid useless pressure on the memory system */
-              free (smc_tree_root[ix0][ix1].entries);
+              glib_mem_table->free (smc_tree_root[ix0][ix1].entries);
               smc_tree_root[ix0][ix1].entries = NULL;
             }
           found_one = TRUE;
