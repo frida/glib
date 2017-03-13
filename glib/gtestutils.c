@@ -3056,13 +3056,8 @@ g_assertion_message (const char     *domain,
 
   /* store assertion message in global variable, so that it can be found in a
    * core dump */
-  if (__glib_assert_msg != NULL)
-    /* free the old one */
-    free (__glib_assert_msg);
-  __glib_assert_msg = (char*) malloc (strlen (s) + 1);
-  strcpy (__glib_assert_msg, s);
-
-  g_free (s);
+  g_free (__glib_assert_msg);
+  __glib_assert_msg = s;
 
   if (test_in_subprocess)
     {

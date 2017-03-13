@@ -104,7 +104,7 @@ _g_unix_content_type_get_parents (const gchar *type)
   for (i = 0; parents && parents[i] != NULL; i++)
     g_ptr_array_add (array, g_strdup (parents[i]));
 
-  free (parents);
+  g_free (parents);
 
   G_UNLOCK (gio_xdgmime);
 
