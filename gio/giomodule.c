@@ -1073,6 +1073,8 @@ _g_io_modules_ensure_extension_points_registered (void)
   G_UNLOCK (registered_extensions);
 }
 
+#ifndef GLIB_STATIC_COMPILATION
+
 static gchar *
 get_gio_module_dir (void)
 {
@@ -1106,12 +1108,17 @@ get_gio_module_dir (void)
   return module_dir;
 }
 
+#endif /* !GLIB_STATIC_COMPILATION */
+
 void
 _g_io_modules_ensure_loaded (void)
 {
   static gboolean loaded_dirs = FALSE;
+#ifndef GLIB_STATIC_COMPILATION
   const char *module_path;
+  gchar *module_dir;
   GIOModuleScope *scope;
+#endif
 
   _g_io_modules_ensure_extension_points_registered ();
   
@@ -1119,9 +1126,9 @@ _g_io_modules_ensure_loaded (void)
 
   if (!loaded_dirs)
     {
-      gchar *module_dir;
-
       loaded_dirs = TRUE;
+
+#ifndef GLIB_STATIC_COMPILATION
       scope = g_io_module_scope_new (G_IO_MODULE_SCOPE_BLOCK_DUPLICATES);
 
       /* First load any overrides, extras */
@@ -1148,6 +1155,7 @@ _g_io_modules_ensure_loaded (void)
       g_free (module_dir);
 
       g_io_module_scope_free (scope);
+#endif
 
       /* Initialize types from built-in "modules" */
       g_type_ensure (g_null_settings_backend_get_type ());
