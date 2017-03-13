@@ -20,12 +20,7 @@ libsysprof_capture_dep = dependency('sysprof-capture-4', version: '>= 3.38.0',
 )
 glib_conf.set('HAVE_SYSPROF', libsysprof_capture_dep.found())
 
-if use_system_printf
-  gnulib_lib = []
-  gnulib_libm_dependency = []
-  glib_conf.set ('gl_unused', '')
-  glib_conf.set ('gl_extern_inline', '')
-else
+if true
   subdir ('gnulib/gl_extern_inline')
   subdir ('gnulib/gl_cv_long_double_equals_double')
   subdir ('gnulib/gl_cv_cc_double_expbit0')
@@ -249,6 +244,7 @@ glib_sources = files(
   'giochannel.c',
   'gkeyfile.c',
   'glib-init.c',
+  'glib-fork.c',
   'glib-private.c',
   'glist.c',
   'gmain.c',
@@ -284,6 +280,7 @@ glib_sources = files(
   'gthreadpool.c',
   'gtimer.c',
   'gtimezone.c',
+  'gtinylist.c',
   'gtrace.c',
   'gtrace-private.h',
   'gtranslit.c',
@@ -311,13 +308,15 @@ glib_sources = files(
 )
 
 if host_system == 'windows'
-  glib_win_rc = configure_file(
-    input: 'glib.rc.in',
-    output: 'glib.rc',
-    configuration: glibconfig_conf,
-  )
-  glib_win_res = windows.compile_resources(glib_win_rc)
-  glib_sources += [glib_win_res]
+  if get_option('default_library') != 'static'
+    glib_win_rc = configure_file(
+      input: 'glib.rc.in',
+      output: 'glib.rc',
+      configuration: glibconfig_conf,
+    )
+    glib_win_res = windows.compile_resources(glib_win_rc)
+    glib_sources += [glib_win_res]
+  endif
   glib_sources += files('gwin32.c', 'gspawn-win32.c', 'giowin32.c')
   platform_deps = [winsock2, cc.find_library('winmm')]
   if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
@@ -359,7 +358,7 @@ libglib = library('glib-2.0',
   # intl.lib is not compatible with SAFESEH
   link_args : [noseh_link_args, glib_link_flags, win32_ldflags],
   include_directories : configinc,
-  link_with: [charset_lib, gnulib_lib],
+  link_with: [charset_lib, gnulib_lib] + intl_lib,
   dependencies : [pcre, thread_dep, librt] + libintl_deps + libiconv + platform_deps + [gnulib_libm_dependency, libm] + [libsysprof_capture_dep],
   c_args : glib_c_args,
   objc_args : glib_c_args,

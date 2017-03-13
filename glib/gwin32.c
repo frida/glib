@@ -838,7 +838,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
  * attached to a process, from DllMain().
  */
 void
-g_console_win32_init (void)
+_g_console_win32_init (void)
 {
   struct
     {
@@ -1251,7 +1251,7 @@ parse_catch_list (const wchar_t *catch_buffer,
 }
 
 void
-g_crash_handler_win32_init (void)
+_g_crash_handler_win32_init (void)
 {
   wchar_t      debugger_env[DEBUGGER_BUFFER_SIZE];
 #define CATCH_BUFFER_SIZE 1024
@@ -1308,7 +1308,7 @@ g_crash_handler_win32_init (void)
 }
 
 void
-g_crash_handler_win32_deinit (void)
+_g_crash_handler_win32_deinit (void)
 {
   if (WinVEH_handle != NULL)
     RemoveVectoredExceptionHandler (WinVEH_handle);

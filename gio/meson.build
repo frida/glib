@@ -444,13 +444,15 @@ else
     'gwin32notificationbackend.c',
   )
 
-  gio_win_rc = configure_file(
-    input: 'gio.rc.in',
-    output: 'gio.rc',
-    configuration: glibconfig_conf,
-  )
-  gio_win_res = windows.compile_resources(gio_win_rc)
-  win32_sources += [gio_win_res]
+  if get_option('default_library') != 'static'
+    gio_win_rc = configure_file(
+      input: 'gio.rc.in',
+      output: 'gio.rc',
+      configuration: glibconfig_conf,
+    )
+    gio_win_res = windows.compile_resources(gio_win_rc)
+    win32_sources += [gio_win_res]
+  endif
 
   gio_win32_include_headers = files(
     'gwin32inputstream.h',
@@ -460,6 +462,8 @@ else
 endif
 
 gio_sources = files(
+  'gio-init.c',
+  'gio-fork.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',
@@ -793,6 +797,11 @@ else
   gio_dtrace_obj = []
   gio_dtrace_hdr = []
 endif
+
+internal_objects = []
+foreach dep : internal_deps
+  internal_objects += dep.extract_all_objects()
+endforeach
 
 libgio = library('gio-2.0',
   gioenumtypes_h, gioenumtypes_c, gnetworking_h, gio_sources,

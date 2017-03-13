@@ -3424,3 +3424,15 @@ g_printf_string_upper_bound (const gchar *format,
   gchar c;
   return _g_vsnprintf (&c, 1, format, args) + 1;
 }
+
+void
+_g_messages_deinit (void)
+{
+#if defined(__linux__) && !defined(__BIONIC__)
+  if (journal_fd != -1)
+    {
+      close (journal_fd);
+      journal_fd = -1;
+    }
+#endif
+}
