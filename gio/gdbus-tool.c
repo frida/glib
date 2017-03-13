@@ -2386,6 +2386,8 @@ main (gint argc, gchar *argv[])
   gchar *tmp;
 #endif
 
+  glib_init ();
+
   setlocale (LC_ALL, "");
   textdomain (GETTEXT_PACKAGE);
 
