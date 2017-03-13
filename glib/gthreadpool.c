@@ -28,6 +28,7 @@
 
 #include "gasyncqueue.h"
 #include "gasyncqueueprivate.h"
+#include "glib-init.h"
 #include "gmain.h"
 #include "gtestutils.h"
 #include "gtimer.h"
@@ -99,6 +100,9 @@ struct _GRealThreadPool
   gpointer sort_user_data;
 };
 
+G_LOCK_DEFINE_STATIC (pools);
+static GSList *pools = NULL;
+
 /* The following is just an address to mark the wakeup order for a
  * thread, it could be any address (as long, as it isn't a valid
  * GThreadPool address)
@@ -108,6 +112,8 @@ static gint wakeup_thread_serial = 0;
 
 /* Here all unused threads are waiting  */
 static GAsyncQueue *unused_thread_queue = NULL;
+static GSList *active_threads = NULL;
+static GSList *finished_threads = NULL;
 static gint unused_threads = 0;
 static gint max_unused_threads = 2;
 static gint kill_unused_threads = 0;
@@ -377,6 +383,16 @@ g_thread_pool_thread_proxy (gpointer data)
         }
     }
 
+  {
+    GThread * self;
+
+    self = g_thread_self ();
+    G_LOCK (pools);
+    active_threads = g_slist_remove (active_threads, self);
+    finished_threads = g_slist_prepend (finished_threads, self);
+    G_UNLOCK (pools);
+  }
+
   return NULL;
 }
 
@@ -410,13 +426,25 @@ g_thread_pool_start_thread (GRealThreadPool  *pool,
         g_snprintf (name, sizeof (name), "pool-%s", prgname);
 
       /* No thread was found, we have to start a new one */
+      G_LOCK (pools);
+      while (finished_threads != NULL)
+        {
+          thread = finished_threads->data;
+          finished_threads = g_slist_delete_link (finished_threads,
+                                                  finished_threads);
+          G_UNLOCK (pools);
+          g_thread_join (thread);
+          G_LOCK (pools);
+        }
+
       thread = g_thread_try_new (name, g_thread_pool_thread_proxy, pool, error);
+      if (thread != NULL)
+        active_threads = g_slist_prepend (active_threads, thread);
+      G_UNLOCK (pools);
 
       if (thread == NULL)
         return FALSE;
-
-      g_thread_unref (thread);
-    }
+  }
 
   /* See comment in g_thread_pool_thread_proxy as to why this is done
    * here and not there
@@ -474,7 +502,6 @@ g_thread_pool_new (GFunc      func,
                    GError   **error)
 {
   GRealThreadPool *retval;
-  G_LOCK_DEFINE_STATIC (init);
 
   g_return_val_if_fail (func, NULL);
   g_return_val_if_fail (!exclusive || max_threads != -1, NULL);
@@ -495,10 +522,11 @@ g_thread_pool_new (GFunc      func,
   retval->sort_func = NULL;
   retval->sort_user_data = NULL;
 
-  G_LOCK (init);
+  G_LOCK (pools);
+  pools = g_slist_prepend (pools, retval);
   if (!unused_thread_queue)
-      unused_thread_queue = g_async_queue_new ();
-  G_UNLOCK (init);
+    unused_thread_queue = g_async_queue_new ();
+  G_UNLOCK (pools);
 
   if (retval->pool.exclusive)
     {
@@ -810,6 +838,10 @@ g_thread_pool_free_internal (GRealThreadPool* pool)
   g_return_if_fail (pool->running == FALSE);
   g_return_if_fail (pool->num_threads == 0);
 
+  G_LOCK (pools);
+  pools = g_slist_remove (pools, pool);
+  G_UNLOCK (pools);
+
   g_async_queue_unref (pool->queue);
   g_cond_clear (&pool->cond);
 
@@ -1059,4 +1091,51 @@ guint
 g_thread_pool_get_max_idle_time (void)
 {
   return g_atomic_int_get (&max_idle_time);
+}
+
+void
+_g_thread_pool_shutdown (void)
+{
+  GSList *l;
+  GThread *thread;
+
+  g_thread_pool_set_max_unused_threads (0);
+
+  G_LOCK (pools);
+  for (l = pools; l != NULL; l = l->next)
+    {
+      GRealThreadPool *pool = l->data;
+
+      g_async_queue_lock (pool->queue);
+
+      if (!pool->running && pool->num_threads > 0)
+        {
+          g_thread_pool_wakeup_and_stop_all (pool);
+        }
+
+      g_async_queue_unlock (pool->queue);
+    }
+  while (active_threads != NULL)
+    {
+      thread = g_thread_ref (active_threads->data);
+      G_UNLOCK (pools);
+      g_thread_join (thread);
+      G_LOCK (pools);
+    }
+  while (finished_threads != NULL)
+    {
+      thread = finished_threads->data;
+      finished_threads = g_slist_delete_link (finished_threads,
+                                              finished_threads);
+      G_UNLOCK (pools);
+      g_thread_join (thread);
+      G_LOCK (pools);
+    }
+  G_UNLOCK (pools);
+
+  if (unused_thread_queue)
+    {
+      g_async_queue_unref (unused_thread_queue);
+      unused_thread_queue = NULL;
+    }
 }

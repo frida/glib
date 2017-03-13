@@ -543,31 +543,8 @@ g_variant_new_from_bytes (const GVariantType *type,
 
   if (!g_variant_serialised_check (serialised))
     {
-#ifdef HAVE_POSIX_MEMALIGN
-      gpointer aligned_data = NULL;
-      gsize aligned_size = g_bytes_get_size (bytes);
-
-      /* posix_memalign() requires the alignment to be a multiple of
-       * sizeof(void*), and a power of 2. See g_variant_type_info_query() for
-       * details on the alignment format. */
-      if (posix_memalign (&aligned_data, MAX (sizeof (void *), alignment + 1),
-                          aligned_size) != 0)
-        g_error ("posix_memalign failed");
-
-      memcpy (aligned_data, g_bytes_get_data (bytes, NULL), aligned_size);
-
-      bytes = owned_bytes = g_bytes_new_with_free_func (aligned_data,
-                                                        aligned_size,
-                                                        free, aligned_data);
-      aligned_data = NULL;
-#else
-      /* NOTE: there may be platforms that lack posix_memalign() and also
-       * have malloc() that returns non-8-aligned.  if so, we need to try
-       * harder here.
-       */
       bytes = owned_bytes = g_bytes_new (g_bytes_get_data (bytes, NULL),
                                          g_bytes_get_size (bytes));
-#endif
     }
 
   value->contents.serialised.bytes = g_bytes_ref (bytes);
