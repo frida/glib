@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ProjectGuid>{0AB1B111-3B18-4196-B81F-8658909734B7}</ProjectGuid>
+    <TopBldDir>../</TopBldDir>
+  </PropertyGroup>
+  <Import Project="$(TopBldDir)glib-common.props" />
+  <PropertyGroup>
+    <BuildInstallTargets>
+      $(BuildInstallTargets);
+      InstallMkEnums;
+    </BuildInstallTargets>
+  </PropertyGroup>
+  <Import Project="$(MSBuildExtensionsPath)\HSBuild\HSBuild.Utility.targets" />
+  <ItemGroup>
+    <InFile Include="$(AssemblyName).in" />
+  </ItemGroup>
+  <Target Name="InstallMkEnums">
+    <Copy SourceFiles="$(IntDir)$(AssemblyName)" DestinationFiles="$(OutDir)$(BinaryOutputSubDir)$(TargetName).pl" SkipUnchangedFiles="true">
+      <Output TaskParameter="DestinationFiles" ItemName="FileWrites" />
+    </Copy>
+  </Target>
+</Project>
