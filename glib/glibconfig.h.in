@@ -18,8 +18,14 @@
  */
 #mesondefine GLIB_USING_SYSTEM_PRINTF
 
+/* Specifies that glib_init() is supported by this GLib
+ * build.
+ */
+#define GLIB_DYNAMIC_UNLOADING 1
+
 #mesondefine GLIB_STATIC_COMPILATION
 #mesondefine GOBJECT_STATIC_COMPILATION
+#mesondefine GIO_STATIC_COMPILATION
 
 G_BEGIN_DECLS
 
