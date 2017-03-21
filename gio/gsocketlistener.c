@@ -1246,24 +1246,26 @@ g_socket_listener_add_any_inet_port (GSocketListener  *listener,
       g_signal_emit (listener, signals[EVENT], 0,
                      G_SOCKET_LISTENER_LISTENING, socket4);
 
-      if (!g_socket_listen (socket4, error))
+      if (g_socket_listen (socket4, (socket6 == NULL) ? error : NULL))
+        {
+          g_signal_emit (listener, signals[EVENT], 0,
+                         G_SOCKET_LISTENER_LISTENED, socket4);
+
+          if (source_object)
+            g_object_set_qdata_full (G_OBJECT (socket4), source_quark,
+                                     g_object_ref (source_object),
+                                     g_object_unref);
+
+          g_ptr_array_add (listener->priv->sockets, socket4);
+        }
+      else
         {
           g_object_unref (socket4);
-          if (socket6)
-            g_object_unref (socket6);
+          socket4 = NULL;
 
-          return 0;
+          if (socket6 == NULL)
+            return 0;
         }
-
-      g_signal_emit (listener, signals[EVENT], 0,
-                     G_SOCKET_LISTENER_LISTENED, socket4);
-
-      if (source_object)
-        g_object_set_qdata_full (G_OBJECT (socket4), source_quark,
-                                 g_object_ref (source_object),
-                                 g_object_unref);
-
-      g_ptr_array_add (listener->priv->sockets, socket4);
     }
 
   if ((socket4 != NULL || socket6 != NULL) &&
