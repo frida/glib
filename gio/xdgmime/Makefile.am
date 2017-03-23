@@ -1,6 +1,6 @@
 include $(top_srcdir)/glib.mk
 
-AM_CPPFLAGS = -DXDG_PREFIX=_gio_xdg
+AM_CPPFLAGS = -DXDG_PREFIX=_gio_xdg $(glib_INCLUDES)
 
 noinst_LTLIBRARIES += libxdgmime.la
 

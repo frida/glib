@@ -46,6 +46,7 @@ AM_CPPFLAGS = 				\
 	$(glib_INCLUDES) 		\
 	$(pcre_inc) 			\
 	-DG_LOG_DOMAIN=\"GLib\" 	\
+	$(GLIB_STATIC_FLAGS)		\
 	$(GLIB_DEBUG_FLAGS) 		\
 	-DGLIB_COMPILATION 		\
 	-DPCRE_STATIC
@@ -145,6 +146,8 @@ libglib_2_0_la_SOURCES = 	\
 	glib-private.h		\
 	glib-private.c		\
 	glist.c			\
+	gtinylist.h		\
+	gtinylist.c		\
 	gmain-internal.h	\
 	gmain.c	 		\
 	gmappedfile.c		\

@@ -156,7 +156,8 @@
 
     <InFile Include="glibconfig.h.win32.in">
       <Expressions>s/@GLIB_WIN32_STATIC_COMPILATION_DEFINE@/#define GLIB_STATIC_COMPILATION 1
-#define GOBJECT_STATIC_COMPILATION 1/g;%(Expressions)</Expressions>
+#define GOBJECT_STATIC_COMPILATION 1
+#define GIO_STATIC_COMPILATION 1/g;%(Expressions)</Expressions>
       <OutputFileName>glibconfig.h</OutputFileName>
     </InFile>
 
@@ -194,6 +195,7 @@
     <ClCompile Include="glib-init.c" />
     <ClCompile Include="glib-private.c" />
     <ClCompile Include="glist.c" />
+    <ClCompile Include="gtinylist.c" />
     <ClCompile Include="gmain.c" />
     <ClCompile Include="gmappedfile.c" />
     <ClCompile Include="gmarkup.c" />

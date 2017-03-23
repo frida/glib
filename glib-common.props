@@ -32,7 +32,9 @@
         %(AdditionalIncludeDirectories)
       </AdditionalIncludeDirectories>
       <PreprocessorDefinitions>
-        GLIB_STATIC_COMPILATION;
+        GLIB_STATIC_COMPILATION=1;
+        GOBJECT_STATIC_COMPILATION=1;
+        GIO_STATIC_COMPILATION=1;
         %(PreprocessorDefinitions);
       </PreprocessorDefinitions>
     </ClCompile>
