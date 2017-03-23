@@ -29,6 +29,7 @@ endif
 
 AM_CPPFLAGS = 					\
 	-DG_LOG_DOMAIN=g_log_domain_glib 	\
+	@GLIB_STATIC_FLAGS@ 			\
 	@GLIB_DEBUG_FLAGS@ 			\
 	-DG_DISABLE_DEPRECATED 			\
 	-DGLIB_COMPILATION

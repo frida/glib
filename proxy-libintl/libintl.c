@@ -27,14 +27,13 @@
 typedef void* HMODULE;
 #endif
 
-#ifdef _MSC_VER
-#  define strdup(s) _strdup (s)
-#endif
-
 #include <stdlib.h>
 #include <string.h>
 
 #include "libintl.h"
+
+extern char *g_strdup (const char *str);
+extern void g_free (void *mem);
 
 int _nl_msg_cat_cntr;		/* So that configury thinks it is GNU
 				 * gettext
@@ -149,10 +148,10 @@ DUMMY (dcngettext,
 DUMMY (textdomain,
        (const char *domainname),
        (domainname ?
-	(free (current_domain), current_domain = strdup (domainname)) :
+	(g_free (current_domain), current_domain = g_strdup (domainname)) :
 	(current_domain ?
 	 current_domain :
-	 (current_domain = strdup ("messages")))))
+	 (current_domain = g_strdup ("messages")))))
 
 /* bindtextdomain() should return the current dirname for the domain,
  * after possibly changing it. I don't think software usually checks
@@ -227,6 +226,13 @@ setup (void)
 
       beenhere = 1;
     }
+}
+
+void
+_proxy_libintl_deinit (void)
+{
+  g_free (current_domain);
+  current_domain = NULL;
 }
 
 #define IMPLEMENT(fn, parlist, parlist2)	\
