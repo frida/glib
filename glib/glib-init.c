@@ -341,7 +341,6 @@ glib_deinit (void)
   glib_initialized = FALSE;
 
 # if defined (G_OS_WIN32) && defined (THREADS_WIN32)
-  _g_thread_win32_thread_detach ();
   _g_thread_win32_process_detach ();
 #endif
 
