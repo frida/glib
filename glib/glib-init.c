@@ -444,7 +444,6 @@ glib_deinit (void)
 
 #ifdef G_PLATFORM_WIN32
 # ifdef THREADS_WIN32
-  _g_thread_win32_thread_detach ();
   _g_thread_win32_process_detach ();
 # endif
 # if 0

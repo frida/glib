@@ -293,6 +293,7 @@ headers = [
   'inttypes.h',
   'limits.h',
   'locale.h',
+  'mach/mach.h',
   'mach/mach_time.h',
   'memory.h',
   'mntent.h',
