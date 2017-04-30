@@ -285,6 +285,7 @@ headers = [
   'limits.h',
   'linux/magic.h',
   'locale.h',
+  'mach/mach.h',
   'mach/mach_time.h',
   'memory.h',
   'mntent.h',
