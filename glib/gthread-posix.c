@@ -62,6 +62,9 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#ifdef HAVE_MACH_MACH_H
+#include <mach/mach.h>
+#endif
 #ifdef HAVE_PTHREAD_SET_NAME_NP
 #include <pthread_np.h>
 #endif
@@ -82,6 +85,7 @@
 #endif
 
 static pthread_mutex_t g_thread_state_lock;
+static pthread_key_t g_thread_cleanup_key;
 
 #if !defined(USE_NATIVE_MUTEX)
 static GTinyList *g_thread_mutexes = NULL;
@@ -107,6 +111,18 @@ g_thread_state_remove (GTinyList **list,
   pthread_mutex_lock (&g_thread_state_lock);
   *list = g_tinylist_remove (*list, item);
   pthread_mutex_unlock (&g_thread_state_lock);
+}
+
+static void
+g_thread_ensure_destructor_registered (void)
+{
+  GRealThread *thread = (GRealThread *) g_thread_self ();
+
+  if (thread->destructor_registered)
+    return;
+
+  pthread_setspecific (g_thread_cleanup_key, thread);
+  thread->destructor_registered = TRUE;
 }
 
 static void
@@ -575,7 +591,7 @@ g_cond_wait_until_impl (GCond  *cond,
 /* {{{1 GPrivate */
 
 static pthread_key_t *
-g_private_impl_new (GDestroyNotify notify)
+g_private_impl_new (void)
 {
   pthread_key_t *key;
   gint status;
@@ -583,7 +599,7 @@ g_private_impl_new (GDestroyNotify notify)
   key = glib_mem_table->malloc (sizeof (pthread_key_t));
   if G_UNLIKELY (key == NULL)
     g_thread_abort (errno, "malloc");
-  status = pthread_key_create (key, notify);
+  status = pthread_key_create (key, NULL);
   if G_UNLIKELY (status != 0)
     g_thread_abort (status, "pthread_key_create");
 
@@ -602,13 +618,13 @@ g_private_impl_free (pthread_key_t *key)
 }
 
 static gpointer
-g_private_impl_new_direct (GDestroyNotify notify)
+g_private_impl_new_direct (void)
 {
   gpointer impl = (void *) (gssize) -1;
   pthread_key_t key;
   gint status;
 
-  status = pthread_key_create (&key, notify);
+  status = pthread_key_create (&key, NULL);
   if G_UNLIKELY (status != 0)
     g_thread_abort (status, "pthread_key_create");
 
@@ -629,7 +645,7 @@ g_private_impl_new_direct (GDestroyNotify notify)
     {
       if G_UNLIKELY (impl == NULL)
         {
-          status = pthread_key_create (&key, notify);
+          status = pthread_key_create (&key, NULL);
           if G_UNLIKELY (status != 0)
             g_thread_abort (status, "pthread_key_create");
 
@@ -665,7 +681,7 @@ _g_private_get_impl (GPrivate *key)
 
       if G_UNLIKELY (impl == NULL)
         {
-          impl = g_private_impl_new (key->notify);
+          impl = g_private_impl_new ();
           if (!g_atomic_pointer_compare_and_exchange (&key->p, NULL, impl))
             {
               g_private_impl_free (impl);
@@ -686,7 +702,7 @@ _g_private_get_impl (GPrivate *key)
 
       if G_UNLIKELY (impl == NULL)
         {
-          impl = g_private_impl_new_direct (key->notify);
+          impl = g_private_impl_new_direct ();
           if (!g_atomic_pointer_compare_and_exchange (&key->p, NULL, impl))
             {
               g_private_impl_free_direct (impl);
@@ -719,6 +735,9 @@ g_private_set_impl (GPrivate *key,
 
   if G_UNLIKELY ((status = pthread_setspecific (_g_private_get_impl (key), value)) != 0)
     g_thread_abort (status, "pthread_setspecific");
+
+  g_thread_private_destroy_later (key, value);
+  g_thread_ensure_destructor_registered ();
 }
 
 G_ALWAYS_INLINE static inline void
@@ -736,6 +755,9 @@ g_private_replace_impl (GPrivate *key,
 
   if (old && key->notify)
     key->notify (old);
+
+  g_thread_private_destroy_later (key, value);
+  g_thread_ensure_destructor_registered ();
 }
 
 /* {{{1 GThread */
@@ -796,6 +818,7 @@ g_system_thread_new (GThreadFunc proxy,
   base_thread->thread.data = data;
   if (name)
     g_strlcpy (base_thread->name, name, sizeof (base_thread->name));
+  base_thread->pending_garbage = g_hash_table_new (NULL, NULL);
   thread->proxy = proxy;
 
   posix_check_cmd (pthread_attr_init (&attr));
@@ -829,6 +852,7 @@ g_system_thread_new (GThreadFunc proxy,
     {
       g_set_error (error, G_THREAD_ERROR, G_THREAD_ERROR_AGAIN, 
                    "Error creating thread: %s", g_strerror (ret));
+      g_hash_table_unref (thread->thread.pending_garbage);
       g_slice_free (GThreadPosix, thread);
       return NULL;
     }
@@ -1237,6 +1261,123 @@ g_cond_wait_until_impl (GCond  *cond,
 
 #endif
 
+#if defined (HAVE_MACH_MACH_H)
+
+struct _GThreadBeacon
+{
+  mach_port_t thread;
+};
+
+GThreadBeacon *
+g_thread_lifetime_beacon_new (void)
+{
+  GThreadBeacon *beacon;
+
+  beacon = g_slice_new (GThreadBeacon);
+  beacon->thread = mach_thread_self ();
+
+  return beacon;
+}
+
+void
+g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
+{
+  mach_port_deallocate (mach_task_self (), beacon->thread);
+
+  g_slice_free (GThreadBeacon, beacon);
+}
+
+gboolean
+g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
+{
+  mach_port_type_t type = 0;
+
+  mach_port_type (mach_task_self (), beacon->thread, &type);
+
+  return (type & MACH_PORT_TYPE_DEAD_NAME) != 0;
+}
+
+#elif defined (__linux__)
+
+#include "gfileutils.h"
+
+#include <sys/syscall.h>
+
+struct _GThreadBeacon
+{
+  pid_t thread_id;
+};
+
+GThreadBeacon *
+g_thread_lifetime_beacon_new (void)
+{
+  GThreadBeacon *beacon;
+
+  beacon = g_slice_new (GThreadBeacon);
+  beacon->thread_id = syscall (__NR_gettid);
+
+  return beacon;
+}
+
+void
+g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
+{
+  g_slice_free (GThreadBeacon, beacon);
+}
+
+gboolean
+g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
+{
+  gchar path[32];
+
+  sprintf (path, "/proc/self/task/%d", beacon->thread_id);
+
+  return !g_file_test (path, G_FILE_TEST_EXISTS);
+}
+
+#elif defined (HAVE_QNX)
+
+#include <process.h>
+#include <sys/neutrino.h>
+
+struct _GThreadBeacon
+{
+  pid_t process_id;
+  gint thread_id;
+};
+
+GThreadBeacon *
+g_thread_lifetime_beacon_new (void)
+{
+  GThreadBeacon *beacon;
+
+  beacon = g_slice_new (GThreadBeacon);
+  beacon->process_id = getpid ();
+  beacon->thread_id = gettid ();
+
+  return beacon;
+}
+
+void
+g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
+{
+  g_slice_free (GThreadBeacon, beacon);
+}
+
+gboolean
+g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
+{
+  gint status;
+
+  status = SignalKill (0, beacon->process_id, beacon->thread_id, 0, 0, 0);
+
+  return status == -1 && errno == ESRCH;
+}
+
+#else
+#error Please implement for your OS
+#endif
+
 void
 _g_thread_init (void)
 {
@@ -1253,6 +1394,10 @@ _g_thread_init (void)
   if G_UNLIKELY ((status = pthread_mutex_init (&g_thread_state_lock, pattr)) != 0)
     g_thread_abort (status, "pthread_mutex_init");
 
+  if G_UNLIKELY ((status = pthread_key_create (&g_thread_cleanup_key,
+      g_thread_schedule_cleanup)) != 0)
+    g_thread_abort (status, "pthread_key_create");
+
 #ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
   pthread_mutexattr_destroy (&attr);
 #endif
@@ -1264,11 +1409,10 @@ _g_thread_deinit (void)
   GTinyList *cur;
   gint status;
 
-  for (cur = g_thread_privates; cur; cur = cur->next)
-    {
-      GPrivate *key = cur->data;
-      g_private_replace (key, NULL);
-    }
+  g_thread_garbage_collect ();
+  g_thread_perform_cleanup (g_thread_self ());
+  pthread_setspecific (g_thread_cleanup_key, NULL);
+
   for (cur = g_thread_privates; cur; cur = cur->next)
     {
       GPrivate *key = cur->data;
@@ -1299,6 +1443,9 @@ _g_thread_deinit (void)
   g_tinylist_free (g_thread_mutexes);
   g_thread_mutexes = NULL;
 #endif
+
+  if G_UNLIKELY ((status = pthread_key_delete (g_thread_cleanup_key)) != 0)
+    g_thread_abort (status, "pthread_key_delete");
 
   if G_UNLIKELY ((status = pthread_mutex_destroy (&g_thread_state_lock)) != 0)
     g_thread_abort (status, "pthread_mutex_destroy");
