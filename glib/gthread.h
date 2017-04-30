@@ -45,7 +45,9 @@ typedef enum
 } GThreadError;
 
 typedef gpointer (*GThreadFunc) (gpointer data);
+typedef void (*GThreadGarbageHandler) (gpointer data);
 
+typedef struct _GThreadCallbacks GThreadCallbacks;
 typedef struct _GThread         GThread;
 
 typedef union  _GMutex          GMutex;
@@ -54,6 +56,20 @@ typedef struct _GRWLock         GRWLock;
 typedef struct _GCond           GCond;
 typedef struct _GPrivate        GPrivate;
 typedef struct _GOnce           GOnce;
+
+typedef enum
+{
+  G_PRIVATE_DESTROY_LATE = 1 << 0,
+  G_PRIVATE_DESTROY_LAST = 1 << 1,
+} GPrivateFlags;
+
+struct _GThreadCallbacks
+{
+  void (*on_thread_init)      (void);
+  void (*on_thread_realize)   (void);
+  void (*on_thread_dispose)   (void);
+  void (*on_thread_finalize)  (void);
+};
 
 union _GMutex
 {
@@ -83,13 +99,17 @@ struct _GRecMutex
   guint i[2];
 };
 
-#define G_PRIVATE_INIT(notify) { NULL, (notify), { NULL, NULL } }
+#define G_PRIVATE_INIT(notify) \
+    { NULL, (notify), 0, { NULL } }
+#define G_PRIVATE_INIT_WITH_FLAGS(notify, flags) \
+    { NULL, (notify), (flags), { NULL } }
 struct _GPrivate
 {
   /*< private >*/
   gpointer       p;
   GDestroyNotify notify;
-  gpointer future[2];
+  GPrivateFlags  flags;
+  gpointer future[1];
 };
 
 typedef enum
@@ -136,6 +156,15 @@ struct _GOnce
 #  define G_UNLOCK(name) g_mutex_unlock   (&G_LOCK_NAME (name))
 #  define G_TRYLOCK(name) g_mutex_trylock (&G_LOCK_NAME (name))
 #endif /* !G_DEBUG_LOCKS */
+
+GLIB_VAR GThreadCallbacks *glib_thread_callbacks;
+GLIB_AVAILABLE_IN_2_62
+void            g_thread_set_callbacks          (GThreadCallbacks *callbacks);
+GLIB_AVAILABLE_IN_2_62
+void            g_thread_set_garbage_handler    (GThreadGarbageHandler handler,
+                                                 gpointer user_data);
+GLIB_AVAILABLE_IN_2_62
+gboolean        g_thread_garbage_collect        (void);
 
 GLIB_AVAILABLE_IN_2_32
 GThread *       g_thread_ref                    (GThread        *thread);
