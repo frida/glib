@@ -278,7 +278,8 @@ static int      smc_notify_free   (void   *pointer,
                                    size_t  size);
 
 /* --- variables --- */
-static GPrivate    private_thread_memory = G_PRIVATE_INIT (private_thread_memory_cleanup);
+static GPrivate    private_thread_memory = G_PRIVATE_INIT_WITH_FLAGS (
+    private_thread_memory_cleanup, G_PRIVATE_DESTROY_LATE);
 static gsize       sys_page_size = 0;
 static Allocator   allocator[1] = { { 0, }, };
 static SliceConfig slice_config = {
