@@ -278,7 +278,8 @@ static int      smc_notify_free   (void   *pointer,
                                    size_t  size);
 
 /* --- variables --- */
-static GPrivate    private_thread_memory = G_PRIVATE_INIT (private_thread_memory_cleanup);
+static GPrivate    private_thread_memory = G_PRIVATE_INIT_WITH_FLAGS (
+    private_thread_memory_cleanup, G_PRIVATE_DESTROY_LATE);
 static gsize       sys_page_size = 0;
 static Allocator   allocator[1] = { { 0, }, };
 static SliceConfig slice_config = {
@@ -558,6 +559,7 @@ static inline ThreadMemory*
 thread_memory_from_self (void)
 {
   ThreadMemory *tmem = g_private_get (&private_thread_memory);
+
   if (G_UNLIKELY (!tmem))
     {
       static GMutex init_mutex;
@@ -570,9 +572,14 @@ thread_memory_from_self (void)
 
       n_magazines = MAX_SLAB_INDEX (allocator);
       tmem = g_private_set_alloc0 (&private_thread_memory, sizeof (ThreadMemory) + sizeof (Magazine) * 2 * n_magazines);
-      tmem->magazine1 = (Magazine*) (tmem + 1);
-      tmem->magazine2 = &tmem->magazine1[n_magazines];
     }
+
+  if (G_UNLIKELY (!tmem->magazine1))
+    {
+      tmem->magazine1 = (Magazine*) (tmem + 1);
+      tmem->magazine2 = &tmem->magazine1[MAX_SLAB_INDEX (allocator)];
+    }
+
   return tmem;
 }
 
