@@ -2132,14 +2132,13 @@ AS_IF([ test x"$have_threads" = xposix], [
                 [Have function pthread_condattr_setclock])],
             [AC_MSG_RESULT(no)])
         AC_MSG_CHECKING(for pthread_cond_timedwait_relative_np)
-        AC_LINK_IFELSE(
-            [AC_LANG_PROGRAM(
-                [#include <pthread.h>],
-                [pthread_cond_timedwait_relative_np(NULL, NULL, NULL)])],
+        AC_CHECK_DECL(
+            [pthread_cond_timedwait_relative_np],
             [AC_MSG_RESULT(yes)
              AC_DEFINE(HAVE_PTHREAD_COND_TIMEDWAIT_RELATIVE_NP,1,
                 [Have function pthread_cond_timedwait_relative_np])],
-            [AC_MSG_RESULT(no)])
+            [AC_MSG_RESULT(no)],
+            [#include <pthread.h>])
         dnl Sets thread names on OS X 10.6, iOS 3.2 (and higher)
         AC_MSG_CHECKING(for pthread_setname_np(const char*))
         AC_LINK_IFELSE(
