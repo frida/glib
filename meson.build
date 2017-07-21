@@ -265,6 +265,7 @@ headers = [
   'pwd.h',
   'sched.h',
   'spawn.h',
+  'stdatomic.h',
   'stdint.h',
   'stdlib.h',
   'string.h',
