@@ -731,7 +731,7 @@ fi
 
 # check for header files
 AC_CHECK_HEADERS([sys/param.h sys/resource.h mach/mach.h mach/mach_time.h])
-AC_CHECK_HEADERS([sys/select.h stdint.h inttypes.h sched.h malloc.h])
+AC_CHECK_HEADERS([sys/select.h stdatomic.h stdint.h inttypes.h sched.h malloc.h])
 AC_CHECK_HEADERS([sys/vfs.h sys/vmount.h sys/statfs.h sys/statvfs.h sys/filio.h])
 AC_CHECK_HEADERS([mntent.h sys/mnttab.h sys/vfstab.h sys/mntctl.h fstab.h])
 AC_CHECK_HEADERS([linux/magic.h])
