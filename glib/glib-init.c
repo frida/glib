@@ -470,3 +470,35 @@ glib_init_ctor (void)
 # endif
 
 #endif
+
+#if defined (__BIONIC__) && __ANDROID_API__ < __ANDROID_API_L__
+
+#include <dlfcn.h>
+
+typedef sighandler_t (* BsdSignalImpl) (int signum, sighandler_t handler);
+
+sighandler_t
+bsd_signal (int signum,
+            sighandler_t handler)
+{
+  static BsdSignalImpl signal_impl = NULL;
+
+  if (signal_impl == NULL)
+    {
+      void * libc;
+
+      libc = dlopen ("libc.so", RTLD_LAZY | RTLD_GLOBAL);
+      g_assert (libc != NULL);
+
+      signal_impl = dlsym (libc, "signal");
+      if (signal_impl == NULL)
+        signal_impl = dlsym (libc, "bsd_signal");
+      g_assert (signal_impl != NULL);
+
+      dlclose (libc);
+    }
+
+  return signal_impl (signum, handler);
+}
+
+#endif
