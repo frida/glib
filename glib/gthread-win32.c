@@ -1235,4 +1235,19 @@ _g_thread_deinit (void)
   g_thread_xp_deinit ();
 }
 
+void
+_g_thread_prepare_to_fork (void)
+{
+}
+
+void
+_g_thread_recover_from_fork_in_parent (void)
+{
+}
+
+void
+_g_thread_recover_from_fork_in_child (void)
+{
+}
+
 /* vim:set foldmethod=marker: */

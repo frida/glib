@@ -29,6 +29,7 @@
 #include "gasyncqueue.h"
 #include "gasyncqueueprivate.h"
 #include "glib-init.h"
+#include "glib-fork.h"
 #include "gmain.h"
 #include "gtestutils.h"
 #include "gtimer.h"
@@ -75,6 +76,7 @@
 /* #define DEBUG_MSG(args) g_printerr args ; g_printerr ("\n");    */
 
 typedef struct _GRealThreadPool GRealThreadPool;
+typedef GSList GThreadPoolStateSnapshot;
 
 /**
  * GThreadPool:
@@ -1093,37 +1095,99 @@ g_thread_pool_get_max_idle_time (void)
   return g_atomic_int_get (&max_idle_time);
 }
 
-void
-_g_thread_pool_shutdown (void)
+static void
+g_thread_pool_pause_all (GThreadPoolStateSnapshot **snapshot)
 {
   GSList *l;
-  GThread *thread;
 
   g_thread_pool_set_max_unused_threads (0);
 
   G_LOCK (pools);
+
+reiterate:
+  for (l = pools; l != NULL; l = l->next)
+    {
+      GRealThreadPool *pool = l->data;
+      gboolean did_unlock = FALSE;
+      gboolean was_running;
+
+      g_async_queue_lock (pool->queue);
+
+      was_running = pool->running;
+
+      pool->running = FALSE;
+      pool->waiting = TRUE;
+
+      while (g_async_queue_length_unlocked (pool->queue) != -pool->num_threads)
+        {
+          G_UNLOCK (pools);
+          g_cond_wait (&pool->cond, _g_async_queue_get_mutex (pool->queue));
+          G_LOCK (pools);
+
+          did_unlock = TRUE;
+        }
+
+      pool->running = was_running;
+      pool->waiting = FALSE;
+
+      if (!pool->running && pool->num_threads == 0)
+        {
+          g_async_queue_unlock (pool->queue);
+
+          G_UNLOCK (pools);
+          g_thread_pool_free_internal (pool);
+          G_LOCK (pools);
+
+          did_unlock = TRUE;
+        }
+      else
+        {
+          g_async_queue_unlock (pool->queue);
+        }
+
+      if (did_unlock)
+        goto reiterate;
+    }
+
   for (l = pools; l != NULL; l = l->next)
     {
       GRealThreadPool *pool = l->data;
 
       g_async_queue_lock (pool->queue);
 
-      if (!pool->running && pool->num_threads > 0)
+      if (pool->running)
+        {
+          pool->running = FALSE;
+          pool->waiting = TRUE;
+
+          if (pool->num_threads > 0)
+            g_thread_pool_wakeup_and_stop_all (pool);
+
+          if (snapshot != NULL)
+            *snapshot = g_slist_prepend (*snapshot, pool);
+        }
+      else if (pool->num_threads > 0)
         {
           g_thread_pool_wakeup_and_stop_all (pool);
         }
 
       g_async_queue_unlock (pool->queue);
     }
+
   while (active_threads != NULL)
     {
+      GThread *thread;
+
       thread = g_thread_ref (active_threads->data);
       G_UNLOCK (pools);
       g_thread_join (thread);
       G_LOCK (pools);
     }
+
   while (finished_threads != NULL)
     {
+      GThread *thread;
+
       thread = finished_threads->data;
       finished_threads = g_slist_delete_link (finished_threads,
                                               finished_threads);
@@ -1131,11 +1195,58 @@ _g_thread_pool_shutdown (void)
       g_thread_join (thread);
       G_LOCK (pools);
     }
+
   G_UNLOCK (pools);
+}
+
+static void
+g_thread_pool_resume_all (GThreadPoolStateSnapshot **snapshot)
+{
+  GSList *l;
+
+  for (l = *snapshot; l != NULL; l = l->next)
+    {
+      GRealThreadPool *pool = l->data;
+
+      g_async_queue_lock (pool->queue);
+
+      pool->running = TRUE;
+      pool->waiting = FALSE;
+
+      g_async_queue_unlock (pool->queue);
+    }
+
+  g_slist_free (*snapshot);
+  *snapshot = NULL;
+}
+
+void
+_g_thread_pool_shutdown (void)
+{
+  g_thread_pool_pause_all (NULL);
 
   if (unused_thread_queue)
     {
       g_async_queue_unref (unused_thread_queue);
       unused_thread_queue = NULL;
     }
+}
+
+static gint max_unused_threads_before_fork;
+static GThreadPoolStateSnapshot *pool_state_before_fork = NULL;
+
+void
+_g_thread_pool_prepare_to_fork (void)
+{
+  max_unused_threads_before_fork = g_thread_pool_get_max_unused_threads ();
+
+  g_thread_pool_pause_all (&pool_state_before_fork);
+}
+
+void
+_g_thread_pool_recover_from_fork (void)
+{
+  g_thread_pool_resume_all (&pool_state_before_fork);
+
+  g_thread_pool_set_max_unused_threads (max_unused_threads_before_fork);
 }
