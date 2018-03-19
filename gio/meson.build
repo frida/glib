@@ -458,6 +458,7 @@ else
 endif
 
 gio_sources = files(
+  'gio-fork.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',

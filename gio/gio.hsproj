@@ -51,6 +51,7 @@
 
     <!-- core -->
     <ClCompile Include="gio-init.c" />
+    <ClCompile Include="gio-fork.c" />
     <ClCompile Include="gappinfo.c" />
     <ClCompile Include="gasynchelper.c" />
     <ClCompile Include="gasyncinitable.c" />

@@ -410,6 +410,7 @@ endif
 gio_base_sources =		\
 	gio-init.c 		\
 	gio-init.h 		\
+	gio-fork.c 		\
 	gappinfo.c 		\
 	gappinfoprivate.h	\
 	gasynchelper.c 		\

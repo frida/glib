@@ -193,6 +193,7 @@
     <ClCompile Include="giochannel.c" />
     <ClCompile Include="gkeyfile.c" />
     <ClCompile Include="glib-init.c" />
+    <ClCompile Include="glib-fork.c" />
     <ClCompile Include="glib-private.c" />
     <ClCompile Include="glist.c" />
     <ClCompile Include="gtinylist.c" />
