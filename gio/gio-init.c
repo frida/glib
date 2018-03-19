@@ -35,6 +35,8 @@ void
 gio_deinit (void)
 {
   gio_shutdown ();
+
+  _g_dbus_deinit ();
 }
 
 #else
