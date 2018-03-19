@@ -29,6 +29,7 @@
 #include "gasyncqueue.h"
 #include "gasyncqueueprivate.h"
 #include "glib-init.h"
+#include "glib-fork.h"
 #include "gmain.h"
 #include "gtestutils.h"
 #include "gtimer.h"
@@ -1088,8 +1089,8 @@ g_thread_pool_get_max_idle_time (void)
   return g_atomic_int_get (&max_idle_time);
 }
 
-void
-_g_thread_pool_shutdown (void)
+static void
+_g_thread_pool_stop_all_threads (void)
 {
   GSList *l;
   GThread *thread;
@@ -1127,10 +1128,32 @@ _g_thread_pool_shutdown (void)
       G_LOCK (pools);
     }
   G_UNLOCK (pools);
+}
+
+void
+_g_thread_pool_shutdown (void)
+{
+  _g_thread_pool_stop_all_threads ();
 
   if (unused_thread_queue)
     {
       g_async_queue_unref (unused_thread_queue);
       unused_thread_queue = NULL;
     }
+}
+
+static gint max_unused_threads_before_fork;
+
+void
+_g_thread_pool_prepare_to_fork (void)
+{
+  max_unused_threads_before_fork = g_thread_pool_get_max_unused_threads ();
+
+  _g_thread_pool_stop_all_threads ();
+}
+
+void
+_g_thread_pool_recover_from_fork (void)
+{
+  g_thread_pool_set_max_unused_threads (max_unused_threads_before_fork);
 }
