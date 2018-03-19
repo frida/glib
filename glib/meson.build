@@ -249,6 +249,7 @@ glib_sources = files(
   'giochannel.c',
   'gkeyfile.c',
   'glib-init.c',
+  'glib-fork.c',
   'glib-private.c',
   'glist.c',
   'gmain.c',

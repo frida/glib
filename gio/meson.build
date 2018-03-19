@@ -485,6 +485,7 @@ endif
 
 gio_sources = files(
   'gio-init.c',
+  'gio-fork.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',
