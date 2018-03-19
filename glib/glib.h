@@ -126,6 +126,15 @@ void                            glib_shutdown                           (void);
 GLIB_AVAILABLE_IN_2_58
 void                            glib_deinit                             (void);
 
+GLIB_AVAILABLE_IN_2_58
+void                            glib_prepare_to_fork                    (void);
+
+GLIB_AVAILABLE_IN_2_58
+void                            glib_recover_from_fork_in_parent        (void);
+
+GLIB_AVAILABLE_IN_2_58
+void                            glib_recover_from_fork_in_child         (void);
+
 G_END_DECLS
 
 #endif /* __G_LIB_H__ */
