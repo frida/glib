@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Ole André Vadla Ravnås <oleavr@gmail.com>
+ * Copyright © 2018 Ole André Vadla Ravnås <oleavr@gmail.com>
  *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -15,13 +15,25 @@
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __GIO_INIT_H__
-#define __GIO_INIT_H__
+#include "glib-fork.h"
 
-#include "gio.h"
+void
+glib_prepare_to_fork (void)
+{
+  _g_thread_pool_prepare_to_fork ();
+  _g_main_prepare_to_fork ();
+}
 
-G_GNUC_INTERNAL void _g_task_shutdown (void);
-G_GNUC_INTERNAL void _g_dbus_shutdown (void);
-G_GNUC_INTERNAL void _g_dbus_deinit (void);
+void
+glib_recover_from_fork_in_parent (void)
+{
+  _g_main_recover_from_fork_in_parent ();
+  _g_thread_pool_recover_from_fork ();
+}
 
-#endif
+void
+glib_recover_from_fork_in_child (void)
+{
+  _g_main_recover_from_fork_in_child ();
+  _g_thread_pool_recover_from_fork ();
+}

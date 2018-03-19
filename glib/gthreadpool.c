@@ -29,6 +29,7 @@
 #include "gasyncqueue.h"
 #include "gasyncqueueprivate.h"
 #include "glib-init.h"
+#include "glib-fork.h"
 #include "gmain.h"
 #include "gtestutils.h"
 #include "gthreadprivate.h"
@@ -76,6 +77,7 @@
 /* #define DEBUG_MSG(args) g_printerr args ; g_printerr ("\n");    */
 
 typedef struct _GRealThreadPool GRealThreadPool;
+typedef GSList GThreadPoolStateSnapshot;
 
 /**
  * GThreadPool:
@@ -90,6 +92,7 @@ typedef struct _GRealThreadPool GRealThreadPool;
 struct _GRealThreadPool
 {
   GThreadPool pool;
+  gatomicrefcount ref_count;
   GAsyncQueue *queue;
   GCond cond;
   gint max_threads;
@@ -137,7 +140,9 @@ static GAsyncQueue *spawn_thread_queue;
 
 static void             g_thread_pool_queue_push_unlocked (GRealThreadPool  *pool,
                                                            gpointer          data);
-static void             g_thread_pool_free_internal       (GRealThreadPool  *pool);
+static GRealThreadPool* g_thread_pool_ref                 (GRealThreadPool  *pool);
+static void             g_thread_pool_unref               (GRealThreadPool  *pool);
+static void             g_thread_pool_unregister          (GRealThreadPool  *pool);
 static gpointer         g_thread_pool_thread_proxy        (gpointer          data);
 static gboolean         g_thread_pool_start_thread        (GRealThreadPool  *pool,
                                                            GError          **error);
@@ -415,10 +420,13 @@ g_thread_pool_thread_proxy (gpointer data)
                 }
             }
 
+          g_thread_pool_ref (pool);
           g_async_queue_unlock (pool->queue);
 
           if (free_pool)
-            g_thread_pool_free_internal (pool);
+            g_thread_pool_unregister (pool);
+
+          g_thread_pool_unref (pool);
 
           if ((pool = g_thread_pool_wait_for_new_pool ()) == NULL)
             break;
@@ -600,6 +608,7 @@ g_thread_pool_new (GFunc      func,
   retval->pool.func = func;
   retval->pool.user_data = user_data;
   retval->pool.exclusive = exclusive;
+  g_atomic_ref_count_init (&retval->ref_count);
   retval->queue = g_async_queue_new ();
   g_cond_init (&retval->cond);
   retval->max_threads = max_threads;
@@ -944,8 +953,10 @@ g_thread_pool_free (GThreadPool *pool,
       if (real->num_threads == 0)
         {
           /* No threads left, we clean up */
+          g_thread_pool_ref (real);
           g_async_queue_unlock (real->queue);
-          g_thread_pool_free_internal (real);
+          g_thread_pool_unregister (real);
+          g_thread_pool_unref (real);
           return;
         }
 
@@ -960,18 +971,44 @@ g_thread_pool_free (GThreadPool *pool,
 static void
 g_thread_pool_free_internal (GRealThreadPool* pool)
 {
-  g_return_if_fail (pool);
-  g_return_if_fail (pool->running == FALSE);
-  g_return_if_fail (pool->num_threads == 0);
-
-  G_LOCK (pools);
-  pools = g_slist_remove (pools, pool);
-  G_UNLOCK (pools);
+  g_assert (pool);
+  g_assert (pool->running == FALSE);
+  g_assert (pool->num_threads == 0);
 
   g_async_queue_unref (pool->queue);
   g_cond_clear (&pool->cond);
 
   g_free (pool);
+}
+
+static GRealThreadPool *
+g_thread_pool_ref (GRealThreadPool *pool)
+{
+  g_atomic_ref_count_inc (&pool->ref_count);
+
+  return pool;
+}
+
+static void
+g_thread_pool_unref (GRealThreadPool *pool)
+{
+  if (g_atomic_ref_count_dec (&pool->ref_count))
+    g_thread_pool_free_internal (pool);
+}
+
+static void
+g_thread_pool_unregister (GRealThreadPool *pool)
+{
+  GSList *l;
+
+  G_LOCK (pools);
+  l = g_slist_find (pools, pool);
+  if (l != NULL)
+    pools = g_slist_delete_link (pools, l);
+  G_UNLOCK (pools);
+
+  if (l != NULL)
+    g_thread_pool_unref (pool);
 }
 
 static void
@@ -1219,37 +1256,101 @@ g_thread_pool_get_max_idle_time (void)
   return (guint) g_atomic_int_get (&max_idle_time);
 }
 
-void
-_g_thread_pool_shutdown (void)
+static void
+g_thread_pool_pause_all (GThreadPoolStateSnapshot **snapshot)
 {
   GSList *l;
-  GThread *thread;
 
   g_thread_pool_set_max_unused_threads (0);
 
   G_LOCK (pools);
+
+reiterate:
+  for (l = pools; l != NULL; l = l->next)
+    {
+      GRealThreadPool *pool = l->data;
+      gboolean did_unlock = FALSE;
+      gboolean was_running;
+
+      g_async_queue_lock (pool->queue);
+
+      was_running = pool->running;
+
+      pool->running = FALSE;
+      pool->waiting = TRUE;
+
+      while (g_async_queue_length_unlocked (pool->queue) != -pool->num_threads)
+        {
+          G_UNLOCK (pools);
+          g_cond_wait (&pool->cond, _g_async_queue_get_mutex (pool->queue));
+          G_LOCK (pools);
+
+          did_unlock = TRUE;
+        }
+
+      pool->running = was_running;
+      pool->waiting = FALSE;
+
+      if (!pool->running && pool->num_threads == 0)
+        {
+          g_thread_pool_ref (pool);
+          g_async_queue_unlock (pool->queue);
+
+          G_UNLOCK (pools);
+          g_thread_pool_unregister (pool);
+          g_thread_pool_unref (pool);
+          G_LOCK (pools);
+
+          did_unlock = TRUE;
+        }
+      else
+        {
+          g_async_queue_unlock (pool->queue);
+        }
+
+      if (did_unlock)
+        goto reiterate;
+    }
+
   for (l = pools; l != NULL; l = l->next)
     {
       GRealThreadPool *pool = l->data;
 
       g_async_queue_lock (pool->queue);
 
-      if (!pool->running && pool->num_threads > 0)
+      if (pool->running)
+        {
+          pool->running = FALSE;
+          pool->waiting = TRUE;
+
+          if (pool->num_threads > 0)
+            g_thread_pool_wakeup_and_stop_all (pool);
+
+          if (snapshot != NULL)
+            *snapshot = g_slist_prepend (*snapshot, pool);
+        }
+      else if (pool->num_threads > 0)
         {
           g_thread_pool_wakeup_and_stop_all (pool);
         }
 
       g_async_queue_unlock (pool->queue);
     }
+
   while (active_threads != NULL)
     {
+      GThread *thread;
+
       thread = g_thread_ref (active_threads->data);
       G_UNLOCK (pools);
       g_thread_join (thread);
       G_LOCK (pools);
     }
+
   while (finished_threads != NULL)
     {
+      GThread *thread;
+
       thread = finished_threads->data;
       finished_threads = g_slist_delete_link (finished_threads,
                                               finished_threads);
@@ -1257,7 +1358,35 @@ _g_thread_pool_shutdown (void)
       g_thread_join (thread);
       G_LOCK (pools);
     }
+
   G_UNLOCK (pools);
+}
+
+static void
+g_thread_pool_resume_all (GThreadPoolStateSnapshot **snapshot)
+{
+  GSList *l;
+
+  for (l = *snapshot; l != NULL; l = l->next)
+    {
+      GRealThreadPool *pool = l->data;
+
+      g_async_queue_lock (pool->queue);
+
+      pool->running = TRUE;
+      pool->waiting = FALSE;
+
+      g_async_queue_unlock (pool->queue);
+    }
+
+  g_slist_free (*snapshot);
+  *snapshot = NULL;
+}
+
+void
+_g_thread_pool_shutdown (void)
+{
+  g_thread_pool_pause_all (NULL);
 
   g_clear_pointer (&unused_thread_queue, g_async_queue_unref);
 
@@ -1273,4 +1402,23 @@ _g_thread_pool_shutdown (void)
       g_async_queue_unref (spawn_thread_queue);
       spawn_thread_queue = NULL;
     }
+}
+
+static gint max_unused_threads_before_fork;
+static GThreadPoolStateSnapshot *pool_state_before_fork = NULL;
+
+void
+_g_thread_pool_prepare_to_fork (void)
+{
+  max_unused_threads_before_fork = g_thread_pool_get_max_unused_threads ();
+
+  g_thread_pool_pause_all (&pool_state_before_fork);
+}
+
+void
+_g_thread_pool_recover_from_fork (void)
+{
+  g_thread_pool_resume_all (&pool_state_before_fork);
+
+  g_thread_pool_set_max_unused_threads (max_unused_threads_before_fork);
 }
