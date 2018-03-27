@@ -42,7 +42,6 @@
 #include "gthread.h"
 
 #include "glib-init.h"
-#include "glib-fork.h"
 #include "gthreadprivate.h"
 #include "gslice.h"
 #include "gmessages.h"
@@ -54,7 +53,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
 #include <errno.h>
 #include <pthread.h>
 
@@ -129,14 +127,19 @@ g_thread_abort (gint         status,
 
 #if !defined(USE_NATIVE_MUTEX)
 
-static void
-g_mutex_impl_init (pthread_mutex_t *mutex)
+static pthread_mutex_t *
+g_mutex_impl_new (void)
 {
   pthread_mutexattr_t *pattr = NULL;
+  pthread_mutex_t *mutex;
   gint status;
 #ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
   pthread_mutexattr_t attr;
 #endif
+
+  mutex = glib_mem_table->malloc (sizeof (pthread_mutex_t));
+  if G_UNLIKELY (mutex == NULL)
+    g_thread_abort (errno, "malloc");
 
 #ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
   pthread_mutexattr_init (&attr);
@@ -150,18 +153,6 @@ g_mutex_impl_init (pthread_mutex_t *mutex)
 #ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
   pthread_mutexattr_destroy (&attr);
 #endif
-}
-
-static pthread_mutex_t *
-g_mutex_impl_new (void)
-{
-  pthread_mutex_t *mutex;
-
-  mutex = glib_mem_table->malloc (sizeof (pthread_mutex_t));
-  if G_UNLIKELY (mutex == NULL)
-    g_thread_abort (errno, "malloc");
-
-  g_mutex_impl_init (mutex);
 
   return mutex;
 }
@@ -327,27 +318,20 @@ g_mutex_trylock (GMutex *mutex)
 
 /* {{{1 GRecMutex */
 
-static void
-g_rec_mutex_impl_init (pthread_mutex_t *mutex)
-{
-  pthread_mutexattr_t attr;
-
-  pthread_mutexattr_init (&attr);
-  pthread_mutexattr_settype (&attr, PTHREAD_MUTEX_RECURSIVE);
-  pthread_mutex_init (mutex, &attr);
-  pthread_mutexattr_destroy (&attr);
-}
-
 static pthread_mutex_t *
 g_rec_mutex_impl_new (void)
 {
+  pthread_mutexattr_t attr;
   pthread_mutex_t *mutex;
 
   mutex = glib_mem_table->malloc (sizeof (pthread_mutex_t));
   if G_UNLIKELY (mutex == NULL)
     g_thread_abort (errno, "malloc");
 
-  g_rec_mutex_impl_init (mutex);
+  pthread_mutexattr_init (&attr);
+  pthread_mutexattr_settype (&attr, PTHREAD_MUTEX_RECURSIVE);
+  pthread_mutex_init (mutex, &attr);
+  pthread_mutexattr_destroy (&attr);
 
   return mutex;
 }
@@ -502,25 +486,18 @@ g_rec_mutex_trylock (GRecMutex *rec_mutex)
 
 /* {{{1 GRWLock */
 
-static void
-g_rw_lock_impl_init (pthread_rwlock_t *rwlock)
-{
-  gint status;
-
-  if G_UNLIKELY ((status = pthread_rwlock_init (rwlock, NULL)) != 0)
-    g_thread_abort (status, "pthread_rwlock_init");
-}
-
 static pthread_rwlock_t *
 g_rw_lock_impl_new (void)
 {
   pthread_rwlock_t *rwlock;
+  gint status;
 
   rwlock = glib_mem_table->malloc (sizeof (pthread_rwlock_t));
   if G_UNLIKELY (rwlock == NULL)
     g_thread_abort (errno, "malloc");
 
-  g_rw_lock_impl_init (rwlock);
+  if G_UNLIKELY ((status = pthread_rwlock_init (rwlock, NULL)) != 0)
+    g_thread_abort (status, "pthread_rwlock_init");
 
   return rwlock;
 }
@@ -1761,91 +1738,6 @@ _g_thread_deinit (void)
 
   if G_UNLIKELY ((status = pthread_mutex_destroy (&g_thread_state_lock)) != 0)
     g_thread_abort (status, "pthread_mutex_destroy");
-}
-
-void
-_g_thread_prepare_to_fork (void)
-{
-  GTinyList *cur;
-
-  pthread_mutex_lock (&g_thread_state_lock);
-
-#if !defined(USE_NATIVE_MUTEX)
-  for (cur = g_thread_mutexes; cur; cur = cur->next)
-    {
-      pthread_mutex_lock (cur->data);
-    }
-#endif
-
-  for (cur = g_thread_rec_mutexes; cur; cur = cur->next)
-    {
-      pthread_mutex_lock (cur->data);
-    }
-
-  for (cur = g_thread_rwlocks; cur; cur = cur->next)
-    {
-      pthread_rwlock_wrlock (cur->data);
-    }
-}
-
-void
-_g_thread_recover_from_fork_in_parent (void)
-{
-  GTinyList *cur;
-
-  for (cur = g_thread_rwlocks; cur; cur = cur->next)
-    {
-      pthread_rwlock_unlock (cur->data);
-    }
-
-  for (cur = g_thread_rec_mutexes; cur; cur = cur->next)
-    {
-      pthread_mutex_unlock (cur->data);
-    }
-
-#if !defined(USE_NATIVE_MUTEX)
-  for (cur = g_thread_mutexes; cur; cur = cur->next)
-    {
-      pthread_mutex_unlock (cur->data);
-    }
-#endif
-
-  pthread_mutex_unlock (&g_thread_state_lock);
-}
-
-void
-_g_thread_recover_from_fork_in_child (void)
-{
-  GTinyList *cur;
-
-  for (cur = g_thread_rwlocks; cur; cur = cur->next)
-    {
-      pthread_rwlock_t *lock = cur->data;
-
-      bzero (lock, sizeof (pthread_rwlock_t));
-      g_rw_lock_impl_init (lock);
-    }
-
-  for (cur = g_thread_rec_mutexes; cur; cur = cur->next)
-    {
-      pthread_mutex_t *mutex = cur->data;
-
-      bzero (mutex, sizeof (pthread_mutex_t));
-      g_rec_mutex_impl_init (mutex);
-    }
-
-#if !defined(USE_NATIVE_MUTEX)
-  for (cur = g_thread_mutexes; cur; cur = cur->next)
-    {
-      pthread_mutex_t *mutex = cur->data;
-
-      bzero (mutex, sizeof (pthread_mutex_t));
-      g_mutex_impl_init (mutex);
-    }
-#endif
-
-  bzero (&g_thread_state_lock, sizeof (pthread_mutex_t));
-  g_mutex_impl_init (&g_thread_state_lock);
 }
 
   /* {{{1 Epilogue */

@@ -20,10 +20,6 @@
 
 #include "glib.h"
 
-G_GNUC_INTERNAL void _g_thread_prepare_to_fork (void);
-G_GNUC_INTERNAL void _g_thread_recover_from_fork_in_parent (void);
-G_GNUC_INTERNAL void _g_thread_recover_from_fork_in_child (void);
-
 G_GNUC_INTERNAL void _g_main_prepare_to_fork (void);
 G_GNUC_INTERNAL void _g_main_recover_from_fork_in_parent (void);
 G_GNUC_INTERNAL void _g_main_recover_from_fork_in_child (void);
