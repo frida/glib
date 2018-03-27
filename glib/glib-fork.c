@@ -22,13 +22,11 @@ glib_prepare_to_fork (void)
 {
   _g_thread_pool_prepare_to_fork ();
   _g_main_prepare_to_fork ();
-  _g_thread_prepare_to_fork ();
 }
 
 void
 glib_recover_from_fork_in_parent (void)
 {
-  _g_thread_recover_from_fork_in_parent ();
   _g_main_recover_from_fork_in_parent ();
   _g_thread_pool_recover_from_fork ();
 }
@@ -36,7 +34,6 @@ glib_recover_from_fork_in_parent (void)
 void
 glib_recover_from_fork_in_child (void)
 {
-  _g_thread_recover_from_fork_in_child ();
   _g_main_recover_from_fork_in_child ();
   _g_thread_pool_recover_from_fork ();
 }
