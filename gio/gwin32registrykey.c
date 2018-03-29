@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -89,18 +89,18 @@ typedef NTSTATUS
                          PULONG                result_size);
 
 typedef NTSTATUS
-(* NtNotifyChangeMultipleKeysFunc)(HANDLE             key_handle,
-                                   ULONG              subkey_count,
-                                   POBJECT_ATTRIBUTES subkeys,
-                                   HANDLE             event,
-                                   PIO_APC_ROUTINE    apc_routine,
-                                   PVOID              apc_closure,
-                                   PIO_STATUS_BLOCK   status_block,
-                                   ULONG              filter,
-                                   BOOLEAN            watch_tree,
-                                   PVOID              buffer,
-                                   ULONG              buffer_size,
-                                   BOOLEAN            async);
+(NTAPI * NtNotifyChangeMultipleKeysFunc)(HANDLE             key_handle,
+                                         ULONG              subkey_count,
+                                         POBJECT_ATTRIBUTES subkeys,
+                                         HANDLE             event,
+                                         PIO_APC_ROUTINE    apc_routine,
+                                         PVOID              apc_closure,
+                                         PIO_STATUS_BLOCK   status_block,
+                                         ULONG              filter,
+                                         BOOLEAN            watch_tree,
+                                         PVOID              buffer,
+                                         ULONG              buffer_size,
+                                         BOOLEAN            async);
 
 static NtQueryKeyFunc nt_query_key = NULL;
 static NtNotifyChangeMultipleKeysFunc nt_notify_change_multiple_keys = NULL;

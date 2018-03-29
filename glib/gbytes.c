@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the licence, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -64,6 +64,7 @@
  * Since: 2.32
  **/
 
+/* Keep in sync with glib/tests/bytes.c */
 struct _GBytes
 {
   gconstpointer data;  /* may be NULL iff (size == 0) */
@@ -99,7 +100,7 @@ g_bytes_new (gconstpointer data,
 /**
  * g_bytes_new_take:
  * @data: (transfer full) (array length=size) (element-type guint8) (nullable):
-          the data to be used for the bytes
+ *        the data to be used for the bytes
  * @size: the size of @data
  *
  * Creates a new #GBytes from @data.
@@ -130,7 +131,7 @@ g_bytes_new_take (gpointer data,
 /**
  * g_bytes_new_static: (skip)
  * @data: (transfer full) (array length=size) (element-type guint8) (nullable):
-          the data to be used for the bytes
+ *        the data to be used for the bytes
  * @size: the size of @data
  *
  * Creates a new #GBytes from static data.
@@ -152,7 +153,7 @@ g_bytes_new_static (gconstpointer data,
 /**
  * g_bytes_new_with_free_func: (skip)
  * @data: (array length=size) (element-type guint8) (nullable):
-          the data to be used for the bytes
+ *        the data to be used for the bytes
  * @size: the size of @data
  * @free_func: the function to call to release the data
  * @user_data: data to pass to @free_func
@@ -203,6 +204,12 @@ g_bytes_new_with_free_func (gconstpointer  data,
  * A reference to @bytes will be held by the newly created #GBytes until
  * the byte data is no longer needed.
  *
+ * Since 2.56, if @offset is 0 and @length matches the size of @bytes, then
+ * @bytes will be returned with the reference count incremented by 1. If @bytes
+ * is a slice of another #GBytes, then the resulting #GBytes will reference
+ * the same #GBytes instead of @bytes. This allows consumers to simplify the
+ * usage of #GBytes when asynchronously writing to streams.
+ *
  * Returns: (transfer full): a new #GBytes
  *
  * Since: 2.32
@@ -212,12 +219,31 @@ g_bytes_new_from_bytes (GBytes  *bytes,
                         gsize    offset,
                         gsize    length)
 {
+  gchar *base;
+
   /* Note that length may be 0. */
   g_return_val_if_fail (bytes != NULL, NULL);
   g_return_val_if_fail (offset <= bytes->size, NULL);
   g_return_val_if_fail (offset + length <= bytes->size, NULL);
 
-  return g_bytes_new_with_free_func ((gchar *)bytes->data + offset, length,
+  /* Avoid an extra GBytes if all bytes were requested */
+  if (offset == 0 && length == bytes->size)
+    return g_bytes_ref (bytes);
+
+  base = (gchar *)bytes->data + offset;
+
+  /* Avoid referencing intermediate GBytes. In practice, this should
+   * only loop once.
+   */
+  while (bytes->free_func == (gpointer)g_bytes_unref)
+    bytes = bytes->user_data;
+
+  g_return_val_if_fail (bytes != NULL, NULL);
+  g_return_val_if_fail (base >= (gchar *)bytes->data, NULL);
+  g_return_val_if_fail (base <= (gchar *)bytes->data + bytes->size, NULL);
+  g_return_val_if_fail (base + length <= (gchar *)bytes->data + bytes->size, NULL);
+
+  return g_bytes_new_with_free_func (base, length,
                                      (GDestroyNotify)g_bytes_unref, g_bytes_ref (bytes));
 }
 
@@ -294,7 +320,7 @@ g_bytes_ref (GBytes *bytes)
  * @bytes: (nullable): a #GBytes
  *
  * Releases a reference on @bytes.  This may result in the bytes being
- * freed.
+ * freed. If @bytes is %NULL, it will return immediately.
  *
  * Since: 2.32
  */
@@ -407,7 +433,8 @@ try_steal_and_unref (GBytes         *bytes,
 {
   gpointer result;
 
-  if (bytes->free_func != free_func || bytes->data == NULL)
+  if (bytes->free_func != free_func || bytes->data == NULL ||
+      bytes->user_data != bytes->data)
     return NULL;
 
   /* Are we the only reference? */

@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -64,7 +64,7 @@ enum {
 struct _GUnixInputStreamPrivate {
   int fd;
   guint close_fd : 1;
-  guint can_poll : 1;
+  guint is_pipe_or_socket : 1;
 };
 
 static void g_unix_input_stream_pollable_iface_init (GPollableInputStreamInterface *iface);
@@ -182,17 +182,6 @@ g_unix_input_stream_file_descriptor_based_iface_init (GFileDescriptorBasedIface 
   iface->get_fd = (int (*) (GFileDescriptorBased *))g_unix_input_stream_get_fd;
 }
 
-static gboolean
-fd_is_pollable (int fd)
-{
-  struct stat st;
-
-  if (fstat (fd, &st) == -1)
-    return TRUE;
-
-  return !S_ISREG (st.st_mode);
-}
-
 static void
 g_unix_input_stream_set_property (GObject         *object,
 				  guint            prop_id,
@@ -207,7 +196,10 @@ g_unix_input_stream_set_property (GObject         *object,
     {
     case PROP_FD:
       unix_stream->priv->fd = g_value_get_int (value);
-      unix_stream->priv->can_poll = fd_is_pollable (unix_stream->priv->fd);
+      if (lseek (unix_stream->priv->fd, 0, SEEK_CUR) == -1 && errno == ESPIPE)
+	unix_stream->priv->is_pipe_or_socket = TRUE;
+      else
+	unix_stream->priv->is_pipe_or_socket = FALSE;
       break;
     case PROP_CLOSE_FD:
       unix_stream->priv->close_fd = g_value_get_boolean (value);
@@ -355,7 +347,7 @@ g_unix_input_stream_read (GInputStream  *stream,
 
   poll_fds[0].fd = unix_stream->priv->fd;
   poll_fds[0].events = G_IO_IN;
-  if (unix_stream->priv->can_poll &&
+  if (unix_stream->priv->is_pipe_or_socket &&
       g_cancellable_make_pollfd (cancellable, &poll_fds[1]))
     nfds = 2;
   else
@@ -363,15 +355,18 @@ g_unix_input_stream_read (GInputStream  *stream,
 
   while (1)
     {
+      int errsv;
+
       poll_fds[0].revents = poll_fds[1].revents = 0;
       do
-	poll_ret = g_poll (poll_fds, nfds, -1);
-      while (poll_ret == -1 && errno == EINTR);
+        {
+          poll_ret = g_poll (poll_fds, nfds, -1);
+          errsv = errno;
+        }
+      while (poll_ret == -1 && errsv == EINTR);
 
       if (poll_ret == -1)
 	{
-          int errsv = errno;
-
 	  g_set_error (error, G_IO_ERROR,
 		       g_io_error_from_errno (errsv),
 		       _("Error reading from file descriptor: %s"),
@@ -491,7 +486,7 @@ g_unix_input_stream_close_finish (GInputStream  *stream,
 static gboolean
 g_unix_input_stream_pollable_can_poll (GPollableInputStream *stream)
 {
-  return G_UNIX_INPUT_STREAM (stream)->priv->can_poll;
+  return G_UNIX_INPUT_STREAM (stream)->priv->is_pipe_or_socket;
 }
 
 static gboolean

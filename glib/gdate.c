@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -340,6 +340,35 @@ g_date_free (GDate *date)
   g_return_if_fail (date != NULL);
   
   g_free (date);
+}
+
+/**
+ * g_date_copy:
+ * @date: a #GDate to copy
+ *
+ * Copies a GDate to a newly-allocated GDate. If the input was invalid
+ * (as determined by g_date_valid()), the invalid state will be copied
+ * as is into the new object.
+ *
+ * Returns: (transfer full): a newly-allocated #GDate initialized from @date
+ *
+ * Since: 2.56
+ */
+GDate *
+g_date_copy (const GDate *date)
+{
+  GDate *res;
+  g_return_val_if_fail (date != NULL, NULL);
+
+  if (g_date_valid (date))
+    res = g_date_new_julian (g_date_get_julian (date));
+  else
+    {
+      res = g_date_new ();
+      *res = *date;
+    }
+
+  return res;
 }
 
 /**
@@ -850,9 +879,19 @@ static gchar *long_month_names[13] =
   NULL,
 };
 
+static gchar *long_month_names_alternative[13] =
+{
+  NULL,
+};
+
 static gchar *short_month_names[13] = 
 {
   NULL, 
+};
+
+static gchar *short_month_names_alternative[13] =
+{
+  NULL,
 };
 
 /* This tells us if we need to update the parse info */
@@ -945,6 +984,15 @@ g_date_fill_parse_tokens (const gchar *str, GDateParseTokens *pt)
       i = 1;
       while (i < 13)
         {
+          /* Here month names may be in a genitive case if the language
+           * grammatical rules require it.
+           * Examples of how January may look in some languages:
+           * Catalan: "de gener", Croatian: "siječnja", Polish: "stycznia",
+           * Upper Sorbian: "januara".
+           * Note that most of the languages can't or don't use the the
+           * genitive case here so they use nominative everywhere.
+           * For example, English always uses "January".
+           */
           if (long_month_names[i] != NULL) 
             {
               const gchar *found = strstr (normalized, long_month_names[i]);
@@ -955,7 +1003,27 @@ g_date_fill_parse_tokens (const gchar *str, GDateParseTokens *pt)
 		  break;
                 }
             }
-	  
+
+          /* Here month names will be in a nominative case.
+           * Examples of how January may look in some languages:
+           * Catalan: "gener", Croatian: "Siječanj", Polish: "styczeń",
+           * Upper Sorbian: "Januar".
+           */
+          if (long_month_names_alternative[i] != NULL)
+            {
+              const gchar *found = strstr (normalized, long_month_names_alternative[i]);
+
+              if (found != NULL)
+                {
+                  pt->month = i;
+                  break;
+                }
+            }
+
+          /* Differences between abbreviated nominative and abbreviated
+           * genitive month names are visible in very few languages but
+           * let's handle them.
+           */
           if (short_month_names[i] != NULL) 
             {
               const gchar *found = strstr (normalized, short_month_names[i]);
@@ -964,6 +1032,17 @@ g_date_fill_parse_tokens (const gchar *str, GDateParseTokens *pt)
                 {
                   pt->month = i;
 		  break;
+                }
+            }
+
+          if (short_month_names_alternative[i] != NULL)
+            {
+              const gchar *found = strstr (normalized, short_month_names_alternative[i]);
+
+              if (found != NULL)
+                {
+                  pt->month = i;
+                  break;
                 }
             }
 
@@ -1024,6 +1103,18 @@ g_date_prepare_to_parse (const gchar      *str,
           long_month_names[i] = g_utf8_normalize (casefold, -1, G_NORMALIZE_ALL);
 	  g_free (casefold);
           
+          g_date_strftime (buf, 127, "%Ob", &d);
+          casefold = g_utf8_casefold (buf, -1);
+          g_free (short_month_names_alternative[i]);
+          short_month_names_alternative[i] = g_utf8_normalize (casefold, -1, G_NORMALIZE_ALL);
+          g_free (casefold);
+
+          g_date_strftime (buf, 127, "%OB", &d);
+          casefold = g_utf8_casefold (buf, -1);
+          g_free (long_month_names_alternative[i]);
+          long_month_names_alternative[i] = g_utf8_normalize (casefold, -1, G_NORMALIZE_ALL);
+          g_free (casefold);
+
           ++i;
         }
       
@@ -1068,6 +1159,13 @@ g_date_prepare_to_parse (const gchar      *str,
       while (i < 13) 
         {
           DEBUG_MSG (("  %s   %s", long_month_names[i], short_month_names[i]));
+          ++i;
+        }
+      DEBUG_MSG (("Alternative month names:"));
+      i = 1;
+      while (i < 13)
+        {
+          DEBUG_MSG (("  %s   %s", long_month_names_alternative[i], short_month_names_alternative[i]));
           ++i;
         }
       if (using_twodigit_years)
@@ -2039,6 +2137,48 @@ g_date_order (GDate *date1,
 }
 
 #ifdef G_OS_WIN32
+static void
+append_month_name (GArray     *result,
+		   LCID        lcid,
+		   SYSTEMTIME *systemtime,
+		   gboolean    abbreviated,
+		   gboolean    alternative)
+{
+  int n;
+  WORD base;
+  LPCWSTR lpFormat;
+
+  if (alternative)
+    {
+      base = abbreviated ? LOCALE_SABBREVMONTHNAME1 : LOCALE_SMONTHNAME1;
+      n = GetLocaleInfoW (lcid, base + systemtime->wMonth - 1, NULL, 0);
+      g_array_set_size (result, result->len + n);
+      GetLocaleInfoW (lcid, base + systemtime->wMonth - 1,
+		      ((wchar_t *) result->data) + result->len - n, n);
+      g_array_set_size (result, result->len - 1);
+    }
+  else
+    {
+      /* According to MSDN, this is the correct method to obtain
+       * the form of the month name used when formatting a full
+       * date; it must be a genitive case in some languages.
+       */
+      lpFormat = abbreviated ? L"ddMMM" : L"ddMMMM";
+      n = GetDateFormatW (lcid, 0, systemtime, lpFormat, NULL, 0);
+      g_array_set_size (result, result->len + n);
+      GetDateFormatW (lcid, 0, systemtime, lpFormat,
+		      ((wchar_t *) result->data) + result->len - n, n);
+      /* We have obtained a day number as two digits and the month name.
+       * Now let's get rid of those two digits: overwrite them with the
+       * month name.
+       */
+      memmove (((wchar_t *) result->data) + result->len - n,
+	       ((wchar_t *) result->data) + result->len - n + 2,
+	       (n - 2) * sizeof (wchar_t));
+      g_array_set_size (result, result->len - 3);
+    }
+}
+
 static gsize
 win32_strftime_helper (const GDate     *d,
 		       const gchar     *format,
@@ -2052,7 +2192,7 @@ win32_strftime_helper (const GDate     *d,
   int n, k;
   GArray *result;
   const gchar *p;
-  gunichar c;
+  gunichar c, modifier;
   const wchar_t digits[] = L"0123456789";
   gchar *convbuf;
   glong convlen = 0;
@@ -2084,17 +2224,21 @@ win32_strftime_helper (const GDate     *d,
 
 	      return 0;
 	    }
-	  
+
+	  modifier = '\0';
 	  c = g_utf8_get_char (p);
 	  if (c == 'E' || c == 'O')
 	    {
-	      /* Ignore modified conversion specifiers for now. */
+	      /* "%OB", "%Ob", and "%Oh" are supported, ignore other modified
+	       * conversion specifiers for now.
+	       */
+	      modifier = c;
 	      p = g_utf8_next_char (p);
 	      if (!*p)
 		{
 		  s[0] = '\0';
 		  g_array_free (result, TRUE);
-		  
+
 		  return 0;
 		}
 
@@ -2125,16 +2269,12 @@ win32_strftime_helper (const GDate     *d,
 	      break;
 	    case 'b':
 	    case 'h':
-	      n = GetLocaleInfoW (lcid, LOCALE_SABBREVMONTHNAME1+systemtime.wMonth-1, NULL, 0);
-	      g_array_set_size (result, result->len + n);
-	      GetLocaleInfoW (lcid, LOCALE_SABBREVMONTHNAME1+systemtime.wMonth-1, ((wchar_t *) result->data) + result->len - n, n);
-	      g_array_set_size (result, result->len - 1);
+	      append_month_name (result, lcid, &systemtime, TRUE,
+				 modifier == 'O');
 	      break;
 	    case 'B':
-	      n = GetLocaleInfoW (lcid, LOCALE_SMONTHNAME1+systemtime.wMonth-1, NULL, 0);
-	      g_array_set_size (result, result->len + n);
-	      GetLocaleInfoW (lcid, LOCALE_SMONTHNAME1+systemtime.wMonth-1, ((wchar_t *) result->data) + result->len - n, n);
-	      g_array_set_size (result, result->len - 1);
+	      append_month_name (result, lcid, &systemtime, FALSE,
+				 modifier == 'O');
 	      break;
 	    case 'c':
 	      n = GetDateFormatW (lcid, 0, &systemtime, NULL, NULL, 0);

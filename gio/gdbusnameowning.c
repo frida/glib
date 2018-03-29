@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -197,7 +197,7 @@ schedule_call_in_idle (Client *client, CallType  call_type)
                          call_in_idle_cb,
                          data,
                          (GDestroyNotify) call_handler_data_free);
-  g_source_set_name (idle_source, "[gio] call_in_idle_cb");
+  g_source_set_name (idle_source, "[gio, gdbusnameowning.c] call_in_idle_cb");
   g_source_attach (idle_source, client->main_context);
   g_source_unref (idle_source);
 }
@@ -272,6 +272,13 @@ on_name_lost_or_acquired (GDBusConnection  *connection,
       g_strcmp0 (interface_name, "org.freedesktop.DBus") != 0 ||
       g_strcmp0 (sender_name, "org.freedesktop.DBus") != 0)
     goto out;
+
+  if (!g_variant_is_of_type (parameters, G_VARIANT_TYPE ("(s)")))
+    {
+      g_warning ("%s signal had unexpected signature %s", signal_name,
+                 g_variant_get_type_string (parameters));
+      goto out;
+    }
 
   if (g_strcmp0 (signal_name, "NameLost") == 0)
     {

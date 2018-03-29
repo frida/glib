@@ -8,7 +8,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -45,14 +45,12 @@
 #include "gthread.h"
 #include "gthreadprivate.h"
 #include "gslice.h"
-#include "gtinylist.h"
 
 #include <windows.h>
 
 #include <process.h>
 #include <stdlib.h>
 #include <stdio.h>
-
 
 static void
 g_thread_abort (gint         status,
@@ -97,6 +95,8 @@ g_thread_abort (gint         status,
  */
 typedef struct
 {
+  void     (__stdcall * CallThisOnThreadExit)        (void);              /* fake */
+
   void     (__stdcall * InitializeSRWLock)           (gpointer lock);
   void     (__stdcall * DeleteSRWLock)               (gpointer lock);     /* fake */
   void     (__stdcall * AcquireSRWLockExclusive)     (gpointer lock);
@@ -152,39 +152,22 @@ g_mutex_unlock (GMutex *mutex)
 
 /* {{{1 GRecMutex */
 
-static CRITICAL_SECTION g_thread_rec_mutex_lock;
-static GTinyList *g_thread_rec_mutexes = NULL;
-
 static CRITICAL_SECTION *
 g_rec_mutex_impl_new (void)
 {
   CRITICAL_SECTION *cs;
 
-  cs = glib_mem_table->malloc (sizeof (CRITICAL_SECTION));
+  cs = g_slice_new (CRITICAL_SECTION);
   InitializeCriticalSection (cs);
-
-  EnterCriticalSection (&g_thread_rec_mutex_lock);
-  g_thread_rec_mutexes = g_tinylist_prepend (g_thread_rec_mutexes, cs);
-  LeaveCriticalSection (&g_thread_rec_mutex_lock);
 
   return cs;
 }
 
 static void
-g_rec_mutex_impl_finalize (CRITICAL_SECTION *cs)
-{
-  DeleteCriticalSection (cs);
-  glib_mem_table->free (cs);
-}
-
-static void
 g_rec_mutex_impl_free (CRITICAL_SECTION *cs)
 {
-  EnterCriticalSection (&g_thread_rec_mutex_lock);
-  g_thread_rec_mutexes = g_tinylist_remove (g_thread_rec_mutexes, cs);
-  LeaveCriticalSection (&g_thread_rec_mutex_lock);
-
-  g_rec_mutex_impl_finalize (cs);
+  DeleteCriticalSection (cs);
+  g_slice_free (CRITICAL_SECTION, cs);
 }
 
 static CRITICAL_SECTION *
@@ -337,7 +320,16 @@ g_cond_wait_until (GCond  *cond,
 
 /* {{{1 GPrivate */
 
-static GTinyList                    *g_thread_privates;
+typedef struct _GPrivateDestructor GPrivateDestructor;
+
+struct _GPrivateDestructor
+{
+  DWORD               index;
+  GDestroyNotify      notify;
+  GPrivateDestructor *next;
+};
+
+static GPrivateDestructor * volatile g_private_destructors;
 static CRITICAL_SECTION g_private_lock;
 
 static DWORD
@@ -351,15 +343,35 @@ g_private_get_impl (GPrivate *key)
       impl = (DWORD) key->p;
       if (impl == 0)
         {
+          GPrivateDestructor *destructor;
+
           impl = TlsAlloc ();
 
           if (impl == TLS_OUT_OF_INDEXES)
             g_thread_abort (0, "TlsAlloc");
 
-          g_thread_privates = g_tinylist_prepend (g_thread_privates, key);
+          if (key->notify != NULL)
+            {
+              destructor = malloc (sizeof (GPrivateDestructor));
+              if G_UNLIKELY (destructor == NULL)
+                g_thread_abort (errno, "malloc");
+              destructor->index = impl;
+              destructor->notify = key->notify;
+              destructor->next = g_private_destructors;
+
+              /* We need to do an atomic store due to the unlocked
+               * access to the destructor list from the thread exit
+               * function.
+               *
+               * It can double as a sanity check...
+               */
+              if (InterlockedCompareExchangePointer (&g_private_destructors, destructor,
+                                                     destructor->next) != destructor->next)
+                g_thread_abort (0, "g_private_get_impl(1)");
+            }
 
           /* Ditto, due to the unlocked access on the fast path */
-          if (InterlockedCompareExchangePointer (&key->p, (PVOID) impl, NULL) != NULL)
+          if (InterlockedCompareExchangePointer (&key->p, impl, NULL) != NULL)
             g_thread_abort (0, "g_private_get_impl(2)");
         }
       LeaveCriticalSection (&g_private_lock);
@@ -379,8 +391,6 @@ g_private_set (GPrivate *key,
                gpointer  value)
 {
   TlsSetValue (g_private_get_impl (key), value);
-
-  g_thread_private_destroy_later (key, value);
 }
 
 void
@@ -394,8 +404,6 @@ g_private_replace (GPrivate *key,
   if (old && key->notify)
     key->notify (old);
   TlsSetValue (impl, value);
-
-  g_thread_private_destroy_later (key, value);
 }
 
 /* {{{1 GThread */
@@ -457,7 +465,6 @@ g_system_thread_new (GThreadFunc   func,
   guint ignore;
 
   thread = g_slice_new0 (GThreadWin32);
-  thread->thread.pending_garbage = g_hash_table_new (NULL, NULL);
   thread->proxy = func;
 
   thread->handle = (HANDLE) _beginthreadex (NULL, stack_size, g_thread_win32_proxy, thread, 0, &ignore);
@@ -468,7 +475,6 @@ g_system_thread_new (GThreadFunc   func,
       g_set_error (error, G_THREAD_ERROR, G_THREAD_ERROR_AGAIN,
                    "Error creating thread: %s", win_error);
       g_free (win_error);
-      g_hash_table_unref (thread->thread.pending_garbage);
       g_slice_free (GThreadWin32, thread);
       return NULL;
     }
@@ -555,14 +561,8 @@ g_system_thread_set_name (const gchar *name)
 
 /* {{{1 SRWLock and CONDITION_VARIABLE emulation (for Windows XP) */
 
-static void g_thread_xp_waiter_free (gpointer data);
-
-static gboolean         g_thread_xp_initialized = FALSE;
 static CRITICAL_SECTION g_thread_xp_lock;
-static GPrivate         g_thread_xp_waiter_private =
-    G_PRIVATE_INIT_WITH_FLAGS (g_thread_xp_waiter_free, G_PRIVATE_DESTROY_LAST);
-static GTinyList       *g_thread_xp_srws = NULL;
-static GTinyList       *g_thread_xp_conds = NULL;
+static DWORD            g_thread_xp_waiter_tls;
 
 /* {{{2 GThreadWaiter utility class for CONDITION_VARIABLE emulation */
 typedef struct _GThreadXpWaiter GThreadXpWaiter;
@@ -578,11 +578,11 @@ g_thread_xp_waiter_get (void)
 {
   GThreadXpWaiter *waiter;
 
-  waiter = g_private_get (&g_thread_xp_waiter_private);
+  waiter = TlsGetValue (g_thread_xp_waiter_tls);
 
   if G_UNLIKELY (waiter == NULL)
     {
-      waiter = glib_mem_table->malloc (sizeof (GThreadXpWaiter));
+      waiter = malloc (sizeof (GThreadXpWaiter));
       if (waiter == NULL)
         g_thread_abort (GetLastError (), "malloc");
       waiter->event = CreateEvent (0, FALSE, FALSE, NULL);
@@ -590,20 +590,25 @@ g_thread_xp_waiter_get (void)
         g_thread_abort (GetLastError (), "CreateEvent");
       waiter->my_owner = NULL;
 
-      g_private_set (&g_thread_xp_waiter_private, waiter);
+      TlsSetValue (g_thread_xp_waiter_tls, waiter);
     }
 
   return waiter;
 }
 
-static void
-g_thread_xp_waiter_free (gpointer data)
+static void __stdcall
+g_thread_xp_CallThisOnThreadExit (void)
 {
-  GThreadXpWaiter *waiter = data;
+  GThreadXpWaiter *waiter;
 
-  CloseHandle (waiter->event);
+  waiter = TlsGetValue (g_thread_xp_waiter_tls);
 
-  glib_mem_table->free (waiter);
+  if (waiter != NULL)
+    {
+      TlsSetValue (g_thread_xp_waiter_tls, NULL);
+      CloseHandle (waiter->event);
+      free (waiter);
+    }
 }
 
 /* {{{2 SRWLock emulation */
@@ -625,16 +630,6 @@ g_thread_xp_InitializeSRWLock (gpointer mutex)
   *(GThreadSRWLock * volatile *) mutex = NULL;
 }
 
-static void
-g_thread_xp_FreeSRWLock (GThreadSRWLock * lock)
-{
-  if (lock->ever_shared)
-    DeleteCriticalSection (&lock->atomicity);
-
-  DeleteCriticalSection (&lock->writer_lock);
-  glib_mem_table->free (lock);
-}
-
 static void __stdcall
 g_thread_xp_DeleteSRWLock (gpointer mutex)
 {
@@ -642,11 +637,11 @@ g_thread_xp_DeleteSRWLock (gpointer mutex)
 
   if (lock)
     {
-      EnterCriticalSection (&g_thread_xp_lock);
-      g_thread_xp_srws = g_tinylist_remove (g_thread_xp_srws, lock);
-      LeaveCriticalSection (&g_thread_xp_lock);
+      if (lock->ever_shared)
+        DeleteCriticalSection (&lock->atomicity);
 
-      g_thread_xp_FreeSRWLock (lock);
+      DeleteCriticalSection (&lock->writer_lock);
+      free (lock);
     }
 }
 
@@ -670,7 +665,7 @@ g_thread_xp_get_srwlock (GThreadSRWLock * volatile *lock)
       result = *lock;
       if (result == NULL)
         {
-          result = glib_mem_table->malloc (sizeof (GThreadSRWLock));
+          result = malloc (sizeof (GThreadSRWLock));
 
           if (result == NULL)
             g_thread_abort (errno, "malloc");
@@ -679,9 +674,6 @@ g_thread_xp_get_srwlock (GThreadSRWLock * volatile *lock)
           result->writer_locked = FALSE;
           result->ever_shared = FALSE;
           *lock = result;
-
-          g_thread_xp_srws = g_tinylist_prepend (g_thread_xp_srws,
-                                                     result);
         }
 
       LeaveCriticalSection (&g_thread_xp_lock);
@@ -852,25 +844,13 @@ g_thread_xp_InitializeConditionVariable (gpointer cond)
   *(GThreadXpCONDITION_VARIABLE * volatile *) cond = NULL;
 }
 
-static void
-g_thread_xp_FreeConditionVariable (GThreadXpCONDITION_VARIABLE * cv)
-{
-  glib_mem_table->free (cv);
-}
-
 static void __stdcall
 g_thread_xp_DeleteConditionVariable (gpointer cond)
 {
   GThreadXpCONDITION_VARIABLE *cv = *(GThreadXpCONDITION_VARIABLE * volatile *) cond;
 
   if (cv)
-    {
-      EnterCriticalSection (&g_thread_xp_lock);
-      g_thread_xp_conds = g_tinylist_remove (g_thread_xp_conds, cv);
-      LeaveCriticalSection (&g_thread_xp_lock);
-
-      g_thread_xp_FreeConditionVariable (cv);
-    }
+    free (cv);
 }
 
 static GThreadXpCONDITION_VARIABLE * __stdcall
@@ -887,7 +867,7 @@ g_thread_xp_get_condition_variable (GThreadXpCONDITION_VARIABLE * volatile *cond
 
   if G_UNLIKELY (result == NULL)
     {
-      result = glib_mem_table->malloc (sizeof (GThreadXpCONDITION_VARIABLE));
+      result = malloc (sizeof (GThreadXpCONDITION_VARIABLE));
 
       if (result == NULL)
         g_thread_abort (errno, "malloc");
@@ -897,15 +877,8 @@ g_thread_xp_get_condition_variable (GThreadXpCONDITION_VARIABLE * volatile *cond
 
       if (InterlockedCompareExchangePointer (cond, result, NULL) != NULL)
         {
-          glib_mem_table->free (result);
+          free (result);
           result = *cond;
-        }
-      else
-        {
-          EnterCriticalSection (&g_thread_xp_lock);
-          g_thread_xp_conds = g_tinylist_prepend (g_thread_xp_conds,
-                                                      result);
-          LeaveCriticalSection (&g_thread_xp_lock);
         }
     }
 
@@ -1010,6 +983,7 @@ static void
 g_thread_xp_init (void)
 {
   static const GThreadImplVtable g_thread_xp_impl_vtable = {
+    g_thread_xp_CallThisOnThreadExit,
     g_thread_xp_InitializeSRWLock,
     g_thread_xp_DeleteSRWLock,
     g_thread_xp_AcquireSRWLockExclusive,
@@ -1026,71 +1000,9 @@ g_thread_xp_init (void)
   };
 
   InitializeCriticalSection (&g_thread_xp_lock);
+  g_thread_xp_waiter_tls = TlsAlloc ();
 
   g_thread_impl_vtable = g_thread_xp_impl_vtable;
-
-  g_thread_xp_initialized = TRUE;
-}
-
-static void
-g_thread_xp_deinit (void)
-{
-  if (!g_thread_xp_initialized)
-    return;
-
-  g_tinylist_foreach (g_thread_xp_conds,
-                      (GFunc) g_thread_xp_FreeConditionVariable, NULL);
-  g_tinylist_free (g_thread_xp_conds);
-  g_thread_xp_conds = NULL;
-
-  g_tinylist_foreach (g_thread_xp_srws,
-                      (GFunc) g_thread_xp_FreeSRWLock, NULL);
-  g_tinylist_free (g_thread_xp_srws);
-  g_thread_xp_srws = NULL;
-
-  DeleteCriticalSection (&g_thread_xp_lock);
-
-  g_thread_xp_initialized = FALSE;
-}
-
-/* {{{1 GThreadBeacon */
-
-struct _GThreadBeacon
-{
-  HANDLE thread;
-};
-
-GThreadBeacon *
-g_thread_lifetime_beacon_new (void)
-{
-  GThreadBeacon *beacon;
-  HANDLE process;
-
-  beacon = g_slice_new0 (GThreadBeacon);
-
-  process = GetCurrentProcess ();
-  DuplicateHandle (process, GetCurrentThread (), process, &beacon->thread,
-                   0, FALSE, DUPLICATE_SAME_ACCESS);
-
-  return beacon;
-}
-
-void
-g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
-{
-  CloseHandle (beacon->thread);
-
-  g_slice_free (GThreadBeacon, beacon);
-}
-
-gboolean
-g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
-{
-  DWORD exit_code = 0;
-
-  GetExitCodeThread (beacon->thread, &exit_code);
-
-  return exit_code != STILL_ACTIVE;
 }
 
 /* {{{1 Epilogue */
@@ -1127,12 +1039,11 @@ g_thread_lookup_native_funcs (void)
 }
 
 void
-_g_thread_init (void)
+g_thread_win32_init (void)
 {
   if (!g_thread_lookup_native_funcs ())
     g_thread_xp_init ();
 
-  InitializeCriticalSection (&g_thread_rec_mutex_lock);
   InitializeCriticalSection (&g_private_lock);
 
 #ifndef _MSC_VER
@@ -1145,13 +1056,45 @@ _g_thread_init (void)
 }
 
 void
-_g_thread_win32_thread_detach (void)
+g_thread_win32_thread_detach (void)
 {
-  g_thread_schedule_cleanup (g_thread_self ());
+  gboolean dtors_called;
+
+  do
+    {
+      GPrivateDestructor *dtor;
+
+      /* We go by the POSIX book on this one.
+       *
+       * If we call a destructor then there is a chance that some new
+       * TLS variables got set by code called in that destructor.
+       *
+       * Loop until nothing is left.
+       */
+      dtors_called = FALSE;
+
+      for (dtor = g_private_destructors; dtor; dtor = dtor->next)
+        {
+          gpointer value;
+
+          value = TlsGetValue (dtor->index);
+          if (value != NULL && dtor->notify != NULL)
+            {
+              /* POSIX says to clear this before the call */
+              TlsSetValue (dtor->index, NULL);
+              dtor->notify (value);
+              dtors_called = TRUE;
+            }
+        }
+    }
+  while (dtors_called);
+
+  if (g_thread_impl_vtable.CallThisOnThreadExit)
+    g_thread_impl_vtable.CallThisOnThreadExit ();
 }
 
 void
-_g_thread_win32_process_detach (void)
+g_thread_win32_process_detach (void)
 {
 #ifndef _MSC_VER
   if (SetThreadName_VEH_handle != NULL)
@@ -1160,33 +1103,6 @@ _g_thread_win32_process_detach (void)
       SetThreadName_VEH_handle = NULL;
     }
 #endif
-}
-
-void
-_g_thread_deinit (void)
-{
-  GTinyList *cur;
-
-  g_thread_garbage_collect ();
-  g_thread_perform_cleanup (g_thread_self ());
-
-  for (cur = g_thread_privates; cur; cur = cur->next)
-    {
-      GPrivate *key = cur->data;
-      TlsFree ((DWORD) key->p);
-    }
-  g_tinylist_free (g_thread_privates);
-  g_thread_privates = NULL;
-
-  g_tinylist_foreach (g_thread_rec_mutexes, (GFunc) g_rec_mutex_impl_finalize,
-                      NULL);
-  g_tinylist_free (g_thread_rec_mutexes);
-  g_thread_rec_mutexes = NULL;
-
-  DeleteCriticalSection (&g_thread_rec_mutex_lock);
-  DeleteCriticalSection (&g_private_lock);
-
-  g_thread_xp_deinit ();
 }
 
 /* vim:set foldmethod=marker: */

@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -94,10 +94,6 @@
  * variants over plain g_assert() is that the assertion messages can be
  * more elaborate, and include the values of the compared entities.
  *
- * GLib ships with two utilities called [gtester][gtester] and
- * [gtester-report][gtester-report] to facilitate running tests and producing
- * nicely formatted test reports.
- *
  * A full example of creating a test suite with two tests using fixtures:
  * |[<!-- language="C" -->
  * #include <glib.h>
@@ -161,6 +157,78 @@
  *   return g_test_run ();
  * }
  * ]|
+ *
+ * ### Integrating GTest in your project
+ *
+ * If you are using the [Meson](http://mesonbuild.com) build system, you will
+ * typically use the provided `test()` primitive to call the test binaries,
+ * e.g.:
+ *
+ * |[<!-- language="plain" -->
+ *   test(
+ *     'foo',
+ *     executable('foo', 'foo.c', dependencies: deps),
+ *     env: [
+ *       'G_TEST_SRCDIR=@0@'.format(meson.current_source_dir()),
+ *       'G_TEST_BUILDDIR=@0@'.format(meson.current_build_dir()),
+ *     ],
+ *   )
+ *
+ *   test(
+ *     'bar',
+ *     executable('bar', 'bar.c', dependencies: deps),
+ *     env: [
+ *       'G_TEST_SRCDIR=@0@'.format(meson.current_source_dir()),
+ *       'G_TEST_BUILDDIR=@0@'.format(meson.current_build_dir()),
+ *     ],
+ *   )
+ * ]|
+ *
+ * If you are using Autotools, you're strongly encouraged to use the Automake
+ * [TAP](https://testanything.org/) harness; GLib provides template files for
+ * easily integrating with it:
+ *
+ *   - [glib-tap.mk](https://git.gnome.org/browse/glib/tree/glib-tap.mk)
+ *   - [tap-test](https://git.gnome.org/browse/glib/tree/tap-test)
+ *   - [tap-driver.sh](https://git.gnome.org/browse/glib/tree/tap-driver.sh)
+ *
+ * You can copy these files in your own project's root directory, and then
+ * set up your `Makefile.am` file to reference them, for instance:
+ *
+ * |[<!-- language="plain" -->
+ * include $(top_srcdir)/glib-tap.mk
+ *
+ * # test binaries
+ * test_programs = \
+ *   foo \
+ *   bar
+ *
+ * # data distributed in the tarball
+ * dist_test_data = \
+ *   foo.data.txt \
+ *   bar.data.txt
+ *
+ * # data not distributed in the tarball
+ * test_data = \
+ *   blah.data.txt
+ * ]|
+ *
+ * Make sure to distribute the TAP files, using something like the following
+ * in your top-level `Makefile.am`:
+ *
+ * |[<!-- language="plain" -->
+ * EXTRA_DIST += \
+ *   tap-driver.sh \
+ *   tap-test
+ * ]|
+ *
+ * `glib-tap.mk` will be distributed implicitly due to being included in a
+ * `Makefile.am`. All three files should be added to version control.
+ *
+ * If you don't have access to the Autotools TAP harness, you can use the
+ * [gtester][gtester] and [gtester-report][gtester-report] tools, and use
+ * the [glib.mk](https://git.gnome.org/browse/glib/tree/glib.mk) Automake
+ * template provided by GLib.
  */
 
 /**
@@ -180,6 +248,10 @@
  * Exactly one of g_test_quick() and g_test_slow() is active in any run;
  * there is no "medium speed".
  *
+ * By default, tests are run in quick mode. In tests that use
+ * g_test_init(), the options `-m quick`, `-m slow` and `-m thorough`
+ * can be used to change this.
+ *
  * Returns: %TRUE if in quick mode
  */
 
@@ -190,6 +262,10 @@
  * Exactly one of g_test_quick() and g_test_slow() is active in any run;
  * there is no "medium speed".
  *
+ * By default, tests are run in quick mode. In tests that use
+ * g_test_init(), the options `-m quick`, `-m slow` and `-m thorough`
+ * can be used to change this.
+ *
  * Returns: the opposite of g_test_quick()
  */
 
@@ -199,6 +275,10 @@
  * Returns %TRUE if tests are run in thorough mode, equivalent to
  * g_test_slow().
  *
+ * By default, tests are run in quick mode. In tests that use
+ * g_test_init(), the options `-m quick`, `-m slow` and `-m thorough`
+ * can be used to change this.
+ *
  * Returns: the same thing as g_test_slow()
  */
 
@@ -206,6 +286,10 @@
  * g_test_perf:
  *
  * Returns %TRUE if tests are run in performance mode.
+ *
+ * By default, tests are run in quick mode. In tests that use
+ * g_test_init(), the option `-m perf` enables performance tests, while
+ * `-m quick` disables them.
  *
  * Returns: %TRUE if in performance mode
  */
@@ -215,7 +299,10 @@
  *
  * Returns %TRUE if tests may provoke assertions and other formally-undefined
  * behaviour, to verify that appropriate warnings are given. It might, in some
- * cases, be useful to turn this off if running tests under valgrind.
+ * cases, be useful to turn this off with if running tests under valgrind;
+ * in tests that use g_test_init(), the option `-m no-undefined` disables
+ * those tests, while `-m undefined` explicitly enables them (the default
+ * behaviour).
  *
  * Returns: %TRUE if tests may provoke programming errors
  */
@@ -224,6 +311,8 @@
  * g_test_verbose:
  *
  * Returns %TRUE if tests are run in verbose mode.
+ * In tests that use g_test_init(), the option `--verbose` enables this,
+ * while `-q` or `--quiet` disables it.
  * The default is neither g_test_verbose() nor g_test_quiet().
  *
  * Returns: %TRUE if in verbose mode
@@ -233,6 +322,8 @@
  * g_test_quiet:
  *
  * Returns %TRUE if tests are run in quiet mode.
+ * In tests that use g_test_init(), the option `-q` or `--quiet` enables
+ * this, while `--verbose` disables it.
  * The default is neither g_test_verbose() nor g_test_quiet().
  *
  * Returns: %TRUE if in quiet mode
@@ -268,7 +359,7 @@
  *
  * Deprecated: #GTestTrapFlags is used only with g_test_trap_fork(),
  * which is deprecated. g_test_trap_subprocess() uses
- * #GTestTrapSubprocessFlags.
+ * #GTestSubprocessFlags.
  */
 
 /**
@@ -661,19 +752,8 @@ static void     gtest_default_log_handler       (const gchar    *log_domain,
                                                  GLogLevelFlags  log_level,
                                                  const gchar    *message,
                                                  gpointer        unused_data);
-static void     g_default_assertion_handler     (const char     *domain,
-                                                 const char     *file,
-                                                 int             line,
-                                                 const char     *func,
-                                                 const char     *message,
-                                                 gpointer       user_data);
 
-typedef enum {
-  G_TEST_RUN_SUCCESS,
-  G_TEST_RUN_SKIPPED,
-  G_TEST_RUN_FAILURE,
-  G_TEST_RUN_INCOMPLETE
-} GTestResult;
+
 static const char * const g_test_result_names[] = {
   "OK",
   "SKIP",
@@ -702,7 +782,7 @@ static double      test_user_stamp = 0;
 static GSList     *test_paths = NULL;
 static GSList     *test_paths_skipped = NULL;
 static GTestSuite *test_suite_root = NULL;
-static int         test_trap_last_status = 0;
+static int         test_trap_last_status = 0;  /* unmodified platform-specific status */
 static GPid        test_trap_last_pid = 0;
 static char       *test_trap_last_subprocess = NULL;
 static char       *test_trap_last_stdout = NULL;
@@ -717,6 +797,7 @@ static char       *test_argv0_dirname;
 static const char *test_disted_files_dir;
 static const char *test_built_files_dir;
 static char       *test_initial_cwd = NULL;
+static gboolean    test_in_forked_child = FALSE;
 static gboolean    test_in_subprocess = FALSE;
 static GTestConfig mutable_test_config_vars = {
   FALSE,        /* test_initialized */
@@ -728,8 +809,6 @@ static GTestConfig mutable_test_config_vars = {
 };
 const GTestConfig * const g_test_config_vars = &mutable_test_config_vars;
 static gboolean  no_g_set_prgname = FALSE;
-static GAssertionFunc assertion_handler = g_default_assertion_handler;
-static gpointer assertion_handler_data = NULL;
 
 /* --- functions --- */
 const char*
@@ -814,7 +893,7 @@ g_test_log (GTestLogType lbit,
     case G_TEST_LOG_START_BINARY:
       if (test_tap_log)
         g_print ("# random seed: %s\n", string2);
-      else if (g_test_verbose())
+      else if (g_test_verbose ())
         g_print ("GTest: random seed: %s\n", string2);
       break;
     case G_TEST_LOG_START_SUITE:
@@ -846,15 +925,15 @@ g_test_log (GTestLogType lbit,
           else
             g_print ("\n");
         }
-      else if (g_test_verbose())
+      else if (g_test_verbose ())
         g_print ("GTest: result: %s\n", g_test_result_names[result]);
-      else if (!g_test_quiet())
+      else if (!g_test_quiet ())
         g_print ("%s\n", g_test_result_names[result]);
       if (fail && test_mode_fatal)
         {
           if (test_tap_log)
             g_print ("Bail out!\n");
-          g_abort();
+          g_abort ();
         }
       if (result == G_TEST_RUN_SKIPPED)
         test_skipped_count++;
@@ -862,21 +941,26 @@ g_test_log (GTestLogType lbit,
     case G_TEST_LOG_MIN_RESULT:
       if (test_tap_log)
         g_print ("# min perf: %s\n", string1);
-      else if (g_test_verbose())
+      else if (g_test_verbose ())
         g_print ("(MINPERF:%s)\n", string1);
       break;
     case G_TEST_LOG_MAX_RESULT:
       if (test_tap_log)
         g_print ("# max perf: %s\n", string1);
-      else if (g_test_verbose())
+      else if (g_test_verbose ())
         g_print ("(MAXPERF:%s)\n", string1);
       break;
     case G_TEST_LOG_MESSAGE:
-    case G_TEST_LOG_ERROR:
       if (test_tap_log)
         g_print ("# %s\n", string1);
-      else if (g_test_verbose())
+      else if (g_test_verbose ())
         g_print ("(MSG: %s)\n", string1);
+      break;
+    case G_TEST_LOG_ERROR:
+      if (test_tap_log)
+        g_print ("Bail out! %s\n", string1);
+      else if (g_test_verbose ())
+        g_print ("(ERROR: %s)\n", string1);
       break;
     default: ;
     }
@@ -897,9 +981,9 @@ g_test_log (GTestLogType lbit,
     case G_TEST_LOG_START_CASE:
       if (test_tap_log)
         ;
-      else if (g_test_verbose())
+      else if (g_test_verbose ())
         g_print ("GTest: run: %s\n", string1);
-      else if (!g_test_quiet())
+      else if (!g_test_quiet ())
         g_print ("%s: ", string1);
       break;
     default: ;
@@ -1130,15 +1214,16 @@ parse_args (gint    *argc_p,
  *   be skipped (ie, a test whose name contains "/subprocess").
  * - `-m {perf|slow|thorough|quick|undefined|no-undefined}`: Execute tests according to these test modes:
  *
- *   `perf`: Performance tests, may take long and report results.
+ *   `perf`: Performance tests, may take long and report results (off by default).
  *
- *   `slow`, `thorough`: Slow and thorough tests, may take quite long and maximize coverage.
+ *   `slow`, `thorough`: Slow and thorough tests, may take quite long and maximize coverage
+ *   (off by default).
  *
- *   `quick`: Quick tests, should run really quickly and give good coverage.
+ *   `quick`: Quick tests, should run really quickly and give good coverage (the default).
  *
  *   `undefined`: Tests for undefined behaviour, may provoke programming errors
  *   under g_test_trap_subprocess() or g_test_expect_message() to check
- *   that appropriate assertions or warnings are given
+ *   that appropriate assertions or warnings are given (the default).
  *
  *   `no-undefined`: Avoid tests for undefined behaviour
  *
@@ -1186,9 +1271,10 @@ g_test_init (int    *argc,
   /* sanity check */
   if (test_tap_log)
     {
-      if (test_paths || test_paths_skipped || test_startup_skip_count)
+      if (test_paths || test_startup_skip_count)
         {
-          g_printerr ("%s: options that skip some tests are incompatible with --tap\n",
+          /* Not invoking every test (even if SKIPped) breaks the "1..XX" plan */
+          g_printerr ("%s: -p and --GTestSkipCount options are incompatible with --tap\n",
                       (*argv)[0]);
           exit (1);
         }
@@ -1723,9 +1809,6 @@ g_test_add_vtable (const char       *testpath,
   g_return_if_fail (g_path_is_absolute (testpath));
   g_return_if_fail (fixture_test_func != NULL);
 
-  if (g_slist_find_custom (test_paths_skipped, testpath, (GCompareFunc)g_strcmp0))
-    return;
-
   suite = g_test_get_root();
   segments = g_strsplit (testpath, "/", -1);
   for (ui = 0; segments[ui] != NULL; ui++)
@@ -2160,25 +2243,30 @@ test_case_run (GTestCase *tc)
       test_run_success = G_TEST_RUN_SUCCESS;
       g_clear_pointer (&test_run_msg, g_free);
       g_test_log_set_fatal_handler (NULL, NULL);
-      g_timer_start (test_run_timer);
-      fixture = tc->fixture_size ? g_malloc0 (tc->fixture_size) : tc->test_data;
-      test_run_seed (test_run_seedstr);
-      if (tc->fixture_setup)
-        tc->fixture_setup (fixture, tc->test_data);
-      tc->fixture_test (fixture, tc->test_data);
-      test_trap_clear();
-      while (test_destroy_queue)
+      if (test_paths_skipped && g_slist_find_custom (test_paths_skipped, test_run_name, (GCompareFunc)g_strcmp0))
+        g_test_skip ("by request (-s option)");
+      else
         {
-          DestroyEntry *dentry = test_destroy_queue;
-          test_destroy_queue = dentry->next;
-          dentry->destroy_func (dentry->destroy_data);
-          g_slice_free (DestroyEntry, dentry);
+          g_timer_start (test_run_timer);
+          fixture = tc->fixture_size ? g_malloc0 (tc->fixture_size) : tc->test_data;
+          test_run_seed (test_run_seedstr);
+          if (tc->fixture_setup)
+            tc->fixture_setup (fixture, tc->test_data);
+          tc->fixture_test (fixture, tc->test_data);
+          test_trap_clear();
+          while (test_destroy_queue)
+            {
+              DestroyEntry *dentry = test_destroy_queue;
+              test_destroy_queue = dentry->next;
+              dentry->destroy_func (dentry->destroy_data);
+              g_slice_free (DestroyEntry, dentry);
+            }
+          if (tc->fixture_teardown)
+            tc->fixture_teardown (fixture, tc->test_data);
+          if (tc->fixture_size)
+            g_free (fixture);
+          g_timer_stop (test_run_timer);
         }
-      if (tc->fixture_teardown)
-        tc->fixture_teardown (fixture, tc->test_data);
-      if (tc->fixture_size)
-        g_free (fixture);
-      g_timer_stop (test_run_timer);
       success = test_run_success;
       test_run_success = G_TEST_RUN_FAILURE;
       largs[0] = success; /* OK */
@@ -2307,7 +2395,6 @@ g_test_suite_count (GTestSuite *suite)
  * test path arguments (`-p testpath` and `-s testpath`) as parsed by
  * g_test_init(). See the g_test_run() documentation for more
  * information on the order that tests are run in.
-
  *
  * g_test_run_suite() or g_test_run() may only be called once
  * in a program.
@@ -2391,20 +2478,11 @@ gtest_default_log_handler (const gchar    *log_domain,
 }
 
 void
-g_assertion_set_handler (GAssertionFunc handler,
-                         gpointer user_data)
-{
-  assertion_handler_data = user_data;
-  assertion_handler = handler;
-}
-
-static void
-g_default_assertion_handler (const char     *domain,
-                             const char     *file,
-                             int             line,
-                             const char     *func,
-                             const char     *message,
-                             gpointer       user_data)
+g_assertion_message (const char     *domain,
+                     const char     *file,
+                     int             line,
+                     const char     *func,
+                     const char     *message)
 {
   char lstr[32];
   char *s;
@@ -2418,7 +2496,12 @@ g_default_assertion_handler (const char     *domain,
                    " ", message, NULL);
   g_printerr ("**\n%s\n", s);
 
-  g_test_log (G_TEST_LOG_ERROR, s, NULL, 0, NULL);
+  /* Don't print a fatal error indication if assertions are non-fatal, or
+   * if we are a child process that might be sharing the parent's stdout. */
+  if (test_nonfatal_assertions || test_in_subprocess || test_in_forked_child)
+    g_test_log (G_TEST_LOG_MESSAGE, s, NULL, 0, NULL);
+  else
+    g_test_log (G_TEST_LOG_ERROR, s, NULL, 0, NULL);
 
   if (test_nonfatal_assertions)
     {
@@ -2429,8 +2512,13 @@ g_default_assertion_handler (const char     *domain,
 
   /* store assertion message in global variable, so that it can be found in a
    * core dump */
-  g_free (__glib_assert_msg);
-  __glib_assert_msg = s;
+  if (__glib_assert_msg != NULL)
+    /* free the old one */
+    free (__glib_assert_msg);
+  __glib_assert_msg = (char*) malloc (strlen (s) + 1);
+  strcpy (__glib_assert_msg, s);
+
+  g_free (s);
 
   if (test_in_subprocess)
     {
@@ -2452,16 +2540,6 @@ g_default_assertion_handler (const char     *domain,
  * @func:
  * @expr: (nullable):
  */
-void
-g_assertion_message (const char     *domain,
-                     const char     *file,
-                     int             line,
-                     const char     *func,
-                     const char     *message)
-{
-  assertion_handler (domain, file, line, func, message, assertion_handler_data);
-}
-
 void
 g_assertion_message_expr (const char     *domain,
                           const char     *file,
@@ -2619,7 +2697,7 @@ sane_dup2 (int fd1,
 typedef struct {
   GPid pid;
   GMainLoop *loop;
-  int child_status;
+  int child_status;  /* unmodified platform-specific status */
 
   GIOChannel *stdout_io;
   gboolean echo_stdout;
@@ -2644,18 +2722,8 @@ child_exited (GPid     pid,
 {
   WaitForChildData *data = user_data;
 
-#ifdef G_OS_UNIX
-  if (WIFEXITED (status)) /* normal exit */
-    data->child_status = WEXITSTATUS (status); /* 0..255 */
-  else if (WIFSIGNALED (status) && WTERMSIG (status) == SIGALRM)
-    data->child_status = G_TEST_STATUS_TIMED_OUT;
-  else if (WIFSIGNALED (status))
-    data->child_status = (WTERMSIG (status) << 12); /* signalled */
-  else /* WCOREDUMP (status) */
-    data->child_status = 512; /* coredump */
-#else
+  g_assert (status != -1);
   data->child_status = status;
-#endif
 
   check_complete (data);
 }
@@ -2715,9 +2783,12 @@ child_read (GIOChannel *io, GIOCondition cond, gpointer user_data)
     {
       for (total = 0; total < nread; total += nwrote)
         {
+          int errsv;
+
           nwrote = fwrite (buf + total, 1, nread - total, echo_file);
+          errsv = errno;
           if (nwrote == 0)
-            g_error ("write failed: %s", g_strerror (errno));
+            g_error ("write failed: %s", g_strerror (errsv));
         }
     }
 
@@ -2838,16 +2909,22 @@ g_test_trap_fork (guint64        usec_timeout,
 #ifdef G_OS_UNIX
   int stdout_pipe[2] = { -1, -1 };
   int stderr_pipe[2] = { -1, -1 };
+  int errsv;
 
   test_trap_clear();
   if (pipe (stdout_pipe) < 0 || pipe (stderr_pipe) < 0)
-    g_error ("failed to create pipes to fork test program: %s", g_strerror (errno));
+    {
+      errsv = errno;
+      g_error ("failed to create pipes to fork test program: %s", g_strerror (errsv));
+    }
   test_trap_last_pid = fork ();
+  errsv = errno;
   if (test_trap_last_pid < 0)
-    g_error ("failed to fork test program: %s", g_strerror (errno));
+    g_error ("failed to fork test program: %s", g_strerror (errsv));
   if (test_trap_last_pid == 0)  /* child */
     {
       int fd0 = -1;
+      test_in_forked_child = TRUE;
       close (stdout_pipe[0]);
       close (stderr_pipe[0]);
       if (!(test_trap_flags & G_TEST_TRAP_INHERIT_STDIN))
@@ -2857,7 +2934,10 @@ g_test_trap_fork (guint64        usec_timeout,
             g_error ("failed to open /dev/null for stdin redirection");
         }
       if (sane_dup2 (stdout_pipe[1], 1) < 0 || sane_dup2 (stderr_pipe[1], 2) < 0 || (fd0 >= 0 && sane_dup2 (fd0, 0) < 0))
-        g_error ("failed to dup2() in forked test program: %s", g_strerror (errno));
+        {
+          errsv = errno;
+          g_error ("failed to dup2() in forked test program: %s", g_strerror (errsv));
+        }
       if (fd0 >= 3)
         close (fd0);
       if (stdout_pipe[1] >= 3)
@@ -3052,7 +3132,12 @@ g_test_subprocess (void)
 gboolean
 g_test_trap_has_passed (void)
 {
-  return test_trap_last_status == 0; /* exit_status == 0 && !signal && !coredump */
+#ifdef G_OS_UNIX
+  return (WIFEXITED (test_trap_last_status) &&
+      WEXITSTATUS (test_trap_last_status) == 0);
+#else
+  return test_trap_last_status == 0;
+#endif
 }
 
 /**
@@ -3067,13 +3152,61 @@ g_test_trap_has_passed (void)
 gboolean
 g_test_trap_reached_timeout (void)
 {
+#ifdef G_OS_UNIX
+  return (WIFSIGNALED (test_trap_last_status) &&
+      WTERMSIG (test_trap_last_status) == SIGALRM);
+#else
   return test_trap_last_status == G_TEST_STATUS_TIMED_OUT;
+#endif
 }
 
 static gboolean
 log_child_output (const gchar *process_id)
 {
   gchar *escaped;
+
+#ifdef G_OS_UNIX
+  if (WIFEXITED (test_trap_last_status)) /* normal exit */
+    {
+      if (WEXITSTATUS (test_trap_last_status) == 0)
+        g_test_message ("child process (%s) exit status: 0 (success)",
+            process_id);
+      else
+        g_test_message ("child process (%s) exit status: %d (error)",
+            process_id, WEXITSTATUS (test_trap_last_status));
+    }
+  else if (WIFSIGNALED (test_trap_last_status) &&
+      WTERMSIG (test_trap_last_status) == SIGALRM)
+    {
+      g_test_message ("child process (%s) timed out", process_id);
+    }
+  else if (WIFSIGNALED (test_trap_last_status))
+    {
+      const gchar *maybe_dumped_core = "";
+
+#ifdef WCOREDUMP
+      if (WCOREDUMP (test_trap_last_status))
+        maybe_dumped_core = ", core dumped";
+#endif
+
+      g_test_message ("child process (%s) killed by signal %d (%s)%s",
+          process_id, WTERMSIG (test_trap_last_status),
+          g_strsignal (WTERMSIG (test_trap_last_status)),
+          maybe_dumped_core);
+    }
+  else
+    {
+      g_test_message ("child process (%s) unknown wait status %d",
+          process_id, test_trap_last_status);
+    }
+#else
+  if (test_trap_last_status == 0)
+    g_test_message ("child process (%s) exit status: 0 (success)",
+        process_id);
+  else
+    g_test_message ("child process (%s) exit status: %d (error)",
+        process_id, test_trap_last_status);
+#endif
 
   escaped = g_strescape (test_trap_last_stdout, NULL);
   g_test_message ("child process (%s) stdout: \"%s\"", process_id, escaped);

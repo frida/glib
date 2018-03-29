@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -135,20 +135,20 @@ char *                 g_data_input_stream_read_line_finish_utf8(GDataInputStrea
                                                                  GAsyncResult            *result,
                                                                  gsize                   *length,
                                                                  GError                 **error);
-GLIB_AVAILABLE_IN_ALL
+GLIB_DEPRECATED_IN_2_56_FOR (g_data_input_stream_read_upto)
 char *                 g_data_input_stream_read_until           (GDataInputStream        *stream,
                                                                  const gchar             *stop_chars,
                                                                  gsize                   *length,
                                                                  GCancellable            *cancellable,
                                                                  GError                 **error);
-GLIB_AVAILABLE_IN_ALL
+GLIB_DEPRECATED_IN_2_56_FOR (g_data_input_stream_read_upto_async)
 void                   g_data_input_stream_read_until_async     (GDataInputStream        *stream,
                                                                  const gchar             *stop_chars,
                                                                  gint                     io_priority,
                                                                  GCancellable            *cancellable,
                                                                  GAsyncReadyCallback      callback,
                                                                  gpointer                 user_data);
-GLIB_AVAILABLE_IN_ALL
+GLIB_DEPRECATED_IN_2_56_FOR (g_data_input_stream_read_upto_finish)
 char *                 g_data_input_stream_read_until_finish    (GDataInputStream        *stream,
                                                                  GAsyncResult            *result,
                                                                  gsize                   *length,

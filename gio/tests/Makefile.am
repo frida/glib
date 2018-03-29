@@ -15,6 +15,7 @@ LDADD = \
 AM_CPPFLAGS = $(gio_INCLUDES) $(GLIB_DEBUG_FLAGS) -I$(top_builddir)/gio -I$(top_srcdir)/gio
 DEFS = -DG_LOG_DOMAIN=\"GLib-GIO\" -DTEST_SERVICES=\""$(abs_top_builddir)/gio/tests/services"\"
 AM_CFLAGS = $(GLIB_WARN_CFLAGS)
+AM_TESTS_ENVIRONMENT += GIO_MODULE_DIR=
 
 # -----------------------------------------------------------------------------
 #  Test programs buildable on all platforms
@@ -86,6 +87,7 @@ uninstalled_test_extra_programs = \
 	gapplication-example-cmdline		\
 	gapplication-example-cmdline2		\
 	gapplication-example-cmdline3		\
+	gapplication-example-cmdline4		\
 	gapplication-example-dbushooks		\
 	gapplication-example-open		\
 	gdbus-example-export			\
@@ -138,6 +140,7 @@ schema_tests = \
 	enum-with-chained-alias.gschema.xml		\
 	enum-with-choice.gschema.xml			\
 	enum-with-invalid-alias.gschema.xml		\
+	enum-with-invalid-value.gschema.xml		\
 	enum-with-repeated-alias.gschema.xml		\
 	enum-with-repeated-nick.gschema.xml		\
 	enum-with-repeated-value.gschema.xml		\
@@ -231,11 +234,29 @@ socket_client_SOURCES = \
 EXTRA_DIST += socket-common.c
 
 uninstalled_test_extra_programs += gdbus-daemon
+gdbus_daemon_SOURCES = gdbus-daemon.c
 nodist_gdbus_daemon_SOURCES = \
-	$(top_builddir)/gio/gdbus-daemon-generated.c
-gdbus_daemon_SOURCES = \
-	gdbus-daemon.c				\
-	$(top_srcdir)/gio/gdbusdaemon.c
+	gdbus-daemon-generated.c \
+	gdbus-daemon-impl.c
+CLEANFILES += gdbus-daemon-impl.c gdbus-daemon-generated.c gdbus-daemon-generated.h
+
+# With subdir-objects we need to create a link to the original
+# file in the right directory, otherwise libtool will complain
+# that it cannot find the wrapper file
+gdbus-daemon-impl.c: $(top_srcdir)/gio/gdbusdaemon.c
+	$(AM_V_GEN) $(LN_S) $^ $@
+
+# These files are only generated on Windows builds inside GIO,
+# but we want them on non-Windows builds for the tests
+gdbus-daemon-generated.h gdbus-daemon-generated.c: $(top_srcdir)/gio/dbus-daemon.xml $(GDBUS_PYTHON_DEPS)
+	$(AM_V_GEN) UNINSTALLED_GLIB_SRCDIR=$(top_srcdir) \
+		UNINSTALLED_GLIB_BUILDDIR=$(top_builddir) \
+		$(PYTHON) $(top_srcdir)/gio/gdbus-2.0/codegen/gdbus-codegen.in \
+		--interface-prefix org. \
+		--generate-c-code gdbus-daemon-generated \
+		--c-namespace _G \
+		$(top_srcdir)/gio/dbus-daemon.xml \
+		$(NULL)
 
 # -----------------------------------------------------------------------------
 #  Test programs buildable on UNIX only
@@ -248,7 +269,9 @@ test_programs += \
 	socket-address				\
 	stream-rw_all				\
 	unix-fd					\
+	unix-mounts				\
 	unix-streams				\
+	g-file-info-filesystem-readonly		\
 	$(NULL)
 
 test_extra_programs += \
@@ -566,9 +589,9 @@ EXTRA_DIST += test.gresource.xml test1.txt test2.gresource.xml test2.txt test3.g
 CLEANFILES += test-generated.txt test_resources.c test_resources2.[ch] plugin_resources.c test.gresource
 endif # !CROSS_COMPILING
 
-BUILT_SOURCES += giotypefuncs.c
+BUILT_SOURCES += giotypefuncs.inc
 
-giotypefuncs.c: Makefile
+giotypefuncs.inc: Makefile
 	$(AM_V_GEN) echo '#include <gio/gio.h>' > xgen-giosrc.c && \
 	  echo "G_GNUC_BEGIN_IGNORE_DEPRECATIONS" > xgen-gio && \
 	  ${CPP} $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) xgen-giosrc.c | \
@@ -578,7 +601,7 @@ giotypefuncs.c: Makefile
 	  $(SED) -e 's/^/*tp++ = /' -e 's/$$/ ();/' >> xgen-gio && \
 	  cp xgen-gio $@ # && rm -f xgen-gio xgen-giosrc.c
 
-CLEANFILES += xgen-giosrc.c xgen-gio giotypefuncs.c
+CLEANFILES += xgen-giosrc.c xgen-gio giotypefuncs.inc
 
 if ENABLE_INSTALLED_TESTS
 if OS_UNIX

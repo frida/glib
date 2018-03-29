@@ -6,13 +6,13 @@
     <ApiVersion>2.0</ApiVersion>
     <GlibEtcInstallRoot>..\..\..\vs$(VSVer)\$(Platform)</GlibEtcInstallRoot>
     <CopyDir>$(GlibEtcInstallRoot)</CopyDir>
-    <GlibLibtoolCompatibleDllPrefix>lib</GlibLibtoolCompatibleDllPrefix>
-    <GlibLibtoolCompatibleDllSuffix>-$(ApiVersion)-0</GlibLibtoolCompatibleDllSuffix>
-    <GlibSeparateVSDllPrefix />
-    <GlibSeparateVSDllSuffix>-2-vs$(VSVer)</GlibSeparateVSDllSuffix>
-    <GlibDllPrefix>$(GlibSeparateVSDllPrefix)</GlibDllPrefix>
-    <GlibDllSuffix>$(GlibSeparateVSDllSuffix)</GlibDllSuffix>
-    <PythonPath>c:\python27</PythonPath>
+    <GlibDllPrefix></GlibDllPrefix>
+    <GlibDllSuffix>-2.0-0</GlibDllSuffix>
+    <PythonDir Condition="'$(VisualStudioVersion)' == '10.0'">c:\python34</PythonDir>
+    <PythonDir Condition="'$(VisualStudioVersion)' == '11.0'">c:\python34</PythonDir>
+    <PythonDir Condition="'$(VisualStudioVersion)' == '12.0'">c:\python34</PythonDir>
+    <PythonDir Condition="'$(VisualStudioVersion)' == '14.0'">c:\python36</PythonDir>
+    <PythonDir Condition="'$(VisualStudioVersion)' == '15.0'">c:\python36</PythonDir>
   </PropertyGroup>
   <PropertyGroup>
     <_PropertySheetDisplayName>glibversionpathsprops</_PropertySheetDisplayName>
@@ -33,26 +33,14 @@
     <BuildMacro Include="CopyDir">
       <Value>$(CopyDir)</Value>
     </BuildMacro>
-    <BuildMacro Include="GlibLibtoolCompatibleDllPrefix">
-      <Value>$(GlibLibtoolCompatibleDllPrefix)</Value>
-    </BuildMacro>
-    <BuildMacro Include="GlibLibtoolCompatibleDllSuffix">
-      <Value>$(GlibLibtoolCompatibleDllSuffix)</Value>
-    </BuildMacro>
-    <BuildMacro Include="GlibSeparateVSDllPrefix">
-      <Value>$(GlibSeparateVSDllPrefix)</Value>
-    </BuildMacro>
-    <BuildMacro Include="GlibSeparateVSDllSuffix">
-      <Value>$(GlibSeparateVSDllSuffix)</Value>
-    </BuildMacro>
     <BuildMacro Include="GlibDllPrefix">
       <Value>$(GlibDllPrefix)</Value>
     </BuildMacro>
     <BuildMacro Include="GlibDllSuffix">
       <Value>$(GlibDllSuffix)</Value>
     </BuildMacro>
-    <BuildMacro Include="PythonPath">
-      <Value>$(PythonPath)</Value>
+    <BuildMacro Include="PythonDir">
+      <Value>$(PythonDir)</Value>
     </BuildMacro>
   </ItemGroup>
 </Project>

@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -310,6 +310,8 @@ g_notification_get_priority (GNotification *notification)
  * Deprecated in favor of g_notification_set_priority().
  *
  * Since: 2.40
+ * Deprecated: 2.42: Since 2.42, this has been deprecated in favour of
+ *    g_notification_set_priority().
  */
 void
 g_notification_set_urgent (GNotification *notification,
@@ -317,7 +319,9 @@ g_notification_set_urgent (GNotification *notification,
 {
   g_return_if_fail (G_IS_NOTIFICATION (notification));
 
-  g_notification_set_priority (notification, G_NOTIFICATION_PRIORITY_URGENT);
+  notification->priority = urgent ?
+      G_NOTIFICATION_PRIORITY_URGENT :
+      G_NOTIFICATION_PRIORITY_NORMAL;
 }
 
 /**

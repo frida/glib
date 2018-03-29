@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the licence, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -32,18 +32,20 @@
  *     and portability
  *
  * GLib defines a number of commonly used types, which can be divided
- * into 4 groups:
+ * into several groups:
  * - New types which are not part of standard C (but are defined in
- *   various C standard library header files) - #gboolean, #gsize,
- *   #gssize, #goffset, #gintptr, #guintptr.
+ *   various C standard library header files) — #gboolean, #gssize.
  * - Integer types which are guaranteed to be the same size across
- *   all platforms - #gint8, #guint8, #gint16, #guint16, #gint32,
+ *   all platforms — #gint8, #guint8, #gint16, #guint16, #gint32,
  *   #guint32, #gint64, #guint64.
  * - Types which are easier to use than their standard C counterparts -
  *   #gpointer, #gconstpointer, #guchar, #guint, #gushort, #gulong.
  * - Types which correspond exactly to standard C types, but are
- *   included for completeness - #gchar, #gint, #gshort, #glong,
+ *   included for completeness — #gchar, #gint, #gshort, #glong,
  *   #gfloat, #gdouble.
+ * - Types which correspond exactly to standard C99 types, but are available
+ *   to use even if your compiler does not support C99 — #gsize, #goffset,
+ *   #gintptr, #guintptr.
  *
  * GLib also defines macros for the limits of some of the standard
  * integer and floating point types, as well as macros for suitable
@@ -615,7 +617,9 @@
  * goffset:
  *
  * A signed integer type that is used for file offsets,
- * corresponding to the C99 type off64_t.
+ * corresponding to the POSIX type `off_t` as if compiling with
+ * `_FILE_OFFSET_BITS` set to 64. #goffset is always 64 bits wide, even on
+ * 32-bit architectures.
  * Values of this type can range from #G_MINOFFSET to
  * #G_MAXOFFSET.
  *
@@ -756,7 +760,7 @@
  *   i = (int) (long) p;
  * ]|
  * The GLib macros GPOINTER_TO_INT(), GINT_TO_POINTER(), etc. take care
- * to do the right thing on the every platform.
+ * to do the right thing on every platform.
  *
  * Warning: You may not store pointers in integers. This is not
  * portable in any way, shape or form. These macros only allow storing
@@ -1997,6 +2001,8 @@
 
 /**
  * G_GNUC_CHECK_VERSION:
+ * @major: major version to check against
+ * @minor: minor version to check against
  *
  * Expands to a a check for a compiler with __GNUC__ defined and a version
  * greater than or equal to the major and minor numbers provided. For example,
@@ -2593,14 +2599,70 @@
  *
  *   membuf = g_malloc (8192);
  *
- *   /<!-- -->* Some computation on membuf *<!-- -->/
+ *   // Some computation on membuf
  *
- *   /<!-- -->* membuf will be automatically freed here *<!-- -->/
+ *   // membuf will be automatically freed here
  *   return TRUE;
  * }
  * ]|
  *
  * Since: 2.44
+ */
+
+/**
+ * g_autolist:
+ * @TypeName: a supported variable type
+ *
+ * Helper to declare a list variable with automatic deep cleanup.
+ *
+ * The list is deeply freed, in a way appropriate to the specified type, when the
+ * variable goes out of scope.  The type must support this.
+ *
+ * This feature is only supported on GCC and clang.  This macro is not
+ * defined on other compilers and should not be used in programs that
+ * are intended to be portable to those compilers.
+ *
+ * This is meant to be used to declare lists of a type with a cleanup
+ * function.  The type of the variable is a GList *.  You
+ * must not add your own '*'.
+ *
+ * This macro can be used to avoid having to do explicit cleanups of
+ * local variables when exiting functions.  It often vastly simplifies
+ * handling of error conditions, removing the need for various tricks
+ * such as 'goto out' or repeating of cleanup code.  It is also helpful
+ * for non-error cases.
+ *
+ * See also g_autoslist(), g_autoptr() and g_steal_pointer().
+ *
+ * Since: 2.56
+ */
+
+/**
+ * g_autoslist:
+ * @TypeName: a supported variable type
+ *
+ * Helper to declare a singly linked list variable with automatic deep cleanup.
+ *
+ * The list is deeply freed, in a way appropriate to the specified type, when the
+ * variable goes out of scope.  The type must support this.
+ *
+ * This feature is only supported on GCC and clang.  This macro is not
+ * defined on other compilers and should not be used in programs that
+ * are intended to be portable to those compilers.
+ *
+ * This is meant to be used to declare lists of a type with a cleanup
+ * function.  The type of the variable is a GSList *.  You
+ * must not add your own '*'.
+ *
+ * This macro can be used to avoid having to do explicit cleanups of
+ * local variables when exiting functions.  It often vastly simplifies
+ * handling of error conditions, removing the need for various tricks
+ * such as 'goto out' or repeating of cleanup code.  It is also helpful
+ * for non-error cases.
+ *
+ * See also g_autolist(), g_autoptr() and g_steal_pointer().
+ *
+ * Since: 2.56
  */
 
 /**

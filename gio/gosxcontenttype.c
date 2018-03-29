@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -24,6 +24,12 @@
 #include "gthemedicon.h"
 
 #include <CoreServices/CoreServices.h>
+
+#define XDG_PREFIX _gio_xdg
+#include "xdgmime/xdgmime.h"
+
+/* We lock this mutex whenever we modify global state in this module.  */
+G_LOCK_DEFINE_STATIC (gio_xdgmime);
 
 
 /*< internal >
@@ -52,15 +58,21 @@ create_cfstring_from_cstr (const gchar *cstr)
 static gchar *
 create_cstr_from_cfstring (CFStringRef str)
 {
-  const gchar *cstr;
+  g_return_val_if_fail (str != NULL, NULL);
 
-  if (str == NULL)
-    return NULL;
-
-  cstr = CFStringGetCStringPtr (str, kCFStringEncodingUTF8);
+  CFIndex length = CFStringGetLength (str);
+  CFIndex maxlen = CFStringGetMaximumSizeForEncoding (length, kCFStringEncodingUTF8);
+  gchar *buffer = g_malloc (maxlen + 1);
+  Boolean success = CFStringGetCString (str, (char *) buffer, maxlen,
+                                        kCFStringEncodingUTF8);
   CFRelease (str);
-
-  return g_strdup (cstr);
+  if (success)
+    return buffer;
+  else
+    {
+      g_free (buffer);
+      return NULL;
+    }
 }
 
 /*< internal >
@@ -78,9 +90,10 @@ static gchar *
 create_cstr_from_cfstring_with_fallback (CFStringRef  str,
                                          const gchar *fallback)
 {
-  gchar *cstr;
+  gchar *cstr = NULL;
 
-  cstr = create_cstr_from_cfstring (str);
+  if (str)
+    cstr = create_cstr_from_cfstring (str);
   if (!cstr)
     return g_strdup (fallback);
 
@@ -179,26 +192,118 @@ g_content_type_get_description (const gchar *type)
   return create_cstr_from_cfstring_with_fallback (desc_str, "unknown");
 }
 
+/* <internal>
+ * _get_generic_icon_name_from_mime_type
+ *
+ * This function produces a generic icon name from a @mime_type.
+ * If no generic icon name is found in the xdg mime database, the
+ * generic icon name is constructed.
+ *
+ * Background:
+ * generic-icon elements specify the icon to use as a generic icon for this
+ * particular mime-type, given by the name attribute. This is used if there
+ * is no specific icon (see icon for how these are found). These are used
+ * for categories of similar types (like spreadsheets or archives) that can
+ * use a common icon. The Icon Naming Specification lists a set of such
+ * icon names. If this element is not specified then the mimetype is used
+ * to generate the generic icon by using the top-level media type
+ * (e.g. "video" in "video/ogg") and appending "-x-generic"
+ * (i.e. "video-x-generic" in the previous example).
+ *
+ * From: https://specifications.freedesktop.org/shared-mime-info-spec/shared-mime-info-spec-0.18.html
+ */
+
+static gchar *
+_get_generic_icon_name_from_mime_type (const gchar *mime_type)
+{
+  const gchar *xdg_icon_name;
+  gchar *icon_name;
+
+  G_LOCK (gio_xdgmime);
+  xdg_icon_name = xdg_mime_get_generic_icon (mime_type);
+  G_UNLOCK (gio_xdgmime);
+
+  if (xdg_icon_name == NULL)
+    {
+      const char *p;
+      const char *suffix = "-x-generic";
+      gsize prefix_len;
+
+      p = strchr (mime_type, '/');
+      if (p == NULL)
+        prefix_len = strlen (mime_type);
+      else
+        prefix_len = p - mime_type;
+
+      icon_name = g_malloc (prefix_len + strlen (suffix) + 1);
+      memcpy (icon_name, mime_type, prefix_len);
+      memcpy (icon_name + prefix_len, suffix, strlen (suffix));
+      icon_name[prefix_len + strlen (suffix)] = 0;
+    }
+  else
+    {
+      icon_name = g_strdup (xdg_icon_name);
+    }
+
+  return icon_name;
+}
+
+
 static GIcon *
-g_content_type_get_icon_internal (const gchar *type,
+g_content_type_get_icon_internal (const gchar *uti,
                                   gboolean     symbolic)
 {
-  GIcon *icon = NULL;
-  gchar *name;
+  char *mimetype_icon;
+  char *mime_type;
+  char *generic_mimetype_icon = NULL;
+  char *q;
+  char *icon_names[6];
+  int n = 0;
+  GIcon *themed_icon;
+  const char  *xdg_icon;
+  int i;
 
-  g_return_val_if_fail (type != NULL, NULL);
+  g_return_val_if_fail (uti != NULL, NULL);
 
-  /* TODO: Show mimetype icons. */
-  if (g_content_type_can_be_executable (type))
-    name = "gtk-execute";
-  else if (g_content_type_is_a (type, "public.directory"))
-    name = symbolic ? "inode-directory-symbolic" : "inode-directory";
-  else
-    name = "gtk-file";
+  mime_type = g_content_type_get_mime_type (uti);
 
-  icon = g_themed_icon_new_with_default_fallbacks (name);
+  G_LOCK (gio_xdgmime);
+  xdg_icon = xdg_mime_get_icon (mime_type);
+  G_UNLOCK (gio_xdgmime);
 
-  return icon;
+  if (xdg_icon)
+    icon_names[n++] = g_strdup (xdg_icon);
+
+  mimetype_icon = g_strdup (mime_type);
+  while ((q = strchr (mimetype_icon, '/')) != NULL)
+    *q = '-';
+
+  icon_names[n++] = mimetype_icon;
+
+  generic_mimetype_icon = _get_generic_icon_name_from_mime_type (mime_type);
+
+  if (generic_mimetype_icon)
+    icon_names[n++] = generic_mimetype_icon;
+
+  if (symbolic)
+    {
+      for (i = 0; i < n; i++)
+        {
+          icon_names[n + i] = icon_names[i];
+          icon_names[i] = g_strconcat (icon_names[i], "-symbolic", NULL);
+        }
+
+      n += n;
+    }
+
+  themed_icon = g_themed_icon_new_from_names (icon_names, n);
+ 
+  for (i = 0; i < n; i++)
+    g_free (icon_names[i]);
+ 
+  g_free(mime_type);
+ 
+  return themed_icon;
 }
 
 GIcon *
@@ -429,7 +534,17 @@ g_content_type_guess (const gchar  *filename,
   if (data && (!filename || !uti ||
                CFStringCompare (uti, CFSTR ("public.data"), 0) == kCFCompareEqualTo))
     {
-      if (looks_like_text (data, data_size))
+      const char *sniffed_mimetype;
+      G_LOCK (gio_xdgmime);
+      sniffed_mimetype = xdg_mime_get_mime_type_for_data (data, data_size, NULL);
+      G_UNLOCK (gio_xdgmime);
+      if (sniffed_mimetype != XDG_MIME_TYPE_UNKNOWN)
+        {
+          gchar *uti_str = g_content_type_from_mime_type (sniffed_mimetype);
+          uti = create_cfstring_from_cstr (uti_str);
+          g_free (uti_str);
+        }
+      if (!uti && looks_like_text (data, data_size))
         {
           if (g_str_has_prefix ((const gchar*)data, "#!/"))
             uti = CFStringCreateCopy (NULL, CFSTR ("public.script"));

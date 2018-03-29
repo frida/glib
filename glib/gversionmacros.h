@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -184,6 +184,26 @@
  * Since: 2.54
  */
 #define GLIB_VERSION_2_54       (G_ENCODE_VERSION (2, 54))
+
+/**
+ * GLIB_VERSION_2_56:
+ *
+ * A macro that evaluates to the 2.56 version of GLib, in a format
+ * that can be used by the C pre-processor.
+ *
+ * Since: 2.56
+ */
+#define GLIB_VERSION_2_56       (G_ENCODE_VERSION (2, 56))
+
+/**
+ * GLIB_VERSION_2_58:
+ *
+ * A macro that evaluates to the 2.58 version of GLib, in a format
+ * that can be used by the C pre-processor.
+ *
+ * Since: 2.58
+ */
+#define GLIB_VERSION_2_58       (G_ENCODE_VERSION (2, 58))
 
 /* evaluates to the current stable version; for development cycles,
  * this means the next stable target
@@ -484,6 +504,34 @@
 # define GLIB_AVAILABLE_IN_2_54                 GLIB_UNAVAILABLE(2, 54)
 #else
 # define GLIB_AVAILABLE_IN_2_54                 _GLIB_EXTERN
+#endif
+
+#if GLIB_VERSION_MIN_REQUIRED >= GLIB_VERSION_2_56
+# define GLIB_DEPRECATED_IN_2_56                GLIB_DEPRECATED
+# define GLIB_DEPRECATED_IN_2_56_FOR(f)         GLIB_DEPRECATED_FOR(f)
+#else
+# define GLIB_DEPRECATED_IN_2_56                _GLIB_EXTERN
+# define GLIB_DEPRECATED_IN_2_56_FOR(f)         _GLIB_EXTERN
+#endif
+
+#if GLIB_VERSION_MAX_ALLOWED < GLIB_VERSION_2_56
+# define GLIB_AVAILABLE_IN_2_56                 GLIB_UNAVAILABLE(2, 56)
+#else
+# define GLIB_AVAILABLE_IN_2_56                 _GLIB_EXTERN
+#endif
+
+#if GLIB_VERSION_MIN_REQUIRED >= GLIB_VERSION_2_58
+# define GLIB_DEPRECATED_IN_2_58                GLIB_DEPRECATED
+# define GLIB_DEPRECATED_IN_2_58_FOR(f)         GLIB_DEPRECATED_FOR(f)
+#else
+# define GLIB_DEPRECATED_IN_2_58                _GLIB_EXTERN
+# define GLIB_DEPRECATED_IN_2_58_FOR(f)         _GLIB_EXTERN
+#endif
+
+#if GLIB_VERSION_MAX_ALLOWED < GLIB_VERSION_2_58
+# define GLIB_AVAILABLE_IN_2_58                 GLIB_UNAVAILABLE(2, 58)
+#else
+# define GLIB_AVAILABLE_IN_2_58                 _GLIB_EXTERN
 #endif
 
 #endif /*  __G_VERSION_MACROS_H__ */

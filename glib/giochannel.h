@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -40,9 +40,6 @@ G_BEGIN_DECLS
 
 typedef struct _GIOChannel	GIOChannel;
 typedef struct _GIOFuncs        GIOFuncs;
-
-typedef void (* GIOChannelCloseConvertersFunc) (GIOChannel * channel);
-typedef void (* GIOChannelResetConvertersFunc) (GIOChannel * channel);
 
 typedef enum
 {
@@ -124,8 +121,8 @@ struct _GIOChannel
   guint is_writeable   : 1;	/* ditto */
   guint is_seekable    : 1;	/* ditto */
 
-  GIOChannelCloseConvertersFunc close_converters;
-  GIOChannelResetConvertersFunc reset_converters;
+  gpointer reserved1;	
+  gpointer reserved2;	
 };
 
 typedef gboolean (*GIOFunc) (GIOChannel   *source,

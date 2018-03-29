@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -17,7 +17,10 @@
  * Author: Matthias Clasen
  */
 
+#include <locale.h>
+
 #include <glib/glib.h>
+#include <glib/gstdio.h>
 #include <gio/gio.h>
 #include <gio/gdesktopappinfo.h>
 #include <stdlib.h>
@@ -345,8 +348,13 @@ static void
 test_extra_getters (void)
 {
   GDesktopAppInfo *appinfo;
+  const gchar *lang;
   gchar *s;
   gboolean b;
+
+  lang = setlocale (LC_ALL, NULL);
+  g_setenv ("LANGUAGE", "de_DE.UTF8", TRUE);
+  setlocale (LC_ALL, "");
 
   appinfo = g_desktop_app_info_new_from_filename (g_test_get_filename (G_TEST_DIST, "appinfo-test.desktop", NULL));
   g_assert (appinfo != NULL);
@@ -358,10 +366,24 @@ test_extra_getters (void)
   g_assert_cmpstr (s, ==, "appinfo-class");
   g_free (s);
 
+  s = g_desktop_app_info_get_locale_string (appinfo, "X-JunkFood");
+  g_assert_cmpstr (s, ==, "Bratwurst");
+  g_free (s);
+
+  g_setenv ("LANGUAGE", "sv_SV.UTF8", TRUE);
+  setlocale (LC_ALL, "");
+
+  s = g_desktop_app_info_get_locale_string (appinfo, "X-JunkFood");
+  g_assert_cmpstr (s, ==, "Burger"); /* fallback */
+  g_free (s);
+
   b = g_desktop_app_info_get_boolean (appinfo, "Terminal");
   g_assert (b);
 
   g_object_unref (appinfo);
+
+  g_setenv ("LANGUAGE", lang, TRUE);
+  setlocale (LC_ALL, "");
 }
 
 static void
@@ -759,7 +781,14 @@ int
 main (int   argc,
       char *argv[])
 {
+  const gchar *build_dir;
   gint result;
+
+  /* With Meson build we need to change into right directory, so that the
+   * appinfo-test binary can be found. */
+  build_dir = g_getenv ("G_TEST_BUILDDIR");
+  if (build_dir)
+    g_chdir (build_dir);
 
   g_test_init (&argc, &argv, NULL);
 

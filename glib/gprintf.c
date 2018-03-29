@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -38,6 +38,8 @@
  * new-line character to the message, so typically @format should end with its
  * own new-line character.
  *
+ * `glib/gprintf.h` must be explicitly included in order to use this function.
+ *
  * Returns: the number of bytes printed.
  *
  * Since: 2.2
@@ -65,6 +67,8 @@ g_printf (gchar const *format,
  *
  * An implementation of the standard fprintf() function which supports 
  * positional parameters, as specified in the Single Unix Specification.
+ *
+ * `glib/gprintf.h` must be explicitly included in order to use this function.
  *
  * Returns: the number of bytes printed.
  *
@@ -99,6 +103,8 @@ g_fprintf (FILE        *file,
  *
  * Note that it is usually better to use g_snprintf(), to avoid the
  * risk of buffer overflow.
+ *
+ * `glib/gprintf.h` must be explicitly included in order to use this function.
  *
  * See also g_strdup_printf().
  *
@@ -176,6 +182,8 @@ g_snprintf (gchar	*string,
  * An implementation of the standard vprintf() function which supports 
  * positional parameters, as specified in the Single Unix Specification.
  *
+ * `glib/gprintf.h` must be explicitly included in order to use this function.
+ *
  * Returns: the number of bytes printed.
  *
  * Since: 2.2
@@ -198,6 +206,8 @@ g_vprintf (gchar const *format,
  *
  * An implementation of the standard fprintf() function which supports 
  * positional parameters, as specified in the Single Unix Specification.
+ *
+ * `glib/gprintf.h` must be explicitly included in order to use this function.
  *
  * Returns: the number of bytes printed.
  *
@@ -222,6 +232,8 @@ g_vfprintf (FILE        *file,
  *
  * An implementation of the standard vsprintf() function which supports 
  * positional parameters, as specified in the Single Unix Specification.
+ *
+ * `glib/gprintf.h` must be explicitly included in order to use this function.
  *
  * Returns: the number of bytes printed.
  *
@@ -293,6 +305,8 @@ g_vsnprintf (gchar	 *string,
  * string to hold the output, instead of putting the output in a buffer 
  * you allocate in advance.
  *
+ * `glib/gprintf.h` must be explicitly included in order to use this function.
+ *
  * Returns: the number of bytes printed.
  *
  * Since: 2.4
@@ -305,9 +319,31 @@ g_vasprintf (gchar      **string,
   gint len;
   g_return_val_if_fail (string != NULL, -1);
 
+#if !defined(HAVE_GOOD_PRINTF)
+
   len = _g_gnulib_vasprintf (string, format, args);
   if (len < 0)
     *string = NULL;
+
+#elif defined (HAVE_VASPRINTF)
+
+  len = vasprintf (string, format, args);
+  if (len < 0)
+    *string = NULL;
+
+#else
+
+  {
+    va_list args2;
+
+    G_VA_COPY (args2, args);
+
+    *string = g_new (gchar, g_printf_string_upper_bound (format, args));
+
+    len = _g_vsprintf (*string, format, args2);
+    va_end (args2);
+  }
+#endif
 
   return len;
 }

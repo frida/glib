@@ -7,7 +7,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -729,7 +729,7 @@ g_network_service_connectable_enumerate (GSocketConnectable *connectable)
   GNetworkServiceAddressEnumerator *srv_enum;
 
   srv_enum = g_object_new (G_TYPE_NETWORK_SERVICE_ADDRESS_ENUMERATOR, NULL);
-  srv_enum->srv = g_object_ref (connectable);
+  srv_enum->srv = g_object_ref (G_NETWORK_SERVICE (connectable));
   srv_enum->resolver = g_resolver_get_default ();
   srv_enum->use_proxy = FALSE;
 

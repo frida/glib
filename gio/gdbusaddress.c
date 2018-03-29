@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -66,6 +66,9 @@
  * like `unix:tmpdir=/tmp/my-app-name`. The exact format of addresses
  * is explained in detail in the
  * [D-Bus specification](http://dbus.freedesktop.org/doc/dbus-specification.html#addresses).
+ *
+ * TCP D-Bus connections are supported, but accessing them via a proxy is
+ * currently not supported.
  */
 
 static gchar *get_session_address_platform_specific (GError **error);
@@ -675,6 +678,13 @@ g_dbus_address_connect (const gchar   *address_entry,
 
       g_assert (ret == NULL);
       client = g_socket_client_new ();
+
+      /* Disable proxy support to prevent a deadlock on startup, since loading a
+       * proxy resolver causes the GIO modules to be loaded, and there will
+       * almost certainly be one of them which then tries to use GDBus.
+       * See: https://bugzilla.gnome.org/show_bug.cgi?id=792499 */
+      g_socket_client_set_enable_proxy (client, FALSE);
+
       connection = g_socket_client_connect (client,
                                             connectable,
                                             cancellable,
@@ -691,9 +701,11 @@ g_dbus_address_connect (const gchar   *address_entry,
           gchar nonce_contents[16 + 1];
           size_t num_bytes_read;
           FILE *f;
+          int errsv;
 
           /* be careful to read only 16 bytes - we also check that the file is only 16 bytes long */
           f = fopen (nonce_file, "rb");
+          errsv = errno;
           if (f == NULL)
             {
               g_set_error (error,
@@ -701,7 +713,7 @@ g_dbus_address_connect (const gchar   *address_entry,
                            G_IO_ERROR_INVALID_ARGUMENT,
                            _("Error opening nonce file “%s”: %s"),
                            nonce_file,
-                           g_strerror (errno));
+                           g_strerror (errsv));
               g_object_unref (ret);
               ret = NULL;
               goto out;
@@ -710,6 +722,7 @@ g_dbus_address_connect (const gchar   *address_entry,
                                   sizeof (gchar),
                                   16 + 1,
                                   f);
+          errsv = errno;
           if (num_bytes_read != 16)
             {
               if (num_bytes_read == 0)
@@ -719,7 +732,7 @@ g_dbus_address_connect (const gchar   *address_entry,
                                G_IO_ERROR_INVALID_ARGUMENT,
                                _("Error reading from nonce file “%s”: %s"),
                                nonce_file,
-                               g_strerror (errno));
+                               g_strerror (errsv));
                 }
               else
                 {
@@ -995,8 +1008,6 @@ g_dbus_address_get_stream_sync (const gchar   *address,
   g_strfreev (addr_array);
   return ret;
 }
-
-#ifndef GIO_STATIC_COMPILATION
 
 /* ---------------------------------------------------------------------------------------------------- */
 
@@ -1511,20 +1522,6 @@ get_session_address_dbus_launch (GError **error)
 }
 #endif /* neither G_OS_UNIX nor G_OS_WIN32 */
 
-#else /* !GIO_STATIC_COMPILATION */
-
-static gchar *
-get_session_address_dbus_launch (GError **error)
-{
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Session bus not available for static GIO"));
-  return NULL;
-}
-
-#endif /* GIO_STATIC_COMPILATION */
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 static gchar *
@@ -1532,7 +1529,6 @@ get_session_address_platform_specific (GError **error)
 {
   gchar *ret;
 
-#ifndef GIO_STATIC_COMPILATION
   /* Use XDG_RUNTIME_DIR/bus if it exists and is suitable. This is appropriate
    * for systems using the "a session is a user-session" model described in
    * <http://lists.freedesktop.org/archives/dbus/2015-January/016522.html>,
@@ -1557,15 +1553,6 @@ get_session_address_platform_specific (GError **error)
    * mechanism based on shared memory.
    */
   return get_session_address_dbus_launch (error);
-#else
-  ret = NULL;
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Session bus not available for static GIO"));
-#endif
-
-  return ret;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1725,10 +1712,10 @@ g_dbus_address_get_for_bus_sync (GBusType       bus_type,
  * Escape @string so it can appear in a D-Bus address as the value
  * part of a key-value pair.
  *
- * For instance, if @string is "/run/bus-for-:0",
- * this function would return "/run/bus-for-%3A0",
+ * For instance, if @string is `/run/bus-for-:0`,
+ * this function would return `/run/bus-for-%3A0`,
  * which could be used in a D-Bus address like
- * "unix:nonce-tcp:host=127.0.0.1,port=42,noncefile=/run/bus-for-%3A0".
+ * `unix:nonce-tcp:host=127.0.0.1,port=42,noncefile=/run/bus-for-%3A0`.
  *
  * Returns: (transfer full): a copy of @string with all
  *     non-optionally-escaped bytes escaped

@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -66,9 +66,9 @@ typedef double  gdouble;
 #define G_MAXINT16	((gint16)  0x7fff)
 #define G_MAXUINT16	((guint16) 0xffff)
 
-#define G_MININT32	((gint32) (-0x7fffffff - 1))
-#define G_MAXINT32	((gint32)   0x7fffffff)
-#define G_MAXUINT32	((guint32)  0xffffffff)
+#define G_MININT32	((gint32) -0x80000000)
+#define G_MAXINT32	((gint32)  0x7fffffff)
+#define G_MAXUINT32	((guint32) 0xffffffff)
 
 #define G_MININT64	((gint64) G_GINT64_CONSTANT(-0x8000000000000000))
 #define G_MAXINT64	G_GINT64_CONSTANT(0x7fffffffffffffff)
@@ -181,8 +181,8 @@ typedef const gchar *   (*GTranslateFunc)       (const gchar   *str,
 #if defined (__GNUC__) && (__GNUC__ >= 2) && defined (__OPTIMIZE__)
 
 #  if __GNUC__ >= 4 && defined (__GNUC_MINOR__) && __GNUC_MINOR__ >= 3
-#    define GUINT32_SWAP_LE_BE(val) ((guint32) __builtin_bswap32 ((gint32) (val)))
-#    define GUINT64_SWAP_LE_BE(val) ((guint64) __builtin_bswap64 ((gint64) (val)))
+#    define GUINT32_SWAP_LE_BE(val) ((guint32) __builtin_bswap32 ((guint32) (val)))
+#    define GUINT64_SWAP_LE_BE(val) ((guint64) __builtin_bswap64 ((guint64) (val)))
 #  endif
 
 #  if defined (__i386__)
@@ -384,7 +384,7 @@ typedef const gchar *   (*GTranslateFunc)       (const gchar   *str,
 /* https://bugzilla.gnome.org/show_bug.cgi?id=769104 */
 #if __GNUC__ >= 5 && !defined(__INTEL_COMPILER)
 #define _GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS
-#elif __has_builtin(__builtin_uadd_overflow)
+#elif g_macro__has_builtin(__builtin_uadd_overflow)
 #define _GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS
 #endif
 #endif

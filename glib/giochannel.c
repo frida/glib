@@ -7,7 +7,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -192,8 +192,6 @@ g_io_channel_init (GIOChannel *channel)
   channel->buf_size = G_IO_NICE_BUF_SIZE;
   channel->read_cd = (GIConv) -1;
   channel->write_cd = (GIConv) -1;
-  channel->close_converters = NULL;
-  channel->reset_converters = NULL;
   channel->read_buf = NULL; /* Lazy allocate buffers */
   channel->encoded_read_buf = NULL;
   channel->write_buf = NULL;
@@ -243,8 +241,10 @@ g_io_channel_unref (GIOChannel *channel)
       else
         g_io_channel_purge (channel);
       g_free (channel->encoding);
-      if (channel->close_converters != NULL)
-        channel->close_converters (channel);
+      if (channel->read_cd != (GIConv) -1)
+        g_iconv_close (channel->read_cd);
+      if (channel->write_cd != (GIConv) -1)
+        g_iconv_close (channel->write_cd);
       g_free (channel->line_term);
       if (channel->read_buf)
         g_string_free (channel->read_buf, TRUE);
@@ -1012,12 +1012,14 @@ g_io_channel_get_flags (GIOChannel *channel)
  * g_io_channel_set_close_on_unref:
  * @channel: a #GIOChannel
  * @do_close: Whether to close the channel on the final unref of
- *            the GIOChannel data structure. The default value of
- *            this is %TRUE for channels created by g_io_channel_new_file (),
- *            and %FALSE for all other channels.
+ *            the GIOChannel data structure.
+ *
+ * Whether to close the channel on the final unref of the #GIOChannel
+ * data structure. The default value of this is %TRUE for channels
+ * created by g_io_channel_new_file (), and %FALSE for all other channels.
  *
  * Setting this flag to %TRUE for a channel you have already closed
- * can cause problems.
+ * can cause problems when the final reference to the #GIOChannel is dropped.
  **/
 void
 g_io_channel_set_close_on_unref	(GIOChannel *channel,
@@ -1037,8 +1039,7 @@ g_io_channel_set_close_on_unref	(GIOChannel *channel,
  * destroyed. The default value of this is %TRUE for channels created
  * by g_io_channel_new_file (), and %FALSE for all other channels.
  *
- * Returns: Whether the channel will be closed on the final unref of
- *               the GIOChannel data structure.
+ * Returns: %TRUE if the channel will be closed, %FALSE otherwise.
  **/
 gboolean
 g_io_channel_get_close_on_unref	(GIOChannel *channel)
@@ -1138,8 +1139,10 @@ g_io_channel_seek_position (GIOChannel  *channel,
         g_string_truncate (channel->read_buf, 0);
 
       /* Conversion state no longer matches position in file */
-      if (channel->reset_converters != NULL)
-        channel->reset_converters (channel);
+      if (channel->read_cd != (GIConv) -1)
+        g_iconv (channel->read_cd, NULL, NULL, NULL, NULL);
+      if (channel->write_cd != (GIConv) -1)
+        g_iconv (channel->write_cd, NULL, NULL, NULL, NULL);
 
       if (channel->encoded_read_buf)
         {
@@ -1257,24 +1260,6 @@ g_io_channel_get_buffered (GIOChannel *channel)
   g_return_val_if_fail (channel != NULL, FALSE);
 
   return channel->use_buffer;
-}
-
-static void
-g_io_channel_on_close_converters (GIOChannel * channel)
-{
-  if (channel->read_cd != (GIConv) -1)
-    g_iconv_close (channel->read_cd);
-  if (channel->write_cd != (GIConv) -1)
-    g_iconv_close (channel->write_cd);
-}
-
-static void
-g_io_channel_on_reset_converters (GIOChannel * channel)
-{
-  if (channel->read_cd != (GIConv) -1)
-    g_iconv (channel->read_cd, NULL, NULL, NULL, NULL);
-  if (channel->write_cd != (GIConv) -1)
-    g_iconv (channel->write_cd, NULL, NULL, NULL, NULL);
 }
 
 /**
@@ -1437,9 +1422,6 @@ g_io_channel_set_encoding (GIOChannel	*channel,
 
   channel->read_cd = read_cd;
   channel->write_cd = write_cd;
-
-  channel->close_converters = g_io_channel_on_close_converters;
-  channel->reset_converters = g_io_channel_on_reset_converters;
 
   g_free (channel->encoding);
   channel->encoding = g_strdup (encoding);
@@ -2533,7 +2515,7 @@ g_io_channel_write_unichar (GIOChannel  *channel,
 
   if (channel->partial_write_buf[0] != '\0')
     {
-      g_warning ("Partial charater written before writing unichar.\n");
+      g_warning ("Partial character written before writing unichar.\n");
       channel->partial_write_buf[0] = '\0';
     }
 

@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -862,17 +862,20 @@ try_tcp (GDBusServer  *server,
       while (bytes_remaining > 0)
         {
           gssize ret;
+          int errsv;
+
           ret = write (fd, server->nonce + bytes_written, bytes_remaining);
+          errsv = errno;
           if (ret == -1)
             {
-              if (errno == EINTR)
+              if (errsv == EINTR)
                 goto again;
               g_set_error (error,
                            G_IO_ERROR,
-                           g_io_error_from_errno (errno),
+                           g_io_error_from_errno (errsv),
                            _("Error writing nonce file at “%s”: %s"),
                            server->nonce_file,
-                           strerror (errno));
+                           g_strerror (errsv));
               goto out;
             }
           bytes_written += ret;

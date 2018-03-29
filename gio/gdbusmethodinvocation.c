@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -554,7 +554,7 @@ g_dbus_method_invocation_return_value_internal (GDBusMethodInvocation *invocatio
  *   g_dbus_method_invocation_return_value (invocation,
  *                                          g_variant_new ("(s)", result_string));
  *
- * /<!-- -->* Do not free @invocation here; returning a value does that *<!-- -->/
+ * // Do not free @invocation here; returning a value does that
  * ]|
  *
  * This method will take ownership of @invocation. See

@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -1033,7 +1033,7 @@ g_dbus_object_manager_server_get_object (GDBusObjectManager *_manager,
   g_mutex_lock (&manager->priv->lock);
   data = g_hash_table_lookup (manager->priv->map_object_path_to_data, object_path);
   if (data != NULL)
-    ret = g_object_ref (data->object);
+    ret = g_object_ref (G_DBUS_OBJECT (data->object));
   g_mutex_unlock (&manager->priv->lock);
 
   return ret;

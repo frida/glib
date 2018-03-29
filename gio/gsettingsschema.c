@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the licence, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -68,7 +68,7 @@
  *   ...
  *
  *   plugin->schema_source =
- *     g_settings_new_schema_source_from_directory (dir,
+ *     g_settings_schema_source_new_from_directory (dir,
  *       g_settings_schema_source_get_default (), FALSE, NULL);
  *
  *   ...
@@ -324,7 +324,7 @@ try_prepend_dir (const gchar *directory)
 static void
 try_prepend_data_dir (const gchar *directory)
 {
-  const gchar *dirname = g_build_filename (directory, "glib-2.0", "schemas", NULL);
+  gchar *dirname = g_build_filename (directory, "glib-2.0", "schemas", NULL);
   try_prepend_dir (dirname);
   g_free (dirname);
 }
@@ -376,11 +376,11 @@ initialise_schema_sources (void)
  * lookups performed against the default source should probably be done
  * recursively.
  *
- * Returns: (transfer none): the default schema source
+ * Returns: (transfer none) (nullable): the default schema source
  *
  * Since: 2.32
  **/
- GSettingsSchemaSource *
+GSettingsSchemaSource *
 g_settings_schema_source_get_default (void)
 {
   initialise_schema_sources ();
@@ -785,18 +785,21 @@ g_settings_schema_source_list_schemas (GSettingsSchemaSource   *source,
 
       for (i = 0; list[i]; i++)
         {
-          if (!g_hash_table_lookup (single, list[i]) &&
-              !g_hash_table_lookup (reloc, list[i]))
+          if (!g_hash_table_contains (single, list[i]) &&
+              !g_hash_table_contains (reloc, list[i]))
             {
+              gchar *schema;
               GvdbTable *table;
+
+              schema = g_strdup (list[i]);
 
               table = gvdb_table_get_table (s->table, list[i]);
               g_assert (table != NULL);
 
               if (gvdb_table_has_value (table, ".path"))
-                g_hash_table_insert (single, g_strdup (list[i]), NULL);
+                g_hash_table_add (single, schema);
               else
-                g_hash_table_insert (reloc, g_strdup (list[i]), NULL);
+                g_hash_table_add (reloc, schema);
 
               gvdb_table_unref (table);
             }
@@ -847,7 +850,7 @@ ensure_schema_lists (void)
 /**
  * g_settings_list_schemas:
  *
- * <!-- -->
+ * Deprecated.
  *
  * Returns: (element-type utf8) (transfer none):  a list of #GSettings
  *   schemas that are available.  The list must not be modified or
@@ -871,7 +874,7 @@ g_settings_list_schemas (void)
 /**
  * g_settings_list_relocatable_schemas:
  *
- * <!-- -->
+ * Deprecated.
  *
  * Returns: (element-type utf8) (transfer none): a list of relocatable
  *   #GSettings schemas that are available.  The list must not be

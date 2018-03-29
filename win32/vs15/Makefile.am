@@ -3,8 +3,6 @@ EXTRA_DIST = \
 	glib.sln \
 	glib.vcxproj \
 	glib.vcxproj.filters \
-	glib-genmarshal.vcxproj \
-	glib-genmarshal.vcxproj.filters \
 	gspawn-win32-helper-console.vcxproj \
 	gspawn-win32-helper-console.vcxproj.filters \
 	gspawn-win32-helper.vcxproj \
@@ -44,6 +42,6 @@ MSVC_BASE_VER = 10
 MSVC_BASE_VER_LONG = 2010
 MSVC_VER = 15
 MSVC_VER_LONG = 15
-MSVC_TOOLSET = 141
+#MSVC_TOOLSET = 141
 
 include $(top_srcdir)/win32/Makefile-newvs.am

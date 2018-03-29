@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -30,21 +30,10 @@
 #endif
 
 #include <glib/gtypes.h>
-#include <glib/gmain.h>
 
 #ifdef G_PLATFORM_WIN32
 
 G_BEGIN_DECLS
-
-typedef struct _GWin32Dispatcher GWin32Dispatcher;
-
-typedef enum _GWin32DispatchMode GWin32DispatchMode;
-
-enum _GWin32DispatchMode
-{
-  G_DISPATCH_MAINLOOP,
-  G_DISPATCH_MESSAGEPUMP
-};
 
 #ifndef MAXPATHLEN
 #define MAXPATHLEN 1024
@@ -95,7 +84,6 @@ gchar* 		g_win32_getlocale  (void);
 GLIB_AVAILABLE_IN_ALL
 gchar*          g_win32_error_message (gint error);
 
-#ifndef _WIN64
 GLIB_DEPRECATED
 gchar*          g_win32_get_package_installation_directory (const gchar *package,
 							    const gchar *dll_name);
@@ -104,7 +92,6 @@ GLIB_DEPRECATED
 gchar*          g_win32_get_package_installation_subdirectory (const gchar *package,
 							       const gchar *dll_name,
 							       const gchar *subdir);
-#endif
 
 GLIB_AVAILABLE_IN_ALL
 gchar*          g_win32_get_package_installation_directory_of_module (gpointer hmodule);
@@ -117,15 +104,6 @@ gchar*          g_win32_locale_filename_from_utf8 (const gchar *utf8filename);
 
 GLIB_AVAILABLE_IN_2_40
 gchar **        g_win32_get_command_line (void);
-
-GLIB_AVAILABLE_IN_2_50
-GWin32Dispatcher * g_win32_dispatcher_new (GWin32DispatchMode mode, GMainContext * main_context);
-
-GLIB_AVAILABLE_IN_2_50
-void               g_win32_dispatcher_destroy (GWin32Dispatcher * dispatcher);
-
-GLIB_AVAILABLE_IN_2_50
-glong              g_win32_dispatcher_dispatch_message (GWin32Dispatcher * dispatcher, gconstpointer msg);
 
 /* As of GLib 2.14 we only support NT-based Windows */
 #define G_WIN32_IS_NT_BASED() TRUE

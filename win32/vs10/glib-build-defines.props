@@ -15,7 +15,7 @@
     <GLibBuildDefines>$(GLibInBuildMacro);$(DllExportDefines);G_LOG_DOMAIN="GLib"</GLibBuildDefines>
     <GThreadBuildDefines>G_LOG_DOMAIN="GThread"</GThreadBuildDefines>
     <GModuleBuildDefines>G_LOG_DOMAIN="GModule"</GModuleBuildDefines>
-    <GObjectBuildDefines>GOBJECT_COMPILATION;$(DllExportDefines);G_LOG_DOMAIN="GLib-GObject";FFI_BUILDING</GObjectBuildDefines>
+    <GObjectBuildDefines>GOBJECT_COMPILATION;$(DllExportDefines);G_LOG_DOMAIN="GLib-GObject"</GObjectBuildDefines>
     <GioBuildDefines>$(GioInBuildMacro);G_LOG_DOMAIN="GLib-GIO";$(DllExportDefines)</GioBuildDefines>
     <WindowsNetworkingLibs>ws2_32.lib;shlwapi.lib;dnsapi.lib;iphlpapi.lib</WindowsNetworkingLibs>
   </PropertyGroup>
@@ -27,13 +27,17 @@
   <ItemDefinitionGroup>
     <ClCompile>
       <AdditionalIncludeDirectories>..\..;..\..\glib;$(GlibEtcInstallRoot)\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>HAVE_CONFIG_H;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ForcedIncludeFiles>msvc_recommended_pragmas.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <AdditionalOptions>/d2Zi+ %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <AdditionalDependencies>intl.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalOptions Condition="'$(VisualStudioVersion)|$(Platform)' == '11.0|x64'">/HIGHENTROPYVA %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(VisualStudioVersion)|$(Platform)' == '12.0|x64'">/HIGHENTROPYVA %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(VisualStudioVersion)|$(Platform)' == '14.0|x64'">/HIGHENTROPYVA %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(VisualStudioVersion)|$(Platform)' == '15.0|x64'">/HIGHENTROPYVA %(AdditionalOptions)</AdditionalOptions>
       <AdditionalLibraryDirectories>$(GlibEtcInstallRoot)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>

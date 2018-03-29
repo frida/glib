@@ -1,10 +1,10 @@
 /*
  * Copyright © 2010 Codethink Limited
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published
- * by the Free Software Foundation; either version 2 of the licence or (at
- * your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -175,7 +175,15 @@ void                    g_application_add_main_option                   (GApplic
 GLIB_AVAILABLE_IN_2_40
 void                    g_application_add_option_group                  (GApplication             *application,
                                                                          GOptionGroup             *group);
-
+GLIB_AVAILABLE_IN_2_56
+void                    g_application_set_option_context_parameter_string (GApplication             *application,
+                                                                           const gchar              *parameter_string);
+GLIB_AVAILABLE_IN_2_56
+void                    g_application_set_option_context_summary        (GApplication             *application,
+                                                                         const gchar              *summary);
+GLIB_AVAILABLE_IN_2_56
+void                    g_application_set_option_context_description    (GApplication             *application,
+                                                                         const gchar              *description);
 GLIB_AVAILABLE_IN_ALL
 gboolean                g_application_get_is_registered                 (GApplication             *application);
 GLIB_AVAILABLE_IN_ALL

@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the licence, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -58,13 +58,15 @@ static const GOptionEntry entries[] =
   { NULL }
 };
 
+/* 256k minus malloc overhead */
+#define STREAM_BUFFER_SIZE (1024*256 - 2*sizeof(gpointer))
+
 static gboolean
 save (GFile *file)
 {
   GOutputStream *out;
   GFileCreateFlags flags;
-  char buffer[1025];
-  char *p;
+  char *buffer;
   gssize res;
   gboolean close_res;
   GError *error;
@@ -88,30 +90,22 @@ save (GFile *file)
       return FALSE;
     }
 
+  buffer = g_malloc (STREAM_BUFFER_SIZE);
   save_res = TRUE;
 
   while (1)
     {
-      res = read (STDIN_FILENO, buffer, 1024);
+      res = read (STDIN_FILENO, buffer, STREAM_BUFFER_SIZE);
       if (res > 0)
 	{
-	  gssize written;
-
-	  p = buffer;
-	  while (res > 0)
-	    {
-	      error = NULL;
-	      written = g_output_stream_write (out, p, res, NULL, &error);
-	      if (written == -1)
-		{
-		  save_res = FALSE;
-                  print_error ("%s", error->message);
-		  g_error_free (error);
-		  goto out;
-		}
-	      res -= written;
-	      p += written;
-	    }
+          g_output_stream_write_all (out, buffer, res, NULL, NULL, &error);
+          if (error != NULL)
+            {
+              save_res = FALSE;
+              print_file_error (file, error->message);
+              g_clear_error (&error);
+              goto out;
+            }
 	}
       else if (res < 0)
 	{
@@ -129,7 +123,7 @@ save (GFile *file)
   if (!close_res)
     {
       save_res = FALSE;
-      print_error ("%s", error->message);
+      print_file_error (file, error->message);
       g_error_free (error);
     }
 
@@ -147,6 +141,7 @@ save (GFile *file)
     }
 
   g_object_unref (out);
+  g_free (buffer);
 
   return save_res;
 }

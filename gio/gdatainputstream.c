@@ -7,7 +7,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -723,7 +723,7 @@ scan_for_newline (GDataInputStream *stream,
 /**
  * g_data_input_stream_read_line:
  * @stream: a given #GDataInputStream.
- * @length: (out): a #gsize to get the length of the data read in.
+ * @length: (out) (optional): a #gsize to get the length of the data read in.
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
  * @error: #GError for error reporting.
  *
@@ -809,7 +809,7 @@ g_data_input_stream_read_line (GDataInputStream  *stream,
 /**
  * g_data_input_stream_read_line_utf8:
  * @stream: a given #GDataInputStream.
- * @length: (out): a #gsize to get the length of the data read in.
+ * @length: (out) (optional): a #gsize to get the length of the data read in.
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
  * @error: #GError for error reporting.
  *
@@ -895,7 +895,7 @@ scan_for_chars (GDataInputStream *stream,
  * g_data_input_stream_read_until:
  * @stream: a given #GDataInputStream.
  * @stop_chars: characters to terminate the read.
- * @length: (out): a #gsize to get the length of the data read in.
+ * @length: (out) (optional): a #gsize to get the length of the data read in.
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
  * @error: #GError for error reporting.
  *
@@ -915,6 +915,8 @@ scan_for_chars (GDataInputStream *stream,
  *     before encountering any of the stop characters. Set @length to
  *     a #gsize to get the length of the string. This function will
  *     return %NULL on an error.
+ * Deprecated: 2.56: Use g_data_input_stream_read_upto() instead, which has more
+ *     consistent behaviour regarding the stop character.
  */
 char *
 g_data_input_stream_read_until (GDataInputStream  *stream,
@@ -1170,6 +1172,8 @@ g_data_input_stream_read_line_async (GDataInputStream    *stream,
  * g_data_input_stream_read_upto_async() instead.
  *
  * Since: 2.20
+ * Deprecated: 2.56: Use g_data_input_stream_read_upto_async() instead, which
+ *     has more consistent behaviour regarding the stop character.
  */
 void
 g_data_input_stream_read_until_async (GDataInputStream    *stream,
@@ -1191,7 +1195,7 @@ g_data_input_stream_read_until_async (GDataInputStream    *stream,
  * g_data_input_stream_read_line_finish:
  * @stream: a given #GDataInputStream.
  * @result: the #GAsyncResult that was provided to the callback.
- * @length: (out): a #gsize to get the length of the data read in.
+ * @length: (out) (optional): a #gsize to get the length of the data read in.
  * @error: #GError for error reporting.
  *
  * Finish an asynchronous call started by
@@ -1223,7 +1227,7 @@ g_data_input_stream_read_line_finish (GDataInputStream  *stream,
  * g_data_input_stream_read_line_finish_utf8:
  * @stream: a given #GDataInputStream.
  * @result: the #GAsyncResult that was provided to the callback.
- * @length: (out): a #gsize to get the length of the data read in.
+ * @length: (out) (optional): a #gsize to get the length of the data read in.
  * @error: #GError for error reporting.
  *
  * Finish an asynchronous call started by
@@ -1265,7 +1269,7 @@ g_data_input_stream_read_line_finish_utf8 (GDataInputStream  *stream,
  * g_data_input_stream_read_until_finish:
  * @stream: a given #GDataInputStream.
  * @result: the #GAsyncResult that was provided to the callback.
- * @length: (out): a #gsize to get the length of the data read in.
+ * @length: (out) (optional): a #gsize to get the length of the data read in.
  * @error: #GError for error reporting.
  *
  * Finish an asynchronous call started by
@@ -1277,6 +1281,8 @@ g_data_input_stream_read_line_finish_utf8 (GDataInputStream  *stream,
  *     before encountering any of the stop characters. Set @length to
  *     a #gsize to get the length of the string. This function will
  *     return %NULL on an error.
+ * Deprecated: 2.56: Use g_data_input_stream_read_upto_finish() instead, which
+ *     has more consistent behaviour regarding the stop character.
  */
 gchar *
 g_data_input_stream_read_until_finish (GDataInputStream  *stream,
@@ -1295,7 +1301,7 @@ g_data_input_stream_read_until_finish (GDataInputStream  *stream,
  * @stop_chars: characters to terminate the read
  * @stop_chars_len: length of @stop_chars. May be -1 if @stop_chars is
  *     nul-terminated
- * @length: (out): a #gsize to get the length of the data read in
+ * @length: (out) (optional): a #gsize to get the length of the data read in
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore
  * @error: #GError for error reporting
  *
@@ -1309,6 +1315,8 @@ g_data_input_stream_read_until_finish (GDataInputStream  *stream,
  *
  * Note that @stop_chars may contain '\0' if @stop_chars_len is
  * specified.
+ *
+ * The returned string will always be nul-terminated on success.
  *
  * Returns: (transfer full): a string with the data that was read
  *     before encountering any of the stop characters. Set @length to
@@ -1430,7 +1438,7 @@ g_data_input_stream_read_upto_async (GDataInputStream    *stream,
  * g_data_input_stream_read_upto_finish:
  * @stream: a #GDataInputStream
  * @result: the #GAsyncResult that was provided to the callback
- * @length: (out): a #gsize to get the length of the data read in
+ * @length: (out) (optional): a #gsize to get the length of the data read in
  * @error: #GError for error reporting
  *
  * Finish an asynchronous call started by
@@ -1439,6 +1447,8 @@ g_data_input_stream_read_upto_async (GDataInputStream    *stream,
  * Note that this function does not consume the stop character. You
  * have to use g_data_input_stream_read_byte() to get it before calling
  * g_data_input_stream_read_upto_async() again.
+ *
+ * The returned string will always be nul-terminated on success.
  *
  * Returns: (transfer full): a string with the data that was read
  *     before encountering any of the stop characters. Set @length to

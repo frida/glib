@@ -182,6 +182,127 @@ test_exit1 (void)
   g_object_unref (proc);
 }
 
+typedef struct {
+  GMainLoop    *loop;
+  GCancellable *cancellable;
+  gboolean      cb_called;
+} TestExit1CancelData;
+
+static gboolean
+test_exit1_cancel_idle_quit_cb (gpointer user_data)
+{
+  GMainLoop *loop = user_data;
+  g_main_loop_quit (loop);
+  return G_SOURCE_REMOVE;
+}
+
+static void
+test_exit1_cancel_wait_check_cb (GObject      *source,
+                                 GAsyncResult *result,
+                                 gpointer      user_data)
+{
+  GSubprocess *subprocess = G_SUBPROCESS (source);
+  TestExit1CancelData *data = user_data;
+  gboolean ret;
+  GError *error = NULL;
+
+  g_assert_false (data->cb_called);
+  data->cb_called = TRUE;
+
+  ret = g_subprocess_wait_check_finish (subprocess, result, &error);
+  g_assert (!ret);
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+  g_clear_error (&error);
+
+  g_idle_add (test_exit1_cancel_idle_quit_cb, data->loop);
+}
+
+static void
+test_exit1_cancel (void)
+{
+  GError *local_error = NULL;
+  GError **error = &local_error;
+  GPtrArray *args;
+  GSubprocess *proc;
+  TestExit1CancelData data = { 0 };
+
+  g_test_bug ("786456");
+
+  args = get_test_subprocess_args ("exit1", NULL);
+  proc = g_subprocess_newv ((const gchar * const *) args->pdata, G_SUBPROCESS_FLAGS_NONE, error);
+  g_ptr_array_free (args, TRUE);
+  g_assert_no_error (local_error);
+
+  data.loop = g_main_loop_new (NULL, FALSE);
+  data.cancellable = g_cancellable_new ();
+  g_subprocess_wait_check_async (proc, data.cancellable, test_exit1_cancel_wait_check_cb, &data);
+
+  g_subprocess_wait_check (proc, NULL, error);
+  g_assert_error (local_error, G_SPAWN_EXIT_ERROR, 1);
+  g_clear_error (error);
+
+  g_cancellable_cancel (data.cancellable);
+  g_main_loop_run (data.loop);
+
+  g_object_unref (proc);
+  g_main_loop_unref (data.loop);
+  g_clear_object (&data.cancellable);
+}
+
+static void
+test_exit1_cancel_in_cb_wait_check_cb (GObject      *source,
+                                       GAsyncResult *result,
+                                       gpointer      user_data)
+{
+  GSubprocess *subprocess = G_SUBPROCESS (source);
+  TestExit1CancelData *data = user_data;
+  gboolean ret;
+  GError *error = NULL;
+
+  g_assert_false (data->cb_called);
+  data->cb_called = TRUE;
+
+  ret = g_subprocess_wait_check_finish (subprocess, result, &error);
+  g_assert (!ret);
+  g_assert_error (error, G_SPAWN_EXIT_ERROR, 1);
+  g_clear_error (&error);
+
+  g_cancellable_cancel (data->cancellable);
+
+  g_idle_add (test_exit1_cancel_idle_quit_cb, data->loop);
+}
+
+static void
+test_exit1_cancel_in_cb (void)
+{
+  GError *local_error = NULL;
+  GError **error = &local_error;
+  GPtrArray *args;
+  GSubprocess *proc;
+  TestExit1CancelData data = { 0 };
+
+  g_test_bug ("786456");
+
+  args = get_test_subprocess_args ("exit1", NULL);
+  proc = g_subprocess_newv ((const gchar * const *) args->pdata, G_SUBPROCESS_FLAGS_NONE, error);
+  g_ptr_array_free (args, TRUE);
+  g_assert_no_error (local_error);
+
+  data.loop = g_main_loop_new (NULL, FALSE);
+  data.cancellable = g_cancellable_new ();
+  g_subprocess_wait_check_async (proc, data.cancellable, test_exit1_cancel_in_cb_wait_check_cb, &data);
+
+  g_subprocess_wait_check (proc, NULL, error);
+  g_assert_error (local_error, G_SPAWN_EXIT_ERROR, 1);
+  g_clear_error (error);
+
+  g_main_loop_run (data.loop);
+
+  g_object_unref (proc);
+  g_main_loop_unref (data.loop);
+  g_clear_object (&data.cancellable);
+}
+
 static gchar *
 splice_to_string (GInputStream   *stream,
                   GError        **error)
@@ -574,6 +695,7 @@ test_multi_1 (void)
 }
 
 typedef struct {
+  GSubprocessFlags flags;
   gboolean is_utf8;
   gboolean running;
   GError *error;
@@ -585,45 +707,67 @@ on_communicate_complete (GObject               *proc,
                          gpointer               user_data)
 {
   TestAsyncCommunicateData *data = user_data;
-  GBytes *stdout = NULL;
-  char *stdout_str = NULL;
+  GBytes *stdout_bytes = NULL, *stderr_bytes = NULL;
+  char *stdout_str = NULL, *stderr_str = NULL;
   const guint8 *stdout_data;
   gsize stdout_len;
 
   data->running = FALSE;
   if (data->is_utf8)
     (void) g_subprocess_communicate_utf8_finish ((GSubprocess*)proc, result,
-                                                 &stdout_str, NULL, &data->error);
+                                                 &stdout_str, &stderr_str, &data->error);
   else
     (void) g_subprocess_communicate_finish ((GSubprocess*)proc, result,
-                                            &stdout, NULL, &data->error);
+                                            &stdout_bytes, &stderr_bytes, &data->error);
   if (data->error)
       return;
 
-  if (!data->is_utf8)
+  if (data->flags & G_SUBPROCESS_FLAGS_STDOUT_PIPE)
     {
-      g_assert (stdout != NULL);
-      stdout_data = g_bytes_get_data (stdout, &stdout_len);
+      if (data->is_utf8)
+        {
+          stdout_data = (guint8*)stdout_str;
+          stdout_len = strlen (stdout_str);
+        }
+      else
+        stdout_data = g_bytes_get_data (stdout_bytes, &stdout_len);
+
+      g_assert_cmpmem (stdout_data, stdout_len, "# hello world\n", 14);
     }
   else
     {
-      g_assert (stdout_str != NULL);
-      stdout_data = (guint8*)stdout_str;
-      stdout_len = strlen (stdout_str);
+      g_assert_null (stdout_str);
+      g_assert_null (stdout_bytes);
     }
 
-  g_assert_cmpmem (stdout_data, stdout_len, "hello world", 11);
-  if (stdout)
-    g_bytes_unref (stdout);
+  if (data->flags & G_SUBPROCESS_FLAGS_STDERR_PIPE)
+    {
+      if (data->is_utf8)
+        g_assert_nonnull (stderr_str);
+      else
+        g_assert_nonnull (stderr_bytes);
+    }
+  else
+    {
+      g_assert_null (stderr_str);
+      g_assert_null (stderr_bytes);
+    }
+
+  g_clear_pointer (&stdout_bytes, g_bytes_unref);
+  g_clear_pointer (&stderr_bytes, g_bytes_unref);
   g_free (stdout_str);
+  g_free (stderr_str);
 }
 
+/* Test g_subprocess_communicate_async() works correctly with a variety of flags,
+ * as passed in via @test_data. */
 static void
-test_communicate_async (void)
+test_communicate_async (gconstpointer test_data)
 {
+  GSubprocessFlags flags = GPOINTER_TO_INT (test_data);
   GError *error = NULL;
   GPtrArray *args;
-  TestAsyncCommunicateData data = { 0, };
+  TestAsyncCommunicateData data = { flags, 0, };
   GSubprocess *proc;
   GCancellable *cancellable = NULL;
   GBytes *input;
@@ -631,12 +775,14 @@ test_communicate_async (void)
 
   args = get_test_subprocess_args ("cat", NULL);
   proc = g_subprocess_newv ((const gchar* const*)args->pdata,
-                            G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE,
+                            G_SUBPROCESS_FLAGS_STDIN_PIPE | flags,
                             &error);
   g_assert_no_error (error);
   g_ptr_array_free (args, TRUE);
 
-  hellostring = "hello world";
+  /* Include a leading hash and trailing newline so that if this gets onto the
+   * test’s stdout, it doesn’t mess up TAP output. */
+  hellostring = "# hello world\n";
   input = g_bytes_new_static (hellostring, strlen (hellostring));
 
   g_subprocess_communicate_async (proc, input,
@@ -654,61 +800,76 @@ test_communicate_async (void)
   g_object_unref (proc);
 }
 
+/* Test g_subprocess_communicate() works correctly with a variety of flags,
+ * as passed in via @test_data. */
 static void
-test_communicate (void)
+test_communicate (gconstpointer test_data)
 {
+  GSubprocessFlags flags = GPOINTER_TO_INT (test_data);
   GError *error = NULL;
   GPtrArray *args;
   GSubprocess *proc;
   GCancellable *cancellable = NULL;
   GBytes *input;
   const gchar *hellostring;
-  GBytes *stdout;
+  GBytes *stdout_bytes, *stderr_bytes;
   const gchar *stdout_data;
   gsize stdout_len;
 
   args = get_test_subprocess_args ("cat", NULL);
   proc = g_subprocess_newv ((const gchar* const*)args->pdata,
-                            G_SUBPROCESS_FLAGS_STDIN_PIPE
-                            | G_SUBPROCESS_FLAGS_STDOUT_PIPE
-                            | G_SUBPROCESS_FLAGS_STDERR_MERGE,
+                            G_SUBPROCESS_FLAGS_STDIN_PIPE | flags,
                             &error);
   g_assert_no_error (error);
   g_ptr_array_free (args, TRUE);
 
-  hellostring = "hello world";
+  /* Include a leading hash and trailing newline so that if this gets onto the
+   * test’s stdout, it doesn’t mess up TAP output. */
+  hellostring = "# hello world\n";
   input = g_bytes_new_static (hellostring, strlen (hellostring));
 
-  g_subprocess_communicate (proc, input, cancellable, &stdout, NULL, &error);
+  g_subprocess_communicate (proc, input, cancellable, &stdout_bytes, &stderr_bytes, &error);
   g_assert_no_error (error);
-  stdout_data = g_bytes_get_data (stdout, &stdout_len);
 
-  g_assert_cmpmem (stdout_data, stdout_len, "hello world", 11);
-  g_bytes_unref (stdout);
-  
+  if (flags & G_SUBPROCESS_FLAGS_STDOUT_PIPE)
+    {
+      stdout_data = g_bytes_get_data (stdout_bytes, &stdout_len);
+      g_assert_cmpmem (stdout_data, stdout_len, "# hello world\n", 14);
+    }
+  else
+    g_assert_null (stdout_bytes);
+  if (flags & G_SUBPROCESS_FLAGS_STDERR_PIPE)
+    g_assert_nonnull (stderr_bytes);
+  else
+    g_assert_null (stderr_bytes);
+
   g_bytes_unref (input);
-  g_bytes_unref (stdout);
+  g_clear_pointer (&stdout_bytes, g_bytes_unref);
+  g_clear_pointer (&stderr_bytes, g_bytes_unref);
   g_object_unref (proc);
 }
 
+/* Test g_subprocess_communicate_utf8_async() works correctly with a variety of
+ * flags, as passed in via @test_data. */
 static void
-test_communicate_utf8_async (void)
+test_communicate_utf8_async (gconstpointer test_data)
 {
+  GSubprocessFlags flags = GPOINTER_TO_INT (test_data);
   GError *error = NULL;
   GPtrArray *args;
-  TestAsyncCommunicateData data = { 0, };
+  TestAsyncCommunicateData data = { flags, 0, };
   GSubprocess *proc;
   GCancellable *cancellable = NULL;
 
   args = get_test_subprocess_args ("cat", NULL);
   proc = g_subprocess_newv ((const gchar* const*)args->pdata,
-                            G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE,
+                            G_SUBPROCESS_FLAGS_STDIN_PIPE | flags,
                             &error);
   g_assert_no_error (error);
   g_ptr_array_free (args, TRUE);
 
   data.is_utf8 = TRUE;
-  g_subprocess_communicate_utf8_async (proc, "hello world",
+  g_subprocess_communicate_utf8_async (proc, "# hello world\n",
                                        cancellable,
                                        on_communicate_complete, 
                                        &data);
@@ -722,33 +883,43 @@ test_communicate_utf8_async (void)
   g_object_unref (proc);
 }
 
+/* Test g_subprocess_communicate_utf8() works correctly with a variety of flags,
+ * as passed in via @test_data. */
 static void
-test_communicate_utf8 (void)
+test_communicate_utf8 (gconstpointer test_data)
 {
+  GSubprocessFlags flags = GPOINTER_TO_INT (test_data);
   GError *error = NULL;
   GPtrArray *args;
   GSubprocess *proc;
   GCancellable *cancellable = NULL;
   const gchar *stdin_buf;
-  gchar *stdout_buf;
+  gchar *stdout_buf, *stderr_buf;
 
   args = get_test_subprocess_args ("cat", NULL);
   proc = g_subprocess_newv ((const gchar* const*)args->pdata,
-                            G_SUBPROCESS_FLAGS_STDIN_PIPE
-                            | G_SUBPROCESS_FLAGS_STDOUT_PIPE
-                            | G_SUBPROCESS_FLAGS_STDERR_MERGE,
+                            G_SUBPROCESS_FLAGS_STDIN_PIPE | flags,
                             &error);
   g_assert_no_error (error);
   g_ptr_array_free (args, TRUE);
 
-  stdin_buf = "hello world";
+  /* Include a leading hash and trailing newline so that if this gets onto the
+   * test’s stdout, it doesn’t mess up TAP output. */
+  stdin_buf = "# hello world\n";
 
-  g_subprocess_communicate_utf8 (proc, stdin_buf, cancellable, &stdout_buf, NULL, &error);
+  g_subprocess_communicate_utf8 (proc, stdin_buf, cancellable, &stdout_buf, &stderr_buf, &error);
   g_assert_no_error (error);
 
-  g_assert (strcmp (stdout_buf, "hello world") == 0);
+  if (flags & G_SUBPROCESS_FLAGS_STDOUT_PIPE)
+    g_assert_cmpstr (stdout_buf, ==, "# hello world\n");
+  else
+    g_assert_null (stdout_buf);
+  if (flags & G_SUBPROCESS_FLAGS_STDERR_PIPE)
+    g_assert_nonnull (stderr_buf);
+  else     g_assert_null (stderr_buf);
+
   g_free (stdout_buf);
-  
+  g_free (stderr_buf);
   g_object_unref (proc);
 }
 
@@ -783,15 +954,16 @@ test_communicate_nothing (void)
 static void
 test_communicate_utf8_invalid (void)
 {
+  GSubprocessFlags flags = G_SUBPROCESS_FLAGS_STDOUT_PIPE;
   GError *error = NULL;
   GPtrArray *args;
-  TestAsyncCommunicateData data = { 0, };
+  TestAsyncCommunicateData data = { flags, 0, };
   GSubprocess *proc;
   GCancellable *cancellable = NULL;
 
   args = get_test_subprocess_args ("cat", NULL);
   proc = g_subprocess_newv ((const gchar* const*)args->pdata,
-                            G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDOUT_PIPE,
+                            G_SUBPROCESS_FLAGS_STDIN_PIPE | flags,
                             &error);
   g_assert_no_error (error);
   g_ptr_array_free (args, TRUE);
@@ -946,6 +1118,53 @@ test_env (void)
   g_strfreev (split);
   g_free (result);
   g_object_unref (proc);
+  g_object_unref (launcher);
+}
+
+/* Test that explicitly inheriting and modifying the parent process’
+ * environment works. */
+static void
+test_env_inherit (void)
+{
+  GError *local_error = NULL;
+  GError **error = &local_error;
+  GSubprocessLauncher *launcher;
+  GSubprocess *proc;
+  GPtrArray *args;
+  GInputStream *stdout;
+  gchar *result;
+  gchar **split;
+
+  g_setenv ("TEST_ENV_INHERIT1", "1", TRUE);
+  g_setenv ("TEST_ENV_INHERIT2", "2", TRUE);
+
+  args = get_test_subprocess_args ("env", NULL);
+  launcher = g_subprocess_launcher_new (G_SUBPROCESS_FLAGS_NONE);
+  g_subprocess_launcher_set_flags (launcher, G_SUBPROCESS_FLAGS_STDOUT_PIPE);
+  g_subprocess_launcher_set_environ (launcher, NULL);
+  g_subprocess_launcher_setenv (launcher, "TWO", "2", TRUE);
+  g_subprocess_launcher_unsetenv (launcher, "TEST_ENV_INHERIT1");
+
+  g_assert_null (g_subprocess_launcher_getenv (launcher, "TEST_ENV_INHERIT1"));
+  g_assert_cmpstr (g_subprocess_launcher_getenv (launcher, "TEST_ENV_INHERIT2"), ==, "2");
+  g_assert_cmpstr (g_subprocess_launcher_getenv (launcher, "TWO"), ==, "2");
+
+  proc = g_subprocess_launcher_spawn (launcher, error, args->pdata[0], "env", NULL);
+  g_ptr_array_free (args, TRUE);
+  g_assert_no_error (local_error);
+
+  stdout = g_subprocess_get_stdout_pipe (proc);
+
+  result = splice_to_string (stdout, error);
+  split = g_strsplit (result, "\n", -1);
+  g_assert_null (g_environ_getenv (split, "TEST_ENV_INHERIT1"));
+  g_assert_cmpstr (g_environ_getenv (split, "TEST_ENV_INHERIT2"), ==, "2");
+  g_assert_cmpstr (g_environ_getenv (split, "TWO"), ==, "2");
+
+  g_strfreev (split);
+  g_free (result);
+  g_object_unref (proc);
+  g_object_unref (launcher);
 }
 
 static void
@@ -979,6 +1198,7 @@ test_cwd (void)
 
   g_free (result);
   g_object_unref (proc);
+  g_object_unref (launcher);
 }
 #ifdef G_OS_UNIX
 static void
@@ -1234,12 +1454,31 @@ test_launcher_environment (void)
   g_free (out);
 
   g_object_unref (proc);
+  g_object_unref (launcher);
+  g_ptr_array_unref (args);
 }
 
 int
 main (int argc, char **argv)
 {
+  const struct
+    {
+      const gchar *subtest;
+      GSubprocessFlags flags;
+    }
+  flags_vectors[] =
+    {
+      { "", G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_MERGE },
+      { "/no-pipes", G_SUBPROCESS_FLAGS_NONE },
+      { "/separate-stderr", G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE },
+      { "/stdout-only", G_SUBPROCESS_FLAGS_STDOUT_PIPE },
+      { "/stderr-only", G_SUBPROCESS_FLAGS_STDERR_PIPE },
+      { "/stdout-silence", G_SUBPROCESS_FLAGS_STDOUT_SILENCE },
+    };
+  gsize i;
+
   g_test_init (&argc, &argv, NULL);
+  g_test_bug_base ("https://bugzilla.gnome.org/");
 
   g_test_add_func ("/gsubprocess/noop", test_noop);
   g_test_add_func ("/gsubprocess/noop-all-to-null", test_noop_all_to_null);
@@ -1250,6 +1489,8 @@ main (int argc, char **argv)
   g_test_add_func ("/gsubprocess/signal", test_signal);
 #endif
   g_test_add_func ("/gsubprocess/exit1", test_exit1);
+  g_test_add_func ("/gsubprocess/exit1/cancel", test_exit1_cancel);
+  g_test_add_func ("/gsubprocess/exit1/cancel_in_cb", test_exit1_cancel_in_cb);
   g_test_add_func ("/gsubprocess/echo1", test_echo1);
 #ifdef G_OS_UNIX
   g_test_add_func ("/gsubprocess/echo-merged", test_echo_merged);
@@ -1257,14 +1498,38 @@ main (int argc, char **argv)
   g_test_add_func ("/gsubprocess/cat-utf8", test_cat_utf8);
   g_test_add_func ("/gsubprocess/cat-eof", test_cat_eof);
   g_test_add_func ("/gsubprocess/multi1", test_multi_1);
-  g_test_add_func ("/gsubprocess/communicate", test_communicate);
-  g_test_add_func ("/gsubprocess/communicate-async", test_communicate_async);
-  g_test_add_func ("/gsubprocess/communicate-utf8", test_communicate_utf8);
-  g_test_add_func ("/gsubprocess/communicate-utf8-async", test_communicate_utf8_async);
-  g_test_add_func ("/gsubprocess/communicate-utf8-invalid", test_communicate_utf8_invalid);
-  g_test_add_func ("/gsubprocess/communicate-nothing", test_communicate_nothing);
+
+  /* Add various tests for g_subprocess_communicate() with different flags. */
+  for (i = 0; i < G_N_ELEMENTS (flags_vectors); i++)
+    {
+      gchar *test_path = NULL;
+
+      test_path = g_strdup_printf ("/gsubprocess/communicate%s", flags_vectors[i].subtest);
+      g_test_add_data_func (test_path, GINT_TO_POINTER (flags_vectors[i].flags),
+                            test_communicate);
+      g_free (test_path);
+
+      test_path = g_strdup_printf ("/gsubprocess/communicate/async%s", flags_vectors[i].subtest);
+      g_test_add_data_func (test_path, GINT_TO_POINTER (flags_vectors[i].flags),
+                            test_communicate_async);
+      g_free (test_path);
+
+      test_path = g_strdup_printf ("/gsubprocess/communicate/utf8%s", flags_vectors[i].subtest);
+      g_test_add_data_func (test_path, GINT_TO_POINTER (flags_vectors[i].flags),
+                            test_communicate_utf8);
+      g_free (test_path);
+
+      test_path = g_strdup_printf ("/gsubprocess/communicate/utf8/async%s", flags_vectors[i].subtest);
+      g_test_add_data_func (test_path, GINT_TO_POINTER (flags_vectors[i].flags),
+                            test_communicate_utf8_async);
+      g_free (test_path);
+    }
+
+  g_test_add_func ("/gsubprocess/communicate/utf8/invalid", test_communicate_utf8_invalid);
+  g_test_add_func ("/gsubprocess/communicate/nothing", test_communicate_nothing);
   g_test_add_func ("/gsubprocess/terminate", test_terminate);
   g_test_add_func ("/gsubprocess/env", test_env);
+  g_test_add_func ("/gsubprocess/env/inherit", test_env_inherit);
   g_test_add_func ("/gsubprocess/cwd", test_cwd);
 #ifdef G_OS_UNIX
   g_test_add_func ("/gsubprocess/stdout-file", test_stdout_file);

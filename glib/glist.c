@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -130,7 +130,7 @@
  *
  * A convenience macro to get the previous element in a #GList.
  * Note that it is considered perfectly acceptable to access
- * @list->previous directly.
+ * @list->prev directly.
  *
  * Returns: the previous element, or %NULL if there are no previous
  *          elements
@@ -210,6 +210,9 @@ g_list_free_1 (GList *list)
  *
  * Convenience method, which frees all the memory used by a #GList,
  * and calls @free_func on every element's data.
+ *
+ * @free_func must not modify the list (eg, by removing the freed
+ * element from it).
  *
  * Since: 2.28
  */
@@ -985,6 +988,9 @@ g_list_length (GList *list)
  * @user_data: user data to pass to the function
  *
  * Calls a function for each element of a #GList.
+ *
+ * It is safe for @func to remove the element from @list, but it must
+ * not modify any part of the list after that element.
  */
 /**
  * GFunc:

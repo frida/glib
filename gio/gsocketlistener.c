@@ -7,7 +7,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -49,9 +49,16 @@
  * of server sockets and helps you accept sockets from any of the
  * socket, either sync or async.
  *
+ * Add addresses and ports to listen on using g_socket_listener_add_address()
+ * and g_socket_listener_add_inet_port(). These will be listened on until
+ * g_socket_listener_close() is called. Dropping your final reference to the
+ * #GSocketListener will not cause g_socket_listener_close() to be called
+ * implicitly, as some references to the #GSocketListener may be held
+ * internally.
+ *
  * If you want to implement a network server, also look at #GSocketService
- * and #GThreadedSocketService which are subclass of #GSocketListener
- * that makes this even easier.
+ * and #GThreadedSocketService which are subclasses of #GSocketListener
+ * that make this even easier.
  *
  * Since: 2.22
  */
@@ -309,6 +316,10 @@ g_socket_listener_add_socket (GSocketListener  *listener,
  * requesting a binding to port 0 (ie: "any port").  This address, if
  * requested, belongs to the caller and must be freed.
  *
+ * Call g_socket_listener_close() to stop listening on @address; this will not
+ * be done automatically when you drop your final reference to @listener, as
+ * references may be held internally.
+ *
  * Returns: %TRUE on success, %FALSE on error.
  *
  * Since: 2.22
@@ -403,6 +414,10 @@ g_socket_listener_add_address (GSocketListener  *listener,
  * to accept to identify this particular source, which is
  * useful if you're listening on multiple addresses and do
  * different things depending on what address is connected to.
+ *
+ * Call g_socket_listener_close() to stop listening on @port; this will not
+ * be done automatically when you drop your final reference to @listener, as
+ * references may be held internally.
  *
  * Returns: %TRUE on success, %FALSE on error.
  *
@@ -783,7 +798,6 @@ accept_ready (GSocket      *accept_socket,
       g_task_return_error (task, error);
     }
 
-  free_sources (g_task_get_task_data (task));
   g_object_unref (task);
   return FALSE;
 }
@@ -828,7 +842,7 @@ g_socket_listener_accept_socket_async (GSocketListener     *listener,
 			 task,
 			 cancellable,
 			 g_main_context_get_thread_default ());
-  g_task_set_task_data (task, sources, NULL);
+  g_task_set_task_data (task, sources, (GDestroyNotify) free_sources);
 }
 
 /**
@@ -1208,26 +1222,24 @@ g_socket_listener_add_any_inet_port (GSocketListener  *listener,
       g_signal_emit (listener, signals[EVENT], 0,
                      G_SOCKET_LISTENER_LISTENING, socket4);
 
-      if (g_socket_listen (socket4, (socket6 == NULL) ? error : NULL))
-        {
-          g_signal_emit (listener, signals[EVENT], 0,
-                         G_SOCKET_LISTENER_LISTENED, socket4);
-
-          if (source_object)
-            g_object_set_qdata_full (G_OBJECT (socket4), source_quark,
-                                     g_object_ref (source_object),
-                                     g_object_unref);
-
-          g_ptr_array_add (listener->priv->sockets, socket4);
-        }
-      else
+      if (!g_socket_listen (socket4, error))
         {
           g_object_unref (socket4);
-          socket4 = NULL;
+          if (socket6)
+            g_object_unref (socket6);
 
-          if (socket6 == NULL)
-            return 0;
+          return 0;
         }
+
+      g_signal_emit (listener, signals[EVENT], 0,
+                     G_SOCKET_LISTENER_LISTENED, socket4);
+
+      if (source_object)
+        g_object_set_qdata_full (G_OBJECT (socket4), source_quark,
+                                 g_object_ref (source_object),
+                                 g_object_unref);
+
+      g_ptr_array_add (listener->priv->sockets, socket4);
     }
 
   if ((socket4 != NULL || socket6 != NULL) &&

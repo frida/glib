@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -202,14 +202,14 @@ g_io_module_scope_block (GIOModuleScope *scope,
   g_return_if_fail (basename != NULL);
 
   key = g_strdup (basename);
-  g_hash_table_insert (scope->basenames, key, key);
+  g_hash_table_add (scope->basenames, key);
 }
 
 static gboolean
 _g_io_module_scope_contains (GIOModuleScope *scope,
                              const gchar    *basename)
 {
-  return g_hash_table_lookup (scope->basenames, basename) ? TRUE : FALSE;
+  return g_hash_table_contains (scope->basenames, basename);
 }
 
 struct _GIOModule {
@@ -291,6 +291,43 @@ g_io_module_finalize (GObject *object)
 }
 
 static gboolean
+load_symbols (GIOModule *module)
+{
+  gchar *name;
+  gchar *load_symname;
+  gchar *unload_symname;
+  gboolean ret;
+
+  name = _g_io_module_extract_name (module->filename);
+  load_symname = g_strconcat ("g_io_", name, "_load", NULL);
+  unload_symname = g_strconcat ("g_io_", name, "_unload", NULL);
+
+  ret = g_module_symbol (module->library,
+                         load_symname,
+                         (gpointer) &module->load) &&
+        g_module_symbol (module->library,
+                         unload_symname,
+                         (gpointer) &module->unload);
+
+  if (!ret)
+    {
+      /* Fallback to old names */
+      ret = g_module_symbol (module->library,
+                             "g_io_module_load",
+                             (gpointer) &module->load) &&
+            g_module_symbol (module->library,
+                             "g_io_module_unload",
+                             (gpointer) &module->unload);
+    }
+
+  g_free (name);
+  g_free (load_symname);
+  g_free (unload_symname);
+
+  return ret;
+}
+
+static gboolean
 g_io_module_load_module (GTypeModule *gmodule)
 {
   GIOModule *module = G_IO_MODULE (gmodule);
@@ -310,12 +347,7 @@ g_io_module_load_module (GTypeModule *gmodule)
     }
 
   /* Make sure that the loaded library contains the required methods */
-  if (! g_module_symbol (module->library,
-                         "g_io_module_load",
-                         (gpointer) &module->load) ||
-      ! g_module_symbol (module->library,
-                         "g_io_module_unload",
-                         (gpointer) &module->unload))
+  if (!load_symbols (module))
     {
       g_printerr ("%s\n", g_module_error ());
       g_module_close (module->library);
@@ -690,8 +722,8 @@ try_class (GIOExtension *extension,
  * The result is cached after it is generated the first time, and
  * the function is thread-safe.
  *
- * Returns: (transfer none): an object implementing
- *     @extension_point, or %NULL if there are no usable
+ * Returns: (transfer none): the type to instantiate to implement
+ *     @extension_point, or %G_TYPE_INVALID if there are no usable
  *     implementations.
  */
 GType
@@ -932,6 +964,7 @@ extern GType g_cocoa_notification_backend_get_type (void);
 #ifdef G_PLATFORM_WIN32
 
 #include <windows.h>
+extern GType _g_win32_network_monitor_get_type (void);
 
 static HMODULE gio_dll = NULL;
 
@@ -1024,8 +1057,6 @@ _g_io_modules_ensure_extension_points_registered (void)
   G_UNLOCK (registered_extensions);
 }
 
-#ifndef GLIB_STATIC_COMPILATION
-
 static gchar *
 get_gio_module_dir (void)
 {
@@ -1059,17 +1090,12 @@ get_gio_module_dir (void)
   return module_dir;
 }
 
-#endif /* !GLIB_STATIC_COMPILATION */
-
 void
 _g_io_modules_ensure_loaded (void)
 {
   static gboolean loaded_dirs = FALSE;
-#ifndef GLIB_STATIC_COMPILATION
   const char *module_path;
-  gchar *module_dir;
   GIOModuleScope *scope;
-#endif
 
   _g_io_modules_ensure_extension_points_registered ();
   
@@ -1077,9 +1103,9 @@ _g_io_modules_ensure_loaded (void)
 
   if (!loaded_dirs)
     {
-      loaded_dirs = TRUE;
+      gchar *module_dir;
 
-#ifndef GLIB_STATIC_COMPILATION
+      loaded_dirs = TRUE;
       scope = g_io_module_scope_new (G_IO_MODULE_SCOPE_BLOCK_DUPLICATES);
 
       /* First load any overrides, extras */
@@ -1106,7 +1132,6 @@ _g_io_modules_ensure_loaded (void)
       g_free (module_dir);
 
       g_io_module_scope_free (scope);
-#endif
 
       /* Initialize types from built-in "modules" */
       g_type_ensure (g_null_settings_backend_get_type ());
@@ -1155,6 +1180,9 @@ _g_io_modules_ensure_loaded (void)
 #ifdef HAVE_NETLINK
       g_type_ensure (_g_network_monitor_netlink_get_type ());
       g_type_ensure (_g_network_monitor_nm_get_type ());
+#endif
+#ifdef G_OS_WIN32
+      g_type_ensure (_g_win32_network_monitor_get_type ());
 #endif
     }
 

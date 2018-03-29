@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -201,7 +201,7 @@ schedule_call_in_idle (Client *client, CallType call_type)
                          call_in_idle_cb,
                          data,
                          (GDestroyNotify) call_handler_data_free);
-  g_source_set_name (idle_source, "[gio] call_in_idle_cb");
+  g_source_set_name (idle_source, "[gio, gdbusnamewatching.c] call_in_idle_cb");
   g_source_attach (idle_source, client->main_context);
   g_source_unref (idle_source);
 }
@@ -249,13 +249,43 @@ call_vanished_handler (Client  *client,
 
 /* ---------------------------------------------------------------------------------------------------- */
 
+/* Return a reference to the #Client for @watcher_id, or %NULL if it’s been
+ * unwatched. This is safe to call from any thread. */
+static Client *
+dup_client (guint watcher_id)
+{
+  Client *client;
+
+  G_LOCK (lock);
+
+  g_assert (watcher_id != 0);
+  g_assert (map_id_to_client != NULL);
+
+  client = g_hash_table_lookup (map_id_to_client, GUINT_TO_POINTER (watcher_id));
+
+  if (client != NULL)
+    client_ref (client);
+
+  G_UNLOCK (lock);
+
+  return client;
+}
+
+/* Could be called from any thread, so it could be called after client_unref()
+ * has started finalising the #Client. Avoid that by looking up the #Client
+ * atomically. */
 static void
 on_connection_disconnected (GDBusConnection *connection,
                             gboolean         remote_peer_vanished,
                             GError          *error,
                             gpointer         user_data)
 {
-  Client *client = user_data;
+  guint watcher_id = GPOINTER_TO_UINT (user_data);
+  Client *client = NULL;
+
+  client = dup_client (watcher_id);
+  if (client == NULL)
+    return;
 
   if (client->name_owner_changed_subscription_id > 0)
     g_dbus_connection_signal_unsubscribe (client->connection, client->name_owner_changed_subscription_id);
@@ -267,10 +297,13 @@ on_connection_disconnected (GDBusConnection *connection,
   client->connection = NULL;
 
   call_vanished_handler (client, FALSE);
+
+  client_unref (client);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
 
+/* Will always be called from the thread which acquired client->main_context. */
 static void
 on_name_owner_changed (GDBusConnection *connection,
                        const gchar      *sender_name,
@@ -280,10 +313,15 @@ on_name_owner_changed (GDBusConnection *connection,
                        GVariant         *parameters,
                        gpointer          user_data)
 {
-  Client *client = user_data;
+  guint watcher_id = GPOINTER_TO_UINT (user_data);
+  Client *client = NULL;
   const gchar *name;
   const gchar *old_owner;
   const gchar *new_owner;
+
+  client = dup_client (watcher_id);
+  if (client == NULL)
+    return;
 
   if (!client->initialized)
     goto out;
@@ -319,7 +357,7 @@ on_name_owner_changed (GDBusConnection *connection,
     }
 
  out:
-  ;
+  client_unref (client);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -444,7 +482,7 @@ has_connection (Client *client)
   client->disconnected_signal_handler_id = g_signal_connect (client->connection,
                                                              "closed",
                                                              G_CALLBACK (on_connection_disconnected),
-                                                             client);
+                                                             GUINT_TO_POINTER (client->id));
 
   /* start listening to NameOwnerChanged messages immediately */
   client->name_owner_changed_subscription_id = g_dbus_connection_signal_subscribe (client->connection,
@@ -455,7 +493,7 @@ has_connection (Client *client)
                                                                                    client->name,
                                                                                    G_DBUS_SIGNAL_FLAGS_NONE,
                                                                                    on_name_owner_changed,
-                                                                                   client,
+                                                                                   GUINT_TO_POINTER (client->id),
                                                                                    NULL);
 
   if (client->flags & G_BUS_NAME_WATCHER_FLAGS_AUTO_START)

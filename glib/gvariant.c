@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the licence, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -273,7 +273,7 @@
  *
  * To put the entire example together, for our dictionary mapping
  * strings to variants (with two entries, as given above), we are
- * using 91 bytes of memory for type information, 29 byes of memory
+ * using 91 bytes of memory for type information, 29 bytes of memory
  * for the serialised data, 16 bytes for buffer management and 24
  * bytes for the #GVariant instance, or a total of 160 bytes, plus
  * malloc overhead.  If we were to use g_variant_get_child_value() to
@@ -3296,7 +3296,7 @@ g_variant_builder_ref (GVariantBuilder *builder)
  * #GVariantBuilder if you want to abort building the value part-way
  * through.  This function need not be called if you call
  * g_variant_builder_end() and it also doesn't need to be called on
- * builders allocated with g_variant_builder_new (see
+ * builders allocated with g_variant_builder_new() (see
  * g_variant_builder_unref() for that).
  *
  * This function leaves the #GVariantBuilder structure set to all-zeros.
@@ -4259,7 +4259,7 @@ g_variant_dict_unref (GVariantDict *dict)
  * returned.  If @endptr is non-%NULL then it is updated to point to the
  * first character after the format string.
  *
- * If @limit is non-%NULL then @limit (and any charater after it) will
+ * If @limit is non-%NULL then @limit (and any character after it) will
  * not be accessed and the effect is otherwise equivalent to if the
  * character at @limit were nul.
  *
@@ -5282,7 +5282,7 @@ g_variant_valist_get (const gchar **str,
  * GVariant *new_variant;
  *
  * new_variant = g_variant_new ("(t^as)",
- *                              /<!-- -->* This cast is required. *<!-- -->/
+ *                              // This cast is required.
  *                              (guint64) some_flags,
  *                              some_strings);
  * ]|
@@ -5854,6 +5854,13 @@ g_variant_deep_copy (GVariant *value)
  * It makes sense to call this function if you've received #GVariant
  * data from untrusted sources and you want to ensure your serialised
  * output is definitely in normal form.
+ *
+ * If @value is already in normal form, a new reference will be returned
+ * (which will be floating if @value is floating). If it is not in normal form,
+ * the newly created #GVariant will be returned with a single non-floating
+ * reference. Typically, g_variant_take_ref() should be called on the return
+ * value from this function to guarantee ownership of a single non-floating
+ * reference to it.
  *
  * Returns: (transfer full): a trusted #GVariant
  *

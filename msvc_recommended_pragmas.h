@@ -24,24 +24,11 @@
 #pragma warning(disable:4101) /* unreferenced local variable */
 #pragma warning(error:4150)
 
-#pragma warning(disable:4018)	/* No signed/unsigned warnings */
-#pragma warning(disable:4068)	/* No unknown pragma warnings */
-#pragma warning(disable:4090)	/* No different qualifiers warnings */
-#pragma warning(disable:4116)	/* No unnamed type definition warnings */
-#pragma warning(disable:4146)	/* No unary minus operator warnings */
 #pragma warning(disable:4244)	/* No possible loss of data warnings */
-#pragma warning(disable:4267)	/* No possible loss of data warnings */
 #pragma warning(disable:4305)   /* No truncation from int to char warnings */
-#pragma warning(disable:4715)	/* No control paths warnings */
-#pragma warning(disable:4716)	/* No must-return-a-value warnings */
-#pragma warning(disable:4996)	/* No deprecation warnings */
 
 #pragma warning(error:4819) /* The file contains a character that cannot be represented in the current code page */
 
 /* work around Microsoft's premature attempt to deprecate the C-Library */
-#ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
-#endif
-#ifndef _CRT_NONSTDC_NO_WARNINGS
 #define _CRT_NONSTDC_NO_WARNINGS
-#endif

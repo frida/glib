@@ -6,7 +6,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -1434,6 +1434,12 @@ static const guint32 iso15924_tags[] =
     PACK ('N','e','w','a'), /* G_UNICODE_SCRIPT_NEWA */
     PACK ('O','s','g','e'), /* G_UNICODE_SCRIPT_OSAGE */
     PACK ('T','a','n','g'), /* G_UNICODE_SCRIPT_TANGUT */
+
+  /* Unicode 10.0 additions */
+    PACK ('G','o','n','m'), /* G_UNICODE_SCRIPT_MASARAM_GONDI */
+    PACK ('N','s','h','u'), /* G_UNICODE_SCRIPT_NUSHU */
+    PACK ('S','o','y','o'), /* G_UNICODE_SCRIPT_SOYOMBO */
+    PACK ('Z','a','n','b'), /* G_UNICODE_SCRIPT_ZANABAZAR_SQUARE */
 #undef PACK
 };
 

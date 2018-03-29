@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -20,12 +20,66 @@
 #include <gio/gio.h>
 
 static void
+async_result_cb (GObject      *obj,
+                 GAsyncResult *result,
+                 gpointer      user_data)
+{
+  GAsyncResult **result_out = user_data;
+  *result_out = g_object_ref (result);
+}
+
+static void
 test_uris (void)
 {
   GProxyResolver *resolver;
   gchar *ignore_hosts[2] = { "127.0.0.1", NULL };
   gchar **proxies;
   GError *error = NULL;
+  const gchar *uri;
+  gchar *str = NULL;
+  GAsyncResult *result = NULL;
+
+  /* Valid URI. */
+  uri = "http://%E0%B4%A8%E0%B4%B2:80/";
+  resolver = g_simple_proxy_resolver_new (NULL, ignore_hosts);
+
+  proxies = g_proxy_resolver_lookup (resolver, uri, NULL, &error);
+  g_assert_no_error (error);
+  g_strfreev (proxies);
+
+  g_proxy_resolver_lookup_async (resolver, uri, NULL, async_result_cb, &result);
+  while (result == NULL)
+    g_main_context_iteration (NULL, TRUE);
+  proxies = g_proxy_resolver_lookup_finish (resolver, result, &error);
+  g_assert_no_error (error);
+  g_strfreev (proxies);
+  g_clear_object (&result);
+
+  g_object_unref (resolver);
+
+  /* Invalid URI. */
+  uri = "%E0%B4%A8%E0%B4%B2";
+  str = g_strdup_printf ("Invalid URI ‘%s’", uri);
+  resolver = g_simple_proxy_resolver_new (NULL, ignore_hosts);
+
+  proxies = g_proxy_resolver_lookup (resolver, uri, NULL, &error);
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_cmpstr (error->message, ==, str);
+  g_clear_error (&error);
+  g_assert_null (proxies);
+  g_clear_object (&result);
+
+  g_proxy_resolver_lookup_async (resolver, uri, NULL, async_result_cb, &result);
+  while (result == NULL)
+    g_main_context_iteration (NULL, TRUE);
+  proxies = g_proxy_resolver_lookup_finish (resolver, result, &error);
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_cmpstr (error->message, ==, str);
+  g_clear_error (&error);
+  g_assert_null (proxies);
+
+  g_object_unref (resolver);
+  g_free (str);
 
   resolver = g_simple_proxy_resolver_new ("default://", ignore_hosts);
   g_simple_proxy_resolver_set_uri_proxy (G_SIMPLE_PROXY_RESOLVER (resolver),

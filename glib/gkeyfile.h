@@ -7,7 +7,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -146,6 +146,11 @@ gchar    *g_key_file_get_locale_string      (GKeyFile             *key_file,
 					     const gchar          *key,
 					     const gchar          *locale,
 					     GError              **error) G_GNUC_MALLOC;
+GLIB_AVAILABLE_IN_2_56
+gchar    *g_key_file_get_locale_for_key     (GKeyFile             *key_file,
+                                             const gchar          *group_name,
+                                             const gchar          *key,
+                                             const gchar          *locale) G_GNUC_MALLOC;
 GLIB_AVAILABLE_IN_ALL
 void      g_key_file_set_locale_string      (GKeyFile             *key_file,
 					     const gchar          *group_name,

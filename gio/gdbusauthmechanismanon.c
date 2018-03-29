@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -262,6 +262,7 @@ mechanism_client_initiate (GDBusAuthMechanism   *mechanism,
                            gsize                *out_initial_response_len)
 {
   GDBusAuthMechanismAnon *m = G_DBUS_AUTH_MECHANISM_ANON (mechanism);
+  gchar *result;
 
   g_return_val_if_fail (G_IS_DBUS_AUTH_MECHANISM_ANON (mechanism), NULL);
   g_return_val_if_fail (!m->priv->is_server && !m->priv->is_client, NULL);
@@ -269,10 +270,11 @@ mechanism_client_initiate (GDBusAuthMechanism   *mechanism,
   m->priv->is_client = TRUE;
   m->priv->state = G_DBUS_AUTH_MECHANISM_STATE_ACCEPTED;
 
-  *out_initial_response_len = -1;
-
   /* just return our library name and version */
-  return g_strdup ("GDBus 0.1");
+  result = g_strdup ("GDBus 0.1");
+  *out_initial_response_len = strlen (result);
+
+  return result;
 }
 
 static void

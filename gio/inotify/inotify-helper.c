@@ -5,16 +5,16 @@
    Copyright (C) 2007 John McCutchan
 
    This library is free software; you can redistribute it and/or
-   modify it under the terms of the GNU Library General Public
+   modify it under the terms of the GNU Lesser General Public
    License as published by the Free Software Foundation; either
-   version 2 of the License, or (at your option) any later version.
+   version 2.1 of the License, or (at your option) any later version.
 
    This library is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-   Library General Public License for more details.
+   Lesser General Public License for more details.
 
-   You should have received a copy of the GNU Library General Public License
+   You should have received a copy of the GNU Lesser General Public License
    along with this library; if not, see <http://www.gnu.org/licenses/>.
 
    Authors: 
@@ -156,8 +156,11 @@ ih_event_callback (ik_event_t  *event,
                    gboolean     file_event)
 {
   gboolean interesting;
+  GFileMonitorEvent event_flags;
 
   g_assert (!file_event); /* XXX hardlink support */
+
+  event_flags = ih_mask_to_EventFlags (event->mask);
 
   if (event->mask & IN_MOVE)
     {
@@ -187,18 +190,25 @@ ih_event_callback (ik_event_t  *event,
           else
             other = NULL;
 
-          /* this is either an incoming or outgoing move */
-          interesting = g_file_monitor_source_handle_event (sub->user_data, ih_mask_to_EventFlags (event->mask),
+          /* This is either an incoming or outgoing move. Since we checked the
+           * event->mask above, it should have converted to a #GFileMonitorEvent
+           * properly. If not, the assumption we have made about event->mask
+           * only ever having a single bit set (apart from IN_ISDIR) is false.
+           * The kernel documentation is lacking here. */
+          g_assert (event_flags != -1);
+          interesting = g_file_monitor_source_handle_event (sub->user_data, event_flags,
                                                             event->name, NULL, other, event->timestamp);
 
           if (other)
             g_object_unref (other);
         }
     }
-  else
+  else if (event_flags != -1)
     /* unpaired event -- no 'other' field */
-    interesting = g_file_monitor_source_handle_event (sub->user_data, ih_mask_to_EventFlags (event->mask),
+    interesting = g_file_monitor_source_handle_event (sub->user_data, event_flags,
                                                       event->name, NULL, NULL, event->timestamp);
+  else
+    interesting = FALSE;
 
   if (event->mask & IN_CREATE)
     {

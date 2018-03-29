@@ -42,9 +42,7 @@ POSSIBILITY OF SUCH DAMAGE.
 supporting internal functions that are not used by other modules. */
 
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #define NLBLOCK cd             /* Block containing newline information */
 #define PSSTART start_pattern  /* Field containing processed string start */
@@ -4858,7 +4856,7 @@ for (;; ptr++)
       else
 #endif /* SUPPORT_UTF */
 
-      /* Handle the case of a single charater - either with no UTF support, or
+      /* Handle the case of a single character - either with no UTF support, or
       with UTF disabled, or for a single character UTF character. */
         {
         c = code[-1];

@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -220,7 +220,8 @@ g_array_sized_new (gboolean zero_terminated,
  *
  * The @clear_func will be called when an element in the array
  * data segment is removed and when the array is freed and data
- * segment is deallocated as well.
+ * segment is deallocated as well. @clear_func will be passed a
+ * pointer to the element to clear, rather than the element itself.
  *
  * Note that in contrast with other uses of #GDestroyNotify
  * functions, @clear_func is expected to clear the contents of
@@ -244,7 +245,7 @@ g_array_set_clear_func (GArray         *array,
  * @array: A #GArray
  *
  * Atomically increments the reference count of @array by one.
- * This function is MT-safe and may be called from any thread.
+ * This function is thread-safe and may be called from any thread.
  *
  * Returns: The passed in #GArray
  *
@@ -275,7 +276,7 @@ static gchar *array_free (GRealArray *, ArrayFreeFlags);
  *
  * Atomically decrements the reference count of @array by one. If the
  * reference count drops to 0, all memory allocated by the array is
- * released. This function is MT-safe and may be called from any
+ * released. This function is thread-safe and may be called from any
  * thread.
  *
  * Since: 2.22
@@ -325,6 +326,10 @@ g_array_get_element_size (GArray *array)
  *
  * If array elements contain dynamically-allocated memory, they should
  * be freed separately.
+ *
+ * This function is not thread-safe. If using a #GArray from multiple
+ * threads, use only the atomic g_array_ref() and g_array_unref()
+ * functions.
  *
  * Returns: the element data if @free_segment is %FALSE, otherwise
  *     %NULL. The element data should be freed using g_free().
@@ -1031,7 +1036,7 @@ static gpointer *ptr_array_free (GPtrArray *, ArrayFreeFlags);
  * Atomically decrements the reference count of @array by one. If the
  * reference count drops to 0, the effect is the same as calling
  * g_ptr_array_free() with @free_segment set to %TRUE. This function
- * is MT-safe and may be called from any thread.
+ * is thread-safe and may be called from any thread.
  *
  * Since: 2.22
  */
@@ -1061,6 +1066,10 @@ g_ptr_array_unref (GPtrArray *array)
  * If array contents point to dynamically-allocated memory, they should
  * be freed separately if @free_seg is %TRUE and no #GDestroyNotify
  * function has been set for @array.
+ *
+ * This function is not thread-safe. If using a #GPtrArray from multiple
+ * threads, use only the atomic g_ptr_array_ref() and g_ptr_array_unref()
+ * functions.
  *
  * Returns: the pointer array if @free_seg is %FALSE, otherwise %NULL.
  *     The pointer array should be freed using g_free().
@@ -1495,7 +1504,8 @@ g_ptr_array_sort_with_data (GPtrArray        *array,
  * @func: the function to call for each array element
  * @user_data: user data to pass to the function
  * 
- * Calls a function for each element of a #GPtrArray.
+ * Calls a function for each element of a #GPtrArray. @func must not
+ * add elements to or remove elements from the array.
  *
  * Since: 2.4
  */

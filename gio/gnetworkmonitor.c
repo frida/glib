@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -309,13 +309,9 @@ g_network_monitor_default_init (GNetworkMonitorInterface *iface)
   /**
    * GNetworkMonitor::network-changed:
    * @monitor: a #GNetworkMonitor
-   * @available: the current value of #GNetworkMonitor:network-available
+   * @network_available: the current value of #GNetworkMonitor:network-available
    *
-   * Emitted when the network configuration changes. If @available is
-   * %TRUE, then some hosts may be reachable that were not reachable
-   * before, while others that were reachable before may no longer be
-   * reachable. If @available is %FALSE, then no remote hosts are
-   * reachable.
+   * Emitted when the network configuration changes.
    *
    * Since: 2.32
    */

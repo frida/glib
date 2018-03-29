@@ -6,7 +6,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -112,7 +112,7 @@ g_dtls_connection_default_init (GDtlsConnectionInterface *iface)
    *
    * The certificate database to use when verifying this TLS connection.
    * If no certificate database is set, then the default database will be
-   * used. See g_dtls_backend_get_default_database().
+   * used. See g_tls_backend_get_default_database().
    *
    * Since: 2.48
    */
@@ -294,7 +294,7 @@ g_dtls_connection_default_init (GDtlsConnectionInterface *iface)
  *
  * Sets the certificate database that is used to verify peer certificates.
  * This is set to the default database by default. See
- * g_dtls_backend_get_default_database(). If set to %NULL, then
+ * g_tls_backend_get_default_database(). If set to %NULL, then
  * peer certificate validation will always set the
  * %G_TLS_CERTIFICATE_UNKNOWN_CA error (meaning
  * #GDtlsConnection::accept-certificate will always be emitted on

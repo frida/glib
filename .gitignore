@@ -25,7 +25,16 @@ tags
 
 # autofoo stuff here
 compile
-config.*
+config.cache
+config.guess
+config.h
+config.h.in
+config.h-new
+config.log
+config.lt
+config.rpath
+config.status*
+config.sub
 configure
 depcomp
 aclocal.m4
@@ -48,6 +57,6 @@ ChangeLog
 /glib-lcov.info
 /glib-lcov/
 
-*.sln.cache
-x86
-x86_64
+# Meson
+/meson-build/
+/subprojects/*/

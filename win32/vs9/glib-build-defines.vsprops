@@ -10,7 +10,7 @@
 	<Tool
 		Name="VCCLCompilerTool"
 		AdditionalIncludeDirectories="..\..;..\..\glib;$(GlibEtcInstallRoot)\include"
-		PreprocessorDefinitions="HAVE_CONFIG_H"
+		PreprocessorDefinitions=""
 		ForcedIncludeFiles="msvc_recommended_pragmas.h"
 		AdditionalOptions="/MP"
 	/>
@@ -65,7 +65,7 @@
 	/>
 	<UserMacro
 		Name="GObjectBuildDefines"
-		Value="GOBJECT_COMPILATION;$(DllExportDefines);G_LOG_DOMAIN=\&quot;GLib-GObject\&quot;;FFI_BUILDING"
+		Value="GOBJECT_COMPILATION;$(DllExportDefines);G_LOG_DOMAIN=\&quot;GLib-GObject\&quot;"
 	/>
 	<UserMacro
 		Name="GioBuildDefines"

@@ -3,16 +3,16 @@
  * Copyright (C) 2005-2006 Emmanuele Bassi
  *
  * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Library General Public
+ * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Library General Public License for more details.
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Library General Public License
+ * You should have received a copy of the GNU Lesser General Public License
  * along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
@@ -879,11 +879,7 @@ parse_application_element (GMarkupParseContext  *context,
        * it for backward compatibility
        */
       if (stamp)
-#if defined (_MSC_VER) && (_MSC_VER >= 1300)
-        ai->stamp = (time_t) _atoi64 (stamp);
-#else
         ai->stamp = (time_t) atol (stamp);
-#endif
       else
         ai->stamp = time (NULL);
     }
@@ -1570,7 +1566,7 @@ G_DEFINE_QUARK (g-bookmark-file-error-quark, g_bookmark_file_error)
  ********************/
 
 /**
- * g_bookmark_file_new:
+ * g_bookmark_file_new: (constructor)
  *
  * Creates a new empty #GBookmarkFile object.
  *
@@ -1616,7 +1612,8 @@ g_bookmark_file_free (GBookmarkFile *bookmark)
 /**
  * g_bookmark_file_load_from_data:
  * @bookmark: an empty #GBookmarkFile struct
- * @data: desktop bookmarks loaded in memory
+ * @data: (array length=length) (element-type guint8): desktop bookmarks
+ *    loaded in memory
  * @length: the length of @data in bytes
  * @error: return location for a #GError, or %NULL
  *
@@ -1770,7 +1767,7 @@ find_file_in_data_dirs (const gchar   *file,
  * g_bookmark_file_load_from_data_dirs:
  * @bookmark: a #GBookmarkFile
  * @file: (type filename): a relative path to a filename to open and parse
- * @full_path: (type filename) (nullable): return location for a string
+ * @full_path: (out) (optional) (type filename): return location for a string
  *    containing the full path of the file, or %NULL
  * @error: return location for a #GError, or %NULL
  *
@@ -1856,8 +1853,8 @@ g_bookmark_file_load_from_data_dirs (GBookmarkFile  *bookmark,
  *
  * This function outputs @bookmark as a string.
  *
- * Returns: a newly allocated string holding
- *   the contents of the #GBookmarkFile
+ * Returns: (array length=length) (element-type guint8):
+ *   a newly allocated string holding the contents of the #GBookmarkFile
  *
  * Since: 2.12
  */
@@ -2826,7 +2823,8 @@ g_bookmark_file_remove_group (GBookmarkFile  *bookmark,
  * g_bookmark_file_set_groups:
  * @bookmark: a #GBookmarkFile
  * @uri: an item's URI
- * @groups: (nullable): an array of group names, or %NULL to remove all groups
+ * @groups: (nullable) (array length=length) (element-type utf8): an array of
+ *    group names, or %NULL to remove all groups
  * @length: number of group name values in @groups
  *
  * Sets a list of group names for the item with URI @uri.  Each previously
@@ -2864,7 +2862,7 @@ g_bookmark_file_set_groups (GBookmarkFile  *bookmark,
   
   if (groups)
     {
-      for (i = 0; groups[i] != NULL && i < length; i++)
+      for (i = 0; i < length && groups[i] != NULL; i++)
         item->metadata->groups = g_list_append (item->metadata->groups,
 					        g_strdup (groups[i]));
     }

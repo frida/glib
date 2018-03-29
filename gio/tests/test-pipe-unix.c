@@ -6,7 +6,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -86,7 +86,7 @@ test_pipe (GInputStream  **is,
  * @right: (out) (optional): used to return the other #GIOStream
  * @error: used to raise an error
  *
- * Return two #GIOStream<!---->s connected to each other with pipes.
+ * Return two #GIOStreams connected to each other with pipes.
  * The "left" input stream is connected by a unidirectional pipe
  * to the "right" output stream, and vice versa. This can be used
  * as a bidirectional pipe to a child process, for instance.

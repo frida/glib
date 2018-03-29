@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -358,7 +358,11 @@ g_dbus_is_guid (const gchar *string)
  * Converts a #GVariant to a #GValue. If @value is floating, it is consumed.
  *
  * The rules specified in the g_dbus_gvalue_to_gvariant() function are
- * used - this function is essentially its reverse form.
+ * used - this function is essentially its reverse form. So, a #GVariant
+ * containing any basic or string array type will be converted to a #GValue
+ * containing a basic value or string array. Any other #GVariant (handle,
+ * variant, tuple, dict entry) will be converted to a #GValue containing that
+ * #GVariant.
  *
  * The conversion never fails - a valid #GValue is always returned in
  * @out_gvalue.
@@ -681,7 +685,7 @@ g_dbus_gvalue_to_gvariant (const GValue       *gvalue,
     {
       GVariant *untrusted_empty;
       untrusted_empty = g_variant_new_from_data (type, NULL, 0, FALSE, NULL, NULL);
-      ret = g_variant_ref_sink (g_variant_get_normal_form (untrusted_empty));
+      ret = g_variant_take_ref (g_variant_get_normal_form (untrusted_empty));
       g_variant_unref (untrusted_empty);
     }
 

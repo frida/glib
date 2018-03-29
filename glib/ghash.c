@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -118,7 +118,7 @@
  * g_direct_hash() is also the appropriate hash function for keys
  * of the form `GINT_TO_POINTER (n)` (or similar macros).
  *
- * <!-- FIXME: Need more here. --> A good hash functions should produce
+ * A good hash functions should produce
  * hash values that are evenly distributed over a fairly large range.
  * The modulus is taken with the hash table size (a prime number) to
  * find the 'bucket' to place each key into. The function should also
@@ -1250,6 +1250,10 @@ g_hash_table_insert_internal (GHashTable *hash_table,
  * @key_destroy_func when creating the #GHashTable, the passed
  * key is freed using that function.
  *
+ * Starting from GLib 2.40, this function returns a boolean value to
+ * indicate whether the newly added value was already in the hash table
+ * or not.
+ *
  * Returns: %TRUE if the key did not exist yet
  */
 gboolean
@@ -1274,6 +1278,10 @@ g_hash_table_insert (GHashTable *hash_table,
  * If you supplied a @key_destroy_func when creating the
  * #GHashTable, the old key is freed using that function.
  *
+ * Starting from GLib 2.40, this function returns a boolean value to
+ * indicate whether the newly added value was already in the hash table
+ * or not.
+ *
  * Returns: %TRUE if the key did not exist yet
  */
 gboolean
@@ -1296,6 +1304,10 @@ g_hash_table_replace (GHashTable *hash_table,
  * When a hash table only ever contains keys that have themselves as the
  * corresponding value it is able to be stored more efficiently.  See
  * the discussion in the section description.
+ *
+ * Starting from GLib 2.40, this function returns a boolean value to
+ * indicate whether the newly added value was already in the hash table
+ * or not.
  *
  * Returns: %TRUE if the key did not exist yet
  *

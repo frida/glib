@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -4193,14 +4193,14 @@ g_type_check_is_value_type (GType type)
 }
 
 gboolean
-g_type_check_value (GValue *value)
+g_type_check_value (const GValue *value)
 {
   return value && type_check_is_value_type_U (value->g_type);
 }
 
 gboolean
-g_type_check_value_holds (GValue *value,
-			  GType   type)
+g_type_check_value_holds (const GValue *value,
+			  GType         type)
 {
   return value && type_check_is_value_type_U (value->g_type) && g_type_is_a (value->g_type, type);
 }
@@ -4357,17 +4357,12 @@ g_type_init (void)
 }
 
 static void
-gobject_perform_init (void)
+gobject_init (void)
 {
-  static gboolean initialized = FALSE;
   const gchar *env_string;
   GTypeInfo info;
   TypeNode *node;
   GType type;
-
-  if (initialized)
-    return;
-  initialized = TRUE;
 
   /* Ensure GLib is initialized first, see
    * https://bugzilla.gnome.org/show_bug.cgi?id=756139
@@ -4456,15 +4451,7 @@ gobject_perform_init (void)
   _g_signal_init ();
 }
 
-void
-gobject_init (void)
-{
-#ifdef GLIB_STATIC_COMPILATION
-  gobject_perform_init ();
-#endif
-}
-
-#if defined (G_OS_WIN32) && !defined (GLIB_STATIC_COMPILATION)
+#if defined (G_OS_WIN32)
 
 BOOL WINAPI DllMain (HINSTANCE hinstDLL,
                      DWORD     fdwReason,
@@ -4478,7 +4465,7 @@ DllMain (HINSTANCE hinstDLL,
   switch (fdwReason)
     {
     case DLL_PROCESS_ATTACH:
-      gobject_perform_init ();
+      gobject_init ();
       break;
 
     default:
@@ -4498,7 +4485,7 @@ G_DEFINE_CONSTRUCTOR(gobject_init_ctor)
 static void
 gobject_init_ctor (void)
 {
-  gobject_perform_init ();
+  gobject_init ();
 }
 
 #else

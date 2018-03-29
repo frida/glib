@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -287,11 +287,13 @@ ignore_host (GSimpleProxyResolver *resolver,
 
   if (priv->ignore_domains)
     {
+      length = 0;
       if (g_hostname_is_non_ascii (host))
         host = ascii_host = g_hostname_to_ascii (host);
-      length = strlen (host);
+      if (host)
+        length = strlen (host);
 
-      for (i = 0; priv->ignore_domains[i].length; i++)
+      for (i = 0; length > 0 && priv->ignore_domains[i].length; i++)
 	{
 	  GSimpleProxyResolverDomain *domain = &priv->ignore_domains[i];
 
@@ -327,7 +329,7 @@ g_simple_proxy_resolver_lookup (GProxyResolver  *proxy_resolver,
       gchar *host = NULL;
       gushort port;
 
-      if (_g_uri_parse_authority (uri, &host, &port, NULL) &&
+      if (_g_uri_parse_authority (uri, &host, &port, NULL, NULL) &&
           ignore_host (resolver, host, port))
         proxy = "direct://";
 

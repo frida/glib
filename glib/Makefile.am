@@ -33,20 +33,13 @@ else
 MAYBE_PCRE = pcre 
 endif
 
-if ENABLE_TESTS
-MAYBE_TESTS = tests
-else
-MAYBE_TESTS =
-endif
-
-SUBDIRS = libcharset $(PRINTF_SUBDIR) $(MAYBE_PCRE) update-pcre . $(MAYBE_TESTS)
+SUBDIRS = libcharset $(PRINTF_SUBDIR) $(MAYBE_PCRE) update-pcre . tests
 DIST_SUBDIRS = libcharset gnulib pcre update-pcre tests
 
 AM_CPPFLAGS = 				\
 	$(glib_INCLUDES) 		\
 	$(pcre_inc) 			\
 	-DG_LOG_DOMAIN=\"GLib\" 	\
-	$(GLIB_STATIC_FLAGS)		\
 	$(GLIB_DEBUG_FLAGS) 		\
 	-DGLIB_COMPILATION 		\
 	-DPCRE_STATIC
@@ -62,7 +55,6 @@ MIRRORING_TAB_SOURCE = 				\
 # The compilation of GRegex can be disabled, but the source files must
 # be distributed.
 EXTRA_DIST += 			\
-	makefile.msc.in		\
 	glib.rc.in		\
 	gen-unicode-tables.pl	\
 	glibconfig.h.win32.in	\
@@ -78,7 +70,6 @@ CLEANFILES += libglib-gdb.py
 
 # These may be in the builddir too
 BUILT_EXTRA_DIST += 		\
-	makefile.msc		\
 	glibconfig.h.win32	\
 	glib.rc
 
@@ -146,8 +137,6 @@ libglib_2_0_la_SOURCES = 	\
 	glib-private.h		\
 	glib-private.c		\
 	glist.c			\
-	gtinylist.h		\
-	gtinylist.c		\
 	gmain-internal.h	\
 	gmain.c	 		\
 	gmappedfile.c		\
@@ -172,6 +161,7 @@ libglib_2_0_la_SOURCES = 	\
 	gslice.c		\
 	gslist.c		\
 	gstdio.c		\
+	gstdioprivate.h		\
 	gstrfuncs.c		\
 	gstring.c		\
 	gstringchunk.c		\
@@ -361,14 +351,8 @@ pcre_lib = pcre/libpcre.la
 pcre_inc =
 endif
 
-if USE_PROXY_LIBINTL
-proxy_libintl_lib = $(top_builddir)/proxy-libintl/libintl.la
-else
-proxy_libintl_lib =
-endif
-
 libglib_2_0_la_CFLAGS = $(AM_CFLAGS) $(GLIB_HIDDEN_VISIBILITY_CFLAGS) $(LIBSYSTEMD_CFLAGS)
-libglib_2_0_la_LIBADD = libcharset/libcharset.la $(printf_la) @GIO@ @GSPAWN@ @PLATFORMDEP@ @ICONV_LIBS@ @G_LIBS_EXTRA@ $(pcre_lib) $(proxy_libintl_lib) $(G_THREAD_LIBS_EXTRA) $(G_THREAD_LIBS_FOR_GTHREAD) $(LIBSYSTEMD_LIBS)
+libglib_2_0_la_LIBADD = libcharset/libcharset.la $(printf_la) @GIO@ @GSPAWN@ @PLATFORMDEP@ @ICONV_LIBS@ @G_LIBS_EXTRA@ $(pcre_lib) $(G_THREAD_LIBS_EXTRA) $(G_THREAD_LIBS_FOR_GTHREAD) $(LIBSYSTEMD_LIBS)
 libglib_2_0_la_DEPENDENCIES = libcharset/libcharset.la $(printf_la) @GIO@ @GSPAWN@ @PLATFORMDEP@ $(glib_win32_res) $(glib_def)
 
 libglib_2_0_la_LDFLAGS = $(GLIB_LINK_FLAGS) \
@@ -495,6 +479,7 @@ dist-hook: $(BUILT_EXTRA_DIST) $(top_builddir)/win32/vs9/glib.vcproj $(top_build
 gdbdir = $(datadir)/glib-2.0/gdb
 dist_gdb_DATA = glib_gdb.py
 
+all-local: libglib-gdb.py
 libglib-gdb.py: libglib-gdb.py.in
 	$(AM_V_GEN) $(SED) -e "s|\@datadir\@|$(datadir)|" $(srcdir)/libglib-gdb.py.in > $(builddir)/libglib-gdb.py
 

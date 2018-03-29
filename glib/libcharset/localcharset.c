@@ -24,20 +24,10 @@
 /* Specification.  */
 #include "localcharset.h"
 
-#include "glib/glib.h"
-
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-
-/* Use GLib memory allocation */
-#undef malloc
-#undef realloc
-#undef free
-#define malloc  g_malloc
-#define realloc g_realloc
-#define free    g_free
 
 #if defined _WIN32 || defined __WIN32__
 # define WIN32_NATIVE
@@ -75,9 +65,9 @@
 # define relocate(pathname) (pathname)
 #endif
 
-/* Get LIBDIR.  */
-#ifndef LIBDIR
-# include "configmake.h"
+/* Get GLIB_CHARSETALIAS_DIR.  */
+#ifndef GLIB_CHARSETALIAS_DIR
+# define GLIB_CHARSETALIAS_DIR LIBDIR
 #endif
 
 #if defined _WIN32 || defined __WIN32__ || defined __CYGWIN__ || defined __EMX__ || defined __DJGPP__
@@ -131,7 +121,7 @@ _g_locale_get_charset_aliases (void)
 	 necessary for running the testsuite before "make install".  */
       dir = getenv ("CHARSETALIASDIR");
       if (dir == NULL || dir[0] == '\0')
-	dir = relocate (LIBDIR);
+	dir = relocate (GLIB_CHARSETALIAS_DIR);
 
       /* Concatenate dir and base into freshly allocated file_name.  */
       {

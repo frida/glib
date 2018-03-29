@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -111,18 +111,5 @@
 #include <glib/glib-autocleanups.h>
 
 #undef __GLIB_H_INSIDE__
-
-G_BEGIN_DECLS
-
-GLIB_AVAILABLE_IN_2_50
-void                            glib_init                               (void);
-
-GLIB_AVAILABLE_IN_2_50
-void                            glib_shutdown                           (void);
-
-GLIB_AVAILABLE_IN_2_50
-void                            glib_deinit                             (void);
-
-G_END_DECLS
 
 #endif /* __G_LIB_H__ */

@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -45,7 +45,6 @@
 #endif
 #include <errno.h>
 #include <ctype.h>
-#include <strsafe.h>
 #if defined(_MSC_VER) || defined(__DMC__)
 #  include <io.h>
 #endif /* _MSC_VER || __DMC__ */
@@ -617,6 +616,49 @@ g_win32_get_windows_version (void)
   return windows_version;
 }
 
+/*
+ * Doesn't use gettext (and gconv), preventing recursive calls when
+ * g_win32_locale_filename_from_utf8() is called during
+ * gettext initialization.
+ */
+static gchar *
+special_wchar_to_locale_enoding (wchar_t *wstring)
+{
+  int sizeof_output;
+  int wctmb_result;
+  char *result;
+  BOOL not_representable = FALSE;
+
+  sizeof_output = WideCharToMultiByte (CP_ACP,
+                                       WC_NO_BEST_FIT_CHARS,
+                                       wstring, -1,
+                                       NULL, 0,
+                                       NULL,
+                                       &not_representable);
+
+  if (not_representable ||
+      sizeof_output == 0 ||
+      sizeof_output > MAX_PATH)
+    return NULL;
+
+  result = g_malloc0 (sizeof_output + 1);
+
+  wctmb_result = WideCharToMultiByte (CP_ACP,
+                                      WC_NO_BEST_FIT_CHARS,
+                                      wstring, -1,
+                                      result, sizeof_output + 1,
+                                      NULL,
+                                      &not_representable);
+
+  if (wctmb_result == sizeof_output &&
+      not_representable == FALSE)
+    return result;
+
+  g_free (result);
+
+  return NULL;
+}
+
 /**
  * g_win32_locale_filename_from_utf8:
  * @utf8filename: a UTF-8 encoded filename.
@@ -649,26 +691,27 @@ g_win32_get_windows_version (void)
 gchar *
 g_win32_locale_filename_from_utf8 (const gchar *utf8filename)
 {
-  gchar *retval = g_locale_from_utf8 (utf8filename, -1, NULL, NULL, NULL);
+  gchar *retval;
+  wchar_t *wname;
+
+  wname = g_utf8_to_utf16 (utf8filename, -1, NULL, NULL, NULL);
+
+  if (wname == NULL)
+    return NULL;
+
+  retval = special_wchar_to_locale_enoding (wname);
 
   if (retval == NULL)
     {
-      /* Conversion failed, so convert to wide chars, check if there
-       * is a 8.3 version, and use that.
-       */
-      wchar_t *wname = g_utf8_to_utf16 (utf8filename, -1, NULL, NULL, NULL);
-      if (wname != NULL)
-	{
-	  wchar_t wshortname[MAX_PATH + 1];
-	  if (GetShortPathNameW (wname, wshortname, G_N_ELEMENTS (wshortname)))
-	    {
-	      gchar *tem = g_utf16_to_utf8 (wshortname, -1, NULL, NULL, NULL);
-	      retval = g_locale_from_utf8 (tem, -1, NULL, NULL, NULL);
-	      g_free (tem);
-	    }
-	  g_free (wname);
-	}
+      /* Conversion failed, so check if there is a 8.3 version, and use that. */
+      wchar_t wshortname[MAX_PATH + 1];
+
+      if (GetShortPathNameW (wname, wshortname, G_N_ELEMENTS (wshortname)))
+        retval = special_wchar_to_locale_enoding (wshortname);
     }
+
+  g_free (wname);
+
   return retval;
 }
 
@@ -761,190 +804,3 @@ G_GNUC_END_IGNORE_DEPRECATIONS
 }
 
 #endif
-
-#define CWM_DISPATCH      (WM_USER + 0)
-#define DISPATCH_TIMER_ID (1)
-
-#define IS_DISPATCHER_MESSAGE(umsg) \
-    ((umsg) == CWM_DISPATCH || (umsg) == WM_TIMER)
-
-struct _GWin32Dispatcher
-{
-  GWin32DispatchMode mode;
-  GMainContext * main_context;
-
-  ATOM klass;
-  HWND window;
-  gboolean message_posted;
-  gboolean is_dispatching_message;
-  HHOOK foreground_idle_hook;
-};
-
-static LRESULT CALLBACK g_win32_dispatcher_window_proc (HWND hwnd, UINT umsg,
-    WPARAM wparam, LPARAM lparam);
-static DWORD CALLBACK g_win32_dispatcher_on_foreground_idle (int code,
-    DWORD wParam, LONG lParam);
-
-static DWORD g_win32_dispatcher_tls = TLS_OUT_OF_INDEXES;
-
-static gpointer
-g_win32_dispatcher_init (gpointer data)
-{
-  g_win32_dispatcher_tls = TlsAlloc ();
-  return NULL;
-}
-
-GWin32Dispatcher *
-g_win32_dispatcher_new (GWin32DispatchMode mode, GMainContext * main_context)
-{
-  static GOnce init_once = G_ONCE_INIT;
-  GWin32Dispatcher * dispatcher;
-  WNDCLASSW wndclass;
-  WCHAR wndclass_name[64];
-
-  g_once (&init_once, g_win32_dispatcher_init, NULL);
-
-  dispatcher = g_new0 (GWin32Dispatcher, 1);
-  dispatcher->mode = mode;
-  dispatcher->main_context = main_context;
-
-  memset (&wndclass, 0, sizeof (wndclass));
-  wndclass.style = 0;
-  wndclass.lpfnWndProc = g_win32_dispatcher_window_proc;
-  wndclass.cbWndExtra = 0;
-  wndclass.hInstance = GetModuleHandleW (NULL);
-  wndclass.hIcon = NULL;
-  wndclass.hCursor = NULL;
-  wndclass.hbrBackground = NULL;
-  wndclass.lpszMenuName = NULL;
-  StringCbPrintfW (wndclass_name, sizeof (wndclass_name),
-      L"GWin32Dispatcher_%p", dispatcher);
-  wndclass.lpszClassName = wndclass_name;
-
-  dispatcher->klass = RegisterClassW (&wndclass);
-  g_assert (dispatcher->klass != 0);
-
-  dispatcher->window =
-      CreateWindowW ((LPWSTR) MAKEINTATOM (dispatcher->klass),
-                     wndclass.lpszClassName, 0, 0, 0, 1, 1, NULL, NULL,
-                     GetModuleHandle (NULL), NULL);
-  g_assert (dispatcher->window != NULL);
-
-  SetWindowLongPtr (dispatcher->window, GWLP_USERDATA,
-      GPOINTER_TO_SIZE (dispatcher));
-
-  g_assert (TlsGetValue (g_win32_dispatcher_tls) == NULL);
-  TlsSetValue (g_win32_dispatcher_tls, dispatcher);
-
-  dispatcher->foreground_idle_hook = SetWindowsHookEx (WH_FOREGROUNDIDLE,
-      (HOOKPROC) g_win32_dispatcher_on_foreground_idle, NULL,
-      GetCurrentThreadId ());
-
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    SetTimer (dispatcher->window, DISPATCH_TIMER_ID, 0, NULL);
-
-  return dispatcher;
-}
-
-void
-g_win32_dispatcher_destroy (GWin32Dispatcher * dispatcher)
-{
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    KillTimer (dispatcher->window, DISPATCH_TIMER_ID);
-
-  UnhookWindowsHookEx (dispatcher->foreground_idle_hook);
-
-  g_assert (TlsGetValue (g_win32_dispatcher_tls) == dispatcher);
-  TlsSetValue (g_win32_dispatcher_tls, NULL);
-
-  DestroyWindow (dispatcher->window);
-
-  UnregisterClassW ((LPWSTR) MAKEINTATOM (dispatcher->klass),
-                    GetModuleHandleW (NULL));
-
-  g_free (dispatcher);
-}
-
-glong
-g_win32_dispatcher_dispatch_message (GWin32Dispatcher * dispatcher,
-    gconstpointer msg)
-{
-  const MSG * m = msg;
-  LRESULT result;
-
-  g_assert_cmpint (dispatcher->mode, ==, G_DISPATCH_MAINLOOP);
-
-  if (m->hwnd == dispatcher->window && IS_DISPATCHER_MESSAGE (m->message))
-    return 0;
-
-  SetTimer (dispatcher->window, DISPATCH_TIMER_ID, 0, NULL);
-
-  dispatcher->is_dispatching_message = TRUE;
-  result = DispatchMessage (msg);
-  dispatcher->is_dispatching_message = FALSE;
-
-  KillTimer (dispatcher->window, DISPATCH_TIMER_ID);
-
-  return result;
-}
-
-static gboolean
-g_win32_dispatcher_needs_wakeup (GWin32Dispatcher * dispatcher)
-{
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    return TRUE;
-
-  return dispatcher->is_dispatching_message;
-}
-
-static LRESULT CALLBACK
-g_win32_dispatcher_window_proc (HWND hwnd, UINT umsg, WPARAM wparam,
-    LPARAM lparam)
-{
-  if (IS_DISPATCHER_MESSAGE (umsg))
-    {
-      GWin32Dispatcher * dispatcher;
-
-      dispatcher = GSIZE_TO_POINTER (GetWindowLongPtr (hwnd, GWLP_USERDATA));
-      if (dispatcher != NULL)
-        {
-          KillTimer (hwnd, DISPATCH_TIMER_ID);
-          dispatcher->message_posted = TRUE;
-
-          if (g_win32_dispatcher_needs_wakeup (dispatcher))
-            {
-              g_main_context_iteration (dispatcher->main_context, FALSE);
-
-              while (GetQueueStatus (QS_ALLINPUT) == 0)
-                {
-                  g_main_context_iteration (dispatcher->main_context, TRUE);
-                }
-            }
-
-          dispatcher->message_posted = FALSE;
-          SetTimer (hwnd, DISPATCH_TIMER_ID, 0, NULL);
-        }
-    }
-
-  return DefWindowProcW (hwnd, umsg, wparam, lparam);
-}
-
-static DWORD CALLBACK
-g_win32_dispatcher_on_foreground_idle (int code, DWORD wParam, LONG lParam)
-{
-  GWin32Dispatcher * dispatcher;
-
-  dispatcher = TlsGetValue (g_win32_dispatcher_tls);
-  g_assert (dispatcher != NULL);
-
-  if (code == HC_ACTION && !dispatcher->message_posted &&
-      g_win32_dispatcher_needs_wakeup (dispatcher))
-    {
-      dispatcher->message_posted = TRUE;
-
-      PostMessage (dispatcher->window, CWM_DISPATCH, 0, 0);
-    }
-
-  return CallNextHookEx (dispatcher->foreground_idle_hook, code,
-      wParam, lParam);
-}

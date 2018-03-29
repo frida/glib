@@ -3,17 +3,17 @@
  * Copyright (C) 2007  Emmanuele Bassi  <ebassi@gnome.org>
  *
  * This library is free software; you can redistribute it and/or
- * modify it under the terms of the GNU Library General Public
+ * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- * Library General Public License for more details.
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU Library General Public
- * License along with this library; if not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "config.h"
@@ -1682,8 +1682,8 @@ g_checksum_get_string (GChecksum *checksum)
 /**
  * g_checksum_get_digest: (skip)
  * @checksum: a #GChecksum
- * @buffer: output buffer
- * @digest_len: an inout parameter. The caller initializes it to the size of @buffer.
+ * @buffer: (array length=digest_len): output buffer
+ * @digest_len: (inout): an inout parameter. The caller initializes it to the size of @buffer.
  *   After the call it contains the length of the digest.
  *
  * Gets the digest from @checksum as a raw binary vector and places it

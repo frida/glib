@@ -3,10 +3,10 @@
  * Copyright © 2012, 2013 Red Hat, Inc.
  * Copyright © 2012, 2013 Canonical Limited
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published
- * by the Free Software Foundation; either version 2 of the licence or (at
- * your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * See the included COPYING file for more information.
  *
@@ -199,36 +199,49 @@ unset_cloexec (int fd)
 
   if (flags != -1)
     {
+      int errsv;
       flags &= (~FD_CLOEXEC);
       do
-        result = fcntl (fd, F_SETFD, flags);
-      while (result == -1 && errno == EINTR);
+        {
+          result = fcntl (fd, F_SETFD, flags);
+          errsv = errno;
+        }
+      while (result == -1 && errsv == EINTR);
     }
 }
 
 static int
 dupfd_cloexec (int parent_fd)
 {
-  int fd;
+  int fd, errsv;
 #ifdef F_DUPFD_CLOEXEC
   do
-    fd = fcntl (parent_fd, F_DUPFD_CLOEXEC, 3);
-  while (fd == -1 && errno == EINTR);
+    {
+      fd = fcntl (parent_fd, F_DUPFD_CLOEXEC, 3);
+      errsv = errno;
+    }
+  while (fd == -1 && errsv == EINTR);
 #else
   /* OS X Snow Lion and earlier don't have F_DUPFD_CLOEXEC:
    * https://bugzilla.gnome.org/show_bug.cgi?id=710962
    */
   int result, flags;
   do
-    fd = fcntl (parent_fd, F_DUPFD, 3);
-  while (fd == -1 && errno == EINTR);
+    {
+      fd = fcntl (parent_fd, F_DUPFD, 3);
+      errsv = errno;
+    }
+  while (fd == -1 && errsv == EINTR);
   flags = fcntl (fd, F_GETFD, 0);
   if (flags != -1)
     {
       flags |= FD_CLOEXEC;
       do
-        result = fcntl (fd, F_SETFD, flags);
-      while (result == -1 && errno == EINTR);
+        {
+          result = fcntl (fd, F_SETFD, flags);
+          errsv = errno;
+        }
+      while (result == -1 && errsv == EINTR);
     }
 #endif
   return fd;
@@ -245,6 +258,7 @@ child_setup (gpointer user_data)
   ChildData *child_data = user_data;
   gint i;
   gint result;
+  int errsv;
 
   /* We're on the child side now.  "Rename" the file descriptors in
    * child_data.fds[] to stdin/stdout/stderr.
@@ -257,8 +271,11 @@ child_setup (gpointer user_data)
     if (child_data->fds[i] != -1 && child_data->fds[i] != i)
       {
         do
-          result = dup2 (child_data->fds[i], i);
-        while (result == -1 && errno == EINTR);
+          {
+            result = dup2 (child_data->fds[i], i);
+            errsv = errno;
+          }
+        while (result == -1 && errsv == EINTR);
       }
 
   /* Basic fd assignments we can just unset FD_CLOEXEC */
@@ -301,8 +318,11 @@ child_setup (gpointer user_data)
           else
             {
               do
-                result = dup2 (parent_fd, child_fd);
-              while (result == -1 && errno == EINTR);
+                {
+                  result = dup2 (parent_fd, child_fd);
+                  errsv = errno;
+                }
+              while (result == -1 && errsv == EINTR);
               (void) close (parent_fd);
             }
         }
@@ -697,7 +717,7 @@ g_subprocess_new (GSubprocessFlags   flags,
 
 /**
  * g_subprocess_newv: (rename-to g_subprocess_new)
- * @argv: (array zero-terminated=1) (element-type utf8): commandline arguments for the subprocess
+ * @argv: (array zero-terminated=1) (element-type filename): commandline arguments for the subprocess
  * @flags: flags that define the behaviour of the subprocess
  * @error: (nullable): return location for an error, or %NULL
  *
@@ -810,21 +830,51 @@ g_subprocess_get_stderr_pipe (GSubprocess *subprocess)
   return subprocess->stderr_pipe;
 }
 
+/* Remove the first list element containing @data, and return %TRUE. If no
+ * such element is found, return %FALSE. */
+static gboolean
+slist_remove_if_present (GSList        **list,
+                         gconstpointer   data)
+{
+  GSList *l, *prev;
+
+  for (l = *list, prev = NULL; l != NULL; prev = l, l = prev->next)
+    {
+      if (l->data == data)
+        {
+          if (prev != NULL)
+            prev->next = l->next;
+          else
+            *list = l->next;
+
+          g_slist_free_1 (l);
+
+          return TRUE;
+        }
+    }
+
+  return FALSE;
+}
+
 static void
 g_subprocess_wait_cancelled (GCancellable *cancellable,
                              gpointer      user_data)
 {
   GTask *task = user_data;
   GSubprocess *self;
+  gboolean task_was_pending;
 
   self = g_task_get_source_object (task);
 
   g_mutex_lock (&self->pending_waits_lock);
-  self->pending_waits = g_slist_remove (self->pending_waits, task);
+  task_was_pending = slist_remove_if_present (&self->pending_waits, task);
   g_mutex_unlock (&self->pending_waits_lock);
 
-  g_task_return_boolean (task, FALSE);
-  g_object_unref (task);
+  if (task_was_pending)
+    {
+      g_task_return_boolean (task, FALSE);
+      g_object_unref (task);  /* ref from pending_waits */
+    }
 }
 
 /**
@@ -1578,8 +1628,8 @@ g_subprocess_communicate_internal (GSubprocess         *subprocess,
  * @subprocess: a #GSubprocess
  * @stdin_buf: (nullable): data to send to the stdin of the subprocess, or %NULL
  * @cancellable: a #GCancellable
- * @stdout_buf: (out): data read from the subprocess stdout
- * @stderr_buf: (out): data read from the subprocess stderr
+ * @stdout_buf: (out) (nullable) (optional) (transfer full): data read from the subprocess stdout
+ * @stderr_buf: (out) (nullable) (optional) (transfer full): data read from the subprocess stderr
  * @error: a pointer to a %NULL #GError pointer, or %NULL
  *
  * Communicate with the subprocess until it terminates, and all input
@@ -1683,8 +1733,8 @@ g_subprocess_communicate_async (GSubprocess         *subprocess,
  * g_subprocess_communicate_finish:
  * @subprocess: Self
  * @result: Result
- * @stdout_buf: (out): Return location for stdout data
- * @stderr_buf: (out): Return location for stderr data
+ * @stdout_buf: (out) (nullable) (optional) (transfer full): Return location for stdout data
+ * @stderr_buf: (out) (nullable) (optional) (transfer full): Return location for stderr data
  * @error: Error
  *
  * Complete an invocation of g_subprocess_communicate_async().
@@ -1711,9 +1761,9 @@ g_subprocess_communicate_finish (GSubprocess   *subprocess,
   if (success)
     {
       if (stdout_buf)
-        *stdout_buf = g_memory_output_stream_steal_as_bytes (state->stdout_buf);
+        *stdout_buf = (state->stdout_buf != NULL) ? g_memory_output_stream_steal_as_bytes (state->stdout_buf) : NULL;
       if (stderr_buf)
-        *stderr_buf = g_memory_output_stream_steal_as_bytes (state->stderr_buf);
+        *stderr_buf = (state->stderr_buf != NULL) ? g_memory_output_stream_steal_as_bytes (state->stderr_buf) : NULL;
     }
 
   g_object_unref (result);
@@ -1725,8 +1775,8 @@ g_subprocess_communicate_finish (GSubprocess   *subprocess,
  * @subprocess: a #GSubprocess
  * @stdin_buf: (nullable): data to send to the stdin of the subprocess, or %NULL
  * @cancellable: a #GCancellable
- * @stdout_buf: (out): data read from the subprocess stdout
- * @stderr_buf: (out): data read from the subprocess stderr
+ * @stdout_buf: (out) (nullable) (optional) (transfer full): data read from the subprocess stdout
+ * @stderr_buf: (out) (nullable) (optional) (transfer full): data read from the subprocess stderr
  * @error: a pointer to a %NULL #GError pointer, or %NULL
  *
  * Like g_subprocess_communicate(), but validates the output of the
@@ -1832,8 +1882,8 @@ communicate_result_validate_utf8 (const char            *stream_name,
  * g_subprocess_communicate_utf8_finish:
  * @subprocess: Self
  * @result: Result
- * @stdout_buf: (out): Return location for stdout data
- * @stderr_buf: (out): Return location for stderr data
+ * @stdout_buf: (out) (nullable) (optional) (transfer full): Return location for stdout data
+ * @stderr_buf: (out) (nullable) (optional) (transfer full): Return location for stderr data
  * @error: Error
  *
  * Complete an invocation of g_subprocess_communicate_utf8_async().

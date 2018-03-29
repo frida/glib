@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -532,7 +532,8 @@ g_dbus_object_manager_client_class_init (GDBusObjectManagerClientClass *klass)
    * @object_proxy: The #GDBusObjectProxy on which an interface has properties that are changing.
    * @interface_proxy: The #GDBusProxy that has properties that are changing.
    * @changed_properties: A #GVariant containing the properties that changed.
-   * @invalidated_properties: A %NULL terminated array of properties that was invalidated.
+   * @invalidated_properties: (array zero-terminated=1) (element-type utf8): A %NULL terminated
+   *   array of properties that were invalidated.
    *
    * Emitted when one or more D-Bus properties on proxy changes. The
    * local cache has already been updated when this signal fires. Note
@@ -1541,6 +1542,13 @@ add_interfaces (GDBusObjectManagerClient *manager,
       g_variant_unref (properties);
     }
 
+  if (added)
+    {
+      g_hash_table_insert (manager->priv->map_object_path_to_object_proxy,
+                           g_strdup (object_path),
+                           op);
+    }
+
   g_mutex_unlock (&manager->priv->lock);
 
   /* now that we don't hold the lock any more, emit signals */
@@ -1554,12 +1562,8 @@ add_interfaces (GDBusObjectManagerClient *manager,
   g_list_free (interface_added_signals);
 
   if (added)
-    {
-      g_hash_table_insert (manager->priv->map_object_path_to_object_proxy,
-                           g_strdup (object_path),
-                           op);
-      g_signal_emit_by_name (manager, "object-added", op);
-    }
+    g_signal_emit_by_name (manager, "object-added", op);
+
   g_object_unref (manager);
   g_object_unref (op);
 }

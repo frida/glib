@@ -6,7 +6,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -237,6 +237,7 @@ watcher_init (void)
 {
   static gsize started = 0;
   static GIOChannel *channel = NULL;
+  int errsv;
 
   if (g_once_init_enter (&started))
     {
@@ -245,14 +246,16 @@ watcher_init (void)
       /* fork a child to clean up when we are killed */
       if (pipe (pipe_fds) != 0)
         {
-          g_warning ("pipe() failed: %s", strerror (errno));
+          errsv = errno;
+          g_warning ("pipe() failed: %s", g_strerror (errsv));
           g_assert_not_reached ();
         }
 
       switch (fork ())
         {
         case -1:
-          g_warning ("fork() failed: %s", strerror (errno));
+          errsv = errno;
+          g_warning ("fork() failed: %s", g_strerror (errsv));
           g_assert_not_reached ();
           break;
 

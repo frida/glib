@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -52,8 +52,8 @@
  * to a function and maybe a data argument, and the marshaller
  * converts between #GValue and native C types. The GObject
  * library provides the #GCClosure type for this purpose. Bindings for
- * other languages need marshallers which convert between #GValue<!--
- * -->s and suitable representations in the runtime of the language in
+ * other languages need marshallers which convert between #GValues
+ * and suitable representations in the runtime of the language in
  * order to use functions written in that languages as callbacks.
  *
  * Within GObject, closures play an important role in the
@@ -184,7 +184,7 @@ enum {
  * }
  * ]|
  *
- * Returns: (transfer full): a newly allocated #GClosure
+ * Returns: (transfer none): a floating reference to a new #GClosure
  */
 GClosure*
 g_closure_new_simple (guint           sizeof_closure,
@@ -930,7 +930,7 @@ _g_closure_set_va_marshal (GClosure       *closure,
  * Creates a new closure which invokes @callback_func with @user_data as
  * the last parameter.
  *
- * Returns: a new #GCClosure
+ * Returns: (transfer none): a floating reference to a new #GCClosure
  */
 GClosure*
 g_cclosure_new (GCallback      callback_func,
@@ -958,7 +958,7 @@ g_cclosure_new (GCallback      callback_func,
  * Creates a new closure which invokes @callback_func with @user_data as
  * the first parameter.
  *
- * Returns: (transfer full): a new #GCClosure
+ * Returns: (transfer none): a floating reference to a new #GCClosure
  */
 GClosure*
 g_cclosure_new_swap (GCallback      callback_func,
@@ -1126,7 +1126,7 @@ g_type_iface_meta_marshalv (GClosure *closure,
  * @struct_offset in the class structure of the interface or classed type
  * identified by @itype.
  *
- * Returns: a new #GCClosure
+ * Returns: (transfer none): a floating reference to a new #GCClosure
  */
 GClosure*
 g_signal_type_cclosure_new (GType    itype,

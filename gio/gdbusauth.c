@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -365,12 +365,6 @@ _my_g_input_stream_read_line_safe (GInputStream  *i,
 
 /* ---------------------------------------------------------------------------------------------------- */
 
-static void
-append_nibble (GString *s, gint val)
-{
-  g_string_append_c (s, val >= 10 ? ('a' + val - 10) : ('0' + val));
-}
-
 static gchar *
 hexdecode (const gchar  *str,
            gsize        *out_len,
@@ -404,38 +398,17 @@ hexdecode (const gchar  *str,
       g_string_append_c (s, value);
     }
 
+  *out_len = s->len;
   ret = g_string_free (s, FALSE);
   s = NULL;
 
  out:
   if (s != NULL)
-    g_string_free (s, TRUE);
-  return ret;
-}
-
-/* TODO: take len */
-static gchar *
-hexencode (const gchar *str)
-{
-  guint n;
-  GString *s;
-
-  s = g_string_new (NULL);
-  for (n = 0; str[n] != '\0'; n++)
     {
-      gint val;
-      gint upper_nibble;
-      gint lower_nibble;
-
-      val = ((const guchar *) str)[n];
-      upper_nibble = val >> 4;
-      lower_nibble = val & 0x0f;
-
-      append_nibble (s, upper_nibble);
-      append_nibble (s, lower_nibble);
+      *out_len = 0;
+      g_string_free (s, TRUE);
     }
-
-  return g_string_free (s, FALSE);
+   return ret;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -532,7 +505,7 @@ client_choose_mech_and_send_initial_response (GDBusAuth           *auth,
       goto again;
     }
 
-  initial_response_len = -1;
+  initial_response_len = 0;
   initial_response = _g_dbus_auth_mechanism_client_initiate (mech,
                                                              &initial_response_len);
 #if 0
@@ -544,7 +517,7 @@ client_choose_mech_and_send_initial_response (GDBusAuth           *auth,
   if (initial_response != NULL)
     {
       //g_printerr ("initial_response = '%s'\n", initial_response);
-      encoded = hexencode (initial_response);
+      encoded = _g_dbus_hexencode (initial_response, initial_response_len);
       s = g_strdup_printf ("AUTH %s %s\r\n",
                            _g_dbus_auth_mechanism_get_name (auth_mech_to_use_gtype),
                            encoded);
@@ -836,7 +809,7 @@ _g_dbus_auth_run_client (GDBusAuth     *auth,
                   gsize data_len;
                   gchar *encoded_data;
                   data = _g_dbus_auth_mechanism_client_data_send (mech, &data_len);
-                  encoded_data = hexencode (data);
+                  encoded_data = _g_dbus_hexencode (data, data_len);
                   s = g_strdup_printf ("DATA %s\r\n", encoded_data);
                   g_free (encoded_data);
                   g_free (data);
@@ -961,7 +934,6 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
   GDataInputStream *dis;
   GDataOutputStream *dos;
   GError *local_error;
-  guchar byte;
   gchar *line;
   gsize line_length;
   GDBusAuthMechanism *mech;
@@ -997,7 +969,7 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
 
   g_data_input_stream_set_newline_type (dis, G_DATA_STREAM_NEWLINE_TYPE_CR_LF);
 
-  /* first read the NUL-byte (TODO: read credentials if using a unix domain socket) */
+  /* first read the NUL-byte */
 #ifdef G_OS_UNIX
   if (G_IS_UNIX_CONNECTION (auth->priv->stream))
     {
@@ -1014,8 +986,7 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
   else
     {
       local_error = NULL;
-      byte = g_data_input_stream_read_byte (dis, cancellable, &local_error);
-      byte = byte; /* To avoid -Wunused-but-set-variable */
+      (void)g_data_input_stream_read_byte (dis, cancellable, &local_error);
       if (local_error != NULL)
         {
           g_propagate_error (error, local_error);
@@ -1024,8 +995,7 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
     }
 #else
   local_error = NULL;
-  byte = g_data_input_stream_read_byte (dis, cancellable, &local_error);
-  byte = byte; /* To avoid -Wunused-but-set-variable */
+  (void)g_data_input_stream_read_byte (dis, cancellable, &local_error);
   if (local_error != NULL)
     {
       g_propagate_error (error, local_error);
@@ -1214,7 +1184,7 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
                           {
                             gchar *encoded_data;
 
-                            encoded_data = hexencode (data);
+                            encoded_data = _g_dbus_hexencode (data, data_len);
                             s = g_strdup_printf ("DATA %s\r\n", encoded_data);
                             g_free (encoded_data);
                             g_free (data);

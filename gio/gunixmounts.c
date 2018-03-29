@@ -7,7 +7,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -148,6 +148,7 @@ G_DEFINE_BOXED_TYPE (GUnixMountPoint, g_unix_mount_point,
 
 static GList *_g_get_unix_mounts (void);
 static GList *_g_get_unix_mount_points (void);
+static gboolean proc_mounts_watch_is_running (void);
 
 static guint64 mount_poller_time = 0;
 
@@ -158,7 +159,7 @@ static guint64 mount_poller_time = 0;
 #ifdef HAVE_MNTENT_H
 #include <mntent.h>
 #ifdef HAVE_LIBMOUNT
-#include <libmount/libmount.h>
+#include <libmount.h>
 #endif
 #elif defined (HAVE_SYS_MNTTAB_H)
 #include <sys/mnttab.h>
@@ -280,35 +281,99 @@ g_unix_is_mount_path_system_internal (const char *mount_path)
   return FALSE;
 }
 
-static gboolean
-guess_system_internal (const char *mountpoint,
-		       const char *fs,
-		       const char *device)
+/**
+ * g_unix_is_system_fs_type:
+ * @fs_type: a file system type, e.g. `procfs` or `tmpfs`
+ *
+ * Determines if @fs_type is considered a type of file system which is only
+ * used in implementation of the OS. This is primarily used for hiding
+ * mounted volumes that are intended as APIs for programs to read, and system
+ * administrators at a shell; rather than something that should, for example,
+ * appear in a GUI. For example, the Linux `/proc` filesystem.
+ *
+ * The list of file system types considered ‘system’ ones may change over time.
+ *
+ * Returns: %TRUE if @fs_type is considered an implementation detail of the OS.
+ * Since: 2.56
+ */
+gboolean
+g_unix_is_system_fs_type (const char *fs_type)
 {
   const char *ignore_fs[] = {
+    "adfs",
+    "afs",
     "auto",
     "autofs",
+    "autofs4",
+    "cgroup",
+    "cifs",
+    "configfs",
+    "cxfs",
+    "debugfs",
     "devfs",
     "devpts",
+    "devtmpfs",
     "ecryptfs",
     "fdescfs",
+    "fusectl",
+    "gfs",
+    "gfs2",
+    "gpfs",
+    "hugetlbfs",
     "kernfs",
     "linprocfs",
+    "linsysfs",
+    "lustre",
+    "lustre_lite",
     "mfs",
+    "mqueue",
+    "ncpfs",
+    "nfs",
+    "nfs4",
+    "nfsd",
     "nullfs",
+    "ocfs2",
+    "overlay",
     "proc",
     "procfs",
+    "pstore",
     "ptyfs",
     "rootfs",
+    "rpc_pipefs",
+    "securityfs",
     "selinuxfs",
+    "smbfs",
     "sysfs",
     "tmpfs",
     "usbfs",
-    "nfsd",
-    "rpc_pipefs",
     "zfs",
     NULL
   };
+
+  g_return_val_if_fail (fs_type != NULL && *fs_type != '\0', FALSE);
+
+  return is_in (fs_type, ignore_fs);
+}
+
+/**
+ * g_unix_is_system_device_path:
+ * @device_path: a device path, e.g. `/dev/loop0` or `nfsd`
+ *
+ * Determines if @device_path is considered a block device path which is only
+ * used in implementation of the OS. This is primarily used for hiding
+ * mounted volumes that are intended as APIs for programs to read, and system
+ * administrators at a shell; rather than something that should, for example,
+ * appear in a GUI. For example, the Linux `/proc` filesystem.
+ *
+ * The list of device paths considered ‘system’ ones may change over time.
+ *
+ * Returns: %TRUE if @device_path is considered an implementation detail of
+ *    the OS.
+ * Since: 2.56
+ */
+gboolean
+g_unix_is_system_device_path (const char *device_path)
+{
   const char *ignore_devices[] = {
     "none",
     "sunrpc",
@@ -318,11 +383,21 @@ guess_system_internal (const char *mountpoint,
     "/dev/vn",
     NULL
   };
-  
-  if (is_in (fs, ignore_fs))
+
+  g_return_val_if_fail (device_path != NULL && *device_path != '\0', FALSE);
+
+  return is_in (device_path, ignore_devices);
+}
+
+static gboolean
+guess_system_internal (const char *mountpoint,
+		       const char *fs,
+		       const char *device)
+{
+  if (g_unix_is_system_fs_type (fs))
     return TRUE;
   
-  if (is_in (device, ignore_devices))
+  if (g_unix_is_system_device_path (device))
     return TRUE;
 
   if (g_unix_is_mount_path_system_internal (mountpoint))
@@ -430,14 +505,14 @@ _g_get_unix_mounts (void)
   mnt_free_iter (iter);
 
  out:
-  mnt_unref_table (table);
+  mnt_free_table (table);
 
   return g_list_reverse (return_list);
 }
 
 #else
 
-static char *
+static const char *
 get_mtab_read_file (void)
 {
 #ifdef _PATH_MOUNTED
@@ -464,7 +539,7 @@ _g_get_unix_mounts (void)
 #endif
   struct mntent *mntent;
   FILE *file;
-  char *read_file;
+  const char *read_file;
   GUnixMountEntry *mount_entry;
   GHashTable *mounts_hash;
   GList *return_list;
@@ -538,10 +613,10 @@ _g_get_unix_mounts (void)
 
 #endif /* HAVE_LIBMOUNT */
 
-static char *
+static const char *
 get_mtab_monitor_file (void)
 {
-  static char *mountinfo_path = NULL;
+  static const char *mountinfo_path = NULL;
 #ifdef HAVE_LIBMOUNT
   struct stat buf;
 #endif
@@ -550,7 +625,15 @@ get_mtab_monitor_file (void)
     return mountinfo_path;
 
 #ifdef HAVE_LIBMOUNT
-  /* If using libmount we'll have the logic in place to read mountinfo */
+  /* The mtab file is still used by some distros, so it has to be monitored in
+   * order to avoid races between g_unix_mounts_get and "mounts-changed" signal:
+   * https://bugzilla.gnome.org/show_bug.cgi?id=782814
+   */
+  if (mnt_has_regular_mtab (&mountinfo_path, NULL))
+    {
+      return mountinfo_path;
+    }
+
   if (stat (PROC_MOUNTINFO_PATH, &buf) == 0)
     {
       mountinfo_path = PROC_MOUNTINFO_PATH;
@@ -576,7 +659,7 @@ get_mtab_monitor_file (void)
 
 G_LOCK_DEFINE_STATIC(getmntent);
 
-static char *
+static const char *
 get_mtab_read_file (void)
 {
 #ifdef _PATH_MOUNTED
@@ -586,7 +669,7 @@ get_mtab_read_file (void)
 #endif
 }
 
-static char *
+static const char *
 get_mtab_monitor_file (void)
 {
   return get_mtab_read_file ();
@@ -597,7 +680,7 @@ _g_get_unix_mounts (void)
 {
   struct mnttab mntent;
   FILE *file;
-  char *read_file;
+  const char *read_file;
   GUnixMountEntry *mount_entry;
   GList *return_list;
   
@@ -637,7 +720,7 @@ _g_get_unix_mounts (void)
 /* mntctl.h (AIX) {{{2 */
 #elif defined(HAVE_SYS_MNTCTL_H) && defined(HAVE_SYS_VMOUNT_H) && defined(HAVE_SYS_VFS_H)
 
-static char *
+static const char *
 get_mtab_monitor_file (void)
 {
   return NULL;
@@ -705,7 +788,7 @@ _g_get_unix_mounts (void)
 /* sys/mount.h {{{2 */
 #elif (defined(HAVE_GETVFSSTAT) || defined(HAVE_GETFSSTAT)) && defined(HAVE_FSTAB_H) && defined(HAVE_SYS_MOUNT_H)
 
-static char *
+static const char *
 get_mtab_monitor_file (void)
 {
   return NULL;
@@ -776,7 +859,7 @@ _g_get_unix_mounts (void)
 /* Interix {{{2 */
 #elif defined(__INTERIX)
 
-static char *
+static const char *
 get_mtab_monitor_file (void)
 {
   return NULL;
@@ -830,21 +913,6 @@ _g_get_unix_mounts (void)
   return return_list;
 }
 
-/* QNX {{{2 */
-#elif HAVE_QNX
-
-static char *
-get_mtab_monitor_file (void)
-{
-  return NULL;
-}
-
-static GList *
-_g_get_unix_mounts (void)
-{
-  return NULL;
-}
-
 /* Common code {{{2 */
 #else
 #error No _g_get_unix_mounts() implementation for system
@@ -891,7 +959,7 @@ _g_get_unix_mount_points (void)
   GList *return_list = NULL;
 
   table = mnt_new_table ();
-  if (mnt_table_parse_mtab (table, NULL) < 0)
+  if (mnt_table_parse_fstab (table, NULL) < 0)
     goto out;
 
   iter = mnt_new_iter (MNT_ITER_FORWARD);
@@ -961,7 +1029,7 @@ _g_get_unix_mount_points (void)
   mnt_free_iter (iter);
 
  out:
-  mnt_unref_table (table);
+  mnt_free_table (table);
 
   return g_list_reverse (return_list);
 }
@@ -1286,7 +1354,6 @@ _g_get_unix_mount_points (void)
   GList *return_list;
 #ifdef HAVE_SYS_SYSCTL_H
   int usermnt = 0;
-  size_t len = sizeof(usermnt);
   struct stat sb;
 #endif
   
@@ -1297,10 +1364,15 @@ _g_get_unix_mount_points (void)
   
 #ifdef HAVE_SYS_SYSCTL_H
 #if defined(HAVE_SYSCTLBYNAME)
-  sysctlbyname ("vfs.usermount", &usermnt, &len, NULL, 0);
+  {
+    size_t len = sizeof(usermnt);
+
+    sysctlbyname ("vfs.usermount", &usermnt, &len, NULL, 0);
+  }
 #elif defined(CTL_VFS) && defined(VFS_USERMOUNT)
   {
     int mib[2];
+    size_t len = sizeof(usermnt);
     
     mib[0] = CTL_VFS;
     mib[1] = VFS_USERMOUNT;
@@ -1309,6 +1381,7 @@ _g_get_unix_mount_points (void)
 #elif defined(CTL_KERN) && defined(KERN_USERMOUNT)
   {
     int mib[2];
+    size_t len = sizeof(usermnt);
     
     mib[0] = CTL_KERN;
     mib[1] = KERN_USERMOUNT;
@@ -1363,14 +1436,6 @@ _g_get_unix_mount_points (void)
   return _g_get_unix_mounts ();
 }
 
-/* QNX {{{2 */
-#elif HAVE_QNX
-static GList *
-_g_get_unix_mount_points (void)
-{
-  return _g_get_unix_mounts ();
-}
-
 /* Common code {{{2 */
 #else
 #error No g_get_mount_table() implementation for system
@@ -1383,14 +1448,25 @@ get_mounts_timestamp (void)
   struct stat buf;
 
   monitor_file = get_mtab_monitor_file ();
-  if (monitor_file)
+  /* Don't return mtime for /proc/ files */
+  if (monitor_file && !g_str_has_prefix (monitor_file, "/proc/"))
     {
       if (stat (monitor_file, &buf) == 0)
         return (guint64)buf.st_mtime;
     }
+  else if (proc_mounts_watch_is_running ())
+    {
+      /* it's being monitored by poll, so return mount_poller_time */
+      return mount_poller_time;
+    }
   else
     {
-      return mount_poller_time;
+      /* Case of /proc/ file not being monitored - Be on the safe side and
+       * send a new timestamp to force g_unix_mounts_changed_since() to
+       * return TRUE so any application caches depending on it (like eg.
+       * the one in GIO) get invalidated and don't hold possibly outdated
+       * data - see Bug 787731 */
+     return (guint64) g_get_monotonic_time ();
     }
   return 0;
 }
@@ -1580,6 +1656,14 @@ static GFileMonitor          *fstab_monitor;
 static GFileMonitor          *mtab_monitor;
 static GSource               *proc_mounts_watch_source;
 static GList                 *mount_poller_mounts;
+static guint                  mtab_file_changed_id;
+
+static gboolean
+proc_mounts_watch_is_running (void)
+{
+  return proc_mounts_watch_source != NULL &&
+         !g_source_is_destroyed (proc_mounts_watch_source);
+}
 
 static void
 fstab_file_changed (GFileMonitor      *monitor,
@@ -1596,6 +1680,15 @@ fstab_file_changed (GFileMonitor      *monitor,
   g_context_specific_group_emit (&mount_monitor_group, signals[MOUNTPOINTS_CHANGED]);
 }
 
+static gboolean
+mtab_file_changed_cb (gpointer user_data)
+{
+  mtab_file_changed_id = 0;
+  g_context_specific_group_emit (&mount_monitor_group, signals[MOUNTS_CHANGED]);
+
+  return G_SOURCE_REMOVE;
+}
+
 static void
 mtab_file_changed (GFileMonitor      *monitor,
                    GFile             *file,
@@ -1608,7 +1701,14 @@ mtab_file_changed (GFileMonitor      *monitor,
       event_type != G_FILE_MONITOR_EVENT_DELETED)
     return;
 
-  g_context_specific_group_emit (&mount_monitor_group, signals[MOUNTS_CHANGED]);
+  /* Skip accumulated events from file monitor which we are not able to handle
+   * in a real time instead of emitting mounts_changed signal several times.
+   * This should behave equally to GIOChannel based monitoring. See Bug 792235.
+   */
+  if (mtab_file_changed_id > 0)
+    return;
+
+  mtab_file_changed_id = g_idle_add (mtab_file_changed_cb, NULL);
 }
 
 static gboolean
@@ -1617,7 +1717,10 @@ proc_mounts_changed (GIOChannel   *channel,
                      gpointer      user_data)
 {
   if (cond & G_IO_ERR)
-    g_context_specific_group_emit (&mount_monitor_group, signals[MOUNTS_CHANGED]);
+    {
+      mount_poller_time = (guint64) g_get_monotonic_time ();
+      g_context_specific_group_emit (&mount_monitor_group, signals[MOUNTS_CHANGED]);
+    }
 
   return TRUE;
 }
@@ -1667,7 +1770,10 @@ mount_monitor_stop (void)
     }
 
   if (proc_mounts_watch_source != NULL)
-    g_source_destroy (proc_mounts_watch_source);
+    {
+      g_source_destroy (proc_mounts_watch_source);
+      proc_mounts_watch_source = NULL;
+    }
 
   if (mtab_monitor)
     {
@@ -2064,9 +2170,14 @@ g_unix_mount_is_readonly (GUnixMountEntry *mount_entry)
 /**
  * g_unix_mount_is_system_internal:
  * @mount_entry: a #GUnixMount.
+ *
+ * Checks if a Unix mount is a system mount. This is the Boolean OR of
+ * g_unix_is_system_fs_type(), g_unix_is_system_device_path() and
+ * g_unix_is_mount_path_system_internal() on @mount_entry’s properties.
  * 
- * Checks if a unix mount is a system path.
- * 
+ * The definition of what a ‘system’ mount entry is may change over time as new
+ * file system types and device paths are ignored.
+ *
  * Returns: %TRUE if the unix mount is for a system path.
  */
 gboolean
@@ -2577,18 +2688,29 @@ g_unix_mount_guess_should_display (GUnixMountEntry *mount_entry)
   mount_path = mount_entry->mount_path;
   if (mount_path != NULL)
     {
+      const gboolean running_as_root = (getuid () == 0);
       gboolean is_in_runtime_dir = FALSE;
+
       /* Hide mounts within a dot path, suppose it was a purpose to hide this mount */
       if (g_strstr_len (mount_path, -1, "/.") != NULL)
         return FALSE;
 
-      /* Check /run/media/$USER/ */
-      user_name = g_get_user_name ();
-      user_name_len = strlen (user_name);
-      if (strncmp (mount_path, "/run/media/", sizeof ("/run/media/") - 1) == 0 &&
-          strncmp (mount_path + sizeof ("/run/media/") - 1, user_name, user_name_len) == 0 &&
-          mount_path[sizeof ("/run/media/") - 1 + user_name_len] == '/')
-        is_in_runtime_dir = TRUE;
+      /* Check /run/media/$USER/. If running as root, display any mounts below
+       * /run/media/. */
+      if (running_as_root)
+        {
+          if (strncmp (mount_path, "/run/media/", strlen ("/run/media/")) == 0)
+            is_in_runtime_dir = TRUE;
+        }
+      else
+        {
+          user_name = g_get_user_name ();
+          user_name_len = strlen (user_name);
+          if (strncmp (mount_path, "/run/media/", strlen ("/run/media/")) == 0 &&
+              strncmp (mount_path + strlen ("/run/media/"), user_name, user_name_len) == 0 &&
+              mount_path[strlen ("/run/media/") + user_name_len] == '/')
+            is_in_runtime_dir = TRUE;
+        }
 
       if (is_in_runtime_dir || g_str_has_prefix (mount_path, "/media/"))
         {

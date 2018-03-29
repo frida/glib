@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -594,7 +594,7 @@ g_cancellable_connect (GCancellable   *cancellable,
 /**
  * g_cancellable_disconnect:
  * @cancellable: (nullable): A #GCancellable or %NULL.
- * @handler_id: Handler id of the handler to be disconnected, or %0.
+ * @handler_id: Handler id of the handler to be disconnected, or `0`.
  *
  * Disconnects a handler from a cancellable instance similar to
  * g_signal_handler_disconnect().  Additionally, in the event that a
@@ -608,7 +608,7 @@ g_cancellable_connect (GCancellable   *cancellable,
  * signal handler is removed. See #GCancellable::cancelled for
  * details on how to use this.
  *
- * If @cancellable is %NULL or @handler_id is %0 this function does
+ * If @cancellable is %NULL or @handler_id is `0` this function does
  * nothing.
  *
  * Since: 2.22
@@ -644,6 +644,18 @@ typedef struct {
   guint         cancelled_handler;
 } GCancellableSource;
 
+/*
+ * We can't guarantee that the source still has references, so we are
+ * relying on the fact that g_source_set_ready_time() no longer makes
+ * assertions about the reference count - the source might be in the
+ * window between last-unref and finalize, during which its refcount
+ * is officially 0. However, we *can* guarantee that it's OK to
+ * dereference it in a limited way, because we know we haven't yet reached
+ * cancellable_source_finalize() - if we had, then we would have waited
+ * for signal emission to finish, then disconnected the signal handler
+ * under the lock.
+ * See https://bugzilla.gnome.org/show_bug.cgi?id=791754
+ */
 static void
 cancellable_source_cancelled (GCancellable *cancellable,
 			      gpointer      user_data)

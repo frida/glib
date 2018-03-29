@@ -72,7 +72,6 @@
 				LinkIncremental="2"
 				GenerateDebugInformation="true"
 				SubSystem="1"
-				RandomizedBaseAddress="1"
 				DataExecutionPrevention="0"
 				TargetMachine="17"
 			/>
@@ -133,7 +132,6 @@
 				SubSystem="1"
 				OptimizeReferences="2"
 				EnableCOMDATFolding="2"
-				RandomizedBaseAddress="1"
 				DataExecutionPrevention="0"
 				TargetMachine="17"
 			/>
@@ -148,6 +146,7 @@
 			UniqueIdentifier="{4FC737F1-C7A5-4376-A066-2A32D752A2FF}"
 			>
 			<File RelativePath="..\..\gio\gio-querymodules.c" />
+			<File RelativePath="..\..\gio\giomodule-priv.c" />
 		</Filter>
 	</Files>
 	<Globals>

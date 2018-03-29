@@ -7,7 +7,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -54,9 +54,9 @@
  * g_mount_unmount_with_operation() with (at least) the #GMount instance and a
  * #GAsyncReadyCallback.  The callback will be fired when the
  * operation has resolved (either with success or failure), and a
- * #GAsyncReady structure will be passed to the callback.  That
+ * #GAsyncResult structure will be passed to the callback.  That
  * callback should then call g_mount_unmount_with_operation_finish() with the #GMount
- * and the #GAsyncReady data to see if the operation was completed
+ * and the #GAsyncResult data to see if the operation was completed
  * successfully.  If an @error is present when g_mount_unmount_with_operation_finish() 
  * is called, then it will be filled with any error information.
  **/
@@ -101,8 +101,11 @@ g_mount_default_init (GMountInterface *iface)
    * GMount::pre-unmount:
    * @mount: the object on which the signal is emitted
    *
-   * This signal is emitted when the #GMount is about to be
+   * This signal may be emitted when the #GMount is about to be
    * unmounted.
+   *
+   * This signal depends on the backend and is only emitted if
+   * GIO was used to unmount.
    *
    * Since: 2.22
    **/

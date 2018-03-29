@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -41,9 +41,6 @@
 #endif
 #ifdef G_OS_WIN32
 #include <io.h>		/* For open() and close() prototypes. */
-#endif
-#ifdef HAVE_TARGETCONDITIONALS_H
-#include <TargetConditionals.h>
 #endif
 
 #include "gmoduleconf.h"
@@ -513,7 +510,11 @@ g_module_open (const gchar    *file_name,
       if (!main_module)
 	{
 	  handle = _g_module_self ();
+/* On Android 64 bit, RTLD_DEFAULT is (void *)0x0
+ * so it always fails to create main_module if file_name is NULL */
+#if !defined(__BIONIC__) || !defined(__LP64__)
 	  if (handle)
+#endif
 	    {
 	      main_module = g_new (GModule, 1);
 	      main_module->file_name = NULL;
@@ -541,21 +542,8 @@ g_module_open (const gchar    *file_name,
       return module;
     }
 
-#if defined (HAVE_TARGETCONDITIONALS_H) && defined (TARGET_OS_IPHONE)
-  /*
-   * Special gotcha for iPhone where system libraries are hidden, so no point
-   * in checking if they exist. We don't want to end up adding a suffix to
-   * the name specified, and thus having dlopen() fail. Hence this simple hack.
-   */
-  if (g_str_has_prefix (file_name, "/Library/") ||
-      g_str_has_prefix (file_name, "/System/"))
-    {
-      name = g_strdup (file_name);
-    }
-#endif
-
   /* check whether we have a readable file right away */
-  if (name == NULL && g_file_test (file_name, G_FILE_TEST_IS_REGULAR))
+  if (g_file_test (file_name, G_FILE_TEST_IS_REGULAR))
     name = g_strdup (file_name);
   /* try completing file name with standard library suffix */
   if (!name)

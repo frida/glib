@@ -4,19 +4,16 @@ include $(top_srcdir)/glib.mk
 AM_CPPFLAGS = 				\
 	$(glib_INCLUDES) 		\
 	-DG_LOG_DOMAIN=\"GThread\" 	\
-	$(GLIB_STATIC_FLAGS)		\
 	@GTHREAD_COMPILE_IMPL_DEFINES@ 	\
 	@GLIB_DEBUG_FLAGS@
 
 AM_CFLAGS = $(GLIB_WARN_CFLAGS)
 
 EXTRA_DIST +=				\
-		makefile.msc.in		\
 		gthread.def		\
 		gthread.rc.in
 
 BUILT_EXTRA_DIST += 			\
-		makefile.msc		\
 		gthread.rc
 
 libglib = $(top_builddir)/glib/libglib-2.0.la

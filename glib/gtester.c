@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -102,21 +102,37 @@ testcase_close (long double duration,
                 gint        exit_status,
                 guint       n_forks)
 {
+  gboolean success;
+
   g_return_if_fail (testcase_open > 0);
   test_log_printfe ("%s<duration>%.6Lf</duration>\n", sindent (log_indent), duration);
+  success = exit_status == G_TEST_RUN_SUCCESS || exit_status == G_TEST_RUN_SKIPPED;
   test_log_printfe ("%s<status exit-status=\"%d\" n-forks=\"%d\" result=\"%s\"/>\n",
                     sindent (log_indent), exit_status, n_forks,
-                    exit_status ? "failed" : "success");
+                    success ? "failed" : "success");
   log_indent -= 2;
   test_log_printfe ("%s</testcase>\n", sindent (log_indent));
   testcase_open--;
   if (gtester_verbose)
-    g_print ("%s\n", exit_status ? "FAIL" : "OK");
-  if (exit_status && subtest_last_seed)
+    {
+      switch (exit_status)
+        {
+        case G_TEST_RUN_SUCCESS:
+          g_print ("OK\n");
+          break;
+        case G_TEST_RUN_SKIPPED:
+          g_print ("SKIP\n");
+          break;
+        default:
+          g_print ("FAIL\n");
+          break;
+        }
+    }
+  if (!success && subtest_last_seed)
     g_print ("GTester: last random seed: %s\n", subtest_last_seed);
-  if (exit_status)
+  if (!success)
     testcase_fail_count += 1;
-  if (subtest_mode_fatal && exit_status)
+  if (subtest_mode_fatal && !success)
     terminate();
 }
 
@@ -306,10 +322,8 @@ launch_test_binary (const char *binary,
     argc++;
   if (!subtest_mode_fatal)
     argc++;
-  if (subtest_mode_quick)
-    argc++;
-  else
-    argc++;
+  /* Either -m=quick or -m=slow is always appended. */
+  argc++;
   if (subtest_mode_perf)
     argc++;
   if (!subtest_mode_undefined)
@@ -678,9 +692,11 @@ main (int    argc,
 
   if (output_filename)
     {
+      int errsv;
       log_fd = g_open (output_filename, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+      errsv = errno;
       if (log_fd < 0)
-        g_error ("Failed to open log file '%s': %s", output_filename, g_strerror (errno));
+        g_error ("Failed to open log file '%s': %s", output_filename, g_strerror (errsv));
     }
 
   test_log_printfe ("<?xml version=\"1.0\"?>\n");

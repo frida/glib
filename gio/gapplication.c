@@ -1,10 +1,10 @@
 /*
  * Copyright © 2010 Codethink Limited
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published
- * by the Free Software Foundation; either version 2 of the licence or (at
- * your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -28,7 +28,6 @@
 #include "gapplicationimpl.h"
 #include "gactiongroup.h"
 #include "gactionmap.h"
-#include "gmenumodel.h"
 #include "gsettings.h"
 #include "gnotification-private.h"
 #include "gnotificationbackend.h"
@@ -86,10 +85,11 @@
  * instance and g_application_run() promptly returns. See the code
  * examples below.
  *
- * If used, the expected form of an application identifier is very close
- * to that of of a
- * [D-Bus bus name](http://dbus.freedesktop.org/doc/dbus-specification.html#message-protocol-names-interface).
- * Examples include: "com.example.MyApp", "org.example.internal-apps.Calculator".
+ * If used, the expected form of an application identifier is the same as
+ * that of of a
+ * [D-Bus well-known bus name](https://dbus.freedesktop.org/doc/dbus-specification.html#message-protocol-names-bus).
+ * Examples include: `com.example.MyApp`, `org.example.internal_apps.Calculator`,
+ * `org._7_zip.Archiver`.
  * For details on valid application identifiers, see g_application_id_is_valid().
  *
  * On Linux, the application identifier is claimed as a well-known bus name
@@ -225,8 +225,6 @@ struct _GApplicationPrivate
   gchar             *resource_path;
 
   GActionGroup      *actions;
-  GMenuModel        *app_menu;
-  GMenuModel        *menubar;
 
   guint              inactivity_timeout_id;
   guint              inactivity_timeout;
@@ -249,6 +247,9 @@ struct _GApplicationPrivate
   GSList             *option_groups;
   GHashTable         *packed_options;
   gboolean            options_parsed;
+  gchar              *parameter_string;
+  gchar              *summary;
+  gchar              *description;
 
   /* Allocated option strings, from g_application_add_main_option() */
   GSList             *option_strings;
@@ -487,7 +488,9 @@ g_application_parse_command_line (GApplication   *application,
    */
   g_return_val_if_fail (!application->priv->options_parsed, NULL);
 
-  context = g_option_context_new (NULL);
+  context = g_option_context_new (application->priv->parameter_string);
+  g_option_context_set_summary (context, application->priv->summary);
+  g_option_context_set_description (context, application->priv->description);
 
   gapplication_group = g_option_group_new ("gapplication",
                                            _("GApplication options"), _("Show GApplication options"),
@@ -816,6 +819,77 @@ g_application_add_option_group (GApplication *application,
 
   application->priv->option_groups = g_slist_prepend (application->priv->option_groups, group);
 }
+
+/**
+ * g_application_set_option_context_parameter_string:
+ * @application: the #GApplication
+ * @parameter_string: (nullable): a string which is displayed
+ *   in the first line of `--help` output, after the usage summary `programname [OPTION...]`.
+ *
+ * Sets the parameter string to be used by the commandline handling of @application.
+ *
+ * This function registers the argument to be passed to g_option_context_new()
+ * when the internal #GOptionContext of @application is created.
+ *
+ * See g_option_context_new() for more information about @parameter_string.
+ *
+ * Since: 2.56
+ */
+void
+g_application_set_option_context_parameter_string (GApplication *application,
+                                                   const gchar  *parameter_string)
+{
+  g_return_if_fail (G_IS_APPLICATION (application));
+
+  g_free (application->priv->parameter_string);
+  application->priv->parameter_string = g_strdup (parameter_string);
+}
+
+/**
+ * g_application_set_option_context_summary:
+ * @application: the #GApplication
+ * @summary: (nullable): a string to be shown in `--help` output
+ *  before the list of options, or %NULL
+ *
+ * Adds a summary to the @application option context.
+ *
+ * See g_option_context_set_summary() for more information.
+ *
+ * Since: 2.56
+ */
+void
+g_application_set_option_context_summary (GApplication *application,
+                                          const gchar  *summary)
+{
+  g_return_if_fail (G_IS_APPLICATION (application));
+
+  g_free (application->priv->summary);
+  application->priv->summary = g_strdup (summary);
+}
+
+/**
+ * g_application_set_option_context_description:
+ * @application: the #GApplication
+ * @description: (nullable): a string to be shown in `--help` output
+ *  after the list of options, or %NULL
+ *
+ * Adds a description to the @application option context.
+ *
+ * See g_option_context_set_description() for more information.
+ *
+ * Since: 2.56
+ */
+void
+g_application_set_option_context_description (GApplication *application,
+                                              const gchar  *description)
+{
+  g_return_if_fail (G_IS_APPLICATION (application));
+
+  g_free (application->priv->description);
+  application->priv->description = g_strdup (description);
+
+}
+
 
 /* vfunc defaults {{{1 */
 static void
@@ -1246,6 +1320,28 @@ g_application_constructed (GObject *object)
 }
 
 static void
+g_application_dispose (GObject *object)
+{
+  GApplication *application = G_APPLICATION (object);
+
+  if (application->priv->impl != NULL &&
+      G_APPLICATION_GET_CLASS (application)->dbus_unregister != g_application_real_dbus_unregister)
+    {
+      static gboolean warned;
+
+      if (!warned)
+        {
+          g_warning ("Your application did not unregister from D-Bus before destruction. "
+                     "Consider using g_application_run().");
+        }
+
+      warned = TRUE;
+    }
+
+  G_OBJECT_CLASS (g_application_parent_class)->dispose (object);
+}
+
+static void
 g_application_finalize (GObject *object)
 {
   GApplication *application = G_APPLICATION (object);
@@ -1255,6 +1351,10 @@ g_application_finalize (GObject *object)
     g_option_group_unref (application->priv->main_options);
   if (application->priv->packed_options)
     g_hash_table_unref (application->priv->packed_options);
+
+  g_free (application->priv->parameter_string);
+  g_free (application->priv->summary);
+  g_free (application->priv->description);
 
   g_slist_free_full (application->priv->option_strings, g_free);
 
@@ -1317,6 +1417,7 @@ g_application_class_init (GApplicationClass *class)
   GObjectClass *object_class = G_OBJECT_CLASS (class);
 
   object_class->constructed = g_application_constructed;
+  object_class->dispose = g_application_dispose;
   object_class->finalize = g_application_finalize;
   object_class->get_property = g_application_get_property;
   object_class->set_property = g_application_set_property;
@@ -1540,67 +1641,54 @@ g_application_class_init (GApplicationClass *class)
  * A valid ID is required for calls to g_application_new() and
  * g_application_set_application_id().
  *
+ * Application identifiers follow the same format as
+ * [D-Bus well-known bus names](https://dbus.freedesktop.org/doc/dbus-specification.html#message-protocol-names-bus).
  * For convenience, the restrictions on application identifiers are
  * reproduced here:
  *
- * - Application identifiers must contain only the ASCII characters
- *   "[A-Z][a-z][0-9]_-." and must not begin with a digit.
+ * - Application identifiers are composed of 1 or more elements separated by a
+ *   period (`.`) character. All elements must contain at least one character.
  *
- * - Application identifiers must contain at least one '.' (period)
- *   character (and thus at least three elements).
+ * - Each element must only contain the ASCII characters `[A-Z][a-z][0-9]_-`,
+ *   with `-` discouraged in new application identifiers. Each element must not
+ *   begin with a digit.
  *
- * - Application identifiers must not begin or end with a '.' (period)
- *   character.
+ * - Application identifiers must contain at least one `.` (period) character
+ *   (and thus at least two elements).
  *
- * - Application identifiers must not contain consecutive '.' (period)
- *   characters.
+ * - Application identifiers must not begin with a `.` (period) character.
  *
  * - Application identifiers must not exceed 255 characters.
+ *
+ * Note that the hyphen (`-`) character is allowed in application identifiers,
+ * but is problematic or not allowed in various specifications and APIs that
+ * refer to D-Bus, such as
+ * [Flatpak application IDs](http://docs.flatpak.org/en/latest/introduction.html#identifiers),
+ * the
+ * [`DBusActivatable` interface in the Desktop Entry Specification](https://specifications.freedesktop.org/desktop-entry-spec/desktop-entry-spec-latest.html#dbus),
+ * and the convention that an application's "main" interface and object path
+ * resemble its application identifier and bus name. To avoid situations that
+ * require special-case handling, it is recommended that new application
+ * identifiers consistently replace hyphens with underscores.
+ *
+ * Like D-Bus interface names, application identifiers should start with the
+ * reversed DNS domain name of the author of the interface (in lower-case), and
+ * it is conventional for the rest of the application identifier to consist of
+ * words run together, with initial capital letters.
+ *
+ * As with D-Bus interface names, if the author's DNS domain name contains
+ * hyphen/minus characters they should be replaced by underscores, and if it
+ * contains leading digits they should be escaped by prepending an underscore.
+ * For example, if the owner of 7-zip.org used an application identifier for an
+ * archiving application, it might be named `org._7_zip.Archiver`.
  *
  * Returns: %TRUE if @application_id is valid
  */
 gboolean
 g_application_id_is_valid (const gchar *application_id)
 {
-  gsize len;
-  gboolean allow_dot;
-  gboolean has_dot;
-
-  len = strlen (application_id);
-
-  if (len > 255)
-    return FALSE;
-
-  if (!g_ascii_isalpha (application_id[0]))
-    return FALSE;
-
-  if (application_id[len-1] == '.')
-    return FALSE;
-
-  application_id++;
-  allow_dot = TRUE;
-  has_dot = FALSE;
-  for (; *application_id; application_id++)
-    {
-      if (g_ascii_isalnum (*application_id) ||
-          (*application_id == '-') ||
-          (*application_id == '_'))
-        {
-          allow_dot = TRUE;
-        }
-      else if (allow_dot && *application_id == '.')
-        {
-          has_dot = TRUE;
-          allow_dot = FALSE;
-        }
-      else
-        return FALSE;
-    }
-
-  if (!has_dot)
-    return FALSE;
-
-  return TRUE;
+  return g_dbus_is_name (application_id) &&
+         !g_dbus_is_unique_name (application_id);
 }
 
 /* Public Constructor {{{1 */
@@ -2198,7 +2286,8 @@ g_application_open (GApplication  *application,
  * g_application_run:
  * @application: a #GApplication
  * @argc: the argc from main() (or 0 if @argv is %NULL)
- * @argv: (array length=argc) (nullable): the argv from main(), or %NULL
+ * @argv: (array length=argc) (element-type filename) (nullable):
+ *     the argv from main(), or %NULL
  *
  * Runs the application.
  *
@@ -2604,6 +2693,10 @@ g_application_set_default (GApplication *application)
  * calling only the 'shutdown' function before doing so.
  *
  * The hold count is ignored.
+ * Take care if your code has called g_application_hold() on the application and
+ * is therefore still expecting it to exist.
+ * (Note that you may have called g_application_hold() indirectly, for example
+ * through gtk_application_add_window().)
  *
  * The result of calling g_application_run() again after it returns is
  * unspecified.

@@ -4,7 +4,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the licence, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -998,7 +998,7 @@ monitor_mount_added (GVolumeMonitor *volume_monitor, GMount *mount)
 {
   char *name;
   name = g_mount_get_name (mount);
-  g_print ("Mount added: '%s'\n", name);
+  g_print ("Mount added:        '%s'\n", name);
   g_free (name);
   monitor_print_mount (mount);
 }
@@ -1008,7 +1008,7 @@ monitor_mount_removed (GVolumeMonitor *volume_monitor, GMount *mount)
 {
   char *name;
   name = g_mount_get_name (mount);
-  g_print ("Mount removed: '%s'\n", name);
+  g_print ("Mount removed:      '%s'\n", name);
   g_free (name);
   monitor_print_mount (mount);
 }
@@ -1018,7 +1018,7 @@ monitor_mount_changed (GVolumeMonitor *volume_monitor, GMount *mount)
 {
   char *name;
   name = g_mount_get_name (mount);
-  g_print ("Mount changed: '%s'\n", name);
+  g_print ("Mount changed:      '%s'\n", name);
   g_free (name);
   monitor_print_mount (mount);
 }

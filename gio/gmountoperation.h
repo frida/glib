@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -64,6 +64,12 @@ struct _GMountOperationClass
 			 const char            *default_domain,
 			 GAskPasswordFlags      flags);
 
+  /**
+   * GMountOperationClass::ask_question:
+   * @op:
+   * @message:
+   * @choices: (array zero-terminated=1) (element-type utf8):
+   */
   void (* ask_question) (GMountOperation       *op,
 			 const char            *message,
 			 const char            *choices[]);
@@ -73,6 +79,15 @@ struct _GMountOperationClass
 
   void (* aborted)      (GMountOperation       *op);
 
+  /**
+   * GMountOperationClass::show_processes:
+   * @op:
+   * @message:
+   * @processes: (element-type GPid):
+   * @choices: (array zero-terminated=1) (element-type utf8):
+   *
+   * Since: 2.22
+   */
   void (* show_processes) (GMountOperation      *op,
                            const gchar          *message,
                            GArray               *processes,

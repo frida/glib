@@ -129,6 +129,9 @@ GLIB_VERSION_2_44
 GLIB_VERSION_2_46
 GLIB_VERSION_2_48
 GLIB_VERSION_2_50
+GLIB_VERSION_2_52
+GLIB_VERSION_2_54
+GLIB_VERSION_2_56
 GLIB_VERSION_MIN_REQUIRED
 GLIB_VERSION_MAX_ALLOWED
 GLIB_DISABLE_DEPRECATION_WARNINGS
@@ -149,6 +152,9 @@ GLIB_AVAILABLE_IN_2_44
 GLIB_AVAILABLE_IN_2_46
 GLIB_AVAILABLE_IN_2_48
 GLIB_AVAILABLE_IN_2_50
+GLIB_AVAILABLE_IN_2_52
+GLIB_AVAILABLE_IN_2_54
+GLIB_AVAILABLE_IN_2_56
 GLIB_DEPRECATED_IN_2_26
 GLIB_DEPRECATED_IN_2_26_FOR
 GLIB_DEPRECATED_IN_2_28
@@ -175,6 +181,12 @@ GLIB_DEPRECATED_IN_2_48
 GLIB_DEPRECATED_IN_2_48_FOR
 GLIB_DEPRECATED_IN_2_50
 GLIB_DEPRECATED_IN_2_50_FOR
+GLIB_DEPRECATED_IN_2_52
+GLIB_DEPRECATED_IN_2_52_FOR
+GLIB_DEPRECATED_IN_2_54
+GLIB_DEPRECATED_IN_2_54_FOR
+GLIB_DEPRECATED_IN_2_56
+GLIB_DEPRECATED_IN_2_56_FOR
 GLIB_VERSION_CUR_STABLE
 GLIB_VERSION_PREV_STABLE
 </SECTION>
@@ -389,6 +401,8 @@ G_INLINE_FUNC
 g_auto
 g_autoptr
 g_autofree
+g_autolist
+g_autoslist
 G_DEFINE_AUTOPTR_CLEANUP_FUNC
 G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC
 G_DEFINE_AUTO_CLEANUP_FREE_FUNC
@@ -621,6 +635,8 @@ g_source_get_current_time
 g_source_remove
 g_source_remove_by_funcs_user_data
 g_source_remove_by_user_data
+GClearHandleFunc
+g_clear_handle_id
 
 <SUBSECTION Private>
 GLIB_HAVE_ALLOCA_H
@@ -1324,7 +1340,7 @@ g_option_error_quark
 <SECTION>
 <TITLE>File Utilities</TITLE>
 <FILE>fileutils</FILE>
-<INCLUDE>glib.h,glib/gstdio.h</INCLUDE>
+<INCLUDE>glib.h,glib/gstdio.h,fcntl.h,sys/types.h,sys/stat.h</INCLUDE>
 GFileError
 G_FILE_ERROR
 GFileTest
@@ -1551,6 +1567,7 @@ g_date_new_dmy
 g_date_new_julian
 g_date_clear
 g_date_free
+g_date_copy
 
 <SUBSECTION>
 g_date_set_day
@@ -1667,6 +1684,7 @@ g_date_time_new_from_unix_utc
 <SUBSECTION>
 g_date_time_new_from_timeval_local
 g_date_time_new_from_timeval_utc
+g_date_time_new_from_iso8601
 
 <SUBSECTION>
 g_date_time_new
@@ -1837,6 +1855,7 @@ g_path_get_basename
 g_path_get_dirname
 g_build_filename
 g_build_filenamev
+g_build_filename_valist
 g_build_path
 g_build_pathv
 
@@ -1968,6 +1987,7 @@ g_key_file_has_key
 g_key_file_get_value
 g_key_file_get_string
 g_key_file_get_locale_string
+g_key_file_get_locale_for_key
 g_key_file_get_boolean
 g_key_file_get_integer
 g_key_file_get_int64

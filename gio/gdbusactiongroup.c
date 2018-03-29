@@ -2,10 +2,10 @@
  * Copyright © 2010 Codethink Limited
  * Copyright © 2011 Canonical Limited
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published
- * by the Free Software Foundation; either version 2 of the licence or (at
- * your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -475,7 +475,8 @@ g_dbus_action_group_iface_init (GActionGroupInterface *iface)
 /**
  * g_dbus_action_group_get:
  * @connection: A #GDBusConnection
- * @bus_name: the bus name which exports the action group
+ * @bus_name: (nullable): the bus name which exports the action
+ *     group or %NULL if @connection is not a message bus connection
  * @object_path: the object path at which the action group is exported
  *
  * Obtains a #GDBusActionGroup for the action group which is exported at
@@ -502,6 +503,8 @@ g_dbus_action_group_get (GDBusConnection *connection,
                          const gchar     *object_path)
 {
   GDBusActionGroup *group;
+
+  g_return_val_if_fail (bus_name != NULL || g_dbus_connection_get_unique_name (connection) == NULL, NULL);
 
   group = g_object_new (G_TYPE_DBUS_ACTION_GROUP, NULL);
   group->connection = g_object_ref (connection);

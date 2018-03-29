@@ -3,10 +3,10 @@
  * Copyright © 2012 Red Hat, Inc.
  * Copyright © 2012-2013 Canonical Limited
  *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Lesser General Public License as published
- * by the Free Software Foundation; either version 2 of the licence or (at
- * your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * See the included COPYING file for more information.
  *
@@ -228,7 +228,8 @@ g_subprocess_launcher_new (GSubprocessFlags flags)
 /**
  * g_subprocess_launcher_set_environ:
  * @self: a #GSubprocess
- * @env: (array zero-terminated=1): the replacement environment
+ * @env: (array zero-terminated=1) (element-type filename) (transfer none):
+ *     the replacement environment
  *
  * Replace the entire environment of processes launched from this
  * launcher with the given 'environ' variable.
@@ -240,8 +241,12 @@ g_subprocess_launcher_new (GSubprocessFlags flags)
  * As an alternative, you can use g_subprocess_launcher_setenv(),
  * g_subprocess_launcher_unsetenv(), etc.
  *
- * Pass %NULL to inherit the parent  process' environment. Pass an
- * empty array to set an empty environment.
+ * Pass an empty array to set an empty environment. Pass %NULL to inherit the
+ * parent process’ environment. As of GLib 2.54, the parent process’ environment
+ * will be copied when g_subprocess_launcher_set_environ() is called.
+ * Previously, it was copied when the subprocess was executed. This means the
+ * copied environment may now be modified (using g_subprocess_launcher_setenv(),
+ * etc.) before launching the subprocess.
  *
  * On UNIX, all strings in this array can be arbitrary byte strings.
  * On Windows, they should be in UTF-8.
@@ -254,13 +259,17 @@ g_subprocess_launcher_set_environ (GSubprocessLauncher  *self,
 {
   g_strfreev (self->envp);
   self->envp = g_strdupv (env);
+
+  if (self->envp == NULL)
+    self->envp = g_get_environ ();
 }
 
 /**
  * g_subprocess_launcher_setenv:
  * @self: a #GSubprocess
- * @variable: the environment variable to set, must not contain '='
- * @value: the new value for the variable
+ * @variable: (type filename): the environment variable to set,
+ *     must not contain '='
+ * @value: (type filename): the new value for the variable
  * @overwrite: whether to change the variable if it already exists
  *
  * Sets the environment variable @variable in the environment of
@@ -284,7 +293,8 @@ g_subprocess_launcher_setenv (GSubprocessLauncher *self,
 /**
  * g_subprocess_launcher_unsetenv:
  * @self: a #GSubprocess
- * @variable: the environment variable to unset, must not contain '='
+ * @variable: (type filename): the environment variable to unset,
+ *     must not contain '='
  *
  * Removes the environment variable @variable from the environment of
  * processes launched from this launcher.
@@ -304,7 +314,7 @@ g_subprocess_launcher_unsetenv (GSubprocessLauncher *self,
 /**
  * g_subprocess_launcher_getenv:
  * @self: a #GSubprocess
- * @variable: the environment variable to get
+ * @variable: (type filename): the environment variable to get
  *
  * Returns the value of the environment variable @variable in the
  * environment of processes launched from this launcher.
@@ -312,7 +322,8 @@ g_subprocess_launcher_unsetenv (GSubprocessLauncher *self,
  * On UNIX, the returned string can be an arbitrary byte string.
  * On Windows, it will be UTF-8.
  *
- * Returns: the value of the environment variable, %NULL if unset
+ * Returns: (type filename): the value of the environment variable,
+ *     %NULL if unset
  *
  * Since: 2.40
  **/
@@ -633,7 +644,7 @@ g_subprocess_launcher_take_fd (GSubprocessLauncher   *self,
 }
 
 /**
- * g_subprocess_launcher_set_child_setup:
+ * g_subprocess_launcher_set_child_setup: (skip)
  * @self: a #GSubprocessLauncher
  * @child_setup: a #GSpawnChildSetupFunc to use as the child setup function
  * @user_data: user data for @child_setup
@@ -717,7 +728,7 @@ g_subprocess_launcher_spawn (GSubprocessLauncher  *launcher,
 /**
  * g_subprocess_launcher_spawnv:
  * @self: a #GSubprocessLauncher
- * @argv: (array zero-terminated=1) (element-type utf8): Command line arguments
+ * @argv: (array zero-terminated=1) (element-type filename): Command line arguments
  * @error: Error
  *
  * Creates a #GSubprocess given a provided array of arguments.

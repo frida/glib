@@ -5,7 +5,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -23,8 +23,6 @@
 
 #include "gasyncresult.h"
 #include "gcancellable.h"
-#include "gconstructor.h"
-#include "gio-init.h"
 #include "glib-private.h"
 
 #include "glibintl.h"
@@ -49,11 +47,13 @@
  * Eventually, you will call a method such as
  * g_task_return_pointer() or g_task_return_error(), which will
  * save the value you give it and then invoke the task's callback
- * function (waiting until the next iteration of the main
- * loop first, if necessary). The caller will pass the #GTask back
- * to the operation's finish function (as a #GAsyncResult), and
- * you can use g_task_propagate_pointer() or the like to extract
- * the return value.
+ * function in the
+ * [thread-default main context][g-main-context-push-thread-default]
+ * where it was created (waiting until the next iteration of the main
+ * loop first, if necessary). The caller will pass the #GTask back to
+ * the operation's finish function (as a #GAsyncResult), and you can
+ * can use g_task_propagate_pointer() or the like to extract the
+ * return value.
  *
  * Here is an example for using GTask as a GAsyncResult:
  * |[<!-- language="C" -->
@@ -292,9 +292,10 @@
  * ## Asynchronous operations from synchronous ones
  *
  * You can use g_task_run_in_thread() to turn a synchronous
- * operation into an asynchronous one, by running it in a thread
- * which will then dispatch the result back to the caller's
- * #GMainContext when it completes.
+ * operation into an asynchronous one, by running it in a thread.
+ * When it completes, the result will be dispatched to the
+ * [thread-default main context][g-main-context-push-thread-default]
+ * where the #GTask was created.
  *
  * Running a task in a thread:
  *   |[<!-- language="C" -->
@@ -506,7 +507,7 @@
  *   whether the task's callback can be invoked directly, or
  *   if it needs to be sent to another #GMainContext, or delayed
  *   until the next iteration of the current #GMainContext.)
- * - The "finish" functions for #GTask-based operations are generally
+ * - The "finish" functions for #GTask based operations are generally
  *   much simpler than #GSimpleAsyncResult ones, normally consisting
  *   of only a single call to g_task_propagate_pointer() or the like.
  *   Since g_task_propagate_pointer() "steals" the return value from
@@ -596,20 +597,11 @@ G_DEFINE_TYPE_WITH_CODE (GTask, g_task, G_TYPE_OBJECT,
                                                 g_task_async_result_iface_init);
                          g_task_thread_pool_init ();)
 
-#ifdef G_HAS_CONSTRUCTORS
-#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(g_task_deinit)
-#endif
-G_DEFINE_DESTRUCTOR(g_task_deinit)
-#endif /* G_HAS_CONSTRUCTORS */
-
 static GThreadPool *task_pool;
 static GMutex task_pool_mutex;
-static GCond task_pool_cond;
 static GPrivate task_private = G_PRIVATE_INIT (NULL);
 static GSource *task_pool_manager;
 static guint64 task_wait_time;
-static gint tasks_queued;
 static gint tasks_running;
 
 /* When the task pool fills up and blocks, and the program keeps
@@ -629,34 +621,9 @@ static gint tasks_running;
 #define G_TASK_WAIT_TIME_MAX (30 * 60 * 1000000)
 
 static void
-g_task_deinit (void)
-{
-  _g_task_shutdown ();
-}
-
-static void
 g_task_init (GTask *task)
 {
   task->check_cancellable = TRUE;
-}
-
-void
-_g_task_shutdown (void)
-{
-  GThreadPool *pool;
-
-  g_mutex_lock (&task_pool_mutex);
-
-  while (tasks_queued + tasks_running != 0)
-    g_cond_wait (&task_pool_cond, &task_pool_mutex);
-
-  pool = task_pool;
-  task_pool = NULL;
-
-  g_mutex_unlock (&task_pool_mutex);
-
-  if (pool != NULL)
-    g_thread_pool_free (pool, FALSE, TRUE);
 }
 
 static void
@@ -1014,7 +981,7 @@ g_task_set_source_tag (GTask    *task,
  * Gets the source object from @task. Like
  * g_async_result_get_source_object(), but does not ref the object.
  *
- * Returns: (transfer none) (type GObject): @task's source object, or %NULL
+ * Returns: (transfer none) (nullable) (type GObject): @task's source object, or %NULL
  *
  * Since: 2.36
  */
@@ -1310,8 +1277,7 @@ static gboolean
 task_pool_manager_timeout (gpointer user_data)
 {
   g_mutex_lock (&task_pool_mutex);
-  if (task_pool != NULL)
-    g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
+  g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
   g_source_set_ready_time (task_pool_manager, -1);
   g_mutex_unlock (&task_pool_mutex);
 
@@ -1323,7 +1289,6 @@ g_task_thread_setup (void)
 {
   g_private_set (&task_private, GUINT_TO_POINTER (TRUE));
   g_mutex_lock (&task_pool_mutex);
-  tasks_queued--;
   tasks_running++;
 
   if (tasks_running == G_TASK_POOL_SIZE)
@@ -1351,8 +1316,6 @@ g_task_thread_cleanup (void)
     g_source_set_ready_time (task_pool_manager, -1);
 
   tasks_running--;
-  if (tasks_queued + tasks_running == 0)
-    g_cond_signal (&task_pool_cond);
   g_mutex_unlock (&task_pool_mutex);
   g_private_set (&task_private, GUINT_TO_POINTER (FALSE));
 }
@@ -1412,10 +1375,6 @@ static void
 g_task_start_task_thread (GTask           *task,
                           GTaskThreadFunc  task_func)
 {
-  g_mutex_lock (&task_pool_mutex);
-  tasks_queued++;
-  g_mutex_unlock (&task_pool_mutex);
-
   g_mutex_init (&task->lock);
   g_cond_init (&task->cond);
 
