@@ -376,6 +376,124 @@ g_inet_address_init (GInetAddress *address)
   address->priv = g_inet_address_get_instance_private (address);
 }
 
+/* These are provided so that we can use inet_pton() and inet_ntop() on Windows
+ * if they are available (i.e. Vista and later), and use the existing code path
+ * on Windows XP/Server 2003.  We can drop this portion when we drop support for
+ * XP/Server 2003.
+ */
+#if defined(G_OS_WIN32) && _WIN32_WINNT < 0x0600
+static gint
+inet_pton (gint family,
+           const gchar *addr_string,
+           gpointer addr)
+{
+  gint result = 0;
+  WCHAR *addr_string_utf16;
+
+  addr_string_utf16 = g_utf8_to_utf16 (addr_string, -1, NULL, NULL, NULL);
+
+  /* For Vista/Server 2008 and later, there is native inet_pton() in Winsock2 */
+  if (ws2funcs.pInetPton != NULL)
+    result = ws2funcs.pInetPton (family, addr_string_utf16, addr);
+  else
+    {
+      /* Fallback codepath for XP/Server 2003 */
+      struct sockaddr_storage sa;
+      struct sockaddr_in *sin = (struct sockaddr_in *)&sa;
+      struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&sa;
+      gint len = sizeof (sa);
+
+      if (family != AF_INET && family != AF_INET6)
+        {
+          WSASetLastError (WSAEAFNOSUPPORT);
+          result = -1;
+          goto beach;
+        }
+
+      /* WSAStringToAddress() will accept various not-an-IP-address
+       * strings like "127.0.0.1:80", "[1234::5678]:80", "127.1", etc.
+       */
+      if (!g_hostname_is_ip_address (addr_string))
+        goto beach;
+
+      if (WSAStringToAddressW (addr_string_utf16, family, NULL,
+                               (LPSOCKADDR) &sa, &len) != 0)
+        goto beach;
+
+      if (family == AF_INET)
+        *(IN_ADDR *)addr = sin->sin_addr;
+      else
+        *(IN6_ADDR *)addr = sin6->sin6_addr;
+
+      result = 1;
+    }
+
+beach:
+  g_free (addr_string_utf16);
+
+  return result;
+}
+
+static const gchar *
+inet_ntop (gint family,
+           const gpointer addr,
+           gchar *addr_str,
+           socklen_t size)
+{
+  WCHAR *addr_str_utf16;
+  gchar *addr_str_utf8;
+
+  addr_str_utf16 = g_alloca (size * sizeof (WCHAR));
+
+  /* On Vista/Server 2008 and later, there is native inet_ntop() in Winsock2 */
+  if (ws2funcs.pInetNtop != NULL)
+    {
+      if (ws2funcs.pInetNtop (family, addr, addr_str_utf16, size) == NULL)
+        return NULL;
+    }
+  else
+    {
+      /* Fallback codepath for XP/Server 2003 */
+      DWORD buflen = size, addrlen;
+      struct sockaddr_storage sa;
+      struct sockaddr_in *sin = (struct sockaddr_in *)&sa;
+      struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&sa;
+
+      memset (&sa, 0, sizeof (sa));
+      sa.ss_family = family;
+      if (sa.ss_family == AF_INET)
+        {
+          struct in_addr *addrv4 = (struct in_addr *) addr;
+
+          addrlen = sizeof (*sin);
+          memcpy (&sin->sin_addr, addrv4, sizeof (sin->sin_addr));
+        }
+      else if (sa.ss_family == AF_INET6)
+        {
+          struct in6_addr *addrv6 = (struct in6_addr *) addr;
+
+          addrlen = sizeof (*sin6);
+          memcpy (&sin6->sin6_addr, addrv6, sizeof (sin6->sin6_addr));
+        }
+      else
+        {
+          WSASetLastError (WSAEAFNOSUPPORT);
+          return NULL;
+        }
+
+      if (WSAAddressToStringW ((LPSOCKADDR) &sa, addrlen, NULL, addr_str_utf16,
+          &buflen) != 0)
+        return NULL;
+    }
+
+  addr_str_utf8 = g_utf16_to_utf8 (addr_str_utf16, -1, NULL, NULL, NULL);
+  strcpy (addr_str, addr_str_utf8);
+  g_free (addr_str_utf8);
+
+  return addr_str;
+}
+#endif
+
 /**
  * g_inet_address_new_from_string:
  * @string: a string representation of an IP address
