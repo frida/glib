@@ -20,6 +20,8 @@
 
 #include "config.h"
 
+#if _WIN32_WINNT >= 0x0600
+
 #include <errno.h>
 
 #ifdef HAVE_UNISTD_H
@@ -334,3 +336,5 @@ g_win32_network_monitor_initable_iface_init (GInitableIface *iface)
 {
   iface->init = g_win32_network_monitor_initable_init;
 }
+
+#endif

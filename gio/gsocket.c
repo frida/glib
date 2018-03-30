@@ -2217,7 +2217,7 @@ g_socket_multicast_group_operation (GSocket       *socket,
         mc_req.imr_ifindex = if_nametoindex (iface);
       else
         mc_req.imr_ifindex = 0;  /* Pick any.  */
-#elif defined(G_OS_WIN32)
+#elif defined(G_OS_WIN32) && defined(HAVE_IF_NAMETOINDEX)
       if (iface)
         mc_req.imr_interface.s_addr = g_htonl (if_nametoindex (iface));
       else
