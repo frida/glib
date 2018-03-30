@@ -87,9 +87,9 @@ g_networking_init (void)
       if (ws2dll != NULL)
         {
           ws2funcs.pInetNtop =
-            (PFN_InetNtop) GetProcAddress (ws2dll, "inet_ntop");
+            (PFN_InetNtop) GetProcAddress (ws2dll, "InetNtopW");
           ws2funcs.pInetPton =
-            (PFN_InetPton) GetProcAddress (ws2dll, "inet_pton");
+            (PFN_InetPton) GetProcAddress (ws2dll, "InetPtonW");
           FreeLibrary (ws2dll);
         }
       else
@@ -106,7 +106,7 @@ g_networking_init (void)
         }
       else
         ws2funcs.pIfNameToIndex = NULL;
-      
+
       g_once_init_leave (&inited, 1);
     }
 #endif
