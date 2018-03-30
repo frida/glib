@@ -405,9 +405,9 @@ add_project_arguments(cc.get_supported_arguments(warning_c_args), language: 'c')
 # improve this.
 glib_link_flags = cc.get_supported_link_arguments(warning_c_link_args)
 
-# Windows Support (7+)
+# Windows Support (XP+)
 if host_system == 'windows'
-  glib_conf.set('_WIN32_WINNT', '0x0601')
+  glib_conf.set('_WIN32_WINNT', '0x0501')
 endif
 
 functions = [
