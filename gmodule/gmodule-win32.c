@@ -70,8 +70,10 @@ _g_module_open (const gchar *file_name,
 {
   HINSTANCE handle;
   wchar_t *wfilename;
+#if _WIN32_WINNT >= 0x0601
   DWORD old_mode;
   BOOL success;
+#endif
 #ifdef G_WITH_CYGWIN
   gchar tmp[MAX_PATH];
 
@@ -80,10 +82,12 @@ _g_module_open (const gchar *file_name,
 #endif
   wfilename = g_utf8_to_utf16 (file_name, -1, NULL, NULL, NULL);
 
+#if _WIN32_WINNT >= 0x0601
   /* suppress error dialog */
   success = SetThreadErrorMode (SEM_NOOPENFILEERRORBOX | SEM_FAILCRITICALERRORS, &old_mode);
   if (!success)
     set_error ("");
+#endif
 
   /* When building for UWP, load app asset DLLs instead of filesystem DLLs.
    * Needs MSVC, Windows 8 and newer, and is only usable from apps. */
@@ -93,8 +97,10 @@ _g_module_open (const gchar *file_name,
   handle = LoadLibraryW (wfilename);
 #endif
 
+#if _WIN32_WINNT >= 0x0601
   if (success)
     SetThreadErrorMode (old_mode, NULL);
+#endif
   g_free (wfilename);
       
   if (!handle)
