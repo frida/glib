@@ -488,8 +488,8 @@ if host_system == 'windows'
     uwp_gio_deps = [cc.find_library('shcore'),
                     cc.find_library('runtimeobject')]
   else
-    # We require Windows 7+ on Win32
-    glib_conf.set('_WIN32_WINNT', '0x0601')
+    # We require Windows XP+ on Win32
+    glib_conf.set('_WIN32_WINNT', '0x0501')
     uwp_gio_deps = []
   endif
 endif
