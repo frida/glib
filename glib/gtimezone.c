@@ -774,8 +774,10 @@ rules_from_windows_time_zone (const gchar   *identifier,
 
   /* use RegLoadMUIStringW() to query MUI_Std from the registry if possible, otherwise
      fallback to querying Std */
+#if _WIN32_WINNT >= 0x0600
   if (RegLoadMUIStringW (key, L"MUI_Std", tzi.StandardName,
                          size, &size, 0, winsyspath) != ERROR_SUCCESS)
+#endif
     {
       size = sizeof tzi.StandardName;
       if (RegQueryValueExW (key, L"Std", NULL, NULL,
@@ -787,8 +789,10 @@ rules_from_windows_time_zone (const gchar   *identifier,
 
   /* use RegLoadMUIStringW() to query MUI_Dlt from the registry if possible, otherwise
      fallback to querying Dlt */
+#if _WIN32_WINNT >= 0x0600
   if (RegLoadMUIStringW (key, L"MUI_Dlt", tzi.DaylightName,
                          size, &size, 0, winsyspath) != ERROR_SUCCESS)
+#endif
     {
       size = sizeof tzi.DaylightName;
       if (RegQueryValueExW (key, L"Dlt", NULL, NULL,

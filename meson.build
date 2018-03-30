@@ -435,8 +435,8 @@ if host_system == 'windows'
     # We require Windows 10+ on WinRT
     glib_conf.set('_WIN32_WINNT', '0x0A00')
   else
-    # We require Windows 7+ on Win32
-    glib_conf.set('_WIN32_WINNT', '0x0601')
+    # We require Windows XP+ on Win32
+    glib_conf.set('_WIN32_WINNT', '0x0501')
   endif
 endif
 
