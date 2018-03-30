@@ -1273,7 +1273,7 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (_g_network_monitor_netlink_get_type ());
       g_type_ensure (_g_network_monitor_nm_get_type ());
 #endif
-#ifdef G_OS_WIN32
+#if defined(G_OS_WIN32) && _WIN32_WINNT >= 0x0600
       g_type_ensure (_g_win32_network_monitor_get_type ());
 #endif
     }
