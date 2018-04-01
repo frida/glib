@@ -2392,6 +2392,8 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
 #ifdef IP_ADD_SOURCE_MEMBERSHIP
         gint optname;
         struct ip_mreq_source mc_req_src;
+        struct in_addr *src_iface_addr = (struct in_addr *)
+            &mc_req_src.imr_interface;
 
         if (g_inet_address_get_family (source_specific) !=
             G_SOCKET_FAMILY_IPV4)
@@ -2407,7 +2409,7 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
         memset (&mc_req_src, 0, sizeof (mc_req_src));
 
         /* By default use the default IPv4 multicast interface. */
-        mc_req_src.imr_interface.s_addr = g_htonl (INADDR_ANY);
+        src_iface_addr->s_addr = g_htonl (INADDR_ANY);
 
         if (iface)
           {
@@ -2422,7 +2424,7 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
                 return FALSE;
               }
             /* (0.0.0.iface_index) only works on Windows. */
-            mc_req_src.imr_interface.s_addr = g_htonl (iface_index);
+            src_iface_addr->s_addr = g_htonl (iface_index);
 #elif defined (HAVE_SIOCGIFADDR)
             int ret;
             struct ifreq ifr;
@@ -2452,7 +2454,7 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
               }
 
             iface_addr = (struct sockaddr_in *) &ifr.ifr_addr;
-            mc_req_src.imr_interface.s_addr = iface_addr->sin_addr.s_addr;
+            src_iface_addr->s_addr = iface_addr->sin_addr.s_addr;
 #endif  /* defined(G_OS_WIN32) && defined (HAVE_IF_NAMETOINDEX) */
           }
         memcpy (&mc_req_src.imr_multiaddr, g_inet_address_to_bytes (group),
