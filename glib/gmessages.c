@@ -192,6 +192,7 @@
 #include "genviron.h"
 #include "gmain.h"
 #include "gmem.h"
+#include "gplatformaudit.h"
 #include "gprintfint.h"
 #include "gtestutils.h"
 #include "gthread.h"
@@ -2239,11 +2240,13 @@ open_journal (void)
 {
   if ((journal_fd = socket (AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0)) < 0)
     return;
+  glib_fd_callbacks->on_fd_opened (journal_fd, "Journal");
 
 #ifndef HAVE_SOCK_CLOEXEC
   if (fcntl (journal_fd, F_SETFD, FD_CLOEXEC) < 0)
     {
       close (journal_fd);
+      glib_fd_callbacks->on_fd_closed (journal_fd, "Journal");
       journal_fd = -1;
     }
 #endif
@@ -3489,6 +3492,7 @@ _g_messages_deinit (void)
   if (journal_fd != -1)
     {
       close (journal_fd);
+      glib_fd_callbacks->on_fd_closed (journal_fd, "Journal");
       journal_fd = -1;
     }
 #endif
