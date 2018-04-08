@@ -420,6 +420,9 @@ g_socket_details_from_fd (GSocket *socket)
   int errsv;
 
   fd = socket->priv->fd;
+
+  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
+
   if (!g_socket_get_option (socket, SOL_SOCKET, SO_TYPE, &value, NULL))
     {
       errsv = get_socket_errno ();
@@ -552,7 +555,10 @@ g_socket (gint     domain,
   fd = socket (domain, type | SOCK_CLOEXEC, protocol);
   errsv = errno;
   if (fd != -1)
-    return fd;
+    {
+      glib_fd_callbacks->on_fd_opened (fd, "GSocket");
+      return fd;
+    }
 
   /* It's possible that libc has SOCK_CLOEXEC but the kernel does not */
   if (fd < 0 && (errsv == EINVAL || errsv == EPROTOTYPE))
@@ -568,6 +574,8 @@ g_socket (gint     domain,
       errno = errsv;
       return -1;
     }
+
+  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
 
 #ifndef G_OS_WIN32
   {
@@ -2832,6 +2840,7 @@ g_socket_accept (GSocket       *socket,
 #else
       close (ret);
 #endif
+      glib_fd_callbacks->on_fd_closed (ret, "GSocket");
     }
   else
     new_socket->priv->protocol = socket->priv->protocol;
@@ -3625,6 +3634,9 @@ g_socket_close (GSocket  *socket,
 		       socket_strerror (errsv));
 	  return FALSE;
 	}
+
+      glib_fd_callbacks->on_fd_closed (socket->priv->fd, "GSocket");
+
       break;
     }
 
