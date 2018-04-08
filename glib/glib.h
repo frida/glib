@@ -66,6 +66,7 @@
 #include <glib/goption.h>
 #include <glib/gpathbuf.h>
 #include <glib/gpattern.h>
+#include <glib/gplatformaudit.h>
 #include <glib/gpoll.h>
 #include <glib/gprimes.h>
 #include <glib/gqsort.h>
