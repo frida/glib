@@ -118,6 +118,7 @@
     <InstallInclude Include="gnode.h" />
     <InstallInclude Include="goption.h" />
     <InstallInclude Include="gpattern.h" />
+    <InstallInclude Include="gplatformaudit.h" />
     <InstallInclude Include="gpoll.h" />
     <InstallInclude Include="gprimes.h" />
     <InstallInclude Include="gqsort.h" />
@@ -205,6 +206,7 @@
     <ClCompile Include="gnode.c" />
     <ClCompile Include="goption.c" />
     <ClCompile Include="gpattern.c" />
+    <ClCompile Include="gplatformaudit.c" />
     <ClCompile Include="gpoll.c" />
     <ClCompile Include="gprimes.c" />
     <ClCompile Include="gqsort.c" />

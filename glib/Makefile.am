@@ -158,6 +158,7 @@ libglib_2_0_la_SOURCES = 	\
 	gnode.c			\
 	goption.c		\
 	gpattern.c		\
+	gplatformaudit.c	\
 	gpoll.c			\
 	gprimes.c		\
 	gqsort.c		\
@@ -292,6 +293,7 @@ glibsubinclude_HEADERS = \
 	gnode.h		\
 	goption.h	\
 	gpattern.h	\
+	gplatformaudit.h \
 	gpoll.h		\
 	gprimes.h	\
 	gqsort.h	\
