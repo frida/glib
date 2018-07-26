@@ -132,9 +132,7 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
   DWORD error_code;
   struct __stat64 statbuf;
   BY_HANDLE_FILE_INFORMATION handle_info;
-#if _WIN32_WINNT >= 0x0600
   FILE_STANDARD_INFO std_info;
-#endif
   WIN32_FIND_DATAW finddata;
   DWORD immediate_attributes;
   gboolean is_symlink = FALSE;
@@ -190,7 +188,6 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
                                                  &handle_info);
   error_code = GetLastError ();
 
-#if _WIN32_WINNT >= 0x0600
   if (succeeded_so_far)
     {
       succeeded_so_far = GetFileInformationByHandleEx (file_handle,
@@ -199,11 +196,11 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
                                                        sizeof (std_info));
       error_code = GetLastError ();
     }
-#endif
 
   if (!succeeded_so_far)
     {
-      CloseHandle (file_handle);
+      if (fd < 0)
+        CloseHandle (file_handle);
       errno = w32_error_to_errno (error_code);
       return -1;
     }
@@ -213,20 +210,24 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
    */
   if (fd < 0)
     {
-      HANDLE tmp = FindFirstFileW (filename,
-                                   &finddata);
+      memset (&finddata, 0, sizeof (finddata));
 
-      if (tmp == INVALID_HANDLE_VALUE)
+      if (handle_info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
         {
-          error_code = GetLastError ();
-          errno = w32_error_to_errno (error_code);
-          CloseHandle (file_handle);
-          return -1;
+          HANDLE tmp = FindFirstFileW (filename,
+                                       &finddata);
+
+          if (tmp == INVALID_HANDLE_VALUE)
+            {
+              error_code = GetLastError ();
+              errno = w32_error_to_errno (error_code);
+              CloseHandle (file_handle);
+              return -1;
+            }
+
+          FindClose (tmp);
         }
 
-      FindClose (tmp);
-
-#if _WIN32_WINNT >= 0x0600
       if (is_symlink && !for_symlink)
         {
           /* If filename is a symlink, _wstat64 obtains information about
@@ -299,7 +300,6 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
           if (new_len == 0)
             succeeded_so_far = FALSE;
         }
-#endif
 
       CloseHandle (file_handle);
     }
@@ -342,11 +342,7 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
   buf->attributes = handle_info.dwFileAttributes;
   buf->st_nlink = handle_info.nNumberOfLinks;
   buf->st_size = (((guint64) handle_info.nFileSizeHigh) << 32) | handle_info.nFileSizeLow;
-#if _WIN32_WINNT >= 0x0600
   buf->allocated_size = std_info.AllocationSize.QuadPart;
-#else
-  buf->allocated_size = buf->st_size;
-#endif
 
   if (fd < 0 && buf->attributes & FILE_ATTRIBUTE_REPARSE_POINT)
     buf->reparse_tag = finddata.dwReserved0;
@@ -368,6 +364,12 @@ _g_win32_stat_utf8 (const gchar       *filename,
   wchar_t *wfilename;
   int result;
   gsize len;
+
+  if (filename == NULL)
+    {
+      errno = EINVAL;
+      return -1;
+    }
 
   len = strlen (filename);
 
@@ -540,6 +542,26 @@ _g_win32_readlink_utf16 (const gunichar2 *filename,
     }
 
   return result;
+}
+
+static gchar *
+_g_win32_get_mode_alias (const gchar *mode)
+{
+  gchar *alias;
+
+  alias = g_strdup (mode);
+  if (strlen (mode) > 2 && mode[2] == '+')
+    {
+      /* Windows implementation of fopen() does not accept modes such as
+       * "wb+". The 'b' needs to be appended to "w+", i.e. "w+b". Note
+       * that otherwise these 2 modes are supposed to be aliases, hence
+       * swappable at will.
+       */
+      alias[1] = '+';
+      alias[2] = mode[1];
+    }
+
+  return alias;
 }
 
 int
@@ -1266,6 +1288,7 @@ g_fopen (const gchar *filename,
 #ifdef G_OS_WIN32
   wchar_t *wfilename = g_utf8_to_utf16 (filename, -1, NULL, NULL, NULL);
   wchar_t *wmode;
+  gchar   *mode2;
   FILE *retval;
   int save_errno;
 
@@ -1275,7 +1298,9 @@ g_fopen (const gchar *filename,
       return NULL;
     }
 
-  wmode = g_utf8_to_utf16 (mode, -1, NULL, NULL, NULL);
+  mode2 = _g_win32_get_mode_alias (mode);
+  wmode = g_utf8_to_utf16 (mode2, -1, NULL, NULL, NULL);
+  g_free (mode2);
 
   if (wmode == NULL)
     {
@@ -1322,6 +1347,7 @@ g_freopen (const gchar *filename,
 #ifdef G_OS_WIN32
   wchar_t *wfilename = g_utf8_to_utf16 (filename, -1, NULL, NULL, NULL);
   wchar_t *wmode;
+  gchar   *mode2;
   FILE *retval;
   int save_errno;
 
@@ -1330,8 +1356,10 @@ g_freopen (const gchar *filename,
       errno = EINVAL;
       return NULL;
     }
-  
-  wmode = g_utf8_to_utf16 (mode, -1, NULL, NULL, NULL);
+
+  mode2 = _g_win32_get_mode_alias (mode);
+  wmode = g_utf8_to_utf16 (mode2, -1, NULL, NULL, NULL);
+  g_free (mode2);
 
   if (wmode == NULL)
     {

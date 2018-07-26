@@ -97,15 +97,29 @@
 #if    __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 96)
 #define G_GNUC_PURE __attribute__((__pure__))
 #define G_GNUC_MALLOC __attribute__((__malloc__))
+#define G_GNUC_NO_INLINE __attribute__((noinline))
 #else
 #define G_GNUC_PURE
 #define G_GNUC_MALLOC
+#define G_GNUC_NO_INLINE
 #endif
 
 #if     __GNUC__ >= 4
 #define G_GNUC_NULL_TERMINATED __attribute__((__sentinel__))
 #else
 #define G_GNUC_NULL_TERMINATED
+#endif
+
+/*
+ * We can only use __typeof__ on GCC >= 4.8, and not when compiling C++. Since
+ * __typeof__ is used in a few places in GLib, provide a pre-processor symbol
+ * to factor the check out from callers.
+ *
+ * This symbol is private.
+ */
+#undef g_has_typeof
+#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)) && !defined(__cplusplus)
+#define g_has_typeof
 #endif
 
 /*
@@ -146,10 +160,17 @@
 #endif
 
 #if     __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ > 4)
+#if !defined (__clang__) && G_GNUC_CHECK_VERSION (4, 4)
+#define G_GNUC_PRINTF( format_idx, arg_idx )    \
+  __attribute__((__format__ (gnu_printf, format_idx, arg_idx)))
+#define G_GNUC_SCANF( format_idx, arg_idx )     \
+  __attribute__((__format__ (gnu_scanf, format_idx, arg_idx)))
+#else
 #define G_GNUC_PRINTF( format_idx, arg_idx )    \
   __attribute__((__format__ (__printf__, format_idx, arg_idx)))
 #define G_GNUC_SCANF( format_idx, arg_idx )     \
   __attribute__((__format__ (__scanf__, format_idx, arg_idx)))
+#endif
 #define G_GNUC_FORMAT( arg_idx )                \
   __attribute__((__format_arg__ (arg_idx)))
 #define G_GNUC_NORETURN                         \
@@ -320,6 +341,9 @@
 #undef	CLAMP
 #define CLAMP(x, low, high)  (((x) > (high)) ? (high) : (((x) < (low)) ? (low) : (x)))
 
+#define G_APPROX_VALUE(a, b, epsilon) \
+  (((a) > (b) ? (a) - (b) : (b) - (a)) < (epsilon))
+
 /* Count the number of elements in an array. The array must be defined
  * as such; using this with a dynamically allocated array will give
  * incorrect results.
@@ -473,9 +497,9 @@
   typedef GList *_GLIB_AUTOPTR_LIST_TYPENAME(TypeName);                                                         \
   typedef GSList *_GLIB_AUTOPTR_SLIST_TYPENAME(TypeName);                                                         \
   G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
-  static inline void _GLIB_AUTOPTR_FUNC_NAME(TypeName) (TypeName **_ptr) { if (*_ptr) (func) (*_ptr); }         \
-  static inline void _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) (GList **_l) { g_list_free_full (*_l, (GDestroyNotify) func); } \
-  static inline void _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) (GSList **_l) { g_slist_free_full (*_l, (GDestroyNotify) func); } \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_FUNC_NAME(TypeName) (TypeName **_ptr) { if (*_ptr) (func) (*_ptr); }         \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) (GList **_l) { g_list_free_full (*_l, (GDestroyNotify) (void(*)(void)) func); } \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) (GSList **_l) { g_slist_free_full (*_l, (GDestroyNotify) (void(*)(void)) func); } \
   G_GNUC_END_IGNORE_DEPRECATIONS
 #define G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC(TypeName, func) \
   G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \

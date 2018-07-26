@@ -23,8 +23,6 @@
 
 #include "gasyncresult.h"
 #include "gcancellable.h"
-#include "gconstructor.h"
-#include "gio-init.h"
 #include "glib-private.h"
 
 #include "glibintl.h"
@@ -599,20 +597,11 @@ G_DEFINE_TYPE_WITH_CODE (GTask, g_task, G_TYPE_OBJECT,
                                                 g_task_async_result_iface_init);
                          g_task_thread_pool_init ();)
 
-#ifdef G_HAS_CONSTRUCTORS
-#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(g_task_deinit)
-#endif
-G_DEFINE_DESTRUCTOR(g_task_deinit)
-#endif /* G_HAS_CONSTRUCTORS */
-
 static GThreadPool *task_pool;
 static GMutex task_pool_mutex;
-static GCond task_pool_cond;
 static GPrivate task_private = G_PRIVATE_INIT (NULL);
 static GSource *task_pool_manager;
 static guint64 task_wait_time;
-static gint tasks_queued;
 static gint tasks_running;
 
 /* When the task pool fills up and blocks, and the program keeps
@@ -632,34 +621,9 @@ static gint tasks_running;
 #define G_TASK_WAIT_TIME_MAX (30 * 60 * 1000000)
 
 static void
-g_task_deinit (void)
-{
-  _g_task_shutdown ();
-}
-
-static void
 g_task_init (GTask *task)
 {
   task->check_cancellable = TRUE;
-}
-
-void
-_g_task_shutdown (void)
-{
-  GThreadPool *pool;
-
-  g_mutex_lock (&task_pool_mutex);
-
-  while (tasks_queued + tasks_running != 0)
-    g_cond_wait (&task_pool_cond, &task_pool_mutex);
-
-  pool = task_pool;
-  task_pool = NULL;
-
-  g_mutex_unlock (&task_pool_mutex);
-
-  if (pool != NULL)
-    g_thread_pool_free (pool, FALSE, TRUE);
 }
 
 static void
@@ -1313,8 +1277,7 @@ static gboolean
 task_pool_manager_timeout (gpointer user_data)
 {
   g_mutex_lock (&task_pool_mutex);
-  if (task_pool != NULL)
-    g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
+  g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
   g_source_set_ready_time (task_pool_manager, -1);
   g_mutex_unlock (&task_pool_mutex);
 
@@ -1326,7 +1289,6 @@ g_task_thread_setup (void)
 {
   g_private_set (&task_private, GUINT_TO_POINTER (TRUE));
   g_mutex_lock (&task_pool_mutex);
-  tasks_queued--;
   tasks_running++;
 
   if (tasks_running == G_TASK_POOL_SIZE)
@@ -1354,8 +1316,6 @@ g_task_thread_cleanup (void)
     g_source_set_ready_time (task_pool_manager, -1);
 
   tasks_running--;
-  if (tasks_queued + tasks_running == 0)
-    g_cond_signal (&task_pool_cond);
   g_mutex_unlock (&task_pool_mutex);
   g_private_set (&task_private, GUINT_TO_POINTER (FALSE));
 }
@@ -1415,10 +1375,6 @@ static void
 g_task_start_task_thread (GTask           *task,
                           GTaskThreadFunc  task_func)
 {
-  g_mutex_lock (&task_pool_mutex);
-  tasks_queued++;
-  g_mutex_unlock (&task_pool_mutex);
-
   g_mutex_init (&task->lock);
   g_cond_init (&task->cond);
 
@@ -2019,6 +1975,7 @@ g_task_thread_pool_init (void)
   g_thread_pool_set_sort_function (task_pool, g_task_compare_priority, NULL);
 
   task_pool_manager = g_source_new (&trivial_source_funcs, sizeof (GSource));
+  g_source_set_name (task_pool_manager, "GTask thread pool manager");
   g_source_set_callback (task_pool_manager, task_pool_manager_timeout, NULL, NULL);
   g_source_set_ready_time (task_pool_manager, -1);
   g_source_attach (task_pool_manager,

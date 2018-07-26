@@ -4,7 +4,6 @@ include $(top_srcdir)/glib.mk
 AM_CPPFLAGS = 				\
 	$(glib_INCLUDES) 		\
 	-DG_LOG_DOMAIN=\"GModule\" 	\
-	$(GLIB_STATIC_FLAGS)		\
 	@GLIB_DEBUG_FLAGS@ 		\
 	-DG_DISABLE_DEPRECATED
 
@@ -16,7 +15,6 @@ EXTRA_DIST +=				\
 		gmodule-dyld.c		\
 		gmodule-win32.c		\
 		gmodule-ar.c		\
-		gmoduleconf.h.win32 	\
 		gmodule.rc.in
 
 BUILT_EXTRA_DIST += \

@@ -17,6 +17,10 @@
 #ifdef G_OS_WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+/* mingw defines it while msvc doesn't */
+#ifndef SUBLANG_LITHUANIAN_LITHUANIA
+#define SUBLANG_LITHUANIAN_LITHUANIA 0x01
+#endif
 #endif
 
 static void
@@ -85,11 +89,14 @@ test_dates (void)
 {
   GDate *d;
   GTimeVal tv;
+  time_t now;
 
   d = g_date_new ();
 
   /* today */
-  g_date_set_time (d, time (NULL));
+  now = time (NULL);
+  g_assert_cmpint (now, !=, (time_t) -1);
+  g_date_set_time (d, now);
   g_assert (g_date_valid (d));
 
   /* Unix epoch */
@@ -189,6 +196,17 @@ test_month_names (void)
 
   g_test_bug ("749206");
 
+  /* If running uninstalled (G_TEST_BUILDDIR is set), skip this test, since we
+   * need the translations to be installed. We can’t mess around with
+   * bindtextdomain() here, as the compiled .gmo files in po/ are not in the
+   * right installed directory hierarchy to be successfully loaded by gettext. */
+  if (g_getenv ("G_TEST_BUILDDIR") != NULL)
+    {
+      g_test_skip ("Skipping due to running uninstalled. "
+                   "This test can only be run when the translations are installed.");
+      return;
+    }
+
   /* This test can only work (on non-Windows platforms) if libc supports
    * the %OB (etc.) format placeholders. If it doesn’t, strftime() (and hence
    * g_date_strftime()) will return the placeholder unsubstituted.
@@ -205,15 +223,21 @@ test_month_names (void)
   g_test_skip ("libc doesn’t support all alternative month names");
 #else
 
-#define TEST_DATE(d,m,y,f,o)                                    \
+#define TEST_DATE(d,m,y,f,o)                     G_STMT_START { \
+  gchar *o_casefold, *buf_casefold;                             \
   g_date_set_dmy (gdate, d, m, y);                              \
   g_date_strftime (buf, 100, f, gdate);                         \
-  g_assert_cmpstr (buf, ==, (o));                               \
+  buf_casefold = g_utf8_casefold (buf, -1);                     \
+  o_casefold = g_utf8_casefold ((o), -1);                       \
+  g_assert_cmpstr (buf_casefold, ==, o_casefold);               \
+  g_free (buf_casefold);                                        \
+  g_free (o_casefold);                                          \
   g_date_set_parse (gdate, buf);                                \
   g_assert (g_date_valid (gdate));                              \
   g_assert_cmpint (g_date_get_day (gdate), ==, d);              \
   g_assert_cmpint (g_date_get_month (gdate), ==, m);            \
-  g_assert_cmpint (g_date_get_year (gdate), ==, y);
+  g_assert_cmpint (g_date_get_year (gdate), ==, y);             \
+} G_STMT_END
 
   oldlocale = g_strdup (setlocale (LC_ALL, NULL));
 #ifdef G_OS_WIN32
@@ -606,6 +630,48 @@ test_copy (void)
   g_date_free (d);
 }
 
+/* Check the results of g_date_valid_dmy() for various inputs. */
+static void
+test_valid_dmy (void)
+{
+  const struct
+    {
+      GDateDay day;
+      GDateMonth month;
+      GDateYear year;
+      gboolean expected_valid;
+    }
+  vectors[] =
+    {
+      /* Lower bounds */
+      { 0, 0, 0, FALSE },
+      { 1, 1, 1, TRUE },
+      { 1, 1, 0, FALSE },
+      /* Leap year month lengths */
+      { 30, 2, 2000, FALSE },
+      { 29, 2, 2000, TRUE },
+      { 29, 2, 2001, FALSE },
+      /* Maximum year */
+      { 1, 1, G_MAXUINT16, TRUE },
+    };
+  gsize i;
+
+  for (i = 0; i < G_N_ELEMENTS (vectors); i++)
+    {
+      gboolean valid;
+      g_test_message ("Vector %" G_GSIZE_FORMAT ": %04u-%02u-%02u, %s",
+                      i, vectors[i].year, vectors[i].month, vectors[i].day,
+                      vectors[i].expected_valid ? "valid" : "invalid");
+
+      valid = g_date_valid_dmy (vectors[i].day, vectors[i].month, vectors[i].year);
+
+      if (vectors[i].expected_valid)
+        g_assert_true (valid);
+      else
+        g_assert_false (valid);
+    }
+}
+
 int
 main (int argc, char** argv)
 {
@@ -653,6 +719,7 @@ main (int argc, char** argv)
       g_free (path);
     }
   g_test_add_func ("/date/copy", test_copy);
+  g_test_add_func ("/date/valid-dmy", test_valid_dmy);
 
   return g_test_run ();
 }

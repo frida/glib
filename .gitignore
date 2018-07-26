@@ -46,13 +46,11 @@ mingw32-config.cache
 missing
 install-sh
 glib-gettextize
-glib-zip
 gtk-doc.make
 py-compile
 test-driver
 
 INSTALL
-README
 ChangeLog
 /glib-lcov.info
 /glib-lcov/
@@ -60,7 +58,3 @@ ChangeLog
 # Meson
 /meson-build/
 /subprojects/*/
-
-*.sln.cache
-x86
-x86_64

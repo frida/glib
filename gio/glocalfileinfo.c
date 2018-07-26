@@ -821,6 +821,7 @@ _g_local_file_info_get_parent_info (const char            *dir,
   parent_info->is_sticky = FALSE;
   parent_info->has_trash_dir = FALSE;
   parent_info->device = 0;
+  parent_info->inode = 0;
 
   if (_g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_RENAME) ||
       _g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_DELETE) ||
@@ -850,6 +851,7 @@ _g_local_file_info_get_parent_info (const char            *dir,
 #endif
 	  parent_info->owner = statbuf.st_uid;
 	  parent_info->device = statbuf.st_dev;
+	  parent_info->inode = statbuf.st_ino;
           /* No need to find trash dir if it's not writable anyway */
           if (parent_info->writable &&
               _g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_TRASH))
@@ -897,19 +899,21 @@ get_access_rights (GFileAttributeMatcher *attribute_matcher,
       writable = FALSE;
       if (parent_info->writable)
 	{
+#ifdef G_OS_WIN32
+	  writable = TRUE;
+#else
 	  if (parent_info->is_sticky)
 	    {
-#ifndef G_OS_WIN32
 	      uid_t uid = geteuid ();
 
 	      if (uid == statbuf->st_uid ||
 		  uid == parent_info->owner ||
 		  uid == 0)
-#endif
 		writable = TRUE;
 	    }
 	  else
 	    writable = TRUE;
+#endif
 	}
 
       if (_g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_RENAME))
@@ -920,9 +924,13 @@ get_access_rights (GFileAttributeMatcher *attribute_matcher,
 	_g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_DELETE,
 					         writable);
 
+      /* Trashing is supported only if the parent device is the same */
       if (_g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_TRASH))
-        _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_TRASH,
-                                                 writable && parent_info->has_trash_dir);
+        _g_file_info_set_attribute_boolean_by_id (info,
+                                                  G_FILE_ATTRIBUTE_ID_ACCESS_CAN_TRASH,
+                                                  writable &&
+                                                  parent_info->has_trash_dir &&
+                                                  parent_info->device == statbuf->st_dev);
     }
 }
 
@@ -1115,8 +1123,10 @@ lookup_uid_data (uid_t uid)
   char buffer[4096];
   struct passwd pwbuf;
   struct passwd *pwbufp;
+#ifndef __BIONIC__
   char *gecos, *comma;
-  
+#endif
+
   if (uid_cache == NULL)
     uid_cache = g_hash_table_new_full (NULL, NULL, NULL, (GDestroyNotify)uid_data_free);
 
@@ -1127,7 +1137,7 @@ lookup_uid_data (uid_t uid)
 
   data = g_new0 (UidData, 1);
 
-#if defined (HAVE_GETPWUID_R) && !defined (__BIONIC__)
+#if defined(HAVE_GETPWUID_R)
   getpwuid_r (uid, &pwbuf, buffer, sizeof(buffer), &pwbufp);
 #else
   pwbufp = getpwuid (uid);
@@ -1201,10 +1211,12 @@ static char *
 lookup_gid_name (gid_t gid)
 {
   char *name;
+#if defined (HAVE_GETGRGID_R)
   char buffer[4096];
   struct group gbuf;
+#endif
   struct group *gbufp;
-  
+
   if (gid_cache == NULL)
     gid_cache = g_hash_table_new_full (NULL, NULL, NULL, (GDestroyNotify)g_free);
 
@@ -1632,7 +1644,6 @@ _g_local_file_info_get_nostat (GFileInfo              *info,
 
 static const char *
 get_icon_name (const char *path,
-               const char *content_type,
                gboolean    use_symbolic,
                gboolean   *with_fallbacks_out)
 {
@@ -1677,10 +1688,6 @@ get_icon_name (const char *path,
     {
       name = use_symbolic ? "folder-videos-symbolic" : "folder-videos";
     }
-  else if (g_content_type_is_mime_type (content_type,"inode/directory"))
-    {
-      name = use_symbolic ? "folder-symbolic" : "folder";
-    }
   else
     {
       name = NULL;
@@ -1701,7 +1708,7 @@ get_icon (const char *path,
   const char *icon_name;
   gboolean with_fallbacks;
 
-  icon_name = get_icon_name (path, content_type, use_symbolic, &with_fallbacks);
+  icon_name = get_icon_name (path, use_symbolic, &with_fallbacks);
   if (icon_name != NULL)
     {
       if (with_fallbacks)
@@ -1968,7 +1975,7 @@ _g_local_file_info_get (const char             *basename,
 
   if (stat_ok && parent_info && parent_info->device != 0 &&
       _g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_UNIX_IS_MOUNTPOINT) &&
-      statbuf.st_dev != parent_info->device) 
+      (statbuf.st_dev != parent_info->device || statbuf.st_ino == parent_info->inode))
     _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_IS_MOUNTPOINT, TRUE);
   
   if (stat_ok)

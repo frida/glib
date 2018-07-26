@@ -50,6 +50,12 @@
  * GLib also defines macros for the limits of some of the standard
  * integer and floating point types, as well as macros for suitable
  * printf() formats for these types.
+ *
+ * Note that depending on the platform and build configuration, the format
+ * macros might not be compatible with the system provided printf() function,
+ * because GLib might use a different printf() implementation internally.
+ * The format macros will always work with GLib API (like g_print()), and with
+ * any C99 compatible printf() implementation.
  */
 
 /**
@@ -1783,6 +1789,26 @@
  */
 
 /**
+ * G_APPROX_VALUE:
+ * @a: a numeric value
+ * @b: a numeric value
+ * @epsilon: a numeric value that expresses the tolerance between @a and @b
+ *
+ * Evaluates to a truth value if the absolute difference between @a and @b is
+ * smaller than @epsilon, and to a false value otherwise.
+ *
+ * For example,
+ * - `G_APPROX_VALUE (5, 6, 2)` evaluates to true
+ * - `G_APPROX_VALUE (3.14, 3.15, 0.001)` evaluates to false
+ * - `G_APPROX_VALUE (n, 0.f, FLT_EPSILON)` evaluates to true if `n` is within
+ *   the single precision floating point epsilon from zero
+ *
+ * Returns: %TRUE if the two values are within the desired range
+ *
+ * Since: 2.58
+ */
+
+/**
  * G_STRUCT_MEMBER:
  * @member_type: the type of the struct field
  * @struct_p: a pointer to a struct
@@ -2046,6 +2072,25 @@
  * Place the attribute after the declaration, just before the semicolon.
  *
  * See the GNU C documentation for more details.
+ */
+
+/**
+ * G_GNUC_NO_INLINE:
+ *
+ * Expands to the GNU C `noinline` function attribute if the compiler is gcc.
+ * If the compiler is not gcc, this macro expands to nothing.
+ *
+ * Declaring a function as `noinline` prevents the function from being
+ * considered for inlining.
+ *
+ * The attribute may be placed before the declaration, right before the
+ * `static` keyword.
+ *
+ * See the
+ * [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noinline-function-attribute)
+ * for more details.
+ *
+ * Since: 2.58
  */
 
 /**

@@ -4,7 +4,7 @@ include $(top_srcdir)/glib.mk
 AM_CPPFLAGS = 							\
 	$(gmodule_INCLUDES)					\
 	-DGLIB_CHARSETALIAS_DIR=\"$(GLIB_CHARSETALIAS_DIR)\"	\
-	$(glib_INCLUDES)
+	$(config_h_INCLUDES)
 
 noinst_LTLIBRARIES += libcharset.la
 

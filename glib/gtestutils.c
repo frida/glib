@@ -87,12 +87,17 @@
  * creates a test suite called "misc" with a single test case named
  * "assertions", which consists of running the test_assertions function.
  *
- * In addition to the traditional g_assert(), the test framework provides
+ * In addition to the traditional g_assert_true(), the test framework provides
  * an extended set of assertions for comparisons: g_assert_cmpfloat(),
- * g_assert_cmpint(), g_assert_cmpuint(), g_assert_cmphex(),
- * g_assert_cmpstr(), and g_assert_cmpmem(). The advantage of these
- * variants over plain g_assert() is that the assertion messages can be
- * more elaborate, and include the values of the compared entities.
+ * g_assert_cmpfloat_with_epsilon(), g_assert_cmpint(), g_assert_cmpuint(),
+ * g_assert_cmphex(), g_assert_cmpstr(), and g_assert_cmpmem(). The
+ * advantage of these variants over plain g_assert_true() is that the assertion
+ * messages can be more elaborate, and include the values of the compared
+ * entities.
+ *
+ * Note that g_assert() should not be used in unit tests, since it is a no-op
+ * when compiling with `G_DISABLE_ASSERT`. Use g_assert() in production code,
+ * and g_assert_true() in unit tests.
  *
  * A full example of creating a test suite with two tests using fixtures:
  * |[<!-- language="C" -->
@@ -472,7 +477,10 @@
  *
  * The macro can be turned off in final releases of code by defining
  * `G_DISABLE_ASSERT` when compiling the application, so code must
- * not depend on any side effects from @expr.
+ * not depend on any side effects from @expr. Similarly, it must not be used
+ * in unit tests, otherwise the unit tests will be ineffective if compiled with
+ * `G_DISABLE_ASSERT`. Use g_assert_true() and related macros in unit tests
+ * instead.
  */
 
 /**
@@ -483,7 +491,8 @@
  * application is terminated.
  *
  * The macro can be turned off in final releases of code by defining
- * `G_DISABLE_ASSERT` when compiling the application.
+ * `G_DISABLE_ASSERT` when compiling the application. Hence, it should not be
+ * used in unit tests, where assertions should always be effective.
  */
 
 /**
@@ -495,6 +504,10 @@
  * If the assertion fails (i.e. the expression is not true),
  * an error message is logged and the application is either
  * terminated or the testcase marked as failed.
+ *
+ * Note that unlike g_assert(), this macro is unaffected by whether
+ * `G_DISABLE_ASSERT` is defined. Hence it should only be used in tests and,
+ * conversely, g_assert() should not be used in tests.
  *
  * See g_test_set_nonfatal_assertions().
  *
@@ -511,6 +524,10 @@
  * an error message is logged and the application is either
  * terminated or the testcase marked as failed.
  *
+ * Note that unlike g_assert(), this macro is unaffected by whether
+ * `G_DISABLE_ASSERT` is defined. Hence it should only be used in tests and,
+ * conversely, g_assert() should not be used in tests.
+ *
  * See g_test_set_nonfatal_assertions().
  *
  * Since: 2.38
@@ -526,6 +543,10 @@
  * an error message is logged and the application is either
  * terminated or the testcase marked as failed.
  *
+ * Note that unlike g_assert(), this macro is unaffected by whether
+ * `G_DISABLE_ASSERT` is defined. Hence it should only be used in tests and,
+ * conversely, g_assert() should not be used in tests.
+ *
  * See g_test_set_nonfatal_assertions().
  *
  * Since: 2.38
@@ -540,6 +561,10 @@
  * If the assertion fails (i.e. the expression is %NULL),
  * an error message is logged and the application is either
  * terminated or the testcase marked as failed.
+ *
+ * Note that unlike g_assert(), this macro is unaffected by whether
+ * `G_DISABLE_ASSERT` is defined. Hence it should only be used in tests and,
+ * conversely, g_assert() should not be used in tests.
  *
  * See g_test_set_nonfatal_assertions().
  *
@@ -634,6 +659,23 @@
  * actual values of @n1 and @n2.
  *
  * Since: 2.16
+ */
+
+/**
+ * g_assert_cmpfloat_with_epsilon:
+ * @n1: an floating point number
+ * @n2: another floating point number
+ * @epsilon: a numeric value that expresses the expected tolerance
+ *   between @n1 and @n2
+ *
+ * Debugging macro to compare two floating point numbers within an epsilon.
+ *
+ * The effect of `g_assert_cmpfloat_with_epsilon (n1, n2, epsilon)` is
+ * the same as `g_assert_true (abs (n1 - n2) < epsilon)`. The advantage
+ * of this macro is that it can produce a message that includes the
+ * actual values of @n1 and @n2.
+ *
+ * Since: 2.58
  */
 
 /**
@@ -752,12 +794,7 @@ static void     gtest_default_log_handler       (const gchar    *log_domain,
                                                  GLogLevelFlags  log_level,
                                                  const gchar    *message,
                                                  gpointer        unused_data);
-static void     g_default_assertion_handler     (const char     *domain,
-                                                 const char     *file,
-                                                 int             line,
-                                                 const char     *func,
-                                                 const char     *message,
-                                                 gpointer       user_data);
+
 
 static const char * const g_test_result_names[] = {
   "OK",
@@ -814,8 +851,6 @@ static GTestConfig mutable_test_config_vars = {
 };
 const GTestConfig * const g_test_config_vars = &mutable_test_config_vars;
 static gboolean  no_g_set_prgname = FALSE;
-static GAssertionFunc assertion_handler = g_default_assertion_handler;
-static gpointer assertion_handler_data = NULL;
 
 /* --- functions --- */
 const char*
@@ -1239,9 +1274,9 @@ parse_args (gint    *argc_p,
  * Since: 2.16
  */
 void
-g_test_init (int    *argc,
-             char ***argv,
-             ...)
+(g_test_init) (int    *argc,
+               char ***argv,
+               ...)
 {
   static char seedstr[4 + 4 * 8 + 1];
   va_list args;
@@ -2485,20 +2520,11 @@ gtest_default_log_handler (const gchar    *log_domain,
 }
 
 void
-g_assertion_set_handler (GAssertionFunc handler,
-                         gpointer user_data)
-{
-  assertion_handler_data = user_data;
-  assertion_handler = handler;
-}
-
-static void
-g_default_assertion_handler (const char     *domain,
-                             const char     *file,
-                             int             line,
-                             const char     *func,
-                             const char     *message,
-                             gpointer       user_data)
+g_assertion_message (const char     *domain,
+                     const char     *file,
+                     int             line,
+                     const char     *func,
+                     const char     *message)
 {
   char lstr[32];
   char *s;
@@ -2528,8 +2554,13 @@ g_default_assertion_handler (const char     *domain,
 
   /* store assertion message in global variable, so that it can be found in a
    * core dump */
-  g_free (__glib_assert_msg);
-  __glib_assert_msg = s;
+  if (__glib_assert_msg != NULL)
+    /* free the old one */
+    free (__glib_assert_msg);
+  __glib_assert_msg = (char*) malloc (strlen (s) + 1);
+  strcpy (__glib_assert_msg, s);
+
+  g_free (s);
 
   if (test_in_subprocess)
     {
@@ -2551,16 +2582,6 @@ g_default_assertion_handler (const char     *domain,
  * @func:
  * @expr: (nullable):
  */
-void
-g_assertion_message (const char     *domain,
-                     const char     *file,
-                     int             line,
-                     const char     *func,
-                     const char     *message)
-{
-  assertion_handler (domain, file, line, func, message, assertion_handler_data);
-}
-
 void
 g_assertion_message_expr (const char     *domain,
                           const char     *file,
@@ -3113,7 +3134,7 @@ g_test_trap_subprocess (const char           *test_path,
                                  &pid, NULL, &stdout_fd, &stderr_fd,
                                  &error))
     {
-      g_error ("g_test_trap_subprocess() failed: %s\n",
+      g_error ("g_test_trap_subprocess() failed: %s",
                error->message);
     }
   g_ptr_array_free (argv, TRUE);

@@ -431,9 +431,6 @@ g_socket_details_from_fd (GSocket *socket)
   int errsv;
 
   fd = socket->priv->fd;
-
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-
   if (!g_socket_get_option (socket, SOL_SOCKET, SO_TYPE, &value, NULL))
     {
       errsv = get_socket_errno ();
@@ -566,10 +563,7 @@ g_socket (gint     domain,
   fd = socket (domain, type | SOCK_CLOEXEC, protocol);
   errsv = errno;
   if (fd != -1)
-    {
-      glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-      return fd;
-    }
+    return fd;
 
   /* It's possible that libc has SOCK_CLOEXEC but the kernel does not */
   if (fd < 0 && (errsv == EINVAL || errsv == EPROTOTYPE))
@@ -578,15 +572,13 @@ g_socket (gint     domain,
 
   if (fd < 0)
     {
-      int errsv = get_socket_errno ();
+      errsv = get_socket_errno ();
 
       g_set_error (error, G_IO_ERROR, socket_io_error_from_errno (errsv),
 		   _("Unable to create socket: %s"), socket_strerror (errsv));
       errno = errsv;
       return -1;
     }
-
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
 
 #ifndef G_OS_WIN32
   {
@@ -602,16 +594,6 @@ g_socket (gint     domain,
 	flags |= FD_CLOEXEC;
 	fcntl (fd, F_SETFD, flags);
       }
-  }
-#else
-  if (type == SOCK_DGRAM)
-  {
-    DWORD bytes_returned = 0;
-    BOOL new_behavior = FALSE;
-
-    /* Disable connection reset error on ICMP port unreachable. */
-    WSAIoctl (fd, SIO_UDP_CONNRESET, &new_behavior, sizeof (new_behavior),
-        NULL, 0, &bytes_returned, NULL, NULL);
   }
 #endif
 
@@ -2225,7 +2207,7 @@ g_socket_multicast_group_operation (GSocket       *socket,
         mc_req.imr_ifindex = if_nametoindex (iface);
       else
         mc_req.imr_ifindex = 0;  /* Pick any.  */
-#elif defined(G_OS_WIN32) && defined(HAVE_IF_NAMETOINDEX)
+#elif defined(G_OS_WIN32)
       if (iface)
         mc_req.imr_interface.s_addr = g_htonl (if_nametoindex (iface));
       else
@@ -2398,10 +2380,15 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
     case G_SOCKET_FAMILY_IPV4:
       {
 #ifdef IP_ADD_SOURCE_MEMBERSHIP
+
+#ifdef BROKEN_IP_MREQ_SOURCE_STRUCT
+#define S_ADDR_FIELD(src) src.imr_interface
+#else
+#define S_ADDR_FIELD(src) src.imr_interface.s_addr
+#endif
+
         gint optname;
         struct ip_mreq_source mc_req_src;
-        struct in_addr *src_iface_addr = (struct in_addr *)
-            &mc_req_src.imr_interface;
 
         if (g_inet_address_get_family (source_specific) !=
             G_SOCKET_FAMILY_IPV4)
@@ -2417,7 +2404,7 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
         memset (&mc_req_src, 0, sizeof (mc_req_src));
 
         /* By default use the default IPv4 multicast interface. */
-        src_iface_addr->s_addr = g_htonl (INADDR_ANY);
+        S_ADDR_FIELD(mc_req_src) = g_htonl (INADDR_ANY);
 
         if (iface)
           {
@@ -2432,7 +2419,7 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
                 return FALSE;
               }
             /* (0.0.0.iface_index) only works on Windows. */
-            src_iface_addr->s_addr = g_htonl (iface_index);
+            S_ADDR_FIELD(mc_req_src) = g_htonl (iface_index);
 #elif defined (HAVE_SIOCGIFADDR)
             int ret;
             struct ifreq ifr;
@@ -2462,7 +2449,7 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
               }
 
             iface_addr = (struct sockaddr_in *) &ifr.ifr_addr;
-            src_iface_addr->s_addr = iface_addr->sin_addr.s_addr;
+            S_ADDR_FIELD(mc_req_src) = iface_addr->sin_addr.s_addr;
 #endif  /* defined(G_OS_WIN32) && defined (HAVE_IF_NAMETOINDEX) */
           }
         memcpy (&mc_req_src.imr_multiaddr, g_inet_address_to_bytes (group),
@@ -2475,6 +2462,9 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
             join_group ? IP_ADD_SOURCE_MEMBERSHIP : IP_DROP_SOURCE_MEMBERSHIP;
         result = setsockopt (socket->priv->fd, IPPROTO_IP, optname,
                              &mc_req_src, sizeof (mc_req_src));
+
+#undef S_ADDR_FIELD
+
 #else
         g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
             join_group ?
@@ -2784,7 +2774,6 @@ g_socket_accept (GSocket       *socket,
 #else
       close (ret);
 #endif
-      glib_fd_callbacks->on_fd_closed (ret, "GSocket");
     }
   else
     new_socket->priv->protocol = socket->priv->protocol;
@@ -2968,9 +2957,11 @@ g_socket_check_connect_result (GSocket  *socket,
 gssize
 g_socket_get_available_bytes (GSocket *socket)
 {
-#ifdef G_OS_WIN32
+#ifndef SO_NREAD
   const gint bufsize = 64 * 1024;
   static guchar *buf = NULL;
+#endif
+#ifdef G_OS_WIN32
   u_long avail;
 #else
   gint avail;
@@ -2978,25 +2969,37 @@ g_socket_get_available_bytes (GSocket *socket)
 
   g_return_val_if_fail (G_IS_SOCKET (socket), -1);
 
-#if defined (SO_NREAD)
+#ifdef SO_NREAD
   if (!g_socket_get_option (socket, SOL_SOCKET, SO_NREAD, &avail, NULL))
       return -1;
-#elif !defined (G_OS_WIN32)
-  if (ioctl (socket->priv->fd, FIONREAD, &avail) < 0)
-    avail = -1;
 #else
   if (socket->priv->type == G_SOCKET_TYPE_DATAGRAM)
     {
       if (G_UNLIKELY (g_once_init_enter (&buf)))
         g_once_init_leave (&buf, g_malloc (bufsize));
 
+      /* On datagram sockets, FIONREAD ioctl is not reliable because many
+       * systems add internal header size to the reported size, making it
+       * unusable for this function. */
       avail = recv (socket->priv->fd, buf, bufsize, MSG_PEEK);
-      if (avail == -1 && get_socket_errno () == WSAEWOULDBLOCK)
-        avail = 0;
+      if (avail == -1)
+        {
+          int errsv = get_socket_errno ();
+#ifdef G_OS_WIN32
+          if (errsv == WSAEWOULDBLOCK)
+#else
+          if (errsv == EWOULDBLOCK || errsv == EAGAIN)
+#endif
+            avail = 0;
+        }
     }
   else
     {
+#ifdef G_OS_WIN32
       if (ioctlsocket (socket->priv->fd, FIONREAD, &avail) < 0)
+#else
+      if (ioctl (socket->priv->fd, FIONREAD, &avail) < 0)
+#endif
         avail = -1;
     }
 #endif
@@ -3262,7 +3265,7 @@ g_socket_send_with_timeout (GSocket       *socket,
     {
       win32_unset_event_mask (socket, FD_WRITE);
 
-      if ((ret = send (socket->priv->fd, buffer, size, G_SOCKET_DEFAULT_SEND_FLAGS)) < 0)
+      if ((ret = send (socket->priv->fd, (const char *)buffer, size, G_SOCKET_DEFAULT_SEND_FLAGS)) < 0)
 	{
 	  int errsv = get_socket_errno ();
 
@@ -3558,9 +3561,6 @@ g_socket_close (GSocket  *socket,
 		       socket_strerror (errsv));
 	  return FALSE;
 	}
-
-      glib_fd_callbacks->on_fd_closed (socket->priv->fd, "GSocket");
-
       break;
     }
 
@@ -3640,9 +3640,6 @@ update_select_events (GSocket *socket)
   GList *l;
   WSAEVENT event;
 
-  if (socket->priv->closed)
-    return;
-
   ensure_event (socket);
 
   event_mask = 0;
@@ -3701,8 +3698,7 @@ update_condition_unlocked (GSocket *socket)
   WSANETWORKEVENTS events;
   GIOCondition condition;
 
-  if (!socket->priv->closed &&
-      WSAEnumNetworkEvents (socket->priv->fd,
+  if (WSAEnumNetworkEvents (socket->priv->fd,
 			    socket->priv->event,
 			    &events) == 0)
     {
@@ -4460,7 +4456,7 @@ G_STMT_START { \
     } \
   else \
     { \
-      _msg->msg_controllen = 2016; /* upper limit on QNX */ \
+      _msg->msg_controllen = 2048; \
       _msg->msg_control = g_alloca (_msg->msg_controllen); \
     } \
  \

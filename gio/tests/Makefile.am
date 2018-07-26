@@ -15,7 +15,9 @@ LDADD = \
 AM_CPPFLAGS = $(gio_INCLUDES) $(GLIB_DEBUG_FLAGS) -I$(top_builddir)/gio -I$(top_srcdir)/gio
 DEFS = -DG_LOG_DOMAIN=\"GLib-GIO\" -DTEST_SERVICES=\""$(abs_top_builddir)/gio/tests/services"\"
 AM_CFLAGS = $(GLIB_WARN_CFLAGS)
-AM_TESTS_ENVIRONMENT += GIO_MODULE_DIR=
+AM_TESTS_ENVIRONMENT += \
+	GIO_MODULE_DIR= \
+	GIO_LAUNCH_DESKTOP="$(top_builddir)/gio/gio-launch-desktop"
 
 # -----------------------------------------------------------------------------
 #  Test programs buildable on all platforms
@@ -47,8 +49,10 @@ test_programs = \
 	memory-input-stream			\
 	memory-output-stream			\
 	monitor					\
+	mount-operation				\
 	network-address				\
 	network-monitor				\
+	network-monitor-race			\
 	permission				\
 	pollable				\
 	proxy-test				\
@@ -272,6 +276,7 @@ test_programs += \
 	unix-mounts				\
 	unix-streams				\
 	g-file-info-filesystem-readonly		\
+	trash					\
 	$(NULL)
 
 test_extra_programs += \
@@ -299,11 +304,11 @@ usr_desktop_files = \
 	evince-previewer.desktop		\
 	evince.desktop				\
 	file-roller.desktop			\
+	frobnicator.desktop			\
 	gcr-prompter.desktop			\
 	gcr-viewer.desktop			\
 	gedit.desktop				\
 	glade.desktop				\
-	gnome-clocks.desktop			\
 	gnome-contacts.desktop			\
 	gnome-font-viewer.desktop		\
 	gnome-music.desktop			\
@@ -318,6 +323,7 @@ usr_desktop_files = \
 	nautilus-classic.desktop		\
 	nautilus-connect-server.desktop		\
 	nautilus.desktop			\
+	org.gnome.clocks.desktop		\
 	totem.desktop				\
 	yelp.desktop
 
@@ -366,12 +372,14 @@ test.mo: de.po
 EXTRA_DIST += de.po
 dist_uninstalled_test_data += \
 	org.gtk.test.gschema.xml.orig		\
+	org.gtk.test.gschema.override.orig	\
 	org.gtk.schemasourcecheck.gschema.xml	\
 	testenum.h				\
 	enums.xml.template
 # Generated while running the testcase itself...
 CLEANFILES += \
 	org.gtk.test.gschema.xml	\
+	org.gtk.test.gschema.override	\
 	org.gtk.test.enums.xml		\
 	gsettings.store			\
 	gschemas.compiled		\

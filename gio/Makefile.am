@@ -24,7 +24,6 @@ uninstall-ms-lib:
 AM_CPPFLAGS = \
 	-DG_LOG_DOMAIN=\"GLib-GIO\"			\
 	$(gmodule_INCLUDES)				\
-	$(GLIB_STATIC_FLAGS)				\
 	$(GLIB_DEBUG_FLAGS)				\
 	-DGIO_COMPILATION				\
 	-DGIO_MODULE_DIR=\"$(GIO_MODULE_DIR)\"	
@@ -247,11 +246,7 @@ platform_libadd += win32/libgiowin32.la
 platform_deps += win32/libgiowin32.la
 endif
 
-SUBDIRS += .
-
-if ENABLE_TESTS
-SUBDIRS += tests
-endif
+SUBDIRS += . tests
 
 if HAVE_FAM
 SUBDIRS += fam
@@ -339,6 +334,7 @@ win32_actual_sources = \
 	gwin32networking.h \
 	gwin32networkmonitor.c \
 	gwin32networkmonitor.h \
+	gwin32notificationbackend.c \
 	$(NULL)
 
 win32_more_sources_for_vcproj = \
@@ -373,7 +369,6 @@ CLEANFILES += $(xdp_dbus_built_sources)
 portal_interfaces = \
 	org.freedesktop.portal.Documents.xml \
 	org.freedesktop.portal.OpenURI.xml \
-	org.freedesktop.portal.NetworkMonitor.xml \
 	org.freedesktop.portal.ProxyResolver.xml \
 	$(NULL)
 
@@ -408,9 +403,6 @@ endif
 endif
 
 gio_base_sources =		\
-	gio-init.c 		\
-	gio-init.h 		\
-	gio-fork.c 		\
 	gappinfo.c 		\
 	gappinfoprivate.h	\
 	gasynchelper.c 		\
@@ -608,11 +600,28 @@ libgio_2_0_la_LDFLAGS = $(GLIB_LINK_FLAGS) \
 	-version-info $(LT_CURRENT):$(LT_REVISION):$(LT_AGE) \
 	-export-dynamic $(no_undefined)
 
+# We cannot build .m files because it would require adding AC_PROG_OBJC in
+# configure.ac, and it cannot be added conditionally. That means we would always
+# depend on an objective-c compiler even when not needed. To work around that
+# limitation we rename .m files to .c and compile them separately with
+# -xobjective-c into an intermediary library. Note that we cannot rename those
+# files to .c directly in the source tree because Meson needs the .m extension.
+# This must be done outside of "if OS_COCOA" block otherwise distcheck fails.
+# See https://bugzilla.gnome.org/show_bug.cgi?id=672777.
+OBJC_FILES = \
+	gnextstepsettingsbackend.m \
+	gosxcontenttype.m \
+	gosxappinfo.m \
+	gcocoanotificationbackend.m \
+	$(NULL)
+OBJC_C_FILES = $(OBJC_FILES:.m=.c)
+BUILT_SOURCES += $(OBJC_C_FILES)
+CLEANFILES += $(OBJC_C_FILES)
+EXTRA_DIST += $(OBJC_FILES)
+$(OBJC_C_FILES): %.c: %.m Makefile
+	cp $< $@
+
 if OS_COCOA
-# Let's avoid polluting the CFLAGS of libgio with -xobjective-c
-# We cannot simply rename the ObjC files to .m because it plays
-# tricks with Automake. For further reference, see:
-# https://bugzilla.gnome.org/show_bug.cgi?id=672777
 libgio_objc_2_0_la_CFLAGS = $(libgio_2_0_la_CFLAGS) -xobjective-c
 libgio_objc_2_0_la_CPPFLAGS = $(libgio_2_0_la_CPPFLAGS)
 libgio_objc_2_0_la_LDFLAGS = $(libgio_2_0_la_LDFLAGS) -Wl,-framework,Foundation -Wl,-framework,AppKit
@@ -620,8 +629,11 @@ libgio_objc_2_0_la_SOURCES = \
 	gnextstepsettingsbackend.c \
 	gosxcontenttype.c \
 	gosxappinfo.c \
-	gosxappinfo.h \
+	gosxappinfo.h
+if MAC_OS_X_9
+libgio_objc_2_0_la_SOURCES += \
 	gcocoanotificationbackend.c
+endif
 
 noinst_LTLIBRARIES += libgio-objc-2.0.la
 libgio_2_0_la_LIBADD += libgio-objc-2.0.la
@@ -774,7 +786,6 @@ EXTRA_DIST += 			\
 	gio.rc.in		\
 	gschema.dtd		\
 	gconstructor_as_data.h	\
-	gnetworking.h.win32	\
 	$(NULL)
 
 BUILT_EXTRA_DIST += 		\
@@ -807,7 +818,7 @@ gio.def: libgio-2.0.la
 gio-2.0.lib: libgio-2.0.la gio.def
 	$(AM_V_GEN) lib.exe -machine:@LIB_EXE_MACHINE_FLAG@ -name:libgio-2.0-$(LT_CURRENT_MINUS_AGE).dll -def:$(builddir)/gio.def -out:$@
 
-bin_PROGRAMS = gio-querymodules glib-compile-schemas glib-compile-resources gsettings
+bin_PROGRAMS = gio-querymodules glib-compile-schemas glib-compile-resources gsettings gio-launch-desktop
 
 glib_compile_resources_LDADD = libgio-2.0.la 		\
 	$(top_builddir)/gobject/libgobject-2.0.la	\
@@ -828,8 +839,10 @@ gio_querymodules_LDADD	 = libgio-2.0.la 		\
 	$(top_builddir)/glib/libglib-2.0.la		\
 	$(NULL)
 
+gio_launch_desktop_SOURCES = gio-launch-desktop.c
+
 gconstructor_as_data.h: $(top_srcdir)/glib/gconstructor.h data-to-c.py
-	$(AM_V_GEN) $(srcdir)/data-to-c.py $(top_srcdir)/glib/gconstructor.h gconstructor_code $@
+	$(AM_V_GEN) $(PYTHON) $(srcdir)/data-to-c.py $(top_srcdir)/glib/gconstructor.h gconstructor_code $@
 
 glib_compile_schemas_LDADD = $(top_builddir)/glib/libglib-2.0.la
 glib_compile_schemas_SOURCES = \
@@ -915,6 +928,7 @@ completiondir = $(datadir)/bash-completion/completions
 completion_DATA = \
 	completion/gapplication				\
 	completion/gdbus				\
+	completion/gio					\
 	completion/gsettings				\
 	completion/gresource
 EXTRA_DIST += $(completion_DATA)
@@ -960,43 +974,7 @@ gio_LDADD = libgio-2.0.la 				\
 	$(top_builddir)/glib/libglib-2.0.la		\
 	$(NULL)
 
-# ------------------------------------------------------------------------
-# ------ MSVC Project File Generation ------
-# ------------------------------------------------------------------------
-#
-MSVCPROJS = gio glib-compile-resources glib-compile-schemas gio-tool
-
-gio_FILES =	\
-	$(gio_base_sources)			\
-	$(win32_actual_sources)			\
-	$(win32_more_sources_for_vcproj)	\
-	$(settings_base_sources)		\
-	$(win32_settings_sources)
-
-gio_EXCLUDES = dummy
-
-gio_HEADERS_DIR = $(includedir)/glib-2.0/gio
-gio_HEADERS_INST = $(gioinclude_HEADERS) $(nodist_gioinclude_HEADERS)
-gio_HEADERS_EXCLUDES = dummy
-
-glib_compile_resources_FILES = $(glib_compile_resources_SOURCES)
-glib_compile_resources_EXCLUDES = dummy
-
-glib_compile_schemas_FILES = $(glib_compile_schemas_SOURCES)
-glib_compile_schemas_EXCLUDES = dummy
-
-gio_tool_FILES = $(gio_SOURCES)
-gio_tool_EXCLUDES = dummy
-
-include $(top_srcdir)/win32/Makefile.msvcproj
-
-dist-hook: \
-	$(BUILT_EXTRA_DIST)						\
-	$(top_builddir)/win32/vs9/gio.vcproj			\
-	$(top_builddir)/win32/vs9/gio.headers			\
-	$(top_builddir)/win32/vs9/glib-compile-schemas.vcproj	\
-	$(top_builddir)/win32/vs9/glib-compile-resources.vcproj	\
-	$(top_builddir)/win32/vs9/gio-tool.vcproj
+dist-hook: $(BUILT_EXTRA_DIST)
 	files='$(BUILT_EXTRA_DIST)'; \
 	for f in $$files; do \
 	  if test -f $$f; then d=.; else d=$(srcdir); fi; \

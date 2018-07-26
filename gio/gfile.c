@@ -35,12 +35,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
-#ifndef F_SETPIPE_SZ
-#define F_SETPIPE_SZ 1031
-#endif
-#ifndef F_GETPIPE_SZ
-#define F_GETPIPE_SZ 1032
-#endif
 #endif
 
 #include <string.h>
@@ -398,7 +392,7 @@ g_file_default_init (GFileIface *iface)
  *
  * Checks to see if a file is native to the platform.
  *
- * A native file s one expressed in the platform-native filename format,
+ * A native file is one expressed in the platform-native filename format,
  * e.g. "C:\Windows" or "/usr/bin/". This does not mean the file is local,
  * as it might be on a locally mounted remote filesystem.
  *
@@ -707,6 +701,11 @@ g_file_get_parse_name (GFile *file)
  * Duplicates a #GFile handle. This operation does not duplicate
  * the actual file or directory represented by the #GFile; see
  * g_file_copy() if attempting to copy a file.
+ *
+ * g_file_dup() is useful when a second handle is needed to the same underlying
+ * file, for use in a separate thread (#GFile is not thread-safe). For use
+ * within the same thread, use g_object_ref() to increment the existing object’s
+ * reference count.
  *
  * This call does no blocking I/O.
  *
@@ -2980,7 +2979,7 @@ retry:
 
       if (errsv == EINTR)
         goto retry;
-      else if (errsv == ENOSYS || errsv == EINVAL)
+      else if (errsv == ENOSYS || errsv == EINVAL || errsv == EOPNOTSUPP)
         g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
                              _("Splice not supported"));
       else
@@ -3018,6 +3017,7 @@ splice_stream_with_progress (GInputStream           *in,
   if (!g_unix_open_pipe (buffer, FD_CLOEXEC, error))
     return FALSE;
 
+#if defined(F_SETPIPE_SZ) && defined(F_GETPIPE_SZ)
   /* Try a 1MiB buffer for improved throughput. If that fails, use the default
    * pipe size. See: https://bugzilla.gnome.org/791457 */
   buffer_size = fcntl (buffer[1], F_SETPIPE_SZ, 1024 * 1024);
@@ -3035,6 +3035,13 @@ splice_stream_with_progress (GInputStream           *in,
           goto out;
         }
     }
+#else
+  /* If #F_GETPIPE_SZ isn’t available, assume we’re on Linux < 2.6.35,
+   * but ≥ 2.6.11, meaning the pipe capacity is 64KiB. Ignore the possibility of
+   * running on Linux < 2.6.11 (where the capacity was the system page size,
+   * typically 4KiB) because it’s ancient. See pipe(7). */
+  buffer_size = 1024 * 64;
+#endif
 
   g_assert (buffer_size > 0);
 

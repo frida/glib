@@ -1,3 +1,108 @@
+Overview of changes in GLib 2.57.2
+==================================
+
+* Require pcre 8.31
+* Require meson 0.47.0
+
+* Bugs fixed:
+ 742456 Add g_steal_pointer() convenience function to mark ownership...
+ 795569 MinGW CI: fix tests
+ 796341 gmem.h: Use typeof() in g_steal_pointer() macro 
+ #1013 Support for per-session overrides
+ #1360 glib-mkenums breaks if option specified but no nick
+ #1175 Add names and tags to various GSources and GTasks constructed in GLib
+ #903 g_main_context_wait() not deprecated in API, but emits a g_critical()...
+ #786 Fix memory leaks in libgio tests
+ #927 gio/gresource.c:do_lookup check for terminating "/"
+ #976 Document difference between g_assert() and g_assert_*()...
+ #1447 glib 2.57.1: test_month_names: assertion failed...
+
+* Translation updates:
+ Friulian
+ German
+ Romanian
+
+
+Overview of changes in GLib 2.57.1
+==================================
+
+* New api:
+ - g_hash_table_steal_extended
+ - G_GNUC_NO_INLINE 
+
+* Bug fixes:
+ 668132 Use libmount and expose mount options on GUnixMountEntry type
+ 736741 Update private copy of valgrind.h
+ 748620 g_regex_* utf-8 validity requirements are not stated clearly
+ 784995 meson: some Windows improvements
+ 788771 NODELETE missing when built with meson
+ 788773 meson does not install correct pc files
+ 789968 Add g_autoptr() support for GTypeClass
+ 794325 Various fixes to compile on OSX
+ 795152 gdesktopappinfo: Mark GDesktopAppInfo constructors as nullable.
+ 795165 Add g_date_time_get_timezone() and g_time_zone_get_identifier()
+ 795180 Investigate performance impacts of recent compiler features on hot functions
+ 795302 Add g_hash_table_steal_extended() API
+ 795376 Add g_ptr_array_steal()
+ 795544 Add binary/textfile/zero size detection
+ 795569 MinGW CI: fix tests
+ 795636 gitlab-ci: generate test coverage reports
+ 795735 Fix comparison for GVariant property values
+ 795802 gdbus-codegen doesn't accept --output-directory with --output for --body and --header
+ 795849 gwin32: Fix detection of MinGW32 vs MinGW-w64
+ 795876 meson: Fix checks for posix_memalign and stpcpy
+ 795960 g_format_size_for_display() is deprecated since 2.30
+ 796085 Meson: Many apps breaks on non-glibc because of missing libintl
+ 796138 Fix typo in g_file_info_set_attribute docs
+ 796139 Add g_autoptr() support for GParamSpec
+ 796164 Fix atomic ops check in meson.build
+ 796186 Typo: "instead off" in gsignal.c
+ 796213 Meson: Fail to build on macosx
+ 796220 meson: do not run atomic test with msvc
+ 796264 Add android CI
+ 796325 meson: Add exception for atomic ops test for Android
+ 796328 gengiotypefuncs.py: Read and parse files in binary mode 
+
+* Translation updates:
+ Czech
+ Indonesian
+
+
+Overview of changes in GLib 2.57.0
+==================================
+
+* Bug fixes:
+ 739424	Rewrite kqueue GFileMonitor backend to drop threading
+ 751826	Use g_get_language_names() for other locale categories
+ 788773	meson does not install correct pc files
+ 793400	g_application_id_is_valid() not strict enough
+ 793578	gdatetime tests depend on Japanese translation of month names
+ 793645	test_month_names: Updated translations needed for el_GR, hr_HR, ru_RU
+ 793729	gitlab-ci: Add Windows MinGW support
+ 793994	GUnixVolumeMonitor doesn’t show user mounts when run as root
+ 794170	gdbus: hexdecode() and hexencode() do not return/use decoded/encoded s...
+ 794194	gobject_gdb.py: 'address' is a property of gdb.Value not a function
+ 794207	leak: g_socket_listener_add_inet_port increases ref-count on socket-li...
+ 794284	Support whitespace stripping for JSON resources
+ 794285	glib-compile-resources should not noisily g_printerr() when xmllint is...
+ 794473	Remove duplicated option in gio.xml
+ 794506	glib-mkenums: Enters infinite loop if using typedef enum SomeIdentifier
+ 794528	Fix segfault caused by use-after-free in GPollFileMonitor
+ 794555	glib meson build fails on MinGW due to misdetected functions
+ 794557	gtkdoc-scangobj fails on gio in meson builds
+ 794606	glib-2.56.0 fails to compile when res_nquery is not available
+ 794635	gmacros: Don't define bogus __has_* macros
+ 794636	G_HAVE_GNUC_VISIBILITY is defined in meson MinGW builds
+ 794686	Date (except weekday) displayed in English
+ 794732	Fix various compiler warnings 
+
+* Translation updates
+ Hungarian
+ Slowak
+ Slovenian
+ Spanish
+
+
 Overview of changes in GLib 2.56.0
 ==================================
 

@@ -802,14 +802,29 @@ _g_io_module_get_default_type (const gchar *extension_point,
 }
 
 static gpointer
-try_implementation (GIOExtension         *extension,
+try_implementation (const char           *extension_point,
+                    GIOExtension         *extension,
 		    GIOModuleVerifyFunc   verify_func)
 {
   GType type = g_io_extension_get_type (extension);
   gpointer impl;
 
   if (g_type_is_a (type, G_TYPE_INITABLE))
-    return g_initable_new (type, NULL, NULL, NULL);
+    {
+      GError *error = NULL;
+
+      impl = g_initable_new (type, NULL, &error, NULL);
+      if (impl)
+        return impl;
+
+      g_debug ("Failed to initialize %s (%s) for %s: %s",
+               g_io_extension_get_name (extension),
+               g_type_name (type),
+               extension_point,
+               error ? error->message : "");
+      g_clear_error (&error);
+      return NULL;
+    }
   else
     {
       impl = g_object_new (type, NULL);
@@ -895,7 +910,7 @@ _g_io_module_get_default (const gchar         *extension_point,
       preferred = g_io_extension_point_get_extension_by_name (ep, use_this);
       if (preferred)
 	{
-	  impl = try_implementation (preferred, verify_func);
+	  impl = try_implementation (extension_point, preferred, verify_func);
 	  if (impl)
 	    goto done;
 	}
@@ -911,7 +926,7 @@ _g_io_module_get_default (const gchar         *extension_point,
       if (extension == preferred)
 	continue;
 
-      impl = try_implementation (extension, verify_func);
+      impl = try_implementation (extension_point, extension, verify_func);
       if (impl)
 	goto done;
     }
@@ -962,6 +977,7 @@ extern GType g_cocoa_notification_backend_get_type (void);
 #endif
 
 #ifdef G_PLATFORM_WIN32
+extern GType g_win32_notification_backend_get_type (void);
 
 #include <windows.h>
 extern GType _g_win32_network_monitor_get_type (void);
@@ -1057,8 +1073,6 @@ _g_io_modules_ensure_extension_points_registered (void)
   G_UNLOCK (registered_extensions);
 }
 
-#ifndef GLIB_STATIC_COMPILATION
-
 static gchar *
 get_gio_module_dir (void)
 {
@@ -1092,17 +1106,12 @@ get_gio_module_dir (void)
   return module_dir;
 }
 
-#endif /* !GLIB_STATIC_COMPILATION */
-
 void
 _g_io_modules_ensure_loaded (void)
 {
   static gboolean loaded_dirs = FALSE;
-#ifndef GLIB_STATIC_COMPILATION
   const char *module_path;
-  gchar *module_dir;
   GIOModuleScope *scope;
-#endif
 
   _g_io_modules_ensure_extension_points_registered ();
   
@@ -1110,9 +1119,9 @@ _g_io_modules_ensure_loaded (void)
 
   if (!loaded_dirs)
     {
-      loaded_dirs = TRUE;
+      gchar *module_dir;
 
-#ifndef GLIB_STATIC_COMPILATION
+      loaded_dirs = TRUE;
       scope = g_io_module_scope_new (G_IO_MODULE_SCOPE_BLOCK_DUPLICATES);
 
       /* First load any overrides, extras */
@@ -1139,7 +1148,6 @@ _g_io_modules_ensure_loaded (void)
       g_free (module_dir);
 
       g_io_module_scope_free (scope);
-#endif
 
       /* Initialize types from built-in "modules" */
       g_type_ensure (g_null_settings_backend_get_type ());
@@ -1174,6 +1182,7 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (g_cocoa_notification_backend_get_type ());
 #endif
 #ifdef G_OS_WIN32
+      g_type_ensure (g_win32_notification_backend_get_type ());
       g_type_ensure (_g_winhttp_vfs_get_type ());
 #endif
       g_type_ensure (_g_local_vfs_get_type ());
@@ -1189,7 +1198,7 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (_g_network_monitor_netlink_get_type ());
       g_type_ensure (_g_network_monitor_nm_get_type ());
 #endif
-#if defined(G_OS_WIN32) && _WIN32_WINNT >= 0x0600
+#ifdef G_OS_WIN32
       g_type_ensure (_g_win32_network_monitor_get_type ());
 #endif
     }

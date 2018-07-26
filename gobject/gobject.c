@@ -477,11 +477,17 @@ g_object_do_class_init (GObjectClass *class)
    * @gobject: the object which received the signal.
    * @pspec: the #GParamSpec of the property which changed.
    *
-   * The notify signal is emitted on an object when one of its
-   * properties has been changed. Note that getting this signal
-   * doesn't guarantee that the value of the property has actually
-   * changed, it may also be emitted when the setter for the property
-   * is called to reinstate the previous value.
+   * The notify signal is emitted on an object when one of its properties has
+   * its value set through g_object_set_property(), g_object_set(), et al.
+   *
+   * Note that getting this signal doesn’t itself guarantee that the value of
+   * the property has actually changed. When it is emitted is determined by the
+   * derived GObject class. If the implementor did not create the property with
+   * %G_PARAM_EXPLICIT_NOTIFY, then any call to g_object_set_property() results
+   * in ::notify being emitted, even if the new value is the same as the old.
+   * If they did pass %G_PARAM_EXPLICIT_NOTIFY, then this signal is emitted only
+   * when they explicitly call g_object_notify() or g_object_notify_by_pspec(),
+   * and common practice is to do that only when the value has actually changed.
    *
    * This signal is typically used to obtain change notification for a
    * single property, by specifying the property name as a detail in the
@@ -1899,7 +1905,7 @@ g_object_new_is_valid_property (GType                  object_type,
 
 
 /**
- * g_object_new_with_properties: (rename-to g_object_new)
+ * g_object_new_with_properties: (skip)
  * @object_type: the object type to instantiate
  * @n_properties: the number of properties
  * @names: (array length=n_properties): the names of each property to be set
@@ -3372,7 +3378,7 @@ g_object_unref (gpointer _object)
  **/
 #undef g_clear_object
 void
-g_clear_object (volatile GObject **object_ptr)
+g_clear_object (GObject **object_ptr)
 {
   g_clear_pointer (object_ptr, g_object_unref);
 }

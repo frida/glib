@@ -126,6 +126,7 @@ struct _GUnixMountEntry {
   char *mount_path;
   char *device_path;
   char *filesystem_type;
+  char *options;
   gboolean is_read_only;
   gboolean is_system_internal;
 };
@@ -306,7 +307,6 @@ g_unix_is_system_fs_type (const char *fs_type)
     "autofs",
     "autofs4",
     "cgroup",
-    "cifs",
     "configfs",
     "cxfs",
     "debugfs",
@@ -328,8 +328,6 @@ g_unix_is_system_fs_type (const char *fs_type)
     "mfs",
     "mqueue",
     "ncpfs",
-    "nfs",
-    "nfs4",
     "nfsd",
     "nullfs",
     "ocfs2",
@@ -342,7 +340,6 @@ g_unix_is_system_fs_type (const char *fs_type)
     "rpc_pipefs",
     "securityfs",
     "selinuxfs",
-    "smbfs",
     "sysfs",
     "tmpfs",
     "usbfs",
@@ -412,6 +409,7 @@ static GUnixMountEntry *
 create_unix_mount_entry (const char *device_path,
                          const char *mount_path,
                          const char *filesystem_type,
+                         const char *options,
                          gboolean    is_read_only)
 {
   GUnixMountEntry *mount_entry = NULL;
@@ -420,6 +418,7 @@ create_unix_mount_entry (const char *device_path,
   mount_entry->device_path = g_strdup (device_path);
   mount_entry->mount_path = g_strdup (mount_path);
   mount_entry->filesystem_type = g_strdup (filesystem_type);
+  mount_entry->options = g_strdup (options);
   mount_entry->is_read_only = is_read_only;
 
   mount_entry->is_system_internal =
@@ -498,6 +497,7 @@ _g_get_unix_mounts (void)
       mount_entry = create_unix_mount_entry (device_path,
                                              mnt_fs_get_target (fs),
                                              mnt_fs_get_fstype (fs),
+                                             mnt_fs_get_options (fs),
                                              is_read_only);
 
       return_list = g_list_prepend (return_list, mount_entry);
@@ -592,6 +592,7 @@ _g_get_unix_mounts (void)
       mount_entry = create_unix_mount_entry (device_path,
                                              mntent->mnt_dir,
                                              mntent->mnt_type,
+                                             mntent->mnt_opts,
                                              is_read_only);
 
       g_hash_table_insert (mounts_hash,
@@ -705,6 +706,7 @@ _g_get_unix_mounts (void)
       mount_entry = create_unix_mount_entry (mntent.mnt_special,
                                              mntent.mnt_mountp,
                                              mntent.mnt_fstype,
+                                             mntent.mnt_opts,
                                              is_read_only);
 
       return_list = g_list_prepend (return_list, mount_entry);
@@ -738,7 +740,7 @@ _g_get_unix_mounts (void)
   
   if (mntctl (MCTL_QUERY, sizeof (vmount_size), &vmount_size) != 0)
     {
-      g_warning ("Unable to know the number of mounted volumes\n");
+      g_warning ("Unable to know the number of mounted volumes");
       
       return NULL;
     }
@@ -748,11 +750,11 @@ _g_get_unix_mounts (void)
   vmount_number = mntctl (MCTL_QUERY, vmount_size, vmount_info);
   
   if (vmount_info->vmt_revision != VMT_REVISION)
-    g_warning ("Bad vmount structure revision number, want %d, got %d\n", VMT_REVISION, vmount_info->vmt_revision);
+    g_warning ("Bad vmount structure revision number, want %d, got %d", VMT_REVISION, vmount_info->vmt_revision);
 
   if (vmount_number < 0)
     {
-      g_warning ("Unable to recover mounted volumes information\n");
+      g_warning ("Unable to recover mounted volumes information");
       
       g_free (vmount_info);
       return NULL;
@@ -771,6 +773,7 @@ _g_get_unix_mounts (void)
       mount_entry = create_unix_mount_entry (vmt2dataptr (vmount_info, VMT_OBJECT),
                                              vmt2dataptr (vmount_info, VMT_STUB),
                                              fs_info == NULL ? "unknown" : fs_info->vfsent_name,
+                                             NULL,
                                              is_read_only);
 
       return_list = g_list_prepend (return_list, mount_entry);
@@ -846,6 +849,7 @@ _g_get_unix_mounts (void)
       mount_entry = create_unix_mount_entry (mntent[i].f_mntfromname,
                                              mntent[i].f_mntonname,
                                              mntent[i].f_fstypename,
+                                             NULL,
                                              is_read_only);
 
       return_list = g_list_prepend (return_list, mount_entry);
@@ -911,21 +915,6 @@ _g_get_unix_mounts (void)
   closedir (dirp);
 
   return return_list;
-}
-
-/* QNX {{{2 */
-#elif HAVE_QNX
-
-static char *
-get_mtab_monitor_file (void)
-{
-  return NULL;
-}
-
-static GList *
-_g_get_unix_mounts (void)
-{
-  return NULL;
 }
 
 /* Common code {{{2 */
@@ -1445,14 +1434,6 @@ _g_get_unix_mount_points (void)
 }
 /* Interix {{{2 */
 #elif defined(__INTERIX)
-static GList *
-_g_get_unix_mount_points (void)
-{
-  return _g_get_unix_mounts ();
-}
-
-/* QNX {{{2 */
-#elif HAVE_QNX
 static GList *
 _g_get_unix_mount_points (void)
 {
@@ -2012,6 +1993,7 @@ g_unix_mount_free (GUnixMountEntry *mount_entry)
   g_free (mount_entry->mount_path);
   g_free (mount_entry->device_path);
   g_free (mount_entry->filesystem_type);
+  g_free (mount_entry->options);
   g_free (mount_entry);
 }
 
@@ -2036,6 +2018,7 @@ g_unix_mount_copy (GUnixMountEntry *mount_entry)
   copy->mount_path = g_strdup (mount_entry->mount_path);
   copy->device_path = g_strdup (mount_entry->device_path);
   copy->filesystem_type = g_strdup (mount_entry->filesystem_type);
+  copy->options = g_strdup (mount_entry->options);
   copy->is_read_only = mount_entry->is_read_only;
   copy->is_system_internal = mount_entry->is_system_internal;
 
@@ -2119,6 +2102,10 @@ g_unix_mount_compare (GUnixMountEntry *mount1,
   if (res != 0)
     return res;
 
+  res = g_strcmp0 (mount1->options, mount2->options);
+  if (res != 0)
+    return res;
+
   res =  mount1->is_read_only - mount2->is_read_only;
   if (res != 0)
     return res;
@@ -2172,6 +2159,29 @@ g_unix_mount_get_fs_type (GUnixMountEntry *mount_entry)
   g_return_val_if_fail (mount_entry != NULL, NULL);
 
   return mount_entry->filesystem_type;
+}
+
+/**
+ * g_unix_mount_get_options:
+ * @mount_entry: a #GUnixMountEntry.
+ * 
+ * Gets a comma-separated list of mount options for the unix mount. For example,
+ * `rw,relatime,seclabel,data=ordered`.
+ * 
+ * This is similar to g_unix_mount_point_get_options(), but it takes
+ * a #GUnixMountEntry as an argument.
+ * 
+ * Returns: (nullable): a string containing the options, or %NULL if not
+ * available.
+ * 
+ * Since: 2.58
+ */
+const gchar *
+g_unix_mount_get_options (GUnixMountEntry *mount_entry)
+{
+  g_return_val_if_fail (mount_entry != NULL, NULL);
+
+  return mount_entry->options;
 }
 
 /**

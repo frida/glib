@@ -68,8 +68,10 @@ libgobject = library('gobject-2.0',
   soversion : soversion,
   install : true,
   include_directories : [configinc],
-  dependencies : [libintl, libffi_dep, libglib_dep],
-  c_args : ['-DG_LOG_DOMAIN="GLib-GObject"', '-DGOBJECT_COMPILATION'] + glib_hidden_visibility_args)
+  dependencies : [libffi_dep, libglib_dep],
+  c_args : ['-DG_LOG_DOMAIN="GLib-GObject"', '-DGOBJECT_COMPILATION'] + glib_hidden_visibility_args,
+  link_args : glib_link_flags,
+)
 
 pkg.generate(libraries : libgobject,
   requires : ['glib-2.0'],
@@ -90,7 +92,7 @@ python_tools = [
 
 python_tools_conf = configuration_data()
 python_tools_conf.set('VERSION', glib_version)
-python_tools_conf.set('PYTHON', python.path())
+python_tools_conf.set('PYTHON', python_name)
 
 foreach tool: python_tools
   tool_bin = configure_file(
@@ -103,6 +105,8 @@ foreach tool: python_tools
 
   # Set variables for later use
   set_variable(tool.underscorify(), tool_bin)
+  # Provide tools for others when we're a subproject and they use the Meson GNOME module
+  meson.override_find_program(tool, tool_bin)
 endforeach
 
 executable('gobject-query', 'gobject-query.c',

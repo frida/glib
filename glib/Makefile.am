@@ -9,15 +9,13 @@ include $(top_srcdir)/glib.mk
 # to config.status will not result in changes to glibconfig.h so we
 # avoid touching its timestamp (in order not to rebuild the whole tree).
 #
-DISTCLEANFILES += glibconfig-stamp glibconfig.h glibconfig.h.win32
+DISTCLEANFILES += glibconfig-stamp glibconfig.h
 BUILT_SOURCES += glibconfig-stamp
 configexecincludedir = $(libdir)/glib-2.0/include
 nodist_configexecinclude_HEADERS = glibconfig.h
 glibconfig-stamp: ../config.status
 	$(AM_V_GEN) cd $(top_builddir) && \
 	  $(SHELL) ./config.status glib/glibconfig.h
-	$(AM_V_GEN) cd $(top_builddir) && \
-	  $(SHELL) ./config.status glib/glibconfig.h.win32
 	@touch glibconfig-stamp
 
 
@@ -33,20 +31,13 @@ else
 MAYBE_PCRE = pcre 
 endif
 
-if ENABLE_TESTS
-MAYBE_TESTS = tests
-else
-MAYBE_TESTS =
-endif
-
-SUBDIRS = libcharset $(PRINTF_SUBDIR) $(MAYBE_PCRE) update-pcre . $(MAYBE_TESTS)
+SUBDIRS = libcharset $(PRINTF_SUBDIR) $(MAYBE_PCRE) update-pcre . tests
 DIST_SUBDIRS = libcharset gnulib pcre update-pcre tests
 
 AM_CPPFLAGS = 				\
 	$(glib_INCLUDES) 		\
 	$(pcre_inc) 			\
 	-DG_LOG_DOMAIN=\"GLib\" 	\
-	$(GLIB_STATIC_FLAGS)		\
 	$(GLIB_DEBUG_FLAGS) 		\
 	-DGLIB_COMPILATION 		\
 	-DPCRE_STATIC
@@ -64,7 +55,6 @@ MIRRORING_TAB_SOURCE = 				\
 EXTRA_DIST += 			\
 	glib.rc.in		\
 	gen-unicode-tables.pl	\
-	glibconfig.h.win32.in	\
 	gregex.c		\
 	gregex.h		\
 	win_iconv.c		\
@@ -77,7 +67,6 @@ CLEANFILES += libglib-gdb.py
 
 # These may be in the builddir too
 BUILT_EXTRA_DIST += 		\
-	glibconfig.h.win32	\
 	glib.rc
 
 lib_LTLIBRARIES = libglib-2.0.la
@@ -107,6 +96,7 @@ deprecated_sources = \
 libglib_2_0_la_SOURCES = 	\
 	$(deprecated_sources)	\
 	glib_probes.d		\
+	garcbox.c		\
 	garray.c		\
 	gasyncqueue.c		\
 	gasyncqueueprivate.h	\
@@ -141,13 +131,9 @@ libglib_2_0_la_SOURCES = 	\
 	glib_trace.h		\
 	glib-init.h		\
 	glib-init.c		\
-	glib-fork.h		\
-	glib-fork.c		\
 	glib-private.h		\
 	glib-private.c		\
 	glist.c			\
-	gtinylist.h		\
-	gtinylist.c		\
 	gmain-internal.h	\
 	gmain.c	 		\
 	gmappedfile.c		\
@@ -158,13 +144,16 @@ libglib_2_0_la_SOURCES = 	\
 	gnode.c			\
 	goption.c		\
 	gpattern.c		\
-	gplatformaudit.c	\
 	gpoll.c			\
 	gprimes.c		\
 	gqsort.c		\
 	gquark.c		\
 	gqueue.c		\
 	grand.c			\
+	grcbox.c		\
+	grcboxprivate.h		\
+	grefcount.c		\
+	grefstring.c		\
 	gregex.c		\
 	gscanner.c		\
 	gscripttable.h		\
@@ -200,6 +189,7 @@ libglib_2_0_la_SOURCES = 	\
 	gurifuncs.c 		\
 	gutils.c		\
 	guuid.c			\
+	gvalgrind.h		\
 	gvariant.h		\
 	gvariant.c		\
 	gvariant-core.h		\
@@ -234,6 +224,7 @@ EXTRA_libglib_2_0_la_SOURCES = \
 	giounix.c	\
 	giowin32.c	\
 	gspawn.c	\
+	gspawn-private.h \
 	gspawn-win32.c	\
 	gwin32.c
 
@@ -293,13 +284,15 @@ glibsubinclude_HEADERS = \
 	gnode.h		\
 	goption.h	\
 	gpattern.h	\
-	gplatformaudit.h \
 	gpoll.h		\
 	gprimes.h	\
 	gqsort.h	\
 	gquark.h	\
 	gqueue.h	\
 	grand.h		\
+	grcbox.h	\
+	grefcount.h	\
+	grefstring.h	\
 	gregex.h	\
 	gscanner.h	\
 	gsequence.h	\
@@ -364,14 +357,8 @@ pcre_lib = pcre/libpcre.la
 pcre_inc =
 endif
 
-if USE_PROXY_LIBINTL
-proxy_libintl_lib = $(top_builddir)/proxy-libintl/libintl.la
-else
-proxy_libintl_lib =
-endif
-
 libglib_2_0_la_CFLAGS = $(AM_CFLAGS) $(GLIB_HIDDEN_VISIBILITY_CFLAGS) $(LIBSYSTEMD_CFLAGS)
-libglib_2_0_la_LIBADD = libcharset/libcharset.la $(printf_la) @GIO@ @GSPAWN@ @PLATFORMDEP@ @ICONV_LIBS@ @G_LIBS_EXTRA@ $(pcre_lib) $(proxy_libintl_lib) $(G_THREAD_LIBS_EXTRA) $(G_THREAD_LIBS_FOR_GTHREAD) $(LIBSYSTEMD_LIBS)
+libglib_2_0_la_LIBADD = libcharset/libcharset.la $(printf_la) @GIO@ @GSPAWN@ @PLATFORMDEP@ @ICONV_LIBS@ @G_LIBS_EXTRA@ $(pcre_lib) $(G_THREAD_LIBS_EXTRA) $(G_THREAD_LIBS_FOR_GTHREAD) $(LIBSYSTEMD_LIBS)
 libglib_2_0_la_DEPENDENCIES = libcharset/libcharset.la $(printf_la) @GIO@ @GSPAWN@ @PLATFORMDEP@ $(glib_win32_res) $(glib_def)
 
 libglib_2_0_la_LDFLAGS = $(GLIB_LINK_FLAGS) \
@@ -476,19 +463,7 @@ glib.def: libglib-2.0.la
 glib-2.0.lib: libglib-2.0.la glib.def
 	$(AM_V_GEN) lib.exe -machine:@LIB_EXE_MACHINE_FLAG@ -name:libglib-2.0-$(LT_CURRENT_MINUS_AGE).dll -def:$(builddir)/glib.def -out:$@
 
-# ------ MSVC Project File Generation ------
-MSVCPROJS = glib
-
-glib_FILES = $(libglib_2_0_la_SOURCES)
-glib_EXCLUDES = *-unix.c|gthread-*.c
-
-glib_HEADERS_DIR = $(glibsubincludedir)
-glib_HEADERS_INST = $(deprecatedinclude_HEADERS) $(glibsubinclude_HEADERS)
-glib_HEADERS_EXCLUDES = dummy
-
-include $(top_srcdir)/win32/Makefile.msvcproj
-
-dist-hook: $(BUILT_EXTRA_DIST) $(top_builddir)/win32/vs9/glib.vcproj $(top_builddir)/win32/vs9/glib.headers
+dist-hook: $(BUILT_EXTRA_DIST)
 	files='$(BUILT_EXTRA_DIST)'; \
 	for f in $$files; do \
 	  if test -f $$f; then d=.; else d=$(srcdir); fi; \

@@ -403,11 +403,11 @@ g_variant_get_boolean (GVariant *value)
  * It is an error to call this function with a @value of any type
  * other than %G_VARIANT_TYPE_BYTE.
  *
- * Returns: a #guchar
+ * Returns: a #guint8
  *
  * Since: 2.24
  **/
-NUMERIC_TYPE (BYTE, byte, guchar)
+NUMERIC_TYPE (BYTE, byte, guint8)
 
 /**
  * g_variant_new_int16:
@@ -1105,7 +1105,7 @@ g_variant_lookup_value (GVariant           *dictionary,
  * the appropriate type:
  * - %G_VARIANT_TYPE_INT16 (etc.): #gint16 (etc.)
  * - %G_VARIANT_TYPE_BOOLEAN: #guchar (not #gboolean!)
- * - %G_VARIANT_TYPE_BYTE: #guchar
+ * - %G_VARIANT_TYPE_BYTE: #guint8
  * - %G_VARIANT_TYPE_HANDLE: #guint32
  * - %G_VARIANT_TYPE_DOUBLE: #gdouble
  *
@@ -4738,10 +4738,13 @@ g_variant_valist_new_nnp (const gchar **str,
           type = g_variant_type_element (type);
 
           if G_UNLIKELY (!g_variant_type_is_subtype_of (type, (GVariantType *) *str))
-            g_error ("g_variant_new: expected GVariantBuilder array element "
-                     "type '%s' but the built value has element type '%s'",
-                     g_variant_type_dup_string ((GVariantType *) *str),
-                     g_variant_get_type_string (value) + 1);
+            {
+              gchar *type_string = g_variant_type_dup_string ((GVariantType *) *str);
+              g_error ("g_variant_new: expected GVariantBuilder array element "
+                       "type '%s' but the built value has element type '%s'",
+                       type_string, g_variant_get_type_string (value) + 1);
+              g_free (type_string);
+            }
 
           g_variant_type_string_scan (*str, NULL, str);
 
@@ -4803,10 +4806,13 @@ g_variant_valist_new_nnp (const gchar **str,
 
     case '@':
       if G_UNLIKELY (!g_variant_is_of_type (ptr, (GVariantType *) *str))
-        g_error ("g_variant_new: expected GVariant of type '%s' but "
-                 "received value has type '%s'",
-                 g_variant_type_dup_string ((GVariantType *) *str),
-                 g_variant_get_type_string (ptr));
+        {
+          gchar *type_string = g_variant_type_dup_string ((GVariantType *) *str);
+          g_error ("g_variant_new: expected GVariant of type '%s' but "
+                   "received value has type '%s'",
+                   type_string, g_variant_get_type_string (ptr));
+          g_free (type_string);
+        }
 
       g_variant_type_string_scan (*str, NULL, str);
 
@@ -5042,7 +5048,7 @@ g_variant_valist_get_leaf (const gchar **str,
           return;
 
         case 'y':
-          *(guchar *) ptr = g_variant_get_byte (value);
+          *(guint8 *) ptr = g_variant_get_byte (value);
           return;
 
         case 'n':
@@ -5083,7 +5089,7 @@ g_variant_valist_get_leaf (const gchar **str,
       switch (*(*str)++)
         {
         case 'y':
-          *(guchar *) ptr = 0;
+          *(guint8 *) ptr = 0;
           return;
 
         case 'n':

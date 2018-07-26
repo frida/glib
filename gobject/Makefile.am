@@ -4,18 +4,11 @@
 ## Process this file with automake to produce Makefile.in
 include $(top_srcdir)/glib.mk
 
-if ENABLE_TESTS
-MAYBE_TESTS = tests
-else
-MAYBE_TESTS =
-endif
-
-SUBDIRS = . $(MAYBE_TESTS)
+SUBDIRS = . tests
 
 AM_CPPFLAGS = 					\
 	-DG_LOG_DOMAIN=\"GLib-GObject\"		\
 	$(glib_INCLUDES)			\
-	$(GLIB_STATIC_FLAGS)			\
 	$(GLIB_DEBUG_FLAGS)			\
 	-DGOBJECT_COMPILATION
 
@@ -224,19 +217,7 @@ gobject.def: libgobject-2.0.la
 gobject-2.0.lib: libgobject-2.0.la gobject.def
 	$(AM_V_GEN) lib.exe -machine:@LIB_EXE_MACHINE_FLAG@ -name:libgobject-2.0-$(LT_CURRENT_MINUS_AGE).dll -def:$(builddir)/gobject.def -out:$@
 
-# ------ MSVC Project File Generation ------
-MSVCPROJS = gobject
-
-gobject_FILES = $(libgobject_2_0_la_SOURCES)
-gobject_EXCLUDES = dummy
-
-gobject_HEADERS_DIR = $(libgobjectincludedir)
-gobject_HEADERS_INST = $(gobject_public_h_sources)
-gobject_HEADERS_EXCLUDES = dummy
-
-include $(top_srcdir)/win32/Makefile.msvcproj
-
-dist-hook: $(BUILT_EXTRA_DIST) $(top_builddir)/win32/vs9/gobject.vcproj $(top_builddir)/win32/vs9/gobject.headers
+dist-hook: $(BUILT_EXTRA_DIST)
 	files='$(BUILT_EXTRA_DIST)'; \
 	for f in $$files; do \
 	  if test -f $$f; then d=.; else d=$(srcdir); fi; \

@@ -199,112 +199,13 @@ _g_local_file_get_filename (GLocalFile *file)
   return file->filename;
 }
 
-static char *
-canonicalize_filename (const char *filename)
-{
-  char *canon, *start, *p, *q;
-  char *cwd;
-  int i;
-  
-  if (!g_path_is_absolute (filename))
-    {
-      cwd = g_get_current_dir ();
-      canon = g_build_filename (cwd, filename, NULL);
-      g_free (cwd);
-    }
-  else
-    canon = g_strdup (filename);
-
-  start = (char *)g_path_skip_root (canon);
-
-  if (start == NULL)
-    {
-      /* This shouldn't really happen, as g_get_current_dir() should
-	 return an absolute pathname, but bug 573843 shows this is
-	 not always happening */
-      g_free (canon);
-      return g_build_filename (G_DIR_SEPARATOR_S, filename, NULL);
-    }
-  
-  /* POSIX allows double slashes at the start to
-   * mean something special (as does windows too).
-   * So, "//" != "/", but more than two slashes
-   * is treated as "/".
-   */
-  i = 0;
-  for (p = start - 1;
-       (p >= canon) &&
-	 G_IS_DIR_SEPARATOR (*p);
-       p--)
-    i++;
-  if (i > 2)
-    {
-      i -= 1;
-      start -= i;
-      memmove (start, start+i, strlen (start+i)+1);
-    }
-
-  /* Make sure we're using the canonical dir separator */
-  p++;
-  while (p < start && G_IS_DIR_SEPARATOR (*p))
-    *p++ = G_DIR_SEPARATOR;
-  
-  p = start;
-  while (*p != 0)
-    {
-      if (p[0] == '.' && (p[1] == 0 || G_IS_DIR_SEPARATOR (p[1])))
-	{
-	  memmove (p, p+1, strlen (p+1)+1);
-	}
-      else if (p[0] == '.' && p[1] == '.' && (p[2] == 0 || G_IS_DIR_SEPARATOR (p[2])))
-	{
-	  q = p + 2;
-	  /* Skip previous separator */
-	  p = p - 2;
-	  if (p < start)
-	    p = start;
-	  while (p > start && !G_IS_DIR_SEPARATOR (*p))
-	    p--;
-	  if (G_IS_DIR_SEPARATOR (*p))
-	    *p++ = G_DIR_SEPARATOR;
-	  memmove (p, q, strlen (q)+1);
-	}
-      else
-	{
-	  /* Skip until next separator */
-	  while (*p != 0 && !G_IS_DIR_SEPARATOR (*p))
-	    p++;
-	  
-	  if (*p != 0)
-	    {
-	      /* Canonicalize one separator */
-	      *p++ = G_DIR_SEPARATOR;
-	    }
-	}
-
-      /* Remove additional separators */
-      q = p;
-      while (*q && G_IS_DIR_SEPARATOR (*q))
-	q++;
-
-      if (p != q)
-	memmove (p, q, strlen (q)+1);
-    }
-
-  /* Remove trailing slashes */
-  if (p > start && G_IS_DIR_SEPARATOR (*(p-1)))
-    *(p-1) = 0;
-  
-  return canon;
-}
-
 GFile *
 _g_local_file_new (const char *filename)
 {
   GLocalFile *local;
 
   local = g_object_new (G_TYPE_LOCAL_FILE, NULL);
-  local->filename = canonicalize_filename (filename);
+  local->filename = g_canonicalize_filename (filename, NULL);
   
   return G_FILE (local);
 }
@@ -378,8 +279,6 @@ g_local_file_get_uri (GFile *file)
   return g_filename_to_uri (G_LOCAL_FILE (file)->filename, NULL, NULL);
 }
 
-#ifdef G_OS_WIN32
-
 static gboolean
 get_filename_charset (const gchar **filename_charset)
 {
@@ -393,8 +292,6 @@ get_filename_charset (const gchar **filename_charset)
   
   return is_utf8;
 }
-
-#endif
 
 static gboolean
 name_is_valid_for_display (const char *string,
@@ -420,16 +317,14 @@ g_local_file_get_parse_name (GFile *file)
 {
   const char *filename;
   char *parse_name;
-#ifdef G_OS_WIN32
   const gchar *charset;
-#endif
   char *utf8_filename;
+  char *roundtripped_filename;
   gboolean free_utf8_filename;
   gboolean is_valid_utf8;
   char *escaped_path;
   
   filename = G_LOCAL_FILE (file)->filename;
-#ifdef G_OS_WIN32
   if (get_filename_charset (&charset))
     {
       utf8_filename = (char *)filename;
@@ -445,8 +340,6 @@ g_local_file_get_parse_name (GFile *file)
 
       if (utf8_filename != NULL)
 	{
-	  char *roundtripped_filename;
-
 	  /* Make sure we can roundtrip: */
 	  roundtripped_filename = g_convert (utf8_filename, -1,
 					     charset, "UTF-8", NULL, NULL, NULL);
@@ -461,11 +354,6 @@ g_local_file_get_parse_name (GFile *file)
 	  g_free (roundtripped_filename);
 	}
     }
-#else
-  utf8_filename = (char *)filename;
-  free_utf8_filename = FALSE;
-  is_valid_utf8 = FALSE; /* Can't guarantee this */
-#endif
 
   if (utf8_filename != NULL &&
       name_is_valid_for_display (utf8_filename, is_valid_utf8))
@@ -1672,7 +1560,7 @@ expand_symlink (const char *link)
 #endif
   
   if (g_path_is_absolute (symlink_value))
-    return canonicalize_filename (symlink_value);
+    return g_canonicalize_filename (symlink_value, NULL);
   else
     {
       link2 = strip_trailing_slashes (link);
@@ -1682,7 +1570,7 @@ expand_symlink (const char *link)
       resolved = g_build_filename (parent, symlink_value, NULL);
       g_free (parent);
       
-      canonical = canonicalize_filename (resolved);
+      canonical = g_canonicalize_filename (resolved, NULL);
       
       g_free (resolved);
 
@@ -1789,21 +1677,36 @@ find_mountpoint_for (const char *file,
     }
 }
 
-char *
-_g_local_file_find_topdir_for (const char *file)
+static char *
+_g_local_file_find_topdir_for_internal (const char *file, dev_t file_dev)
 {
   char *dir;
   char *mountpoint = NULL;
   dev_t dir_dev;
 
   dir = get_parent (file, &dir_dev);
-  if (dir == NULL)
-    return NULL;
+  if (dir == NULL || dir_dev != file_dev)
+    {
+      g_free (dir);
+
+      return NULL;
+    }
 
   mountpoint = find_mountpoint_for (dir, dir_dev);
   g_free (dir);
 
   return mountpoint;
+}
+
+char *
+_g_local_file_find_topdir_for (const char *file)
+{
+  GStatBuf file_stat;
+
+  if (g_lstat (file, &file_stat) != 0)
+    return NULL;
+
+  return _g_local_file_find_topdir_for_internal (file, file_stat.st_dev);
 }
 
 static char *
@@ -1881,6 +1784,7 @@ _g_local_file_has_trash_dir (const char *dirname, dev_t dir_dev)
   char uid_str[32];
   GStatBuf global_stat, trash_stat;
   gboolean res;
+  GUnixMountEntry *mount;
 
   if (g_once_init_enter (&home_dev_set))
     {
@@ -1898,6 +1802,17 @@ _g_local_file_has_trash_dir (const char *dirname, dev_t dir_dev)
   topdir = find_mountpoint_for (dirname, dir_dev);
   if (topdir == NULL)
     return FALSE;
+
+  mount = g_unix_mount_at (topdir, NULL);
+  if (mount == NULL || g_unix_mount_is_system_internal (mount))
+    {
+      g_clear_pointer (&mount, g_unix_mount_free);
+      g_free (topdir);
+
+      return FALSE;
+    }
+
+  g_clear_pointer (&mount, g_unix_mount_free);
 
   globaldir = g_build_filename (topdir, ".Trash", NULL);
   if (g_lstat (globaldir, &global_stat) == 0 &&
@@ -1994,7 +1909,7 @@ g_local_file_trash (GFile         *file,
   int i;
   char *data;
   gboolean is_homedir_trash;
-  char delete_time[32];
+  char *delete_time = NULL;
   int fd;
   GStatBuf trash_stat, global_stat;
   char *dirname, *globaldir;
@@ -2042,19 +1957,35 @@ g_local_file_trash (GFile         *file,
     {
       uid_t uid;
       char uid_str[32];
+      GUnixMountEntry *mount;
 
       uid = geteuid ();
       g_snprintf (uid_str, sizeof (uid_str), "%lu", (unsigned long)uid);
 
-      topdir = _g_local_file_find_topdir_for (local->filename);
+      topdir = _g_local_file_find_topdir_for_internal (local->filename,
+                                                       file_stat.st_dev);
       if (topdir == NULL)
 	{
           g_set_io_error (error,
                           _("Unable to find toplevel directory to trash %s"),
-                          file, G_IO_ERROR_NOT_SUPPORTED);
+                          file, ENOTSUP);
 	  return FALSE;
 	}
-      
+
+      mount = g_unix_mount_at (topdir, NULL);
+      if (mount == NULL || g_unix_mount_is_system_internal (mount))
+        {
+          g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                       _("Trashing on system internal mounts is not supported"));
+
+          g_clear_pointer (&mount, g_unix_mount_free);
+          g_free (topdir);
+
+          return FALSE;
+        }
+
+      g_clear_pointer (&mount, g_unix_mount_free);
+
       /* Try looking for global trash dir $topdir/.Trash/$uid */
       globaldir = g_build_filename (topdir, ".Trash", NULL);
       if (g_lstat (globaldir, &global_stat) == 0 &&
@@ -2206,16 +2137,17 @@ g_local_file_trash (GFile         *file,
   g_free (topdir);
   
   {
-    time_t t;
-    struct tm now;
-    t = time (NULL);
-    localtime_r (&t, &now);
-    delete_time[0] = 0;
-    strftime(delete_time, sizeof (delete_time), "%Y-%m-%dT%H:%M:%S", &now);
+    GDateTime *now = g_date_time_new_now_local ();
+    if (now != NULL)
+      delete_time = g_date_time_format (now, "%Y-%m-%dT%H:%M:%S");
+    else
+      delete_time = g_strdup ("9999-12-31T23:59:59");
+    g_date_time_unref (now);
   }
 
   data = g_strdup_printf ("[Trash Info]\nPath=%s\nDeletionDate=%s\n",
 			  original_name_escaped, delete_time);
+  g_free (delete_time);
 
   g_file_set_contents (infofile, data, -1, NULL);
 
@@ -2832,7 +2764,9 @@ g_local_file_measure_size_of_file (gint           parent_fd,
   if (S_ISDIR (buf.st_mode))
     {
       int dir_fd = -1;
+#ifdef AT_FDCWD
       int errsv;
+#endif
 
       if (g_cancellable_set_error_if_cancelled (state->cancellable, error))
         return FALSE;

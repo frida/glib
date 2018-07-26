@@ -63,3 +63,23 @@ option('gtk_doc',
        type : 'boolean',
        value : false,
        description : 'use gtk-doc to build documentation')
+
+option('bsymbolic_functions',
+       type : 'boolean',
+       value : true,
+       description : 'link with -Bsymbolic-functions if supported')
+
+option('force_posix_threads',
+       type : 'boolean',
+       value : false,
+       description : 'Also use posix threads in case the platform defaults to another implementation (on Windows for example)')
+
+option('fam',
+       type : 'boolean',
+       value : false,
+       description : 'Use fam for file system monitoring')
+
+option('installed_tests',
+       type : 'boolean',
+       value : false,
+       description : 'enable installed tests')

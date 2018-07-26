@@ -4,7 +4,6 @@ include $(top_srcdir)/glib.mk
 AM_CPPFLAGS = 				\
 	$(glib_INCLUDES) 		\
 	-DG_LOG_DOMAIN=\"GThread\" 	\
-	$(GLIB_STATIC_FLAGS)		\
 	@GTHREAD_COMPILE_IMPL_DEFINES@ 	\
 	@GLIB_DEBUG_FLAGS@
 

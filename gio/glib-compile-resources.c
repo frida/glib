@@ -734,13 +734,13 @@ main (int argc, char **argv)
   GOptionContext *context;
   GOptionEntry entries[] = {
     { "version", 0, 0, G_OPTION_ARG_NONE, &show_version_and_exit, N_("Show program version and exit"), NULL },
-    { "target", 0, 0, G_OPTION_ARG_FILENAME, &target, N_("name of the output file"), N_("FILE") },
-    { "sourcedir", 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &sourcedirs, N_("The directories where files are to be read from (default to current directory)"), N_("DIRECTORY") },
+    { "target", 0, 0, G_OPTION_ARG_FILENAME, &target, N_("Name of the output file"), N_("FILE") },
+    { "sourcedir", 0, 0, G_OPTION_ARG_FILENAME_ARRAY, &sourcedirs, N_("The directories to load files referenced in FILE from (default: current directory)"), N_("DIRECTORY") },
     { "generate", 0, 0, G_OPTION_ARG_NONE, &generate_automatic, N_("Generate output in the format selected for by the target filename extension"), NULL },
     { "generate-header", 0, 0, G_OPTION_ARG_NONE, &generate_header, N_("Generate source header"), NULL },
-    { "generate-source", 0, 0, G_OPTION_ARG_NONE, &generate_source, N_("Generate sourcecode used to link in the resource file into your code"), NULL },
+    { "generate-source", 0, 0, G_OPTION_ARG_NONE, &generate_source, N_("Generate source code used to link in the resource file into your code"), NULL },
     { "generate-dependencies", 0, 0, G_OPTION_ARG_NONE, &generate_dependencies, N_("Generate dependency list"), NULL },
-    { "dependency-file", 0, 0, G_OPTION_ARG_FILENAME, &dependency_file, N_("name of the dependency file to generate"), N_("FILE") },
+    { "dependency-file", 0, 0, G_OPTION_ARG_FILENAME, &dependency_file, N_("Name of the dependency file to generate"), N_("FILE") },
     { "generate-phony-targets", 0, 0, G_OPTION_ARG_NONE, &generate_phony_targets, N_("Include phony targets in the generated dependency file"), NULL },
     { "manual-register", 0, 0, G_OPTION_ARG_NONE, &manual_register, N_("Don’t automatically create and register resource"), NULL },
     { "internal", 0, 0, G_OPTION_ARG_NONE, &internal, N_("Don’t export functions; declare them G_GNUC_INTERNAL"), NULL },
@@ -1030,7 +1030,7 @@ main (int argc, char **argv)
 	  return 1;
 	}
 
-      fprintf (file,
+      g_fprintf (file,
 	       "#ifndef __RESOURCE_%s_H__\n"
 	       "#define __RESOURCE_%s_H__\n"
 	       "\n"
@@ -1040,14 +1040,14 @@ main (int argc, char **argv)
 	       c_name, c_name, linkage, c_name);
 
       if (manual_register)
-	fprintf (file,
+	g_fprintf (file,
 		 "\n"
 		 "%s void %s_register_resource (void);\n"
 		 "%s void %s_unregister_resource (void);\n"
 		 "\n",
 		 linkage, c_name, linkage, c_name);
 
-      fprintf (file,
+      g_fprintf (file,
 	       "#endif\n");
 
       fclose (file);
@@ -1078,7 +1078,7 @@ main (int argc, char **argv)
 	  return 1;
 	}
 
-      fprintf (file,
+      g_fprintf (file,
 	       "#include <gio/gio.h>\n"
 	       "\n"
 	       "#if defined (__ELF__) && ( __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 6))\n"
@@ -1092,17 +1092,17 @@ main (int argc, char **argv)
 
       for (i = 0; i < data_size; i++) {
 	if (i % 8 == 0)
-	  fprintf (file, "  ");
-	fprintf (file, "0x%2.2x", (int)data[i]);
+	  g_fprintf (file, "  ");
+	g_fprintf (file, "0x%2.2x", (int)data[i]);
 	if (i != data_size - 1)
-	  fprintf (file, ", ");
+	  g_fprintf (file, ", ");
 	if ((i % 8 == 7) || (i == data_size - 1))
-	  fprintf (file, "\n");
+	  g_fprintf (file, "\n");
       }
 
-      fprintf (file, "} };\n");
+      g_fprintf (file, "} };\n");
 
-      fprintf (file,
+      g_fprintf (file,
 	       "\n"
 	       "static GStaticResource static_resource = { %s_resource_data.data, sizeof (%s_resource_data.data), NULL, NULL, NULL };\n"
 	       "%s GResource *%s_get_resource (void);\n"
@@ -1115,7 +1115,7 @@ main (int argc, char **argv)
 
       if (manual_register)
 	{
-	  fprintf (file,
+	  g_fprintf (file,
 		   "\n"
 		   "%s void %s_unregister_resource (void);\n"
 		   "void %s_unregister_resource (void)\n"
@@ -1132,8 +1132,8 @@ main (int argc, char **argv)
 	}
       else
 	{
-	  fprintf (file, "%s", gconstructor_code);
-	  fprintf (file,
+	  g_fprintf (file, "%s", gconstructor_code);
+	  g_fprintf (file,
 		   "\n"
 		   "#ifdef G_HAS_CONSTRUCTORS\n"
 		   "\n"

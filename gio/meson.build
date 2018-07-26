@@ -137,10 +137,8 @@ if host_system != 'windows'
     glib_conf.set('HAVE_RES_NQUERY', 1)
   endif
 
-  if cc.compiles('''#include <netinet/in.h>
-                    struct ip_mreqn foo;''',
-                 name : 'struct ip_mreqn')
-    glib_conf.set('HAVE_IP_MREQN', '/**/')
+  if cc.has_type('struct ip_mreqn', prefix : '#include <netinet/in.h>')
+    glib_conf.set('HAVE_IP_MREQN', 1)
   endif
 
   if cc.compiles('''#include <sys/ioctl.h>
@@ -154,13 +152,17 @@ if host_system != 'windows'
     glib_conf.set('HAVE_SIOCGIFADDR', '/**/')
   endif
 
-endif
+  if not cc.compiles('''#include <netinet/in.h>
+                        int main(int argc, char ** argv) {
+                          struct ip_mreq_source mc_req_src;
+                          mc_req_src.imr_interface.s_addr = 0;
+                          return 0;
+                        }''',
+                        name : 'ip_mreq_source.imr_interface has s_addr member')
+    glib_conf.set('BROKEN_IP_MREQ_SOURCE_STRUCT', 1)
+  endif
 
-network_args_string = ''
-foreach arg : network_args
-  network_args_string += arg + ' '
-endforeach
-glib_conf.set('NETWORK_LIBS', network_args_string)
+endif
 
 gnetworking_h_conf.set('WSPIAPI_INCLUDE', gnetworking_h_wspiapi_include)
 gnetworking_h_conf.set('NAMESER_COMPAT_INCLUDE', gnetworking_h_nameser_compat_include)
@@ -232,7 +234,6 @@ subdir('gdbus-2.0/codegen')
 xdp_dbus_generated = custom_target('xdp-dbus',
     input : ['org.freedesktop.portal.Documents.xml',
              'org.freedesktop.portal.OpenURI.xml',
-             'org.freedesktop.portal.NetworkMonitor.xml',
              'org.freedesktop.portal.ProxyResolver.xml'],
     output : ['xdp-dbus.h', 'xdp-dbus.c'],
     depend_files : gdbus_codegen_built_files,
@@ -283,11 +284,6 @@ settings_sources = files(
 if host_system == 'windows'
   settings_sources += files('gregistrysettingsbackend.c')
 endif
-
-# FIXME:
-#if OS_COCOA
-#settings_sources += files('gnextstepsettingsbackend.c')
-#endif
 
 application_headers = files(
   'gapplication.h',
@@ -404,18 +400,26 @@ if host_system != 'windows'
   )
 
   if glib_have_cocoa
-    contenttype_sources += files('gosxcontenttype.c')
-    appinfo_sources += files('gosxappinfo.c')
+    settings_sources += files('gnextstepsettingsbackend.m')
+    contenttype_sources += files('gosxcontenttype.m')
+    appinfo_sources += files('gosxappinfo.m')
     if glib_have_os_x_9_or_later
-      unix_sources += files('gcocoanotificationbackend.c')
+      unix_sources += files('gcocoanotificationbackend.m')
     endif
   else
     contenttype_sources += files('gcontenttype.c')
     appinfo_sources += files('gdesktopappinfo.c')
     gio_unix_include_headers += files('gdesktopappinfo.h')
-    subdir('xdgmime')
-    internal_deps += [xdgmime_lib]
+
+    executable('gio-launch-desktop', 'gio-launch-desktop.c',
+      install : true,
+      c_args : gio_c_args,
+      # intl.lib is not compatible with SAFESEH
+      link_args : noseh_link_args)
   endif
+
+  subdir('xdgmime')
+  internal_deps += [xdgmime_lib]
 
   install_headers(gio_unix_include_headers, subdir : 'gio-unix-2.0/gio')
 
@@ -440,6 +444,7 @@ else
     'gwin32outputstream.c',
     'gwin32networkmonitor.c',
     'gwin32networkmonitor.h',
+    'gwin32notificationbackend.c',
   )
 
   gio_win_rc = configure_file(
@@ -458,7 +463,6 @@ else
 endif
 
 gio_sources = files(
-  'gio-fork.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',
@@ -754,15 +758,11 @@ if host_system == 'windows'
   internal_deps += [ giowin32_lib ]
 endif
 
-# FIXME: FAM support
-#if HAVE_FAM
-#  subdir('fam')
-#endif
-
 if have_bash
   install_data([
     'completion/gapplication',
     'completion/gdbus',
+    'completion/gio',
     'completion/gsettings',
     'completion/gresource'
   ],
@@ -785,14 +785,14 @@ libgio = library('gio-2.0',
   install : true,
   include_directories : [configinc, gioinc],
   link_with : internal_deps,
-  #libgio_2_0_la_LDFLAGS = $(GLIB_LINK_FLAGS)',
   #  '$(gio_win32_res_ldflag)',
-  dependencies : [libintl, libz_dep, libdl_dep, libmount_dep, libglib_dep,
+  dependencies : [libz_dep, libdl_dep, libmount_dep, libglib_dep,
                   libgobject_dep, libgmodule_dep, selinux_dep, xattr_dep,
                   platform_deps, network_libs],
   c_args : gio_c_args,
+  objc_args : gio_c_args,
   # intl.lib is not compatible with SAFESEH
-  link_args : noseh_link_args,
+  link_args : [noseh_link_args, glib_link_flags],
 )
 
 giomodulesdir = get_option('gio_module_dir')
@@ -850,9 +850,26 @@ else
 endif
 
 # Dependencies used by executables below
+have_libelf = false
 libelf = dependency('libelf', version : '>= 0.8.12', required : false)
 if libelf.found()
+  have_libelf = true
+else
+  # This fallback is necessary on *BSD. elfutils isn't the only libelf
+  # implementation, and *BSD usually includes their own libelf as a system
+  # library which doesn't have a corresponding .pc file.
+  libelf = cc.find_library('elf', required : false)
+  have_libelf = libelf.found()
+  have_libelf = have_libelf and cc.has_function('elf_begin', dependencies : libelf)
+  have_libelf = have_libelf and cc.has_function('elf_getshdrstrndx', dependencies : libelf)
+  have_libelf = have_libelf and cc.has_function('elf_getshdrnum', dependencies : libelf)
+  have_libelf = have_libelf and cc.has_header('libelf.h')
+endif
+
+if have_libelf
   glib_conf.set('HAVE_LIBELF', 1)
+else
+  libelf = []
 endif
 
 gconstructor_as_data_h = custom_target('gconstructor_as_data.h',
@@ -887,15 +904,15 @@ executable('gio', gio_tool_sources,
   c_args : gio_c_args,
   # intl.lib is not compatible with SAFESEH
   link_args : noseh_link_args,
-  dependencies : [libintl, libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
+  dependencies : [libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
 
 executable('gresource', 'gresource-tool.c',
   install : true,
   # intl.lib is not compatible with SAFESEH
   link_args : noseh_link_args,
-  dependencies : [libelf, libintl, libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
+  dependencies : [libelf, libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
 
-executable('gio-querymodules', 'gio-querymodules.c', 'giomodule-priv.c',
+gio_querymodules = executable('gio-querymodules', 'gio-querymodules.c', 'giomodule-priv.c',
   install : true,
   c_args : gio_c_args,
   # intl.lib is not compatible with SAFESEH
@@ -907,7 +924,7 @@ glib_compile_schemas = executable('glib-compile-schemas',
   install : true,
   # intl.lib is not compatible with SAFESEH
   link_args : noseh_link_args,
-  dependencies : [libintl, libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
+  dependencies : [libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
 
 glib_compile_resources = executable('glib-compile-resources',
   [gconstructor_as_data_h, 'gvdb/gvdb-builder.c', 'glib-compile-resources.c'],
@@ -915,14 +932,14 @@ glib_compile_resources = executable('glib-compile-resources',
   c_args : gio_c_args,
   # intl.lib is not compatible with SAFESEH
   link_args : noseh_link_args,
-  dependencies : [libintl, libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
+  dependencies : [libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
 
 executable('gsettings', 'gsettings-tool.c',
   install : true,
   c_args : gio_c_args,
   # intl.lib is not compatible with SAFESEH
   link_args : noseh_link_args,
-  dependencies : [libintl, libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
+  dependencies : [libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
 install_data('gschema.dtd',
   install_dir : join_paths(get_option('datadir'), 'glib-2.0/schemas'))
 
@@ -934,15 +951,15 @@ executable('gdbus', 'gdbus-tool.c',
   c_args : gio_c_args,
   # intl.lib is not compatible with SAFESEH
   link_args : noseh_link_args,
-  dependencies : [libintl, libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
+  dependencies : [libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
 
-if host_system != 'windows'
+if host_system != 'windows' and not glib_have_cocoa
   executable('gapplication', 'gapplication-tool.c',
     install : true,
     c_args : gio_c_args,
     # intl.lib is not compatible with SAFESEH
     link_args : noseh_link_args,
-    dependencies : [libintl, libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
+    dependencies : [libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
 endif
 
 if enable_systemtap
@@ -952,6 +969,8 @@ if enable_systemtap
     install_dir : tapset_install_dir,
     install : true)
 endif
+
+subdir('fam')
 
 if host_system != 'windows'
   subdir('tests')

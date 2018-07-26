@@ -39,9 +39,6 @@
 #include <sys/time.h>
 #endif
 #include <time.h>
-#ifdef HAVE_TIME64_H
-#include <time64.h>
-#endif
 #ifndef G_OS_WIN32
 #include <errno.h>
 #endif /* G_OS_WIN32 */
@@ -254,7 +251,8 @@ void
 g_usleep (gulong microseconds)
 {
 #ifdef G_OS_WIN32
-  Sleep (microseconds / 1000);
+  /* Round up to the next millisecond */
+  Sleep (microseconds ? (1 + (microseconds - 1) / 1000) : 0);
 #else
   struct timespec request, remaining;
   request.tv_sec = microseconds / G_USEC_PER_SEC;
@@ -327,8 +325,6 @@ mktime_utc (struct tm *tm)
     retval -= 1;
   
   retval = ((((retval * 24) + tm->tm_hour) * 60) + tm->tm_min) * 60 + tm->tm_sec;
-#elif defined (HAVE_TIMEGM64)
-  retval = timegm64 (tm);
 #else
   retval = timegm (tm);
 #endif /* !HAVE_TIMEGM */

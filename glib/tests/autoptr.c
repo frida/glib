@@ -1,6 +1,12 @@
 #include <glib.h>
 #include <string.h>
 
+typedef struct _HNVC HasNonVoidCleanup;
+HasNonVoidCleanup * non_void_cleanup (HasNonVoidCleanup *);
+
+/* Should not cause any warnings with -Wextra */
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(HasNonVoidCleanup, non_void_cleanup)
+
 static void
 test_autofree (void)
 {
@@ -97,7 +103,13 @@ test_g_hmac (void)
 static void
 test_g_io_channel (void)
 {
-  g_autoptr(GIOChannel) val = g_io_channel_new_file ("/dev/null", "r", NULL);
+#ifdef G_OS_WIN32
+  const gchar *devnull = "nul";
+#else
+  const gchar *devnull = "/dev/null";
+#endif
+
+  g_autoptr(GIOChannel) val = g_io_channel_new_file (devnull, "r", NULL);
   g_assert (val != NULL);
 }
 
@@ -411,6 +423,13 @@ test_strv (void)
 }
 
 static void
+test_refstring (void)
+{
+  g_autoptr(GRefString) str = g_ref_string_new ("hello, world");
+  g_assert_nonnull (str);
+}
+
+static void
 mark_freed (gpointer ptr)
 {
   gboolean *freed = ptr;
@@ -527,6 +546,7 @@ main (int argc, gchar *argv[])
   g_test_add_func ("/autoptr/g_variant_dict", test_g_variant_dict);
   g_test_add_func ("/autoptr/g_variant_type", test_g_variant_type);
   g_test_add_func ("/autoptr/strv", test_strv);
+  g_test_add_func ("/autoptr/refstring", test_refstring);
   g_test_add_func ("/autoptr/autolist", test_autolist);
   g_test_add_func ("/autoptr/autoslist", test_autoslist);
 

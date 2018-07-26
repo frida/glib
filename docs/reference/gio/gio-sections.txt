@@ -1248,6 +1248,7 @@ g_drive_stop_finish
 g_drive_enumerate_identifiers
 g_drive_get_identifier
 g_drive_get_sort_key
+G_DRIVE_IDENTIFIER_KIND_UNIX_DEVICE
 <SUBSECTION Standard>
 G_DRIVE
 G_IS_DRIVE
@@ -1496,6 +1497,12 @@ g_mount_operation_get_password_save
 g_mount_operation_set_password_save
 g_mount_operation_get_choice
 g_mount_operation_set_choice
+g_mount_operation_get_is_tcrypt_hidden_volume
+g_mount_operation_set_is_tcrypt_hidden_volume
+g_mount_operation_get_is_tcrypt_system_volume
+g_mount_operation_set_is_tcrypt_system_volume
+g_mount_operation_get_pim
+g_mount_operation_set_pim
 g_mount_operation_reply
 <SUBSECTION Standard>
 GMountOperationClass
@@ -1546,6 +1553,7 @@ g_unix_mount_copy
 g_unix_mount_get_mount_path
 g_unix_mount_get_device_path
 g_unix_mount_get_fs_type
+g_unix_mount_get_options
 g_unix_mount_is_readonly
 g_unix_mount_is_system_internal
 g_unix_mount_guess_icon
@@ -1570,6 +1578,7 @@ g_unix_mount_point_guess_can_eject
 g_unix_mount_points_get
 g_unix_mounts_get
 g_unix_mount_at
+g_unix_mount_for
 g_unix_mounts_changed_since
 g_unix_mount_points_changed_since
 g_unix_mount_monitor_get
@@ -1615,6 +1624,7 @@ g_desktop_app_info_get_boolean
 g_desktop_app_info_has_key
 GDesktopAppLaunchCallback
 g_desktop_app_info_launch_uris_as_manager
+g_desktop_app_info_launch_uris_as_manager_with_fds
 <SUBSECTION>
 g_desktop_app_info_list_actions
 g_desktop_app_info_get_action_name

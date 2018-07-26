@@ -494,6 +494,8 @@ g_date_valid_dmy (GDateDay   d,
                   GDateMonth m, 
 		  GDateYear  y)
 {
+  /* No need to check the upper bound of @y, because #GDateYear is 16 bits wide,
+   * just like #GDate.year. */
   return ( (m > G_DATE_BAD_MONTH) &&
            (m < 13)               && 
            (d > G_DATE_BAD_DAY)   && 
@@ -514,7 +516,7 @@ g_date_update_julian (const GDate *const_d)
   gint idx;
   
   g_return_if_fail (d != NULL);
-  g_return_if_fail (d->dmy);
+  g_return_if_fail (d->dmy != 0);
   g_return_if_fail (!d->julian);
   g_return_if_fail (g_date_valid_dmy (d->day, d->month, d->year));
   
@@ -577,7 +579,7 @@ g_date_update_dmy (const GDate *const_d)
   
 #ifdef G_ENABLE_DEBUG
   if (!g_date_valid_dmy (day, m, y)) 
-    g_warning ("\nOOPS julian: %u  computed dmy: %u %u %u\n", 
+    g_warning ("OOPS julian: %u  computed dmy: %u %u %u",
 	       d->julian_days, day, m, y);
 #endif
   
@@ -1086,7 +1088,7 @@ g_date_prepare_to_parse (const gchar      *str,
         {
 	  gchar *casefold;
 	  
-          g_date_set_dmy (&d, 1, i, 1);
+          g_date_set_dmy (&d, 1, i, 1976);
 	  
           g_return_if_fail (g_date_valid (&d));
 	  
@@ -1385,7 +1387,10 @@ g_date_set_parse (GDate       *d,
  *
  * To set the value of a date to the current day, you could write:
  * |[<!-- language="C" -->
- *  g_date_set_time_t (date, time (NULL)); 
+ *  time_t now = time (NULL);
+ *  if (now == (time_t) -1)
+ *    // handle the error
+ *  g_date_set_time_t (date, now);
  * ]|
  *
  * Since: 2.10
@@ -1667,6 +1672,7 @@ g_date_add_days (GDate *d,
     g_date_update_julian (d);
 
   g_return_if_fail (d->julian);
+  g_return_if_fail (ndays <= G_MAXUINT32 - d->julian_days);
   
   d->julian_days += ndays;
   d->dmy = FALSE;
@@ -1720,13 +1726,16 @@ g_date_add_months (GDate *d,
   if (!d->dmy) 
     g_date_update_dmy (d);
 
-  g_return_if_fail (d->dmy);  
-  
+  g_return_if_fail (d->dmy != 0);
+  g_return_if_fail (nmonths <= G_MAXUINT - (d->month - 1));
+
   nmonths += d->month - 1;
   
   years  = nmonths/12;
   months = nmonths%12;
-  
+
+  g_return_if_fail (years <= G_MAXUINT16 - d->year);
+
   d->month = months + 1;
   d->year  += years;
   
@@ -1762,7 +1771,7 @@ g_date_subtract_months (GDate *d,
   if (!d->dmy) 
     g_date_update_dmy (d);
 
-  g_return_if_fail (d->dmy);  
+  g_return_if_fail (d->dmy != 0);
   
   years  = nmonths/12;
   months = nmonths%12;
@@ -1808,8 +1817,9 @@ g_date_add_years (GDate *d,
   if (!d->dmy) 
     g_date_update_dmy (d);
 
-  g_return_if_fail (d->dmy);  
-  
+  g_return_if_fail (d->dmy != 0);
+  g_return_if_fail (nyears <= G_MAXUINT16 - d->year);
+
   d->year += nyears;
   
   if (d->month == 2 && d->day == 29)
@@ -1841,7 +1851,7 @@ g_date_subtract_years (GDate *d,
   if (!d->dmy) 
     g_date_update_dmy (d);
 
-  g_return_if_fail (d->dmy);  
+  g_return_if_fail (d->dmy != 0);
   g_return_if_fail (d->year > nyears);
   
   d->year -= nyears;
@@ -2053,7 +2063,7 @@ g_date_to_struct_tm (const GDate *d,
   if (!d->dmy) 
     g_date_update_dmy (d);
 
-  g_return_if_fail (d->dmy);
+  g_return_if_fail (d->dmy != 0);
   
   /* zero all the irrelevant fields to be sure they're valid */
   
@@ -2621,7 +2631,7 @@ g_date_strftime (gchar       *s,
 
   if (error)
     {
-      g_warning (G_STRLOC "Error converting format to locale encoding: %s\n", error->message);
+      g_warning (G_STRLOC "Error converting format to locale encoding: %s", error->message);
       g_error_free (error);
 
       s[0] = '\0';
@@ -2646,7 +2656,7 @@ g_date_strftime (gchar       *s,
 
           if (tmpbufsize > 65536)
             {
-              g_warning (G_STRLOC "Maximum buffer size for g_date_strftime exceeded: giving up\n");
+              g_warning (G_STRLOC "Maximum buffer size for g_date_strftime exceeded: giving up");
               g_free (locale_format);
 
               s[0] = '\0';
@@ -2663,7 +2673,7 @@ g_date_strftime (gchar       *s,
 
   if (error)
     {
-      g_warning (G_STRLOC "Error converting results of strftime to UTF-8: %s\n", error->message);
+      g_warning (G_STRLOC "Error converting results of strftime to UTF-8: %s", error->message);
       g_error_free (error);
 
       s[0] = '\0';
