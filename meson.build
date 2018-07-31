@@ -74,10 +74,6 @@ installed_tests_template = files('template.test.in')
 
 add_project_arguments('-D_GNU_SOURCE', language: 'c')
 
-if host_system == 'qnx'
-  add_project_arguments('-D_QNX_SOURCE', language: 'c')
-endif
-
 # Disable strict aliasing;
 # see https://bugzilla.gnome.org/show_bug.cgi?id=791622
 if cc.has_argument('-fno-strict-aliasing')
@@ -176,10 +172,9 @@ if get_option('default_library') != 'static'
   endif
 endif
 
-if get_option('default_library') == 'static'
+if host_system == 'windows' and get_option('default_library') == 'static'
     glibconfig_conf.set('GLIB_STATIC_COMPILATION', '1')
     glibconfig_conf.set('GOBJECT_STATIC_COMPILATION', '1')
-    glibconfig_conf.set('GIO_STATIC_COMPILATION', '1')
 endif
 
 # FIXME: what about Cygwin (G_WITH_CYGWIN)
@@ -217,14 +212,12 @@ headers = [
   'limits.h',
   'linux/magic.h',
   'locale.h',
-  'mach/mach.h',
   'mach/mach_time.h',
   'memory.h',
   'mntent.h',
   'poll.h',
   'pwd.h',
   'sched.h',
-  'stdatomic.h',
   'stdint.h',
   'stdlib.h',
   'string.h',
@@ -245,7 +238,6 @@ headers = [
   'sys/statvfs.h',
   'sys/sysctl.h',
   'sys/time.h', # MSC does not come with this by default
-  'time64.h',
   'sys/times.h',
   'sys/types.h',
   'sys/uio.h',
@@ -432,7 +424,6 @@ functions = [
   'strtoull_l',
   'symlink',
   'timegm',
-  'timegm64',
   'unsetenv',
   'uselocale',
   'utimes',
@@ -609,9 +600,43 @@ osx_ldflags = []
 glib_have_os_x_9_or_later = false
 glib_have_carbon = false
 glib_have_cocoa = false
+if host_system == 'darwin'
+  add_languages('objc')
+  objcc = meson.get_compiler('objc')
 
-if host_system == 'qnx'
-  glib_conf.set('HAVE_QNX', 1)
+  osx_ldflags += ['-Wl,-framework,CoreFoundation']
+
+  # Mac OS X Carbon support
+  glib_have_carbon = objcc.compiles('''#include <Carbon/Carbon.h>
+                                       #include <CoreServices/CoreServices.h>''',
+                                    name : 'Mac OS X Carbon support')
+
+  if glib_have_carbon
+    glib_conf.set('HAVE_CARBON', true)
+    osx_ldflags += '-Wl,-framework,Carbon'
+    glib_have_os_x_9_or_later = objcc.compiles('''#include <AvailabilityMacros.h>
+                                                  #if MAC_OS_X_VERSION_MIN_REQUIRED < 1090
+                                                  #error Compiling for minimum OS X version before 10.9
+                                                  #endif''',
+                                               name : 'OS X 9 or later')
+  endif
+
+  # Mac OS X Cocoa support
+  glib_have_cocoa = objcc.compiles('''#include <Cocoa/Cocoa.h>
+                                      #ifdef GNUSTEP_BASE_VERSION
+                                      #error "Detected GNUstep, not Cocoa"
+                                      #endif''',
+                                   name : 'Mac OS X Cocoa support')
+
+  if glib_have_cocoa
+    glib_conf.set('HAVE_COCOA', true)
+    osx_ldflags += ['-Wl,-framework,Foundation', '-Wl,-framework,AppKit']
+  endif
+
+  # FIXME: libgio mix C and objC source files and there is no way to reliably
+  # know which language flags it's going to use to link. Add to both languages
+  # for now. See https://github.com/mesonbuild/meson/issues/3585.
+  add_project_link_arguments(osx_ldflags, language : ['objc', 'c'])
 endif
 
 # Check for futex(2)
@@ -713,10 +738,7 @@ endif
 have_good_vsnprintf = false
 have_good_snprintf = false
 
-if get_option('default_library') == 'static'
-  glib_conf.set('HAVE_C99_SNPRINTF', false)
-  glib_conf.set('HAVE_C99_VSNPRINTF', false)
-elif host_system == 'windows' and cc.get_id() == 'msvc'
+if host_system == 'windows' and cc.get_id() == 'msvc'
   # Unfortunately the Visual Studio 2015+ implementations of C99-style
   # snprintf and vsnprintf don't seem to be quite good enough.
   # (Sorry, I don't know exactly what is the problem,
@@ -1658,24 +1680,37 @@ if host_system == 'windows'
 endif
 
 libm = cc.find_library('m', required : false)
-libffi_dep = subproject('libffi').get_variable('ffi_dep')
-libz_dep = subproject('zlib').get_variable('zlib_dep')
-
-if get_option('default_library') == 'static'
-  subdir('proxy-libintl')
-  libintl = intl_dep
+libffi_dep = dependency('libffi', version : '>= 3.0.0', fallback : ['libffi', 'ffi_dep'])
+if cc.get_id() != 'msvc'
+  libz_dep = dependency('zlib', fallback : ['zlib', 'zlib_dep'])
 else
-  # First check in libc, fallback to libintl, and as last chance build
-  # proxy-libintl subproject.
-  # FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
-  # implementations. This could be extended if issues are found in some platforms.
-  if cc.has_function('ngettext')
-    libintl = []
-  else
-    libintl = cc.find_library('intl', required : false)
-    if not libintl.found()
-      libintl = subproject('proxy-libintl').get_variable('intl_dep')
+  # MSVC: Don't use the bundled ZLib sources until we are sure that we can't
+  # find the ZLib .lib
+  libz_dep = dependency('zlib', required : false)
+
+  # MSVC: Search for the ZLib .lib, which corresponds to the results of
+  # of using ZLib's win32/makefile.msc.
+  if not libz_dep.found()
+    libz_dep = cc.find_library('zlib1', required : false)
+    if not libz_dep.found()
+      libz_dep = cc.find_library('zlib', required : false)
+      if not libz_dep.found()
+        libz_dep = subproject('zlib').get_variable('zlib_dep')
+      endif
     endif
+  endif
+endif
+
+# First check in libc, fallback to libintl, and as last chance build
+# proxy-libintl subproject.
+# FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
+# implementations. This could be extended if issues are found in some platforms.
+if cc.has_function('ngettext')
+  libintl = []
+else
+  libintl = cc.find_library('intl', required : false)
+  if not libintl.found()
+    libintl = subproject('proxy-libintl').get_variable('intl_dep')
   endif
 endif
 
@@ -1824,7 +1859,7 @@ enable_dtrace = false
 # Since dtrace support is opt-in we just error out if it was requested but
 # is not available. We don't bother with autodetection yet.
 if want_dtrace
-  if host_system == 'darwin'
+  if glib_have_carbon
     error('GLib dtrace support not yet compatible with macOS dtrace')
   endif
   dtrace = find_program('dtrace', required : true) # error out if not found
