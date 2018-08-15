@@ -216,7 +216,7 @@ buildtype = get_option('buildtype')
 glib_debug_cflags = []
 if buildtype.startswith('debug')
   glib_debug_cflags += ['-DG_ENABLE_DEBUG']
-elif buildtype == 'release'
+elif buildtype == 'release' or buildtype == 'minsize'
   glib_debug_cflags += ['-DG_DISABLE_CAST_CHECKS']
 endif
 
