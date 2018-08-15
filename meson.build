@@ -233,8 +233,8 @@ if get_option('debug')
   glib_debug_cflags += ['-DG_ENABLE_DEBUG']
   message('Enabling various debug infrastructure')
 elif get_option('optimization') in ['2', '3', 's']
-  glib_debug_cflags += ['-DG_DISABLE_CAST_CHECKS']
-  message('Disabling cast checks')
+  glib_debug_cflags += ['-DG_DISABLE_CAST_CHECKS', '-DG_DISABLE_ASSERT', '-DG_DISABLE_CHECKS']
+  message('Disabling checks')
 endif
 
 add_project_arguments(glib_debug_cflags, language: 'c')
