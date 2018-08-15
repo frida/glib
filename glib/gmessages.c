@@ -1362,10 +1362,14 @@ g_logv (const gchar   *log_domain,
 #ifndef _DEBUG
               if (win32_keep_fatal_message)
                 {
-                  gchar *locale_msg = g_locale_from_utf8 (fatal_msg_buf, -1, NULL, NULL, NULL);
+                  WCHAR *wide_msg;
 
-                  MessageBox (NULL, locale_msg, NULL,
-                              MB_ICONERROR|MB_SETFOREGROUND);
+                  wide_msg = g_utf8_to_utf16 (fatal_msg_buf, -1, NULL, NULL, NULL);
+
+                  MessageBoxW (NULL, wide_msg, NULL,
+                               MB_ICONERROR | MB_SETFOREGROUND);
+
+                  g_free (wide_msg);
                 }
 #endif /* !_DEBUG */
 #endif /* !G_OS_WIN32 */
@@ -2681,12 +2685,13 @@ handled:
 #ifndef _DEBUG
       if (!g_test_initialized ())
         {
-          gchar *locale_msg = NULL;
+          WCHAR *wide_msg;
 
-          locale_msg = g_locale_from_utf8 (fatal_msg_buf, -1, NULL, NULL, NULL);
-          MessageBox (NULL, locale_msg, NULL,
-                      MB_ICONERROR | MB_SETFOREGROUND);
-          g_free (locale_msg);
+          wide_msg = g_utf8_to_utf16 (fatal_msg_buf, -1, NULL, NULL, NULL);
+
+          MessageBoxW (NULL, wide_msg, NULL, MB_ICONERROR | MB_SETFOREGROUND);
+
+          g_free (wide_msg);
         }
 #endif /* !_DEBUG */
 #endif /* !G_OS_WIN32 */

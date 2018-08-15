@@ -66,6 +66,7 @@
 #include "gtypes.h"
 #include "gmain.h"
 #include "gprintfint.h"
+#include "gunicode.h"
 #include "gutils.h"
 
 #ifndef G_OS_WIN32
@@ -189,12 +190,22 @@ g_on_error_query (const gchar *prg_name)
   else
     goto retry;
 #else
+  WCHAR *caption = NULL;
+
   if (!prg_name)
     prg_name = g_get_prgname ();
 
-  MessageBox (NULL, "g_on_error_query called, program terminating",
-              (prg_name && *prg_name) ? prg_name : NULL,
-              MB_OK|MB_ICONERROR);
+  if (prg_name && *prg_name)
+    {
+      caption = g_utf8_to_utf16 (prg_name, -1, NULL, NULL, NULL);
+    }
+
+  MessageBoxW (NULL, L"g_on_error_query called, program terminating",
+               caption,
+               MB_OK|MB_ICONERROR);
+
+  g_free (caption);
+
   _exit(0);
 #endif
 }
