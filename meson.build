@@ -222,7 +222,7 @@ glib_debug_cflags = []
 if buildtype.startswith('debug')
   glib_debug_cflags += ['-DG_ENABLE_DEBUG']
 elif buildtype == 'release' or buildtype == 'minsize'
-  glib_debug_cflags += ['-DG_DISABLE_CAST_CHECKS']
+  glib_debug_cflags += ['-DG_DISABLE_CAST_CHECKS', '-DG_DISABLE_ASSERT', '-DG_DISABLE_CHECKS']
 endif
 
 add_project_arguments(glib_debug_cflags, language: 'c')
