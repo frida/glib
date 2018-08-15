@@ -236,15 +236,14 @@ elif vs_crt_opt == 'from_buildtype'
   endif
 endif
 
-# Use debug/optimization flags to determine whether to enable debug or disable
-# cast checks
 glib_debug_cflags = []
-if get_option('debug')
+ndebug = get_option('b_ndebug')
+if ndebug == 'true' or (ndebug == 'if-release' and not get_option('debug'))
+  glib_debug_cflags += ['-DG_DISABLE_CAST_CHECKS', '-DG_DISABLE_ASSERT', '-DG_DISABLE_CHECKS']
+  message('Disabling checks')
+else
   glib_debug_cflags += ['-DG_ENABLE_DEBUG']
   message('Enabling various debug infrastructure')
-elif get_option('optimization') in ['2', '3', 's']
-  glib_debug_cflags += ['-DG_DISABLE_CAST_CHECKS']
-  message('Disabling cast checks')
 endif
 
 if not get_option('glib_assert')
