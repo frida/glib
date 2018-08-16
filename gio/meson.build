@@ -979,6 +979,6 @@ endif
 
 subdir('fam')
 
-if host_system != 'windows'
+if get_option('tests') and host_system != 'windows'
   subdir('tests')
 endif
