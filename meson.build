@@ -2015,7 +2015,9 @@ subdir('gthread')
 subdir('gmodule')
 subdir('gio')
 subdir('fuzzing')
-subdir('tests')
+if get_option('tests')
+  subdir('tests')
+endif
 
 # xgettext is optional (on Windows for instance)
 if find_program('xgettext', required : get_option('nls')).found()
