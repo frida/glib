@@ -1917,7 +1917,9 @@ subdir('gio')
 if xgettext.found()
   subdir('po')
 endif
-subdir('tests')
+if get_option('tests')
+  subdir('tests')
+endif
 
 # Install glib-gettextize executable, if a UNIX-style shell is found
 if have_sh
