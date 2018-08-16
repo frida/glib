@@ -997,4 +997,6 @@ if enable_systemtap
 endif
 
 subdir('fam')
-subdir('tests')
+if get_option('tests')
+  subdir('tests')
+endif
