@@ -24,8 +24,8 @@ G_BEGIN_DECLS
 /* Check if more ANSI-compliant Winsock2 functions are provided */
 /* For run-time compatibility with Windows XP, remove when XP support dropped */
 
-typedef INT (WSAAPI *PFN_InetPton) (INT, PWSTR, PVOID);
-typedef PCTSTR (WSAAPI *PFN_InetNtop) (INT, PVOID, PWSTR, size_t);
+typedef INT (WSAAPI *PFN_InetPton) (INT, PCTSTR, PVOID);
+typedef PCTSTR (WSAAPI *PFN_InetNtop) (INT, PVOID, PTSTR, size_t);
 typedef NET_IFINDEX (WINAPI *PFN_IfNameToIndex) (PCSTR);
 
 typedef struct _GWin32WinsockFuncs

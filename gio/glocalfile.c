@@ -279,8 +279,6 @@ g_local_file_get_uri (GFile *file)
   return g_filename_to_uri (G_LOCAL_FILE (file)->filename, NULL, NULL);
 }
 
-#ifdef G_OS_WIN32
-
 static gboolean
 get_filename_charset (const gchar **filename_charset)
 {
@@ -294,8 +292,6 @@ get_filename_charset (const gchar **filename_charset)
   
   return is_utf8;
 }
-
-#endif
 
 static gboolean
 name_is_valid_for_display (const char *string,
@@ -321,16 +317,14 @@ g_local_file_get_parse_name (GFile *file)
 {
   const char *filename;
   char *parse_name;
-#ifdef G_OS_WIN32
   const gchar *charset;
-#endif
   char *utf8_filename;
+  char *roundtripped_filename;
   gboolean free_utf8_filename;
   gboolean is_valid_utf8;
   char *escaped_path;
   
   filename = G_LOCAL_FILE (file)->filename;
-#ifdef G_OS_WIN32
   if (get_filename_charset (&charset))
     {
       utf8_filename = (char *)filename;
@@ -346,8 +340,6 @@ g_local_file_get_parse_name (GFile *file)
 
       if (utf8_filename != NULL)
 	{
-	  char *roundtripped_filename;
-
 	  /* Make sure we can roundtrip: */
 	  roundtripped_filename = g_convert (utf8_filename, -1,
 					     charset, "UTF-8", NULL, NULL, NULL);
@@ -362,11 +354,6 @@ g_local_file_get_parse_name (GFile *file)
 	  g_free (roundtripped_filename);
 	}
     }
-#else
-  utf8_filename = (char *)filename;
-  free_utf8_filename = FALSE;
-  is_valid_utf8 = FALSE; /* Can't guarantee this */
-#endif
 
   if (utf8_filename != NULL &&
       name_is_valid_for_display (utf8_filename, is_valid_utf8))
@@ -996,15 +983,20 @@ g_local_file_query_filesystem_info (GFile         *file,
   block_size = statfs_buffer.f_bsize;
   
   /* Many backends can't report free size (for instance the gvfs fuse
-     backend for backend not supporting this), and set f_bfree to 0,
-     but it can be 0 for real too. We treat the available == 0 and
-     free == 0 case as "both of these are invalid".
-   */
-#ifndef G_OS_WIN32
+   * backend for backend not supporting this), and set f_bfree to 0,
+   *  but it can be 0 for real too. We treat the available == 0 and
+   * free == 0 case as "both of these are invalid", but only on file systems
+   * which are known to not support this (otherwise we can omit metadata for
+   * systems which are legitimately full). */
+#if defined(__linux__)
   if (statfs_result == 0 &&
-      statfs_buffer.f_bavail == 0 && statfs_buffer.f_bfree == 0)
+      statfs_buffer.f_bavail == 0 && statfs_buffer.f_bfree == 0 &&
+      (/* linux/ncp_fs.h: NCP_SUPER_MAGIC == 0x564c */
+       statfs_buffer.f_type == 0x564c ||
+       /* man statfs: FUSE_SUPER_MAGIC == 0x65735546 */
+       statfs_buffer.f_type == 0x65735546))
     no_size = TRUE;
-#endif /* G_OS_WIN32 */
+#endif  /* __linux__ */
   
 #elif defined(USE_STATVFS)
   statfs_result = statvfs (local->filename, &statfs_buffer);
@@ -1690,36 +1682,21 @@ find_mountpoint_for (const char *file,
     }
 }
 
-static char *
-_g_local_file_find_topdir_for_internal (const char *file, dev_t file_dev)
+char *
+_g_local_file_find_topdir_for (const char *file)
 {
   char *dir;
   char *mountpoint = NULL;
   dev_t dir_dev;
 
   dir = get_parent (file, &dir_dev);
-  if (dir == NULL || dir_dev != file_dev)
-    {
-      g_free (dir);
-
-      return NULL;
-    }
+  if (dir == NULL)
+    return NULL;
 
   mountpoint = find_mountpoint_for (dir, dir_dev);
   g_free (dir);
 
   return mountpoint;
-}
-
-char *
-_g_local_file_find_topdir_for (const char *file)
-{
-  GStatBuf file_stat;
-
-  if (g_lstat (file, &file_stat) != 0)
-    return NULL;
-
-  return _g_local_file_find_topdir_for_internal (file, file_stat.st_dev);
 }
 
 static char *
@@ -1921,6 +1898,7 @@ g_local_file_trash (GFile         *file,
   char *original_name, *original_name_escaped;
   int i;
   char *data;
+  char *path;
   gboolean is_homedir_trash;
   char *delete_time = NULL;
   int fd;
@@ -1945,6 +1923,24 @@ g_local_file_trash (GFile         *file,
 
   is_homedir_trash = FALSE;
   trashdir = NULL;
+
+  /* On overlayfs, a file's st_dev will be different to the home directory's.
+   * We still want to create our trash directory under the home directory, so
+   * instead we should stat the directory that the file we're deleting is in as
+   * this will have the same st_dev.
+   */
+  if (!S_ISDIR (file_stat.st_mode))
+    {
+      path = g_path_get_dirname (local->filename);
+      /* If the parent is a symlink to a different device then it might have
+       * st_dev equal to the home directory's, in which case we will end up
+       * trying to rename across a filesystem boundary, which doesn't work. So
+       * we use g_stat here instead of g_lstat, to know where the symlink
+       * points to. */
+      g_stat (path, &file_stat);
+      g_free (path);
+    }
+
   if (file_stat.st_dev == home_stat.st_dev)
     {
       is_homedir_trash = TRUE;
@@ -1975,8 +1971,7 @@ g_local_file_trash (GFile         *file,
       uid = geteuid ();
       g_snprintf (uid_str, sizeof (uid_str), "%lu", (unsigned long)uid);
 
-      topdir = _g_local_file_find_topdir_for_internal (local->filename,
-                                                       file_stat.st_dev);
+      topdir = _g_local_file_find_topdir_for (local->filename);
       if (topdir == NULL)
 	{
           g_set_io_error (error,

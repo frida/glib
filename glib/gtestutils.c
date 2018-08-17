@@ -794,12 +794,7 @@ static void     gtest_default_log_handler       (const gchar    *log_domain,
                                                  GLogLevelFlags  log_level,
                                                  const gchar    *message,
                                                  gpointer        unused_data);
-static void     g_default_assertion_handler     (const char     *domain,
-                                                 const char     *file,
-                                                 int             line,
-                                                 const char     *func,
-                                                 const char     *message,
-                                                 gpointer       user_data);
+
 
 static const char * const g_test_result_names[] = {
   "OK",
@@ -856,8 +851,6 @@ static GTestConfig mutable_test_config_vars = {
 };
 const GTestConfig * const g_test_config_vars = &mutable_test_config_vars;
 static gboolean  no_g_set_prgname = FALSE;
-static GAssertionFunc assertion_handler = g_default_assertion_handler;
-static gpointer assertion_handler_data = NULL;
 
 /* --- functions --- */
 const char*
@@ -966,7 +959,20 @@ g_test_log (GTestLogType lbit,
       fail = result == G_TEST_RUN_FAILURE;
       if (test_tap_log)
         {
-          g_print ("%s %d %s", fail ? "not ok" : "ok", test_run_count, string1);
+          const gchar *ok;
+
+          /* The TAP representation for an expected failure starts with
+           * "not ok", even though it does not actually count as failing
+           * due to the use of the TODO directive. "ok # TODO" would mean
+           * a test that was expected to fail unexpectedly succeeded,
+           * for which GTestResult does not currently have a
+           * representation. */
+          if (fail || result == G_TEST_RUN_INCOMPLETE)
+            ok = "not ok";
+          else
+            ok = "ok";
+
+          g_print ("%s %d %s", ok, test_run_count, string1);
           if (result == G_TEST_RUN_INCOMPLETE)
             g_print (" # TODO %s\n", string2 ? string2 : "");
           else if (result == G_TEST_RUN_SKIPPED)
@@ -984,7 +990,7 @@ g_test_log (GTestLogType lbit,
             g_print ("Bail out!\n");
           g_abort ();
         }
-      if (result == G_TEST_RUN_SKIPPED)
+      if (result == G_TEST_RUN_SKIPPED || result == G_TEST_RUN_INCOMPLETE)
         test_skipped_count++;
       break;
     case G_TEST_LOG_MIN_RESULT:
@@ -1277,6 +1283,12 @@ parse_args (gint    *argc_p,
  *   `no-undefined`: Avoid tests for undefined behaviour
  *
  * - `--debug-log`: Debug test logging output.
+ *
+ * Since 2.58, if tests are compiled with `G_DISABLE_ASSERT` defined,
+ * g_test_init() will print an error and exit. This is to prevent no-op tests
+ * from being executed, as g_assert() is commonly (erroneously) used in unit
+ * tests, and is a no-op when compiled with `G_DISABLE_ASSERT`. Ensure your
+ * tests are compiled without `G_DISABLE_ASSERT` defined.
  *
  * Since: 2.16
  */
@@ -1727,11 +1739,13 @@ g_test_get_root (void)
  * particular code runs before or after a given test case, use
  * g_test_add(), which lets you specify setup and teardown functions.
  *
- * If all tests are skipped, this function will return 0 if
- * producing TAP output, or 77 (treated as "skip test" by Automake) otherwise.
+ * If all tests are skipped or marked as incomplete (expected failures),
+ * this function will return 0 if producing TAP output, or 77 (treated
+ * as "skip test" by Automake) otherwise.
  *
  * Returns: 0 on success, 1 on failure (assuming it returns at all),
- *   0 or 77 if all tests were skipped with g_test_skip()
+ *   0 or 77 if all tests were skipped with g_test_skip() and/or
+ *   g_test_incomplete()
  *
  * Since: 2.16
  */
@@ -2332,7 +2346,8 @@ test_case_run (GTestCase *tc)
   test_uri_base = old_base;
 
   return (success == G_TEST_RUN_SUCCESS ||
-          success == G_TEST_RUN_SKIPPED);
+          success == G_TEST_RUN_SKIPPED ||
+          success == G_TEST_RUN_INCOMPLETE);
 }
 
 static gboolean
@@ -2527,20 +2542,11 @@ gtest_default_log_handler (const gchar    *log_domain,
 }
 
 void
-g_assertion_set_handler (GAssertionFunc handler,
-                         gpointer user_data)
-{
-  assertion_handler_data = user_data;
-  assertion_handler = handler;
-}
-
-static void
-g_default_assertion_handler (const char     *domain,
-                             const char     *file,
-                             int             line,
-                             const char     *func,
-                             const char     *message,
-                             gpointer       user_data)
+g_assertion_message (const char     *domain,
+                     const char     *file,
+                     int             line,
+                     const char     *func,
+                     const char     *message)
 {
   char lstr[32];
   char *s;
@@ -2570,8 +2576,13 @@ g_default_assertion_handler (const char     *domain,
 
   /* store assertion message in global variable, so that it can be found in a
    * core dump */
-  g_free (__glib_assert_msg);
-  __glib_assert_msg = s;
+  if (__glib_assert_msg != NULL)
+    /* free the old one */
+    free (__glib_assert_msg);
+  __glib_assert_msg = (char*) malloc (strlen (s) + 1);
+  strcpy (__glib_assert_msg, s);
+
+  g_free (s);
 
   if (test_in_subprocess)
     {
@@ -2593,16 +2604,6 @@ g_default_assertion_handler (const char     *domain,
  * @func:
  * @expr: (nullable):
  */
-void
-g_assertion_message (const char     *domain,
-                     const char     *file,
-                     int             line,
-                     const char     *func,
-                     const char     *message)
-{
-  assertion_handler (domain, file, line, func, message, assertion_handler_data);
-}
-
 void
 g_assertion_message_expr (const char     *domain,
                           const char     *file,

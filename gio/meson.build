@@ -56,9 +56,6 @@ if host_system != 'windows'
     elif cc.links(res_query_test, args : '-lbind', name : 'res_query() in -lbind')
       network_libs += [ cc.find_library('bind') ]
       network_args += [ '-lbind' ]
-    elif cc.links(res_query_test, args : '-lsocket', name : 'res_query() in -lsocket')
-      network_libs += [ cc.find_library('socket') ]
-      network_args += [ '-lsocket' ]
     else
       error('Could not find res_query()')
     endif
@@ -155,6 +152,11 @@ if host_system != 'windows'
     glib_conf.set('HAVE_SIOCGIFADDR', '/**/')
   endif
 
+endif
+
+if host_system.contains('android')
+  # struct ip_mreq_source definition is broken on Android NDK <= r16
+  # See https://bugzilla.gnome.org/show_bug.cgi?id=740791
   if not cc.compiles('''#include <netinet/in.h>
                         int main(int argc, char ** argv) {
                           struct ip_mreq_source mc_req_src;
@@ -164,7 +166,6 @@ if host_system != 'windows'
                         name : 'ip_mreq_source.imr_interface has s_addr member')
     glib_conf.set('BROKEN_IP_MREQ_SOURCE_STRUCT', 1)
   endif
-
 endif
 
 gnetworking_h_conf.set('WSPIAPI_INCLUDE', gnetworking_h_wspiapi_include)
@@ -466,8 +467,6 @@ else
 endif
 
 gio_sources = files(
-  'gio-init.c',
-  'gio-fork.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',
@@ -782,19 +781,14 @@ else
   gio_dtrace_hdr = []
 endif
 
-internal_objects = []
-foreach dep : internal_deps
-  internal_objects += dep.extract_all_objects()
-endforeach
-
 libgio = library('gio-2.0',
   gioenumtypes_h, gioenumtypes_c, gnetworking_h, gio_sources,
   gio_dtrace_hdr, gio_dtrace_obj,
-  objects : internal_objects,
   version : library_version,
   soversion : soversion,
   install : true,
   include_directories : [configinc, gioinc],
+  link_with : internal_deps,
   #  '$(gio_win32_res_ldflag)',
   dependencies : [libz_dep, libdl_dep, libmount_dep, libglib_dep,
                   libgobject_dep, libgmodule_dep, selinux_dep, xattr_dep,
@@ -982,6 +976,6 @@ endif
 
 subdir('fam')
 
-if get_option('tests') and host_system != 'windows'
+if host_system != 'windows'
   subdir('tests')
 endif

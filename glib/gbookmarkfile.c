@@ -863,7 +863,8 @@ parse_application_element (GMarkupParseContext  *context,
       item->metadata->applications = g_list_prepend (item->metadata->applications, ai);
       g_hash_table_replace (item->metadata->apps_by_name, ai->name, ai);
     }
-      
+
+  g_free (ai->exec);
   ai->exec = g_strdup (exec);
   
   if (count)
@@ -879,11 +880,7 @@ parse_application_element (GMarkupParseContext  *context,
        * it for backward compatibility
        */
       if (stamp)
-#if defined (_MSC_VER) && (_MSC_VER >= 1300)
-        ai->stamp = (time_t) _atoi64 (stamp);
-#else
         ai->stamp = (time_t) atol (stamp);
-#endif
       else
         ai->stamp = time (NULL);
     }
@@ -919,7 +916,8 @@ parse_mime_type_element (GMarkupParseContext  *context,
     
   if (!item->metadata)
     item->metadata = bookmark_metadata_new ();
-  
+
+  g_free (item->metadata->mime_type);
   item->metadata->mime_type = g_strdup (type);
 }
 
@@ -968,7 +966,9 @@ parse_icon_element (GMarkupParseContext  *context,
     
   if (!item->metadata)
     item->metadata = bookmark_metadata_new ();
-  
+
+  g_free (item->metadata->icon_href);
+  g_free (item->metadata->icon_mime);
   item->metadata->icon_href = g_strdup (href);
   item->metadata->icon_mime = g_strdup (type);
 }

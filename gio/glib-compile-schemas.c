@@ -2112,6 +2112,7 @@ set_overrides (GHashTable  *schema_table,
         }
 
       g_strfreev (groups);
+      g_key_file_free (key_file);
     }
 
   return TRUE;
@@ -2150,8 +2151,6 @@ main (int argc, char **argv)
 #ifdef G_OS_WIN32
   gchar *tmp = NULL;
 #endif
-
-  glib_init ();
 
   setlocale (LC_ALL, "");
   textdomain (GETTEXT_PACKAGE);

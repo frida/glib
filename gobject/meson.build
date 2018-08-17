@@ -131,6 +131,4 @@ if enable_systemtap
     install : true)
 endif
 
-if get_option('tests')
-  subdir('tests')
-endif
+subdir('tests')

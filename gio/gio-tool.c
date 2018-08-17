@@ -253,8 +253,6 @@ main (int argc, char **argv)
   const char *command;
   gboolean do_help;
 
-  glib_init ();
-
   setlocale (LC_ALL, "");
   textdomain (GETTEXT_PACKAGE);
   bindtextdomain (GETTEXT_PACKAGE, GLIB_LOCALE_DIR);

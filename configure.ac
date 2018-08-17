@@ -922,20 +922,22 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
         AC_MSG_RESULT(no)
 ])
 
-AC_MSG_CHECKING([if ip_mreq_source.imr_interface has s_addr member])
-AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
-    [[
-        #include <netinet/in.h>
-    ]],
-    [[
-        struct ip_mreq_source mc_req_src;
-        mc_req_src.imr_interface.s_addr = 0;
-    ]])], [
-        AC_MSG_RESULT(yes)
-    ], [
-        AC_MSG_RESULT(no)
-        AC_DEFINE(BROKEN_IP_MREQ_SOURCE_STRUCT, 1, [struct ip_mreq_source definition is broken on Android NDK <= r16])
-])
+# See https://bugzilla.gnome.org/show_bug.cgi?id=740791
+AS_IF([test $glib_native_android = yes], [
+  AC_MSG_CHECKING([if ip_mreq_source.imr_interface has s_addr member])
+  AC_COMPILE_IFELSE([AC_LANG_PROGRAM(
+      [[
+          #include <netinet/in.h>
+      ]],
+      [[
+          struct ip_mreq_source mc_req_src;
+          mc_req_src.imr_interface.s_addr = 0;
+      ]])], [
+          AC_MSG_RESULT(yes)
+      ], [
+          AC_MSG_RESULT(no)
+          AC_DEFINE(BROKEN_IP_MREQ_SOURCE_STRUCT, 1, [struct ip_mreq_source definition is broken on Android NDK <= r16])
+  ])])
 
 AS_IF([test $glib_native_win32 = yes], [
   # <wspiapi.h> in the Windows SDK and in mingw-w64 has wrappers for
@@ -1552,14 +1554,14 @@ dnl **********************
 AC_MSG_CHECKING(for gspawn implementation)
 case "$host" in
   *-*-mingw*)
-    GSPAWN=gspawn-win32.lo
+    g_spawn_impl=win32
     ;;
   *)
-    GSPAWN=gspawn.lo
+    g_spawn_impl=unix
     ;;    
 esac
-AC_MSG_RESULT($GSPAWN)
-AC_SUBST(GSPAWN)
+AC_MSG_RESULT($g_spawn_impl)
+AM_CONDITIONAL(G_SPAWN_WIN32, [test "$g_spawn_impl" = "win32"])
 
 dnl *************************
 dnl *** GIOChannel checks ***
@@ -1568,14 +1570,14 @@ dnl *************************
 AC_MSG_CHECKING(for GIOChannel implementation)
 case "$host" in
   *-*-mingw*)
-    GIO=giowin32.lo
+    g_io_channel_impl=win32
     ;;
   *)
-    GIO=giounix.lo
+    g_io_channel_impl=unix
     ;;    
 esac
-AC_MSG_RESULT($GIO)
-AC_SUBST(GIO)
+AC_MSG_RESULT($g_io_channel_impl)
+AM_CONDITIONAL(G_IO_CHANNEL_WIN32, [test "$g_io_channel_impl" = "win32"])
 
 dnl *********************************
 dnl *** Directory for GIO modules ***
@@ -1771,18 +1773,6 @@ AM_CONDITIONAL(HAVE_LIBMOUNT, [test x$have_libmount = xyes])
 dnl ****************************************
 dnl *** platform dependent source checks ***
 dnl ****************************************
-
-AC_MSG_CHECKING(for platform-dependent source)
-case "$host" in
-  *-*-cygwin*|*-*-mingw*)
-    PLATFORMDEP=gwin32.lo
-    ;;
-  *)
-    PLATFORMDEP=
-    ;;    
-esac
-AC_MSG_RESULT($PLATFORMDEP)
-AC_SUBST(PLATFORMDEP)
 
 AC_MSG_CHECKING([whether to compile timeloop])
 case "$host" in
