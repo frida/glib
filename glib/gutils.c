@@ -2503,7 +2503,7 @@ const gchar *g_get_tmp_dir_utf8 (void) { return g_get_tmp_dir (); }
 gboolean
 g_check_setuid (void)
 {
-#if defined(HAVE_SYS_AUXV_H)
+#if defined(HAVE_GETAUXVAL)
   unsigned long value;
   int errsv;
 

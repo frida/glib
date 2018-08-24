@@ -486,6 +486,11 @@ foreach f : functions
   endif
 endforeach
 
+# Check that getauxval() is usable; must use header
+if cc.has_function('getauxval', prefix : '#include <sys/auxv.h>')
+  glib_conf.set('HAVE_GETAUXVAL', 1)
+endif
+
 # Check that stpcpy() is usable; must use header
 if cc.has_function('stpcpy', prefix : '#include <string.h>')
   glib_conf.set('HAVE_STPCPY', 1)
