@@ -894,19 +894,6 @@ g_socket_class_init (GSocketClass *klass)
 {
   GObjectClass *gobject_class G_GNUC_UNUSED = G_OBJECT_CLASS (klass);
 
-#ifdef SIGPIPE
-  /* There is no portable, thread-safe way to avoid having the process
-   * be killed by SIGPIPE when calling send() or sendmsg(), so we are
-   * forced to simply ignore the signal process-wide.
-   *
-   * Even if we ignore it though, gdb will still stop if the app
-   * receives a SIGPIPE, which can be confusing and annoying. So when
-   * possible, we also use MSG_NOSIGNAL / SO_NOSIGPIPE elsewhere to
-   * prevent the signal from occurring at all.
-   */
-  signal (SIGPIPE, SIG_IGN);
-#endif
-
   gobject_class->finalize = g_socket_finalize;
   gobject_class->constructed = g_socket_constructed;
   gobject_class->set_property = g_socket_set_property;
