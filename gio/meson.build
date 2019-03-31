@@ -56,9 +56,6 @@ if host_system != 'windows'
     elif cc.links(res_query_test, args : '-lbind', name : 'res_query() in -lbind')
       network_libs += [ cc.find_library('bind') ]
       network_args += [ '-lbind' ]
-    elif cc.links(res_query_test, args : '-lsocket', name : 'res_query() in -lsocket')
-      network_libs += [ cc.find_library('socket') ]
-      network_args += [ '-lsocket' ]
     else
       error('Could not find res_query()')
     endif
@@ -241,7 +238,8 @@ subdir('gdbus-2.0/codegen')
 xdp_dbus_generated = custom_target('xdp-dbus',
     input : ['org.freedesktop.portal.Documents.xml',
              'org.freedesktop.portal.OpenURI.xml',
-             'org.freedesktop.portal.ProxyResolver.xml'],
+             'org.freedesktop.portal.ProxyResolver.xml',
+             'org.freedesktop.portal.Trash.xml'],
     output : ['xdp-dbus.h', 'xdp-dbus.c'],
     depend_files : gdbus_codegen_built_files,
     command : [python, gdbus_codegen,
@@ -256,6 +254,8 @@ xdp_dbus_generated = custom_target('xdp-dbus',
                '--annotate', 'org.freedesktop.portal.Documents.AddFull()',
                              'org.gtk.GDBus.C.UnixFD', 'true',
                '--annotate', 'org.freedesktop.portal.OpenURI.OpenFile()',
+                             'org.gtk.GDBus.C.UnixFD', 'true',
+               '--annotate', 'org.freedesktop.portal.Trash.TrashFile()',
                              'org.gtk.GDBus.C.UnixFD', 'true',
                '@INPUT@'])
 
@@ -354,6 +354,12 @@ local_sources = files(
 
 platform_deps = []
 internal_deps = []
+# TODO: internal_objects is a workaround for
+# <https://github.com/mesonbuild/meson/issues/3934> and
+# <https://github.com/mesonbuild/meson/issues/3937>. When we can depend
+# on a meson version where those are fixed, revert the commit that
+# introduced this workaround.
+internal_objects = []
 appinfo_sources = []
 contenttype_sources = []
 portal_sources = []
@@ -389,6 +395,7 @@ if host_system != 'windows'
     'gopenuriportal.c',
     'gnetworkmonitorportal.c',
     'gproxyresolverportal.c',
+    'gtrashportal.c',
     'gportalsupport.c',
     'gportalnotificationbackend.c'),
     xdp_dbus_generated
@@ -413,6 +420,7 @@ if host_system != 'windows'
     if glib_have_os_x_9_or_later
       unix_sources += files('gcocoanotificationbackend.m')
     endif
+    application_headers += files('gosxappinfo.h')
   else
     contenttype_sources += files('gcontenttype.c')
     appinfo_sources += files('gdesktopappinfo.c')
@@ -427,6 +435,7 @@ if host_system != 'windows'
 
   subdir('xdgmime')
   internal_deps += [xdgmime_lib]
+  internal_objects += [xdgmime_lib.extract_all_objects()]
 
   install_headers(gio_unix_include_headers, subdir : 'gio-unix-2.0/gio')
 
@@ -454,15 +463,13 @@ else
     'gwin32notificationbackend.c',
   )
 
-  if get_option('default_library') != 'static'
-    gio_win_rc = configure_file(
-      input: 'gio.rc.in',
-      output: 'gio.rc',
-      configuration: glibconfig_conf,
-    )
-    gio_win_res = windows.compile_resources(gio_win_rc)
-    win32_sources += [gio_win_res]
-  endif
+  gio_win_rc = configure_file(
+    input: 'gio.rc.in',
+    output: 'gio.rc',
+    configuration: glibconfig_conf,
+  )
+  gio_win_res = windows.compile_resources(gio_win_rc)
+  win32_sources += [gio_win_res]
 
   gio_win32_include_headers = files(
     'gwin32inputstream.h',
@@ -472,8 +479,6 @@ else
 endif
 
 gio_sources = files(
-  'gio-init.c',
-  'gio-fork.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',
@@ -750,23 +755,26 @@ gioenumtypes_c = custom_target('gioenumtypes_c',
              '--template', files('gioenumtypes.c.template'),
              '@INPUT@', gnetworking_h])
 
-gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h])
+gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_h])
 
 # inotify
 if glib_conf.has('HAVE_SYS_INOTIFY_H') and have_func_inotify_init1
   subdir('inotify')
   internal_deps += [ inotify_lib ]
+  internal_objects += [inotify_lib.extract_all_objects()]
 endif
 
 # kevent
 if have_func_kqueue and have_func_kevent
   subdir('kqueue')
   internal_deps += [ kqueue_lib ]
+  internal_objects += [kqueue_lib.extract_all_objects()]
 endif
 
 if host_system == 'windows'
   subdir('win32')
   internal_deps += [ giowin32_lib ]
+  internal_objects += [giowin32_lib.extract_all_objects()]
 endif
 
 if have_bash
@@ -788,17 +796,13 @@ else
   gio_dtrace_hdr = []
 endif
 
-internal_objects = []
-foreach dep : internal_deps
-  internal_objects += dep.extract_all_objects()
-endforeach
-
 libgio = library('gio-2.0',
   gioenumtypes_h, gioenumtypes_c, gnetworking_h, gio_sources,
   gio_dtrace_hdr, gio_dtrace_obj,
   objects : internal_objects,
   version : library_version,
   soversion : soversion,
+  darwin_versions : darwin_versions,
   install : true,
   include_directories : [configinc, gioinc],
   #  '$(gio_win32_res_ldflag)',
@@ -816,10 +820,14 @@ if giomodulesdir == ''
   giomodulesdir = join_paths('${libdir}', 'gio', 'modules')
 endif
 
-pkg.generate(libraries : libgio,
+schemas_subdir = join_paths('glib-2.0', 'schemas')
+
+pkg.generate(libgio,
   libraries_private : [osx_ldflags],
   requires : ['glib-2.0', 'gobject-2.0'],
-  variables : ['bindir=' + join_paths('${prefix}', get_option('bindir')),
+  variables : ['datadir=' + join_paths('${prefix}', get_option('datadir')),
+               'schemasdir=' + join_paths('${datadir}', schemas_subdir),
+               'bindir=' + join_paths('${prefix}', get_option('bindir')),
                'giomoduledir=' + giomodulesdir,
                'glib_compile_schemas=' + join_paths('${bindir}', 'glib-compile-schemas'),
                'glib_compile_resources=' + join_paths('${bindir}', 'glib-compile-resources'),
@@ -852,9 +860,8 @@ else
 endif
 
 libgio_dep = declare_dependency(link_with : libgio,
-  dependencies : [gioenumtypes_dep],
-  # We sadly need to export configinc here because everyone includes <gio/*.h>
-  include_directories : [configinc, gioinc])
+  dependencies : [libgmodule_dep, libgobject_dep, gioenumtypes_dep],
+  include_directories : [gioinc])
 
 if host_system == 'windows'
   # Hack till https://github.com/mesonbuild/meson/issues/2324 is fixed
@@ -957,7 +964,7 @@ executable('gsettings', 'gsettings-tool.c',
   link_args : noseh_link_args,
   dependencies : [libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
 install_data('gschema.dtd',
-  install_dir : join_paths(get_option('datadir'), 'glib-2.0/schemas'))
+  install_dir : join_paths(get_option('datadir'), schemas_subdir))
 
 install_data(['gschema.loc', 'gschema.its'],
   install_dir : join_paths(get_option('datadir'), 'gettext/its'))
@@ -987,7 +994,4 @@ if enable_systemtap
 endif
 
 subdir('fam')
-
-if get_option('tests') and host_system != 'windows'
-  subdir('tests')
-endif
+subdir('tests')

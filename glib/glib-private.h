@@ -22,12 +22,6 @@
 #include "gwakeup.h"
 #include "gstdioprivate.h"
 
-#if defined(__GNUC__)
-# define _g_alignof(type) (__alignof__ (type))
-#else
-# define _g_alignof(type) (G_STRUCT_OFFSET (struct { char a; type b; }, b))
-#endif
-
 GMainContext *          g_get_worker_context            (void);
 gboolean                g_check_setuid                  (void);
 GMainContext *          g_main_context_new_with_next_id (guint next_id);
@@ -67,18 +61,20 @@ typedef struct {
 
   /* See gstdio.c */
 #ifdef G_OS_WIN32
-  int                   (* g_win32_stat_utf8)           (const gchar       *filename,
-                                                         GWin32PrivateStat *buf);
+  int                   (* g_win32_stat_utf8)           (const gchar        *filename,
+                                                         GWin32PrivateStat  *buf);
 
-  int                   (* g_win32_lstat_utf8)          (const gchar       *filename,
-                                                         GWin32PrivateStat *buf);
+  int                   (* g_win32_lstat_utf8)          (const gchar        *filename,
+                                                         GWin32PrivateStat  *buf);
 
-  int                   (* g_win32_readlink_utf8)       (const gchar *filename,
-                                                         gchar       *buf,
-                                                         gsize        buf_size);
+  int                   (* g_win32_readlink_utf8)       (const gchar        *filename,
+                                                         gchar              *buf,
+                                                         gsize               buf_size,
+                                                         gchar             **alloc_buf,
+                                                         gboolean            terminate);
 
-  int                   (* g_win32_fstat)               (int                fd,
-                                                         GWin32PrivateStat *buf);
+  int                   (* g_win32_fstat)               (int                 fd,
+                                                         GWin32PrivateStat  *buf);
 #endif
 
 

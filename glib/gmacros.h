@@ -82,6 +82,21 @@
 
 #undef G_INLINE_DEFINE_NEEDED
 
+/**
+ * G_INLINE_FUNC:
+ *
+ * This macro used to be used to conditionally define inline functions
+ * in a compatible way before this feature was supported in all
+ * compilers.  These days, GLib requires inlining support from the
+ * compiler, so your GLib-using programs can safely assume that the
+ * "inline" keywork works properly.
+ *
+ * Never use this macro anymore.  Just say "static inline".
+ *
+ * Deprecated: 2.48: Use "static inline" instead
+ */
+
+#ifndef G_DISABLE_DEPRECATED
 /* For historical reasons we need to continue to support those who
  * define G_IMPLEMENT_INLINES to mean "don't implement this here".
  */
@@ -91,9 +106,91 @@
 #else
 #  define G_INLINE_FUNC static inline
 #endif /* G_IMPLEMENT_INLINES */
+#endif /* !G_DISABLE_DEPRECATED */
 
 /* Provide macros to feature the GCC function attribute.
  */
+
+/**
+ * G_GNUC_PURE:
+ *
+ * Expands to the GNU C `pure` function attribute if the compiler is gcc.
+ * Declaring a function as `pure` enables better optimization of calls to
+ * the function. A `pure` function has no effects except its return value
+ * and the return value depends only on the parameters and/or global
+ * variables.
+ *
+ * Place the attribute after the declaration, just before the semicolon.
+ *
+ * |[<!-- language="C" -->
+ * gboolean g_type_check_value (const GValue *value) G_GNUC_PURE;
+ * ]|
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-pure-function-attribute) for more details.
+ */
+
+/**
+ * G_GNUC_MALLOC:
+ *
+ * Expands to the
+ * [GNU C `malloc` function attribute](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-functions-that-behave-like-malloc)
+ * if the compiler is gcc.
+ * Declaring a function as `malloc` enables better optimization of the function,
+ * but must only be done if the allocation behaviour of the function is fully
+ * understood, otherwise miscompilation can result.
+ *
+ * A function can have the `malloc` attribute if it returns a pointer which is
+ * guaranteed to not alias with any other pointer valid when the function
+ * returns, and moreover no pointers to valid objects occur in any storage
+ * addressed by the returned pointer.
+ *
+ * In practice, this means that `G_GNUC_MALLOC` can be used with any function
+ * which returns unallocated or zeroed-out memory, but not with functions which
+ * return initialised structures containing other pointers, or with functions
+ * that reallocate memory. This definition changed in GLib 2.58 to match the
+ * stricter definition introduced around GCC 5.
+ *
+ * Place the attribute after the declaration, just before the semicolon.
+ *
+ * |[<!-- language="C" -->
+ * gpointer g_malloc (gsize n_bytes) G_GNUC_MALLOC G_GNUC_ALLOC_SIZE(1);
+ * ]|
+ *
+ * See the
+ * [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-functions-that-behave-like-malloc)
+ * for more details.
+ *
+ * Since: 2.6
+ */
+
+/**
+ * G_GNUC_NO_INLINE:
+ *
+ * Expands to the GNU C `noinline` function attribute if the compiler is gcc.
+ * If the compiler is not gcc, this macro expands to nothing.
+ *
+ * Declaring a function as `noinline` prevents the function from being
+ * considered for inlining.
+ *
+ * The attribute may be placed before the declaration or definition,
+ * right before the `static` keyword.
+ *
+ * |[<!-- language="C" -->
+ * G_GNUC_NO_INLINE
+ * static int
+ * do_not_inline_this (void)
+ * {
+ *   ...
+ * }
+ * ]|
+ *
+ * See the
+ * [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noinline-function-attribute)
+ * for more details.
+ *
+ * Since: 2.58
+ */
+
 #if    __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 96)
 #define G_GNUC_PURE __attribute__((__pure__))
 #define G_GNUC_MALLOC __attribute__((__malloc__))
@@ -104,6 +201,25 @@
 #define G_GNUC_NO_INLINE
 #endif
 
+/**
+ * G_GNUC_NULL_TERMINATED:
+ *
+ * Expands to the GNU C `sentinel` function attribute if the compiler is gcc.
+ * This function attribute only applies to variadic functions and instructs
+ * the compiler to check that the argument list is terminated with an
+ * explicit %NULL.
+ *
+ * Place the attribute after the declaration, just before the semicolon.
+ *
+ * |[<!-- language="C" -->
+ * gchar *g_strconcat (const gchar *string1,
+ *                     ...) G_GNUC_NULL_TERMINATED;
+ * ]|
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-sentinel-function-attribute) for more details.
+ *
+ * Since: 2.8
+ */
 #if     __GNUC__ >= 4
 #define G_GNUC_NULL_TERMINATED __attribute__((__sentinel__))
 #else
@@ -150,6 +266,49 @@
 #define g_macro__has_builtin(x) 0
 #endif
 
+/**
+ * G_GNUC_ALLOC_SIZE:
+ * @x: the index of the argument specifying the allocation size
+ *
+ * Expands to the GNU C `alloc_size` function attribute if the compiler
+ * is a new enough gcc. This attribute tells the compiler that the
+ * function returns a pointer to memory of a size that is specified
+ * by the @xth function parameter.
+ *
+ * Place the attribute after the function declaration, just before the
+ * semicolon.
+ *
+ * |[<!-- language="C" -->
+ * gpointer g_malloc (gsize n_bytes) G_GNUC_MALLOC G_GNUC_ALLOC_SIZE(1);
+ * ]|
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-alloc_005fsize-function-attribute) for more details.
+ *
+ * Since: 2.18
+ */
+
+/**
+ * G_GNUC_ALLOC_SIZE2:
+ * @x: the index of the argument specifying one factor of the allocation size
+ * @y: the index of the argument specifying the second factor of the allocation size
+ *
+ * Expands to the GNU C `alloc_size` function attribute if the compiler is a
+ * new enough gcc. This attribute tells the compiler that the function returns
+ * a pointer to memory of a size that is specified by the product of two
+ * function parameters.
+ *
+ * Place the attribute after the function declaration, just before the
+ * semicolon.
+ *
+ * |[<!-- language="C" -->
+ * gpointer g_malloc_n (gsize n_blocks,
+ *                      gsize n_block_bytes) G_GNUC_MALLOC G_GNUC_ALLOC_SIZE2(1, 2);
+ * ]|
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-alloc_005fsize-function-attribute) for more details.
+ *
+ * Since: 2.18
+ */
 #if     (!defined(__clang__) && ((__GNUC__ > 4) || (__GNUC__ == 4 && __GNUC_MINOR__ >= 3))) || \
         (defined(__clang__) && g_macro__has_attribute(__alloc_size__))
 #define G_GNUC_ALLOC_SIZE(x) __attribute__((__alloc_size__(x)))
@@ -159,17 +318,193 @@
 #define G_GNUC_ALLOC_SIZE2(x,y)
 #endif
 
+/**
+ * G_GNUC_PRINTF:
+ * @format_idx: the index of the argument corresponding to the
+ *     format string (the arguments are numbered from 1)
+ * @arg_idx: the index of the first of the format arguments, or 0 if
+ *     there are no format arguments
+ *
+ * Expands to the GNU C `format` function attribute if the compiler is gcc.
+ * This is used for declaring functions which take a variable number of
+ * arguments, with the same syntax as `printf()`. It allows the compiler
+ * to type-check the arguments passed to the function.
+ *
+ * Place the attribute after the function declaration, just before the
+ * semicolon.
+ *
+ * See the
+ * [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-Wformat-3288)
+ * for more details.
+ *
+ * |[<!-- language="C" -->
+ * gint g_snprintf (gchar  *string,
+ *                  gulong       n,
+ *                  gchar const *format,
+ *                  ...) G_GNUC_PRINTF (3, 4);
+ * ]|
+ */
+
+/**
+ * G_GNUC_SCANF:
+ * @format_idx: the index of the argument corresponding to
+ *     the format string (the arguments are numbered from 1)
+ * @arg_idx: the index of the first of the format arguments, or 0 if
+ *     there are no format arguments
+ *
+ * Expands to the GNU C `format` function attribute if the compiler is gcc.
+ * This is used for declaring functions which take a variable number of
+ * arguments, with the same syntax as `scanf()`. It allows the compiler
+ * to type-check the arguments passed to the function.
+ *
+ * |[<!-- language="C" -->
+ * int my_scanf (MyStream *stream,
+ *               const char *format,
+ *               ...) G_GNUC_SCANF (2, 3);
+ * int my_vscanf (MyStream *stream,
+ *                const char *format,
+ *                va_list ap) G_GNUC_SCANF (2, 0);
+ * ]|
+ *
+ * See the
+ * [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-Wformat-3288)
+ * for details.
+ */
+
+/**
+ * G_GNUC_STRFTIME:
+ * @format_idx: the index of the argument corresponding to
+ *     the format string (the arguments are numbered from 1)
+ *
+ * Expands to the GNU C `strftime` format function attribute if the compiler
+ * is gcc. This is used for declaring functions which take a format argument
+ * which is passed to `strftime()` or an API implementing its formats. It allows
+ * the compiler check the format passed to the function.
+ *
+ * |[<!-- language="C" -->
+ * gsize my_strftime (MyBuffer *buffer,
+ *                    const char *format,
+ *                    const struct tm *tm) G_GNUC_STRFTIME (2);
+ * ]|
+ *
+ * See the
+ * [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-Wformat-3288)
+ * for details.
+ *
+ * Since: 2.60
+ */
+
+/**
+ * G_GNUC_FORMAT:
+ * @arg_idx: the index of the argument
+ *
+ * Expands to the GNU C `format_arg` function attribute if the compiler
+ * is gcc. This function attribute specifies that a function takes a
+ * format string for a `printf()`, `scanf()`, `strftime()` or `strfmon()` style
+ * function and modifies it, so that the result can be passed to a `printf()`,
+ * `scanf()`, `strftime()` or `strfmon()` style function (with the remaining
+ * arguments to the format function the same as they would have been
+ * for the unmodified string).
+ *
+ * Place the attribute after the function declaration, just before the
+ * semicolon.
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-Wformat-nonliteral-1) for more details.
+ *
+ * |[<!-- language="C" -->
+ * gchar *g_dgettext (gchar *domain_name, gchar *msgid) G_GNUC_FORMAT (2);
+ * ]|
+ */
+
+/**
+ * G_GNUC_NORETURN:
+ *
+ * Expands to the GNU C `noreturn` function attribute if the compiler is gcc.
+ * It is used for declaring functions which never return. It enables
+ * optimization of the function, and avoids possible compiler warnings.
+ *
+ * Place the attribute after the declaration, just before the semicolon.
+ *
+ * |[<!-- language="C" -->
+ * void g_abort (void) G_GNUC_NORETURN;
+ * ]|
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noreturn-function-attribute) for more details.
+ */
+
+/**
+ * G_GNUC_CONST:
+ *
+ * Expands to the GNU C `const` function attribute if the compiler is gcc.
+ * Declaring a function as `const` enables better optimization of calls to
+ * the function. A `const` function doesn't examine any values except its
+ * parameters, and has no effects except its return value.
+ *
+ * Place the attribute after the declaration, just before the semicolon.
+ *
+ * |[<!-- language="C" -->
+ * gchar g_ascii_tolower (gchar c) G_GNUC_CONST;
+ * ]|
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-const-function-attribute) for more details.
+ *
+ * A function that has pointer arguments and examines the data pointed to
+ * must not be declared `const`. Likewise, a function that calls a non-`const`
+ * function usually must not be `const`. It doesn't make sense for a `const`
+ * function to return `void`.
+ */
+
+/**
+ * G_GNUC_UNUSED:
+ *
+ * Expands to the GNU C `unused` function attribute if the compiler is gcc.
+ * It is used for declaring functions and arguments which may never be used.
+ * It avoids possible compiler warnings.
+ *
+ * For functions, place the attribute after the declaration, just before the
+ * semicolon. For arguments, place the attribute at the beginning of the
+ * argument declaration.
+ *
+ * |[<!-- language="C" -->
+ * void my_unused_function (G_GNUC_UNUSED gint unused_argument,
+ *                          gint other_argument) G_GNUC_UNUSED;
+ * ]|
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-unused-function-attribute) for more details.
+ */
+
+/**
+ * G_GNUC_NO_INSTRUMENT:
+ *
+ * Expands to the GNU C `no_instrument_function` function attribute if the
+ * compiler is gcc. Functions with this attribute will not be instrumented
+ * for profiling, when the compiler is called with the
+ * `-finstrument-functions` option.
+ *
+ * Place the attribute after the declaration, just before the semicolon.
+ *
+ * |[<!-- language="C" -->
+ * int do_uninteresting_things (void) G_GNUC_NO_INSTRUMENT;
+ * ]|
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-no_005finstrument_005ffunction-function-attribute) for more details.
+ */
+
 #if     __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ > 4)
 #if !defined (__clang__) && G_GNUC_CHECK_VERSION (4, 4)
 #define G_GNUC_PRINTF( format_idx, arg_idx )    \
   __attribute__((__format__ (gnu_printf, format_idx, arg_idx)))
 #define G_GNUC_SCANF( format_idx, arg_idx )     \
   __attribute__((__format__ (gnu_scanf, format_idx, arg_idx)))
+#define G_GNUC_STRFTIME( format_idx )    \
+  __attribute__((__format__ (gnu_strftime, format_idx, 0)))
 #else
 #define G_GNUC_PRINTF( format_idx, arg_idx )    \
   __attribute__((__format__ (__printf__, format_idx, arg_idx)))
 #define G_GNUC_SCANF( format_idx, arg_idx )     \
   __attribute__((__format__ (__scanf__, format_idx, arg_idx)))
+#define G_GNUC_STRFTIME( format_idx )    \
+  __attribute__((__format__ (__strftime__, format_idx, 0)))
 #endif
 #define G_GNUC_FORMAT( arg_idx )                \
   __attribute__((__format_arg__ (arg_idx)))
@@ -184,19 +519,99 @@
 #else   /* !__GNUC__ */
 #define G_GNUC_PRINTF( format_idx, arg_idx )
 #define G_GNUC_SCANF( format_idx, arg_idx )
+#define G_GNUC_STRFTIME( format_idx )
 #define G_GNUC_FORMAT( arg_idx )
+/* NOTE: MSVC has __declspec(noreturn) but unlike GCC __attribute__,
+ * __declspec can only be placed at the start of the function prototype
+ * and not at the end, so we can't use it without breaking API.
+ */
 #define G_GNUC_NORETURN
 #define G_GNUC_CONST
 #define G_GNUC_UNUSED
 #define G_GNUC_NO_INSTRUMENT
 #endif  /* !__GNUC__ */
 
+/**
+ * G_GNUC_FALLTHROUGH:
+ *
+ * Expands to the GNU C `fallthrough` statement attribute if the compiler is gcc.
+ * This allows declaring case statement to explicitly fall through in switch
+ * statements. To enable this feature, use `-Wimplicit-fallthrough` during
+ * compilation.
+ *
+ * Put the attribute right before the case statement you want to fall through
+ * to.
+ *
+ * |[<!-- language="C" -->
+ * switch (foo)
+ *   {
+ *     case 1:
+ *       g_message ("it's 1");
+ *       G_GNUC_FALLTHROUGH;
+ *     case 2:
+ *       g_message ("it's either 1 or 2");
+ *       break;
+ *   }
+ * ]|
+ *
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Statement-Attributes.html#index-fallthrough-statement-attribute) for more details.
+ *
+ * Since: 2.60
+ */
+#if    __GNUC__ > 6
+#define G_GNUC_FALLTHROUGH __attribute__((fallthrough))
+#else
+#define G_GNUC_FALLTHROUGH
+#endif /* __GNUC__ */
+
+/**
+ * G_GNUC_DEPRECATED:
+ *
+ * Expands to the GNU C `deprecated` attribute if the compiler is gcc.
+ * It can be used to mark `typedef`s, variables and functions as deprecated.
+ * When called with the `-Wdeprecated-declarations` option,
+ * gcc will generate warnings when deprecated interfaces are used.
+ *
+ * Place the attribute after the declaration, just before the semicolon.
+ *
+ * |[<!-- language="C" -->
+ * int my_mistake (void) G_GNUC_DEPRECATED;
+ * ]|
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-deprecated-function-attribute) for more details.
+ *
+ * Since: 2.2
+ */
 #if    __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 1)
 #define G_GNUC_DEPRECATED __attribute__((__deprecated__))
 #else
 #define G_GNUC_DEPRECATED
 #endif /* __GNUC__ */
 
+/**
+ * G_GNUC_DEPRECATED_FOR:
+ * @f: the intended replacement for the deprecated symbol,
+ *     such as the name of a function
+ *
+ * Like %G_GNUC_DEPRECATED, but names the intended replacement for the
+ * deprecated symbol if the version of gcc in use is new enough to support
+ * custom deprecation messages.
+ *
+ * Place the attribute after the declaration, just before the semicolon.
+ *
+ * |[<!-- language="C" -->
+ * int my_mistake (void) G_GNUC_DEPRECATED_FOR(my_replacement);
+ * ]|
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-deprecated-function-attribute) for more details.
+ *
+ * Note that if @f is a macro, it will be expanded in the warning message.
+ * You can enclose it in quotes to prevent this. (The quotes will show up
+ * in the warning, but it's better than showing the macro expansion.)
+ *
+ * Since: 2.26
+ */
 #if    __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
 #define G_GNUC_DEPRECATED_FOR(f)                        \
   __attribute__((deprecated("Use " #f " instead")))
@@ -233,12 +648,41 @@
 #define G_GNUC_END_IGNORE_DEPRECATIONS
 #endif
 
+/**
+ * G_GNUC_MAY_ALIAS:
+ *
+ * Expands to the GNU C `may_alias` type attribute if the compiler is gcc.
+ * Types with this attribute will not be subjected to type-based alias
+ * analysis, but are assumed to alias with any other type, just like `char`.
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Type-Attributes.html#index-may_005falias-type-attribute) for details.
+ *
+ * Since: 2.14
+ */
 #if     __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 3)
 #define G_GNUC_MAY_ALIAS __attribute__((may_alias))
 #else
 #define G_GNUC_MAY_ALIAS
 #endif
 
+/**
+ * G_GNUC_WARN_UNUSED_RESULT:
+ *
+ * Expands to the GNU C `warn_unused_result` function attribute if the compiler
+ * is gcc. This function attribute makes the compiler emit a warning if the
+ * result of a function call is ignored.
+ *
+ * Place the attribute after the declaration, just before the semicolon.
+ *
+ * |[<!-- language="C" -->
+ * GList *g_list_append (GList *list,
+ *                       gpointer data) G_GNUC_WARN_UNUSED_RESULT;
+ * ]|
+ *
+ * See the [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-warn_005funused_005fresult-function-attribute) for more details.
+ *
+ * Since: 2.10
+ */
 #if    __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 4)
 #define G_GNUC_WARN_UNUSED_RESULT __attribute__((warn_unused_result))
 #else
@@ -289,10 +733,10 @@
 #endif
 
 /* Provide a string identifying the current function, non-concatenatable */
-#if defined (__GNUC__) && defined (__cplusplus)
-#define G_STRFUNC     ((const char*) (__PRETTY_FUNCTION__))
-#elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#if defined (__func__)
 #define G_STRFUNC     ((const char*) (__func__))
+#elif defined (__GNUC__) && defined (__cplusplus)
+#define G_STRFUNC     ((const char*) (__PRETTY_FUNCTION__))
 #elif defined (__GNUC__) || (defined(_MSC_VER) && (_MSC_VER > 1300))
 #define G_STRFUNC     ((const char*) (__FUNCTION__))
 #else
@@ -394,6 +838,35 @@
 #endif
 #endif
 
+/* Provide G_ALIGNOF alignment macro.
+ *
+ * Note we cannot use the gcc __alignof__ operator here, as that returns the
+ * preferred alignment rather than the minimal alignment. See
+ * https://gitlab.gnome.org/GNOME/glib/merge_requests/538/diffs#note_390790.
+ */
+
+/**
+ * G_ALIGNOF
+ * @type: a type-name
+ *
+ * Return the minimal alignment required by the platform ABI for values of the given
+ * type. The address of a variable or struct member of the given type must always be
+ * a multiple of this alignment. For example, most platforms require int variables
+ * to be aligned at a 4-byte boundary, so `G_ALIGNOF (int)` is 4 on most platforms.
+ *
+ * Note this is not necessarily the same as the value returned by GCC’s
+ * `__alignof__` operator, which returns the preferred alignment for a type.
+ * The preferred alignment may be a stricter alignment than the minimal
+ * alignment.
+ *
+ * Since: 2.60
+ */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__cplusplus)
+#define G_ALIGNOF(type) _Alignof (type)
+#else
+#define G_ALIGNOF(type) (G_STRUCT_OFFSET (struct { char a; type b; }, b))
+#endif
+
 /* Deprecated -- do not use. */
 #ifndef G_DISABLE_DEPRECATED
 #ifdef G_DISABLE_CONST_RETURNS
@@ -401,7 +874,7 @@
 #else
 #define G_CONST_RETURN const
 #endif
-#endif
+#endif /* !G_DISABLE_DEPRECATED */
 
 /*
  * The G_LIKELY and G_UNLIKELY macros let the programmer give hints to 
@@ -421,8 +894,8 @@
       _g_boolean_var_ = 0;                      \
    _g_boolean_var_;                             \
 })
-#define G_LIKELY(expr) (__builtin_expect (_G_BOOLEAN_EXPR((expr)), 1))
-#define G_UNLIKELY(expr) (__builtin_expect (_G_BOOLEAN_EXPR((expr)), 0))
+#define G_LIKELY(expr) (__builtin_expect (_G_BOOLEAN_EXPR(expr), 1))
+#define G_UNLIKELY(expr) (__builtin_expect (_G_BOOLEAN_EXPR(expr), 0))
 #else
 #define G_LIKELY(expr) (expr)
 #define G_UNLIKELY(expr) (expr)
@@ -478,6 +951,7 @@
 
 /* these macros are private */
 #define _GLIB_AUTOPTR_FUNC_NAME(TypeName) glib_autoptr_cleanup_##TypeName
+#define _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) glib_autoptr_clear_##TypeName
 #define _GLIB_AUTOPTR_TYPENAME(TypeName)  TypeName##_autoptr
 #define _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) glib_listautoptr_cleanup_##TypeName
 #define _GLIB_AUTOPTR_LIST_TYPENAME(TypeName)  TypeName##_listautoptr
@@ -485,22 +959,27 @@
 #define _GLIB_AUTOPTR_SLIST_TYPENAME(TypeName)  TypeName##_slistautoptr
 #define _GLIB_AUTO_FUNC_NAME(TypeName)    glib_auto_cleanup_##TypeName
 #define _GLIB_CLEANUP(func)               __attribute__((cleanup(func)))
+#define _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, ParentName, cleanup) \
+  typedef TypeName *_GLIB_AUTOPTR_TYPENAME(TypeName);                                                           \
+  typedef GList *_GLIB_AUTOPTR_LIST_TYPENAME(TypeName);                                                         \
+  typedef GSList *_GLIB_AUTOPTR_SLIST_TYPENAME(TypeName);                                                       \
+  G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (TypeName *_ptr)                     \
+    { if (_ptr) (cleanup) ((ParentName *) _ptr); }                                                              \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_FUNC_NAME(TypeName) (TypeName **_ptr)                          \
+    { _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (*_ptr); }                                                        \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) (GList **_l)                          \
+    { g_list_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                       \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) (GSList **_l)                        \
+    { g_slist_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                      \
+  G_GNUC_END_IGNORE_DEPRECATIONS
 #define _GLIB_DEFINE_AUTOPTR_CHAINUP(ModuleObjName, ParentName) \
-  typedef ModuleObjName *_GLIB_AUTOPTR_TYPENAME(ModuleObjName);                                          \
-  static inline void _GLIB_AUTOPTR_FUNC_NAME(ModuleObjName) (ModuleObjName **_ptr) {                     \
-    _GLIB_AUTOPTR_FUNC_NAME(ParentName) ((ParentName **) _ptr); }                                        \
+  _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(ModuleObjName, ParentName, _GLIB_AUTOPTR_CLEAR_FUNC_NAME(ParentName))
 
 
 /* these macros are API */
 #define G_DEFINE_AUTOPTR_CLEANUP_FUNC(TypeName, func) \
-  typedef TypeName *_GLIB_AUTOPTR_TYPENAME(TypeName);                                                           \
-  typedef GList *_GLIB_AUTOPTR_LIST_TYPENAME(TypeName);                                                         \
-  typedef GSList *_GLIB_AUTOPTR_SLIST_TYPENAME(TypeName);                                                         \
-  G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
-  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_FUNC_NAME(TypeName) (TypeName **_ptr) { if (*_ptr) (func) (*_ptr); }         \
-  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName) (GList **_l) { g_list_free_full (*_l, (GDestroyNotify) (void(*)(void)) func); } \
-  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) (GSList **_l) { g_slist_free_full (*_l, (GDestroyNotify) (void(*)(void)) func); } \
-  G_GNUC_END_IGNORE_DEPRECATIONS
+  _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, TypeName, func)
 #define G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC(TypeName, func) \
   G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
   static inline void _GLIB_AUTO_FUNC_NAME(TypeName) (TypeName *_ptr) { (func) (_ptr); }                         \

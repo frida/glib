@@ -328,6 +328,7 @@ g_file_monitor_source_send_synthetic_created (GFileMonitorSource *fms,
   g_file_monitor_source_queue_event (fms, G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT, child, NULL);
 }
 
+#ifndef G_DISABLE_ASSERT
 static gboolean
 is_basename (const gchar *name)
 {
@@ -336,6 +337,7 @@ is_basename (const gchar *name)
 
   return !strchr (name, '/');
 }
+#endif  /* !G_DISABLE_ASSERT */
 
 gboolean
 g_file_monitor_source_handle_event (GFileMonitorSource *fms,
@@ -788,11 +790,11 @@ g_local_file_monitor_start (GLocalFileMonitor *local_monitor,
 #endif
     }
 
+  g_source_attach ((GSource *) source, context);
+
   G_LOCAL_FILE_MONITOR_GET_CLASS (local_monitor)->start (local_monitor,
                                                          source->dirname, source->basename, source->filename,
                                                          source);
-
-  g_source_attach ((GSource *) source, context);
 }
 
 static void
@@ -834,6 +836,7 @@ static void g_local_file_monitor_class_init (GLocalFileMonitorClass *class)
 
 static GLocalFileMonitor *
 g_local_file_monitor_new (gboolean   is_remote_fs,
+                          gboolean   is_directory,
                           GError   **error)
 {
   GType type = G_TYPE_INVALID;
@@ -843,7 +846,8 @@ g_local_file_monitor_new (gboolean   is_remote_fs,
                                           "GIO_USE_FILE_MONITOR",
                                           G_STRUCT_OFFSET (GLocalFileMonitorClass, is_supported));
 
-  if (type == G_TYPE_INVALID)
+  /* Fallback rather to poll file monitor for remote files, see gfile.c. */
+  if (type == G_TYPE_INVALID && (!is_remote_fs || is_directory))
     type = _g_io_module_get_default_type (G_LOCAL_FILE_MONITOR_EXTENSION_POINT_NAME,
                                           "GIO_USE_FILE_MONITOR",
                                           G_STRUCT_OFFSET (GLocalFileMonitorClass, is_supported));
@@ -869,7 +873,7 @@ g_local_file_monitor_new_for_path (const gchar        *pathname,
 
   is_remote_fs = g_local_file_is_remote (pathname);
 
-  monitor = g_local_file_monitor_new (is_remote_fs, error);
+  monitor = g_local_file_monitor_new (is_remote_fs, is_directory, error);
 
   if (monitor)
     g_local_file_monitor_start (monitor, pathname, is_directory, flags, g_main_context_get_thread_default ());
@@ -890,7 +894,7 @@ g_local_file_monitor_new_in_worker (const gchar           *pathname,
 
   is_remote_fs = g_local_file_is_remote (pathname);
 
-  monitor = g_local_file_monitor_new (is_remote_fs, error);
+  monitor = g_local_file_monitor_new (is_remote_fs, is_directory, error);
 
   if (monitor)
     {

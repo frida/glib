@@ -87,6 +87,7 @@
 #include "gqueue.h"
 #include "gstrfuncs.h"
 #include "gtestutils.h"
+#include "gthreadprivate.h"
 
 #ifdef G_OS_WIN32
 #include "gwin32.h"
@@ -99,7 +100,6 @@
 #include "gwakeup.h"
 #include "gmain-internal.h"
 #include "glib-init.h"
-#include "glib-fork.h"
 #include "glib-private.h"
 
 /**
@@ -309,13 +309,14 @@ struct _GSourceCallback
 struct _GMainLoop
 {
   GMainContext *context;
-  gboolean is_running;
+  gboolean is_running; /* (atomic) */
   volatile gint ref_count;
 };
 
 struct _GTimeoutSource
 {
   GSource     source;
+  /* Measured in seconds if 'seconds' is TRUE, or milliseconds otherwise. */
   guint       interval;
   gboolean    seconds;
 };
@@ -328,7 +329,7 @@ struct _GChildWatchSource
 #ifdef G_OS_WIN32
   GPollFD     poll;
 #else /* G_OS_WIN32 */
-  gboolean    child_exited;
+  gboolean    child_exited; /* (atomic) */
 #endif /* G_OS_WIN32 */
 };
 
@@ -336,7 +337,7 @@ struct _GUnixSignalWatchSource
 {
   GSource     source;
   int         signum;
-  gboolean    pending;
+  gboolean    pending; /* (atomic) */
 };
 
 struct _GPollRec
@@ -445,13 +446,7 @@ static gboolean g_idle_dispatch    (GSource     *source,
 
 static void block_source (GSource *source);
 
-static void glib_worker_start (void);
-static gboolean glib_worker_try_stop (void);
-static void glib_worker_deinit (void);
-
-static GThread *glib_worker_thread;
 static GMainContext *glib_worker_context;
-static gboolean glib_worker_running = FALSE;
 
 G_LOCK_DEFINE_STATIC (main_loop);
 static GMainContext *default_main_context;
@@ -469,10 +464,10 @@ static volatile sig_atomic_t any_unix_signal_pending;
 static volatile int unix_signal_pending[NSIG];
 static volatile int any_unix_signal_pending;
 #endif
-static volatile guint unix_signal_refcount[NSIG];
 
 /* Guards all the data below */
 G_LOCK_DEFINE_STATIC (unix_signal_lock);
+static guint unix_signal_refcount[NSIG];
 static GSList *unix_signal_watches;
 static GSList *unix_child_watches;
 
@@ -481,73 +476,19 @@ GSourceFuncs g_unix_signal_funcs =
   g_unix_signal_watch_prepare,
   g_unix_signal_watch_check,
   g_unix_signal_watch_dispatch,
-  g_unix_signal_watch_finalize
+  g_unix_signal_watch_finalize,
+  NULL, NULL
 };
 #endif /* !G_OS_WIN32 */
 G_LOCK_DEFINE_STATIC (main_context_list);
 static GSList *main_context_list = NULL;
-
-#ifdef G_OS_WIN32
-
-#define G_WIN32_TIME_RESYNC_THRESHOLD_SECONDS 30
-
-typedef struct _GWin32TimeSnapshot
-{
-  gboolean initialized;
-
-  GTimeVal system_time;
-  LARGE_INTEGER frequency;
-  LARGE_INTEGER counter;
-} GWin32TimeSnapshot;
-
-G_LOCK_DEFINE_STATIC (g_win32_start_time);
-static GWin32TimeSnapshot g_win32_start_time = { 0, };
-
-static void
-g_win32_get_system_time_now (GTimeVal *result)
-{
-  guint64 time64;
-
-  GetSystemTimeAsFileTime ((FILETIME *) &time64);
-
-  /* Convert from 100s of nanoseconds since 1601-01-01
-   * to Unix epoch. Yes, this is Y2038 unsafe.
-   */
-  time64 -= G_GINT64_CONSTANT (116444736000000000);
-  time64 /= 10;
-
-  result->tv_sec = time64 / 1000000;
-  result->tv_usec = time64 % 1000000;
-}
-
-static void
-g_win32_update_start_time (GWin32TimeSnapshot * start_time)
-{
-  g_win32_get_system_time_now (&start_time->system_time);
-
-  QueryPerformanceFrequency (&start_time->frequency);
-  QueryPerformanceCounter (&start_time->counter);
-}
-
-static guint64
-g_win32_get_elapsed_microseconds_since (GWin32TimeSnapshot * ts)
-{
-  LARGE_INTEGER counter;
-
-  QueryPerformanceCounter (&counter);
-
-  return ((counter.QuadPart - ts->counter.QuadPart) * G_USEC_PER_SEC) /
-      ts->frequency.QuadPart;
-}
-
-#endif /* G_OS_WIN32 */
 
 GSourceFuncs g_timeout_funcs =
 {
   NULL, /* prepare */
   NULL, /* check */
   g_timeout_dispatch,
-  NULL
+  NULL, NULL, NULL
 };
 
 GSourceFuncs g_child_watch_funcs =
@@ -555,7 +496,8 @@ GSourceFuncs g_child_watch_funcs =
   g_child_watch_prepare,
   g_child_watch_check,
   g_child_watch_dispatch,
-  g_child_watch_finalize
+  g_child_watch_finalize,
+  NULL, NULL
 };
 
 GSourceFuncs g_idle_funcs =
@@ -563,62 +505,8 @@ GSourceFuncs g_idle_funcs =
   g_idle_prepare,
   g_idle_check,
   g_idle_dispatch,
-  NULL
+  NULL, NULL, NULL
 };
-
-void
-_g_main_shutdown (void)
-{
-  glib_worker_try_stop ();
-}
-
-void
-_g_main_deinit (void)
-{
-  glib_worker_deinit ();
-
-  if (default_main_context != NULL)
-    {
-      g_main_context_unref (default_main_context);
-      default_main_context = NULL;
-    }
-}
-
-static gboolean glib_worker_was_running;
-
-void
-_g_main_prepare_to_fork (void)
-{
-  glib_worker_was_running = glib_worker_try_stop ();
-}
-
-void
-_g_main_recover_from_fork_in_parent (void)
-{
-  if (glib_worker_was_running)
-    glib_worker_start ();
-}
-
-void
-_g_main_recover_from_fork_in_child (void)
-{
-  GSList *l;
-
-  for (l = main_context_list; l; l = l->next)
-    {
-      GMainContext *context = l->data;
-
-      g_wakeup_free (context->wakeup);
-      context->wakeup = g_wakeup_new ();
-
-      g_main_context_remove_poll_unlocked (context, &context->wake_up_rec);
-      g_wakeup_get_pollfd (context->wakeup, &context->wake_up_rec);
-      g_main_context_add_poll_unlocked (context, 0, &context->wake_up_rec);
-    }
-
-  if (glib_worker_was_running)
-    glib_worker_start ();
-}
 
 /**
  * g_main_context_ref:
@@ -1700,6 +1588,10 @@ static GSourceCallbackFuncs g_source_callback_funcs = {
  * an initial reference count on @callback_data, and thus
  * @callback_funcs->unref will eventually be called once more
  * than @callback_funcs->ref.
+ *
+ * It is safe to call this function multiple times on a source which has already
+ * been attached to a context. The changes will take effect for the next time
+ * the source is dispatched after this call returns.
  **/
 void
 g_source_set_callback_indirect (GSource              *source,
@@ -1719,10 +1611,12 @@ g_source_set_callback_indirect (GSource              *source,
     LOCK_CONTEXT (context);
 
   if (callback_funcs != &g_source_callback_funcs)
-    TRACE (GLIB_SOURCE_SET_CALLBACK_INDIRECT (source, callback_data,
-                                              callback_funcs->ref,
-                                              callback_funcs->unref,
-                                              callback_funcs->get));
+    {
+      TRACE (GLIB_SOURCE_SET_CALLBACK_INDIRECT (source, callback_data,
+                                                callback_funcs->ref,
+                                                callback_funcs->unref,
+                                                callback_funcs->get));
+    }
 
   old_cb_data = source->callback_data;
   old_cb_funcs = source->callback_funcs;
@@ -1756,7 +1650,11 @@ g_source_set_callback_indirect (GSource              *source,
  * on how to handle memory management of @data.
  * 
  * Typically, you won't use this function. Instead use functions specific
- * to the type of source you are using.
+ * to the type of source you are using, such as g_idle_add() or g_timeout_add().
+ *
+ * It is safe to call this function multiple times on a source which has already
+ * been attached to a context. The changes will take effect for the next time
+ * the source is dispatched after this call returns.
  **/
 void
 g_source_set_callback (GSource        *source,
@@ -2765,32 +2663,22 @@ g_get_current_time (GTimeVal *result)
   result->tv_sec = r.tv_sec;
   result->tv_usec = r.tv_usec;
 #else
-  GTimeVal system_time;
+  FILETIME ft;
+  guint64 time64;
 
   g_return_if_fail (result != NULL);
 
-  G_LOCK (g_win32_start_time);
+  GetSystemTimeAsFileTime (&ft);
+  memmove (&time64, &ft, sizeof (FILETIME));
 
-  if (G_UNLIKELY (!g_win32_start_time.initialized))
-    {
-      g_win32_update_start_time (&g_win32_start_time);
-      g_win32_start_time.initialized = TRUE;
-    }
+  /* Convert from 100s of nanoseconds since 1601-01-01
+   * to Unix epoch. Yes, this is Y2038 unsafe.
+   */
+  time64 -= G_GINT64_CONSTANT (116444736000000000);
+  time64 /= 10;
 
-  memcpy (result, &g_win32_start_time.system_time, sizeof (GTimeVal));
-  g_time_val_add (result,
-      g_win32_get_elapsed_microseconds_since (&g_win32_start_time));
-
-  g_win32_get_system_time_now (&system_time);
-
-  if (G_UNLIKELY (ABS (system_time.tv_sec - result->tv_sec) >=
-      G_WIN32_TIME_RESYNC_THRESHOLD_SECONDS))
-    {
-      g_win32_update_start_time (&g_win32_start_time);
-      memcpy (result, &g_win32_start_time.system_time, sizeof (GTimeVal));
-    }
-
-  G_UNLOCK (g_win32_start_time);
+  result->tv_sec = time64 / 1000000;
+  result->tv_usec = time64 % 1000000;
 #endif
 }
 
@@ -2850,7 +2738,7 @@ g_get_real_time (void)
 static gdouble g_monotonic_usec_per_tick = 0;
 
 void
-_g_clock_win32_init (void)
+g_clock_win32_init (void)
 {
   LARGE_INTEGER freq;
 
@@ -2945,7 +2833,7 @@ g_get_monotonic_time (void)
 static void
 g_main_dispatch_free (gpointer dispatch)
 {
-  g_slice_free (GMainDispatch, dispatch);
+  g_free (dispatch);
 }
 
 /* Running the main loop */
@@ -2959,10 +2847,7 @@ get_dispatch (void)
   dispatch = g_private_get (&depth_private);
 
   if (!dispatch)
-    {
-      dispatch = g_slice_new0 (GMainDispatch);
-      g_private_set (&depth_private, dispatch);
-    }
+    dispatch = g_private_set_alloc0 (&depth_private, sizeof (GMainDispatch));
 
   return dispatch;
 }
@@ -3642,13 +3527,13 @@ g_main_context_prepare (GMainContext *context,
                 }
               else
                 {
-                  gint timeout;
+                  gint64 timeout;
 
                   /* rounding down will lead to spinning, so always round up */
                   timeout = (source->priv->ready_time - context->time + 999) / 1000;
 
                   if (source_timeout < 0 || timeout < source_timeout)
-                    source_timeout = timeout;
+                    source_timeout = MIN (timeout, G_MAXINT);
                 }
             }
 
@@ -4206,16 +4091,14 @@ g_main_loop_run (GMainLoop *loop)
       LOCK_CONTEXT (loop->context);
 
       g_atomic_int_inc (&loop->ref_count);
+      g_atomic_int_set (&loop->is_running, TRUE);
 
-      if (!loop->is_running)
-	loop->is_running = TRUE;
-
-      while (loop->is_running && !got_ownership)
+      while (g_atomic_int_get (&loop->is_running) && !got_ownership)
         got_ownership = g_main_context_wait_internal (loop->context,
                                                       &loop->context->cond,
                                                       &loop->context->mutex);
       
-      if (!loop->is_running)
+      if (!g_atomic_int_get (&loop->is_running))
 	{
 	  UNLOCK_CONTEXT (loop->context);
 	  if (got_ownership)
@@ -4237,8 +4120,8 @@ g_main_loop_run (GMainLoop *loop)
     }
 
   g_atomic_int_inc (&loop->ref_count);
-  loop->is_running = TRUE;
-  while (loop->is_running)
+  g_atomic_int_set (&loop->is_running, TRUE);
+  while (g_atomic_int_get (&loop->is_running))
     g_main_context_iterate (loop->context, TRUE, TRUE, self);
 
   UNLOCK_CONTEXT (loop->context);
@@ -4265,7 +4148,7 @@ g_main_loop_quit (GMainLoop *loop)
   g_return_if_fail (g_atomic_int_get (&loop->ref_count) > 0);
 
   LOCK_CONTEXT (loop->context);
-  loop->is_running = FALSE;
+  g_atomic_int_set (&loop->is_running, FALSE);
   g_wakeup_signal (loop->context->wakeup);
 
   g_cond_broadcast (&loop->context->cond);
@@ -4289,7 +4172,7 @@ g_main_loop_is_running (GMainLoop *loop)
   g_return_val_if_fail (loop != NULL, FALSE);
   g_return_val_if_fail (g_atomic_int_get (&loop->ref_count) > 0, FALSE);
 
-  return loop->is_running;
+  return g_atomic_int_get (&loop->is_running);
 }
 
 /**
@@ -4733,8 +4616,6 @@ g_timeout_set_expiration (GTimeoutSource *timeout_source,
 {
   gint64 expiration;
 
-  expiration = current_time + (guint64) timeout_source->interval * 1000;
-
   if (timeout_source->seconds)
     {
       gint64 remainder;
@@ -4756,6 +4637,8 @@ g_timeout_set_expiration (GTimeoutSource *timeout_source,
             timer_perturb = 0;
         }
 
+      expiration = current_time + (guint64) timeout_source->interval * 1000 * 1000;
+
       /* We want the microseconds part of the timeout to land on the
        * 'timer_perturb' mark, but we need to make sure we don't try to
        * set the timeout in the past.  We do this by ensuring that we
@@ -4770,6 +4653,10 @@ g_timeout_set_expiration (GTimeoutSource *timeout_source,
 
       expiration -= remainder;
       expiration += timer_perturb;
+    }
+  else
+    {
+      expiration = current_time + (guint64) timeout_source->interval * 1000;
     }
 
   g_source_set_ready_time ((GSource *) timeout_source, expiration);
@@ -4853,7 +4740,7 @@ g_timeout_source_new_seconds (guint interval)
   GSource *source = g_source_new (&g_timeout_funcs, sizeof (GTimeoutSource));
   GTimeoutSource *timeout_source = (GTimeoutSource *)source;
 
-  timeout_source->interval = 1000 * interval;
+  timeout_source->interval = interval;
   timeout_source->seconds = TRUE;
 
   g_timeout_set_expiration (timeout_source, g_get_monotonic_time ());
@@ -5225,7 +5112,7 @@ dispatch_unix_signals_unlocked (void)
         {
           GChildWatchSource *source = node->data;
 
-          if (!source->child_exited)
+          if (!g_atomic_int_get (&source->child_exited))
             {
               pid_t pid;
               do
@@ -5235,14 +5122,14 @@ dispatch_unix_signals_unlocked (void)
                   pid = waitpid (source->pid, &source->child_status, WNOHANG);
                   if (pid > 0)
                     {
-                      source->child_exited = TRUE;
+                      g_atomic_int_set (&source->child_exited, TRUE);
                       wake_source ((GSource *) source);
                     }
                   else if (pid == -1 && errno == ECHILD)
                     {
                       g_warning ("GChildWatchSource: Exit status of a child process was requested but ECHILD was received by waitpid(). See the documentation of g_child_watch_source_new() for possible causes.");
-                      source->child_exited = TRUE;
                       source->child_status = 0;
+                      g_atomic_int_set (&source->child_exited, TRUE);
                       wake_source ((GSource *) source);
                     }
                 }
@@ -5256,14 +5143,10 @@ dispatch_unix_signals_unlocked (void)
     {
       GUnixSignalWatchSource *source = node->data;
 
-      if (!source->pending)
+      if (pending[source->signum] &&
+          g_atomic_int_compare_and_exchange (&source->pending, FALSE, TRUE))
         {
-          if (pending[source->signum])
-            {
-              source->pending = TRUE;
-
-              wake_source ((GSource *) source);
-            }
+          wake_source ((GSource *) source);
         }
     }
 
@@ -5285,7 +5168,7 @@ g_child_watch_prepare (GSource *source,
 
   child_watch_source = (GChildWatchSource *) source;
 
-  return child_watch_source->child_exited;
+  return g_atomic_int_get (&child_watch_source->child_exited);
 }
 
 static gboolean
@@ -5295,7 +5178,7 @@ g_child_watch_check (GSource *source)
 
   child_watch_source = (GChildWatchSource *) source;
 
-  return child_watch_source->child_exited;
+  return g_atomic_int_get (&child_watch_source->child_exited);
 }
 
 static gboolean
@@ -5306,7 +5189,7 @@ g_unix_signal_watch_prepare (GSource *source,
 
   unix_signal_source = (GUnixSignalWatchSource *) source;
 
-  return unix_signal_source->pending;
+  return g_atomic_int_get (&unix_signal_source->pending);
 }
 
 static gboolean
@@ -5316,7 +5199,7 @@ g_unix_signal_watch_check (GSource  *source)
 
   unix_signal_source = (GUnixSignalWatchSource *) source;
 
-  return unix_signal_source->pending;
+  return g_atomic_int_get (&unix_signal_source->pending);
 }
 
 static gboolean
@@ -5336,9 +5219,9 @@ g_unix_signal_watch_dispatch (GSource    *source,
       return FALSE;
     }
 
-  again = (callback) (user_data);
+  g_atomic_int_set (&unix_signal_source->pending, FALSE);
 
-  unix_signal_source->pending = FALSE;
+  again = (callback) (user_data);
 
   return again;
 }
@@ -5982,7 +5865,7 @@ g_main_context_invoke_full (GMainContext   *context,
 static gpointer
 glib_worker_main (gpointer data)
 {
-  while (glib_worker_running)
+  while (TRUE)
     {
       g_main_context_iteration (glib_worker_context, TRUE);
 
@@ -5995,69 +5878,6 @@ glib_worker_main (gpointer data)
   return NULL; /* worst GCC warning message ever... */
 }
 
-static gboolean
-glib_worker_do_stop (gpointer data)
-{
-  glib_worker_running = FALSE;
-
-  return FALSE;
-}
-
-static void
-glib_worker_start (void)
-{
-  /* mask all signals in the worker thread */
-#ifdef G_OS_UNIX
-  sigset_t prev_mask;
-  sigset_t all;
-
-  sigfillset (&all);
-  pthread_sigmask (SIG_SETMASK, &all, &prev_mask);
-#endif
-
-  if (glib_worker_context == NULL)
-    glib_worker_context = g_main_context_new ();
-
-  glib_worker_running = TRUE;
-
-  glib_worker_thread = g_thread_new ("gmain", glib_worker_main, NULL);
-
-#ifdef G_OS_UNIX
-  pthread_sigmask (SIG_SETMASK, &prev_mask, NULL);
-#endif
-}
-
-static gboolean
-glib_worker_try_stop (void)
-{
-  GSource *source;
-
-  if (glib_worker_thread == NULL)
-    return FALSE;
-
-  source = g_idle_source_new ();
-  g_source_set_callback (source, glib_worker_do_stop, NULL, NULL);
-  g_source_attach (source, glib_worker_context);
-  g_source_unref (source);
-
-  g_thread_join (glib_worker_thread);
-  glib_worker_thread = NULL;
-
-  return TRUE;
-}
-
-static void
-glib_worker_deinit (void)
-{
-  if (glib_worker_context != NULL)
-    {
-      g_assert (glib_worker_thread == NULL);
-
-      g_main_context_unref (glib_worker_context);
-      glib_worker_context = NULL;
-    }
-}
-
 GMainContext *
 g_get_worker_context (void)
 {
@@ -6065,8 +5885,19 @@ g_get_worker_context (void)
 
   if (g_once_init_enter (&initialised))
     {
-      glib_worker_start ();
+      /* mask all signals in the worker thread */
+#ifdef G_OS_UNIX
+      sigset_t prev_mask;
+      sigset_t all;
 
+      sigfillset (&all);
+      pthread_sigmask (SIG_SETMASK, &all, &prev_mask);
+#endif
+      glib_worker_context = g_main_context_new ();
+      g_thread_new ("gmain", glib_worker_main, NULL);
+#ifdef G_OS_UNIX
+      pthread_sigmask (SIG_SETMASK, &prev_mask, NULL);
+#endif
       g_once_init_leave (&initialised, TRUE);
     }
 

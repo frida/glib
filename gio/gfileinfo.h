@@ -76,6 +76,7 @@ typedef struct _GFileInfoClass   GFileInfoClass;
  * A key in the "standard" namespace for checking if the file is a symlink.
  * Typically the actual type is something else, if we followed the symlink
  * to get the type.
+ * On Windows NTFS mountpoints are considered to be symlinks as well.
  * Corresponding #GFileAttributeType is %G_FILE_ATTRIBUTE_TYPE_BOOLEAN.
  **/
 #define G_FILE_ATTRIBUTE_STANDARD_IS_SYMLINK "standard::is-symlink"         /* boolean */
@@ -671,6 +672,33 @@ typedef struct _GFileInfoClass   GFileInfoClass;
  * is %G_FILE_ATTRIBUTE_TYPE_BOOLEAN.
  **/
 #define G_FILE_ATTRIBUTE_DOS_IS_SYSTEM "dos::is-system"           /* boolean */
+
+/**
+ * G_FILE_ATTRIBUTE_DOS_IS_MOUNTPOINT:
+ *
+ * A key in the "dos" namespace for checking if the file is a NTFS mount point
+ * (a volume mount or a junction point).
+ * This attribute is %TRUE if file is a reparse point of type
+ * [IO_REPARSE_TAG_MOUNT_POINT](https://msdn.microsoft.com/en-us/library/dd541667.aspx).
+ * This attribute is only available for DOS file systems.
+ * Corresponding #GFileAttributeType is %G_FILE_ATTRIBUTE_TYPE_BOOLEAN.
+ *
+ * Since: 2.60
+ **/
+#define G_FILE_ATTRIBUTE_DOS_IS_MOUNTPOINT "dos::is-mountpoint"   /* boolean */
+
+/**
+ * G_FILE_ATTRIBUTE_DOS_REPARSE_POINT_TAG:
+ *
+ * A key in the "dos" namespace for getting the file NTFS reparse tag.
+ * This value is 0 for files that are not reparse points.
+ * See the [Reparse Tags](https://msdn.microsoft.com/en-us/library/dd541667.aspx)
+ * page for possible reparse tag values. Corresponding #GFileAttributeType
+ * is %G_FILE_ATTRIBUTE_TYPE_UINT32.
+ *
+ * Since: 2.60
+ **/
+#define G_FILE_ATTRIBUTE_DOS_REPARSE_POINT_TAG "dos::reparse-point-tag"   /* uint32 */
 
 /* Owner attributes */
 

@@ -263,7 +263,6 @@ g_object_notify_queue_thaw (GObject            *object,
   GSList *slist;
   guint n_pspecs = 0;
 
-  g_return_if_fail (nqueue->freeze_count > 0);
   g_return_if_fail (g_atomic_int_get(&object->ref_count) > 0);
 
   G_LOCK(notify_lock);
@@ -382,7 +381,7 @@ _g_object_type_init (void)
     "p",			  /* lcopy_format */
     g_value_object_lcopy_value,	  /* lcopy_value */
   };
-  GType type;
+  GType type G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
   
   g_return_if_fail (initialized == FALSE);
   initialized = TRUE;
@@ -1101,7 +1100,7 @@ void
 g_object_run_dispose (GObject *object)
 {
   g_return_if_fail (G_IS_OBJECT (object));
-  g_return_if_fail (object->ref_count > 0);
+  g_return_if_fail (g_atomic_int_get (&object->ref_count) > 0);
 
   g_object_ref (object);
   TRACE (GOBJECT_OBJECT_DISPOSE(object,G_TYPE_FROM_INSTANCE(object), 0));
@@ -2819,7 +2818,7 @@ g_object_weak_ref (GObject    *object,
   
   g_return_if_fail (G_IS_OBJECT (object));
   g_return_if_fail (notify != NULL);
-  g_return_if_fail (object->ref_count >= 1);
+  g_return_if_fail (g_atomic_int_get (&object->ref_count) >= 1);
 
   G_LOCK (weak_refs_mutex);
   wstack = g_datalist_id_remove_no_notify (&object->qdata, quark_weak_refs);
@@ -3001,7 +3000,7 @@ gpointer
   GObject *object = _object;
   gboolean was_floating;
   g_return_val_if_fail (G_IS_OBJECT (object), object);
-  g_return_val_if_fail (object->ref_count >= 1, object);
+  g_return_val_if_fail (g_atomic_int_get (&object->ref_count) >= 1, object);
   g_object_ref (object);
   was_floating = floating_flag_handler (object, -1);
   if (was_floating)
@@ -3024,7 +3023,7 @@ void
 g_object_force_floating (GObject *object)
 {
   g_return_if_fail (G_IS_OBJECT (object));
-  g_return_if_fail (object->ref_count >= 1);
+  g_return_if_fail (g_atomic_int_get (&object->ref_count) >= 1);
 
   floating_flag_handler (object, +1);
 }
@@ -3105,7 +3104,7 @@ g_object_add_toggle_ref (GObject       *object,
   
   g_return_if_fail (G_IS_OBJECT (object));
   g_return_if_fail (notify != NULL);
-  g_return_if_fail (object->ref_count >= 1);
+  g_return_if_fail (g_atomic_int_get (&object->ref_count) >= 1);
 
   g_object_ref (object);
 
@@ -3210,9 +3209,9 @@ gpointer
   gint old_val;
 
   g_return_val_if_fail (G_IS_OBJECT (object), NULL);
-  g_return_val_if_fail (object->ref_count > 0, NULL);
   
   old_val = g_atomic_int_add (&object->ref_count, 1);
+  g_return_val_if_fail (old_val > 0, NULL);
 
   if (old_val == 1 && OBJECT_HAS_TOGGLE_REF (object))
     toggle_refs_notify (object, FALSE);
@@ -3241,7 +3240,6 @@ g_object_unref (gpointer _object)
   gint old_ref;
   
   g_return_if_fail (G_IS_OBJECT (object));
-  g_return_if_fail (object->ref_count > 0);
   
   /* here we want to atomically do: if (ref_count>1) { ref_count--; return; } */
  retry_atomic_decrement1:
@@ -3336,6 +3334,7 @@ g_object_unref (gpointer _object)
       
       /* decrement the last reference */
       old_ref = g_atomic_int_add (&object->ref_count, -1);
+      g_return_if_fail (old_ref > 0);
 
       TRACE (GOBJECT_OBJECT_UNREF(object,G_TYPE_FROM_INSTANCE(object),old_ref));
 
@@ -3349,10 +3348,16 @@ g_object_unref (gpointer _object)
 
           GOBJECT_IF_DEBUG (OBJECTS,
 	    {
-	      /* catch objects not chaining finalize handlers */
-	      G_LOCK (debug_objects);
-	      g_assert (!g_hash_table_contains (debug_objects_ht, object));
-	      G_UNLOCK (debug_objects);
+              gboolean was_present;
+
+              /* catch objects not chaining finalize handlers */
+              G_LOCK (debug_objects);
+              was_present = g_hash_table_remove (debug_objects_ht, object);
+              G_UNLOCK (debug_objects);
+
+              if (was_present)
+                g_critical ("Object %p of type %s not finalized correctly.",
+                            object, G_OBJECT_TYPE_NAME (object));
 	    });
           g_type_free_instance ((GTypeInstance*) object);
 	}
@@ -3624,6 +3629,11 @@ g_object_get_data (GObject     *object,
  *
  * If the object already had an association with that name,
  * the old association will be destroyed.
+ *
+ * Internally, the @key is converted to a #GQuark using g_quark_from_string().
+ * This means a copy of @key is kept permanently (even after @object has been
+ * finalized) — so it is recommended to only use a small, bounded set of values
+ * for @key in your program, to avoid the #GQuark storage growing unbounded.
  */
 void
 g_object_set_data (GObject     *object,
@@ -3701,6 +3711,9 @@ g_object_dup_data (GObject        *object,
  * It’s up to the caller to free this as needed, which may
  * or may not include using @old_destroy as sometimes replacement
  * should not destroy the object in the normal way.
+ *
+ * See g_object_set_data() for guidance on using a small, bounded set of values
+ * for @key.
  *
  * Returns: %TRUE if the existing value for @key was replaced
  *  by @newval, %FALSE otherwise.
@@ -4109,8 +4122,8 @@ destroy_closure_array (gpointer data)
 
 /**
  * g_object_watch_closure:
- * @object: GObject restricting lifetime of @closure
- * @closure: GClosure to watch
+ * @object: #GObject restricting lifetime of @closure
+ * @closure: #GClosure to watch
  *
  * This function essentially limits the life time of the @closure to
  * the life time of the object. That is, when the object is finalized,
@@ -4133,7 +4146,7 @@ g_object_watch_closure (GObject  *object,
   g_return_if_fail (closure != NULL);
   g_return_if_fail (closure->is_invalid == FALSE);
   g_return_if_fail (closure->in_marshal == FALSE);
-  g_return_if_fail (object->ref_count > 0);	/* this doesn't work on finalizing objects */
+  g_return_if_fail (g_atomic_int_get (&object->ref_count) > 0);	/* this doesn't work on finalizing objects */
   
   g_closure_add_invalidate_notifier (closure, object, object_remove_closure);
   g_closure_add_marshal_guards (closure,
@@ -4179,7 +4192,7 @@ g_closure_new_object (guint    sizeof_closure,
   GClosure *closure;
 
   g_return_val_if_fail (G_IS_OBJECT (object), NULL);
-  g_return_val_if_fail (object->ref_count > 0, NULL);     /* this doesn't work on finalizing objects */
+  g_return_val_if_fail (g_atomic_int_get (&object->ref_count) > 0, NULL);     /* this doesn't work on finalizing objects */
 
   closure = g_closure_new_simple (sizeof_closure, object);
   g_object_watch_closure (object, closure);
@@ -4207,7 +4220,7 @@ g_cclosure_new_object (GCallback callback_func,
   GClosure *closure;
 
   g_return_val_if_fail (G_IS_OBJECT (object), NULL);
-  g_return_val_if_fail (object->ref_count > 0, NULL);     /* this doesn't work on finalizing objects */
+  g_return_val_if_fail (g_atomic_int_get (&object->ref_count) > 0, NULL);     /* this doesn't work on finalizing objects */
   g_return_val_if_fail (callback_func != NULL, NULL);
 
   closure = g_cclosure_new (callback_func, object, NULL);
@@ -4236,7 +4249,7 @@ g_cclosure_new_object_swap (GCallback callback_func,
   GClosure *closure;
 
   g_return_val_if_fail (G_IS_OBJECT (object), NULL);
-  g_return_val_if_fail (object->ref_count > 0, NULL);     /* this doesn't work on finalizing objects */
+  g_return_val_if_fail (g_atomic_int_get (&object->ref_count) > 0, NULL);     /* this doesn't work on finalizing objects */
   g_return_val_if_fail (callback_func != NULL, NULL);
 
   closure = g_cclosure_new_swap (callback_func, object, NULL);

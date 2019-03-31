@@ -167,7 +167,8 @@ sync_properties (GNetworkMonitorNM *nm,
   nm_connectivity = g_variant_get_uint32 (v);
   g_variant_unref (v);
 
-  if (nm_connectivity == NM_CONNECTIVITY_NONE)
+  if (nm_connectivity == NM_CONNECTIVITY_UNKNOWN ||
+      nm_connectivity == NM_CONNECTIVITY_NONE)
     {
       new_network_available = FALSE;
       new_network_metered = FALSE;
@@ -309,6 +310,8 @@ g_network_monitor_nm_initable_init (GInitable     *initable,
 
   if (!name_owner)
     {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                   _("NetworkManager not running"));
       g_object_unref (proxy);
       return FALSE;
     }

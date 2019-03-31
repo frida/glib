@@ -161,7 +161,7 @@ _g_local_file_info_create_fs_id (GLocalFileStat *statbuf)
 static gchar *
 read_link (const gchar *full_name)
 {
-#if defined (HAVE_READLINK) || defined (G_OS_WIN32)
+#if defined (HAVE_READLINK)
   gchar *buffer;
   guint size;
   
@@ -171,12 +171,8 @@ read_link (const gchar *full_name)
   while (1)
     {
       int read_size;
-      
-#ifndef G_OS_WIN32
+
       read_size = readlink (full_name, buffer, size);
-#else
-      read_size = GLIB_PRIVATE_CALL (g_win32_readlink_utf8) (full_name, buffer, size);
-#endif
       if (read_size < 0)
 	{
 	  g_free (buffer);
@@ -190,6 +186,17 @@ read_link (const gchar *full_name)
       size *= 2;
       buffer = g_realloc (buffer, size);
     }
+#elif defined (G_OS_WIN32)
+  gchar *buffer;
+  int read_size;
+
+  read_size = GLIB_PRIVATE_CALL (g_win32_readlink_utf8) (full_name, NULL, 0, &buffer, TRUE);
+  if (read_size < 0)
+    return NULL;
+  else if (read_size == 0)
+    return strdup ("");
+  else
+    return buffer;
 #else
   return NULL;
 #endif
@@ -957,8 +964,8 @@ set_info_from_stat (GFileInfo             *info,
   else if (S_ISLNK (statbuf->st_mode))
     file_type = G_FILE_TYPE_SYMBOLIC_LINK;
 #elif defined (G_OS_WIN32)
-  if (statbuf->reparse_tag == IO_REPARSE_TAG_SYMLINK ||
-      statbuf->reparse_tag == IO_REPARSE_TAG_MOUNT_POINT)
+  else if (statbuf->reparse_tag == IO_REPARSE_TAG_SYMLINK ||
+           statbuf->reparse_tag == IO_REPARSE_TAG_MOUNT_POINT)
     file_type = G_FILE_TYPE_SYMBOLIC_LINK;
 #endif
 
@@ -966,15 +973,17 @@ set_info_from_stat (GFileInfo             *info,
   g_file_info_set_size (info, statbuf->st_size);
 
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_DEVICE, statbuf->st_dev);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_NLINK, statbuf->st_nlink);
 #ifndef G_OS_WIN32
   /* Pointless setting these on Windows even if they exist in the struct */
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_INODE, statbuf->st_ino);
-  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_NLINK, statbuf->st_nlink);
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_UID, statbuf->st_uid);
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_GID, statbuf->st_gid);
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_RDEV, statbuf->st_rdev);
 #endif
-  /* FIXME: st_mode is mostly pointless on Windows, too. Set the attribute or not? */
+  /* Mostly pointless on Windows.
+   * Still, it allows for S_ISREG/S_ISDIR and IWRITE (read-only) checks.
+   */
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_MODE, statbuf->st_mode);
 #if defined (HAVE_STRUCT_STAT_ST_BLKSIZE)
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_BLOCK_SIZE, statbuf->st_blksize);
@@ -1063,7 +1072,7 @@ make_valid_utf8 (const char *name)
 {
   GString *string;
   const gchar *remainder, *invalid;
-  gint remaining_bytes, valid_bytes;
+  gsize remaining_bytes, valid_bytes;
   
   string = NULL;
   remainder = name;
@@ -1071,7 +1080,7 @@ make_valid_utf8 (const char *name)
   
   while (remaining_bytes != 0) 
     {
-      if (g_utf8_validate (remainder, remaining_bytes, &invalid)) 
+      if (g_utf8_validate_len (remainder, remaining_bytes, &invalid))
 	break;
       valid_bytes = invalid - remainder;
     
@@ -1143,7 +1152,7 @@ lookup_uid_data (uid_t uid)
 
   data = g_new0 (UidData, 1);
 
-#if defined (HAVE_GETPWUID_R) && !defined (__BIONIC__)
+#if defined(HAVE_GETPWUID_R)
   getpwuid_r (uid, &pwbuf, buffer, sizeof(buffer), &pwbufp);
 #else
   pwbufp = getpwuid (uid);
@@ -1867,6 +1876,12 @@ _g_local_file_info_get (const char             *basename,
 
   if (statbuf.attributes & FILE_ATTRIBUTE_SYSTEM)
     _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_IS_SYSTEM, TRUE);
+
+  if (statbuf.reparse_tag == IO_REPARSE_TAG_MOUNT_POINT)
+    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_IS_MOUNTPOINT, TRUE);
+
+  if (statbuf.reparse_tag != 0)
+    _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_REPARSE_POINT_TAG, statbuf.reparse_tag);
 #endif
 
   symlink_target = NULL;

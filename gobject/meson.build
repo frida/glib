@@ -43,7 +43,7 @@ gobject_sources = files(
   'gvaluetypes.c',
 )
 
-if host_system == 'windows' and get_option('default_library') != 'static'
+if host_system == 'windows'
   gobject_win_rc = configure_file(
     input: 'gobject.rc.in',
     output: 'gobject.rc',
@@ -60,30 +60,6 @@ else
   gobject_dtrace_obj = []
   gobject_dtrace_hdr = []
 endif
-
-libgobject = library('gobject-2.0',
-  gobject_dtrace_obj, gobject_dtrace_hdr,
-  sources : gobject_sources,
-  version : library_version,
-  soversion : soversion,
-  install : true,
-  include_directories : [configinc],
-  dependencies : [libffi_dep, libglib_dep],
-  c_args : ['-DG_LOG_DOMAIN="GLib-GObject"', '-DGOBJECT_COMPILATION'] + glib_hidden_visibility_args,
-  link_args : glib_link_flags,
-)
-
-pkg.generate(libraries : libgobject,
-  requires : ['glib-2.0'],
-  version : glib_version,
-  install_dir : glib_pkgconfigreldir,
-  filebase : 'gobject-2.0',
-  name : 'GObject',
-  description : 'GLib Type, Object, Parameter and Signal Library',
-)
-
-libgobject_dep = declare_dependency(link_with : libgobject,
-  include_directories : gobjectinc)
 
 python_tools = [
   'glib-genmarshal',
@@ -109,6 +85,65 @@ foreach tool: python_tools
   meson.override_find_program(tool, tool_bin)
 endforeach
 
+# Generate a header file containing the GObject enum types for the enums defined
+# in libglib.
+#
+# For now, we only include gunicode.h here, since GScriptType is needed for
+# Pango. More headers can be added as needed in future.
+#
+# We can't use gnome.mkenums() because the GNOME module looks for glib-mkenums
+# in PATH, which means you can't bootstrap glib with its own glib-mkenums.
+glib_enumtypes_input_headers = files(
+  '../glib/gunicode.h',
+)
+
+glib_enumtypes_h = custom_target('glib_enumtypes_h',
+  output : 'glib-enumtypes.h',
+  capture : true,
+  input : glib_enumtypes_input_headers,
+  install : true,
+  install_dir : join_paths(get_option('includedir'), 'glib-2.0/gobject'),
+  command : [python, glib_mkenums,
+             '--template', files('glib-enumtypes.h.template'),
+             '@INPUT@'])
+
+glib_enumtypes_c = custom_target('glib_enumtypes_c',
+  output : 'glib-enumtypes.c',
+  capture : true,
+  input : glib_enumtypes_input_headers,
+  depends : [glib_enumtypes_h],
+  command : [python, glib_mkenums,
+             '--template', files('glib-enumtypes.c.template'),
+             '@INPUT@'])
+
+glib_enumtypes_dep = declare_dependency(sources : [glib_enumtypes_h])
+
+libgobject = library('gobject-2.0',
+  gobject_dtrace_obj, gobject_dtrace_hdr, glib_enumtypes_h, glib_enumtypes_c,
+  sources : gobject_sources,
+  version : library_version,
+  soversion : soversion,
+  darwin_versions : darwin_versions,
+  install : true,
+  include_directories : [configinc],
+  dependencies : [libffi_dep, libglib_dep],
+  c_args : ['-DG_LOG_DOMAIN="GLib-GObject"', '-DGOBJECT_COMPILATION'] + glib_hidden_visibility_args,
+  link_args : glib_link_flags,
+)
+
+pkg.generate(libgobject,
+  requires : ['glib-2.0'],
+  version : glib_version,
+  install_dir : glib_pkgconfigreldir,
+  filebase : 'gobject-2.0',
+  name : 'GObject',
+  description : 'GLib Type, Object, Parameter and Signal Library',
+)
+
+libgobject_dep = declare_dependency(link_with : libgobject,
+  include_directories : [gobjectinc],
+  dependencies : [libglib_dep, glib_enumtypes_dep])
+
 executable('gobject-query', 'gobject-query.c',
   install : true,
   dependencies : [libglib_dep, libgobject_dep])
@@ -131,6 +166,4 @@ if enable_systemtap
     install : true)
 endif
 
-if get_option('tests')
-  subdir('tests')
-endif
+subdir('tests')

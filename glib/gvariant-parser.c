@@ -197,7 +197,8 @@ token_stream_prepare (TokenStream *stream)
       break;
 
     case 'b':
-      if (stream->stream[1] == '\'' || stream->stream[1] == '"')
+      if (stream->stream + 1 != stream->end &&
+          (stream->stream[1] == '\'' || stream->stream[1] == '"'))
         {
           for (end = stream->stream + 2; end != stream->end; end++)
             if (*end == stream->stream[1] || *end == '\0' ||
@@ -209,10 +210,7 @@ token_stream_prepare (TokenStream *stream)
           break;
         }
 
-      else
-        {
-          /* ↓↓↓ */
-        }
+      G_GNUC_FALLTHROUGH;
 
     case 'a': /* 'b' */ case 'c': case 'd': case 'e': case 'f':
     case 'g': case 'h': case 'i': case 'j': case 'k': case 'l':
@@ -364,7 +362,7 @@ static void
 token_stream_assert (TokenStream *stream,
                      const gchar *token)
 {
-  gboolean correct_token;
+  gboolean correct_token G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
 
   correct_token = token_stream_consume (stream, token);
   g_assert (correct_token);
@@ -420,6 +418,8 @@ pattern_copy (gchar       **out,
   while (brackets);
 }
 
+/* Returns the most general pattern that is subpattern of left and subpattern
+ * of right, or NULL if there is no such pattern. */
 static gchar *
 pattern_coalesce (const gchar *left,
                   const gchar *right)
@@ -460,7 +460,7 @@ pattern_coalesce (const gchar *left,
               *out++ = *(*the_other)++;
             }
 
-          else if (**one == 'M' && **the_other != 'm')
+          else if (**one == 'M' && **the_other != 'm' && **the_other != '*')
             {
               (*one)++;
             }
@@ -673,6 +673,9 @@ ast_array_get_pattern (AST    **array,
   gchar *pattern;
   gint i;
 
+  /* Find the pattern which applies to all children in the array, by l-folding a
+   * coalesce operation.
+   */
   pattern = ast_get_pattern (array[0], error);
 
   if (pattern == NULL)
@@ -707,8 +710,18 @@ ast_array_get_pattern (AST    **array,
               gchar *tmp2;
               gchar *m;
 
-              /* if 'j' reaches 'i' then we failed to find the pair */
-              g_assert (j < i);
+              /* if 'j' reaches 'i' then we didn't find the pair that failed
+               * to coalesce. This shouldn't happen (see above), but just in
+               * case report an error:
+               */
+              if (j >= i)
+                {
+                  ast_set_error (array[i], error, NULL,
+                                 G_VARIANT_PARSE_ERROR_NO_COMMON_TYPE,
+                                 "unable to find a common type");
+                  g_free (tmp);
+                  return NULL;
+                }
 
               tmp2 = ast_get_pattern (array[j], NULL);
               g_assert (tmp2 != NULL);
@@ -1530,18 +1543,21 @@ string_free (AST *ast)
   g_slice_free (String, string);
 }
 
+/* Accepts exactly @length hexadecimal digits. No leading sign or `0x`/`0X` prefix allowed.
+ * No leading/trailing space allowed. */
 static gboolean
 unicode_unescape (const gchar  *src,
                   gint         *src_ofs,
                   gchar        *dest,
                   gint         *dest_ofs,
-                  gint          length,
+                  gsize         length,
                   SourceRef    *ref,
                   GError      **error)
 {
   gchar buffer[9];
-  guint64 value;
+  guint64 value = 0;
   gchar *end;
+  gsize n_valid_chars;
 
   (*src_ofs)++;
 
@@ -1549,13 +1565,24 @@ unicode_unescape (const gchar  *src,
   strncpy (buffer, src + *src_ofs, length);
   buffer[length] = '\0';
 
-  value = g_ascii_strtoull (buffer, &end, 0x10);
+  for (n_valid_chars = 0; n_valid_chars < length; n_valid_chars++)
+    if (!g_ascii_isxdigit (buffer[n_valid_chars]))
+      break;
+
+  if (n_valid_chars == length)
+    value = g_ascii_strtoull (buffer, &end, 0x10);
 
   if (value == 0 || end != buffer + length)
     {
-      parser_set_error (error, ref, NULL,
+      SourceRef escape_ref;
+
+      escape_ref = *ref;
+      escape_ref.start += *src_ofs;
+      escape_ref.end = escape_ref.start + n_valid_chars;
+
+      parser_set_error (error, &escape_ref, NULL,
                         G_VARIANT_PARSE_ERROR_INVALID_CHARACTER,
-                        "invalid %d-character unicode escape", length);
+                        "invalid %" G_GSIZE_FORMAT "-character unicode escape", length);
       return FALSE;
     }
 
@@ -1644,6 +1671,8 @@ string_parse (TokenStream  *stream,
           case 'v': str[j++] = '\v'; i++; continue;
           case '\n': i++; continue;
           }
+
+        G_GNUC_FALLTHROUGH;
 
       default:
         str[j++] = token[i++];
@@ -1771,6 +1800,8 @@ bytestring_parse (TokenStream  *stream,
           case 'v': str[j++] = '\v'; i++; continue;
           case '\n': i++; continue;
           }
+
+        G_GNUC_FALLTHROUGH;
 
       default:
         str[j++] = token[i++];
@@ -1905,7 +1936,10 @@ number_get_value (AST                 *ast,
     case 'n':
       if (abs_val - negative > G_MAXINT16)
         return number_overflow (ast, type, error);
-      return g_variant_new_int16 (negative ? -abs_val : abs_val);
+      if (negative && abs_val > G_MAXINT16)
+        return g_variant_new_int16 (G_MININT16);
+      return g_variant_new_int16 (negative ?
+                                  -((gint16) abs_val) : ((gint16) abs_val));
 
     case 'q':
       if (negative || abs_val > G_MAXUINT16)
@@ -1915,7 +1949,10 @@ number_get_value (AST                 *ast,
     case 'i':
       if (abs_val - negative > G_MAXINT32)
         return number_overflow (ast, type, error);
-      return g_variant_new_int32 (negative ? -abs_val : abs_val);
+      if (negative && abs_val > G_MAXINT32)
+        return g_variant_new_int32 (G_MININT32);
+      return g_variant_new_int32 (negative ?
+                                  -((gint32) abs_val) : ((gint32) abs_val));
 
     case 'u':
       if (negative || abs_val > G_MAXUINT32)
@@ -1925,7 +1962,10 @@ number_get_value (AST                 *ast,
     case 'x':
       if (abs_val - negative > G_MAXINT64)
         return number_overflow (ast, type, error);
-      return g_variant_new_int64 (negative ? -abs_val : abs_val);
+      if (negative && abs_val > G_MAXINT64)
+        return g_variant_new_int64 (G_MININT64);
+      return g_variant_new_int64 (negative ?
+                                  -((gint64) abs_val) : ((gint64) abs_val));
 
     case 't':
       if (negative)
@@ -1935,7 +1975,10 @@ number_get_value (AST                 *ast,
     case 'h':
       if (abs_val - negative > G_MAXINT32)
         return number_overflow (ast, type, error);
-      return g_variant_new_handle (negative ? -abs_val : abs_val);
+      if (negative && abs_val > G_MAXINT32)
+        return g_variant_new_handle (G_MININT32);
+      return g_variant_new_handle (negative ?
+                                   -((gint32) abs_val) : ((gint32) abs_val));
 
     default:
       return ast_type_error (ast, type, error);
@@ -2591,7 +2634,7 @@ g_variant_builder_add_parsed (GVariantBuilder *builder,
 static gboolean
 parse_num (const gchar *num,
            const gchar *limit,
-           gint        *result)
+           guint       *result)
 {
   gchar *endptr;
   gint64 bignum;
@@ -2604,7 +2647,7 @@ parse_num (const gchar *num,
   if (bignum < 0 || bignum > G_MAXINT)
     return FALSE;
 
-  *result = bignum;
+  *result = (guint) bignum;
 
   return TRUE;
 }
@@ -2760,7 +2803,7 @@ g_variant_parse_error_print_context (GError      *error,
 
   if (dash == NULL || colon < dash)
     {
-      gint point;
+      guint point;
 
       /* we have a single point */
       if (!parse_num (error->message, colon, &point))
@@ -2778,7 +2821,7 @@ g_variant_parse_error_print_context (GError      *error,
       /* We have one or two ranges... */
       if (comma && comma < colon)
         {
-          gint start1, end1, start2, end2;
+          guint start1, end1, start2, end2;
           const gchar *dash2;
 
           /* Two ranges */
@@ -2794,7 +2837,7 @@ g_variant_parse_error_print_context (GError      *error,
         }
       else
         {
-          gint start, end;
+          guint start, end;
 
           /* One range */
           if (!parse_num (error->message, dash, &start) || !parse_num (dash + 1, colon, &end))

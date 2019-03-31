@@ -46,7 +46,6 @@
 #endif
 #include <errno.h>
 #include <ctype.h>
-#include <strsafe.h>
 #if defined(_MSC_VER) || defined(__DMC__)
 #  include <io.h>
 #endif /* _MSC_VER || __DMC__ */
@@ -108,15 +107,12 @@ g_win32_ftruncate (gint  fd,
 gchar *
 g_win32_getlocale (void)
 {
-  gchar *result;
   LCID lcid;
   LANGID langid;
   gchar *ev;
   gint primary, sub;
-  WCHAR iso639[10];
-  gchar *iso639_utf8;
-  WCHAR iso3166[10];
-  gchar *iso3166_utf8;
+  char iso639[10];
+  char iso3166[10];
   const gchar *script = NULL;
 
   /* Let the user override the system settings through environment
@@ -131,8 +127,8 @@ g_win32_getlocale (void)
 
   lcid = GetThreadLocale ();
 
-  if (!GetLocaleInfoW (lcid, LOCALE_SISO639LANGNAME, iso639, sizeof (iso639)) ||
-      !GetLocaleInfoW (lcid, LOCALE_SISO3166CTRYNAME, iso3166, sizeof (iso3166)))
+  if (!GetLocaleInfo (lcid, LOCALE_SISO639LANGNAME, iso639, sizeof (iso639)) ||
+      !GetLocaleInfo (lcid, LOCALE_SISO3166CTRYNAME, iso3166, sizeof (iso3166)))
     return g_strdup ("C");
   
   /* Strip off the sorting rules, keep only the language part.  */
@@ -177,16 +173,7 @@ g_win32_getlocale (void)
 	}
       break;
     }
-
-  iso639_utf8 = g_utf16_to_utf8 (iso639, -1, NULL, NULL, NULL);
-  iso3166_utf8 = g_utf16_to_utf8 (iso3166, -1, NULL, NULL, NULL);
-
-  result = g_strconcat (iso639_utf8, "_", iso3166_utf8, script, NULL);
-
-  g_free (iso3166_utf8);
-  g_free (iso639_utf8);
-
-  return result;
+  return g_strconcat (iso639, "_", iso3166, script, NULL);
 }
 
 /**
@@ -839,7 +826,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
  * attached to a process, from DllMain().
  */
 void
-_g_console_win32_init (void)
+g_console_win32_init (void)
 {
   struct
     {
@@ -1031,191 +1018,217 @@ _g_console_win32_init (void)
     }
 }
 
-#endif
+/* This is a handle to the Vectored Exception Handler that
+ * we install on library initialization. If installed correctly,
+ * it will be non-NULL. Only used to later de-install the handler
+ * on library de-initialization.
+ */
+static void *WinVEH_handle = NULL;
 
-#define CWM_DISPATCH      (WM_USER + 0)
-#define DISPATCH_TIMER_ID (1)
+#include "gwin32-private.c"
 
-#define IS_DISPATCHER_MESSAGE(umsg) \
-    ((umsg) == CWM_DISPATCH || (umsg) == WM_TIMER)
-
-struct _GWin32Dispatcher
+/* Handles exceptions (useful for debugging).
+ * Issues a DebugBreak() call if the process is being debugged (not really
+ * useful - if the process is being debugged, this handler won't be invoked
+ * anyway). If it is not, runs a debugger from G_DEBUGGER env var,
+ * substituting first %p in it for PID, and the first %e for the event handle -
+ * that event should be set once the debugger attaches itself (otherwise the
+ * only way out of WaitForSingleObject() is to time out after 1 minute).
+ * For example, G_DEBUGGER can be set to the following command:
+ * ```
+ * gdb.exe -ex "attach %p" -ex "signal-event %e" -ex "bt" -ex "c"
+ * ```
+ * This will make GDB attach to the process, signal the event (GDB must be
+ * recent enough for the signal-event command to be available),
+ * show the backtrace and resume execution, which should make it catch
+ * the exception when Windows re-raises it again.
+ * The command line can't be longer than MAX_PATH (260 characters).
+ *
+ * This function will only stop (and run a debugger) on the following exceptions:
+ * * EXCEPTION_ACCESS_VIOLATION
+ * * EXCEPTION_STACK_OVERFLOW
+ * * EXCEPTION_ILLEGAL_INSTRUCTION
+ * To make it stop at other exceptions one should set the G_VEH_CATCH
+ * environment variable to a list of comma-separated hexademical numbers,
+ * where each number is the code of an exception that should be caught.
+ * This is done to prevent GLib from breaking when Windows uses
+ * exceptions to shuttle information (SetThreadName(), OutputDebugString())
+ * or for control flow.
+ *
+ * This function deliberately avoids calling any GLib code.
+ */
+static LONG __stdcall
+g_win32_veh_handler (PEXCEPTION_POINTERS ExceptionInfo)
 {
-  GWin32DispatchMode mode;
-  GMainContext * main_context;
+  EXCEPTION_RECORD    *er;
+  char                 debugger[MAX_PATH + 1];
+  const char          *debugger_env = NULL;
+  const char          *catch_list;
+  gboolean             catch = FALSE;
+  STARTUPINFO          si;
+  PROCESS_INFORMATION  pi;
+  HANDLE               event;
+  SECURITY_ATTRIBUTES  sa;
 
-  ATOM klass;
-  HWND window;
-  gboolean message_posted;
-  gboolean is_dispatching_message;
-  HHOOK foreground_idle_hook;
-};
+  if (ExceptionInfo == NULL ||
+      ExceptionInfo->ExceptionRecord == NULL)
+    return EXCEPTION_CONTINUE_SEARCH;
 
-static LRESULT CALLBACK g_win32_dispatcher_window_proc (HWND hwnd, UINT umsg,
-    WPARAM wparam, LPARAM lparam);
-static DWORD CALLBACK g_win32_dispatcher_on_foreground_idle (int code,
-    DWORD wParam, LONG lParam);
+  er = ExceptionInfo->ExceptionRecord;
 
-static DWORD g_win32_dispatcher_tls = TLS_OUT_OF_INDEXES;
+  switch (er->ExceptionCode)
+    {
+    case EXCEPTION_ACCESS_VIOLATION:
+    case EXCEPTION_STACK_OVERFLOW:
+    case EXCEPTION_ILLEGAL_INSTRUCTION:
+    case EXCEPTION_BREAKPOINT: /* DebugBreak() raises this */
+      break;
+    default:
+      catch_list = getenv ("G_VEH_CATCH");
 
-static gpointer
-g_win32_dispatcher_init (gpointer data)
-{
-  g_win32_dispatcher_tls = TlsAlloc ();
-  return NULL;
-}
+      while (!catch &&
+             catch_list != NULL &&
+             catch_list[0] != 0)
+        {
+          unsigned long  catch_code;
+          char          *end;
+          errno = 0;
+          catch_code = strtoul (catch_list, &end, 16);
+          if (errno != NO_ERROR)
+            break;
+          catch_list = end;
+          if (catch_list != NULL && catch_list[0] == ',')
+            catch_list++;
+          if (catch_code == er->ExceptionCode)
+            catch = TRUE;
+        }
 
-GWin32Dispatcher *
-g_win32_dispatcher_new (GWin32DispatchMode mode, GMainContext * main_context)
-{
-  static GOnce init_once = G_ONCE_INIT;
-  GWin32Dispatcher * dispatcher;
-  WNDCLASSW wndclass;
-  WCHAR wndclass_name[64];
+      if (catch)
+        break;
 
-  g_once (&init_once, g_win32_dispatcher_init, NULL);
+      return EXCEPTION_CONTINUE_SEARCH;
+    }
 
-  dispatcher = g_new0 (GWin32Dispatcher, 1);
-  dispatcher->mode = mode;
-  dispatcher->main_context = main_context;
+  if (IsDebuggerPresent ())
+    {
+      /* This shouldn't happen, but still try to
+       * avoid recursion with EXCEPTION_BREAKPOINT and
+       * DebugBreak().
+       */
+      if (er->ExceptionCode != EXCEPTION_BREAKPOINT)
+        DebugBreak ();
+      return EXCEPTION_CONTINUE_EXECUTION;
+    }
 
-  memset (&wndclass, 0, sizeof (wndclass));
-  wndclass.style = 0;
-  wndclass.lpfnWndProc = g_win32_dispatcher_window_proc;
-  wndclass.cbWndExtra = 0;
-  wndclass.hInstance = GetModuleHandleW (NULL);
-  wndclass.hIcon = NULL;
-  wndclass.hCursor = NULL;
-  wndclass.hbrBackground = NULL;
-  wndclass.lpszMenuName = NULL;
-  StringCbPrintfW (wndclass_name, sizeof (wndclass_name),
-      L"GWin32Dispatcher_%p", dispatcher);
-  wndclass.lpszClassName = wndclass_name;
+  fprintf (stderr,
+           "Exception code=0x%lx flags=0x%lx at 0x%p",
+           er->ExceptionCode,
+           er->ExceptionFlags,
+           er->ExceptionAddress);
 
-  dispatcher->klass = RegisterClassW (&wndclass);
-  g_assert (dispatcher->klass != 0);
+  switch (er->ExceptionCode)
+    {
+    case EXCEPTION_ACCESS_VIOLATION:
+      fprintf (stderr,
+               ". Access violation - attempting to %s at address 0x%p\n",
+               er->ExceptionInformation[0] == 0 ? "read data" :
+               er->ExceptionInformation[0] == 1 ? "write data" :
+               er->ExceptionInformation[0] == 8 ? "execute data" :
+               "do something bad",
+               (void *) er->ExceptionInformation[1]);
+      break;
+    case EXCEPTION_IN_PAGE_ERROR:
+      fprintf (stderr,
+               ". Page access violation - attempting to %s at address 0x%p with status %Ix\n",
+               er->ExceptionInformation[0] == 0 ? "read from an inaccessible page" :
+               er->ExceptionInformation[0] == 1 ? "write to an inaccessible page" :
+               er->ExceptionInformation[0] == 8 ? "execute data in page" :
+               "do something bad with a page",
+               (void *) er->ExceptionInformation[1],
+               er->ExceptionInformation[2]);
+      break;
+    default:
+      fprintf (stderr, "\n");
+      break;
+    }
 
-  dispatcher->window =
-      CreateWindowW ((LPWSTR) MAKEINTATOM (dispatcher->klass),
-                     wndclass.lpszClassName, 0, 0, 0, 1, 1, NULL, NULL,
-                     GetModuleHandle (NULL), NULL);
-  g_assert (dispatcher->window != NULL);
+  fflush (stderr);
 
-  SetWindowLongPtr (dispatcher->window, GWLP_USERDATA,
-      GPOINTER_TO_SIZE (dispatcher));
+  debugger_env = getenv ("G_DEBUGGER");
 
-  g_assert (TlsGetValue (g_win32_dispatcher_tls) == NULL);
-  TlsSetValue (g_win32_dispatcher_tls, dispatcher);
+  if (debugger_env == NULL)
+    return EXCEPTION_CONTINUE_SEARCH;
 
-  dispatcher->foreground_idle_hook = SetWindowsHookEx (WH_FOREGROUNDIDLE,
-      (HOOKPROC) g_win32_dispatcher_on_foreground_idle, NULL,
-      GetCurrentThreadId ());
+  /* Create an inheritable event */
+  memset (&si, 0, sizeof (si));
+  memset (&pi, 0, sizeof (pi));
+  memset (&sa, 0, sizeof (sa));
+  si.cb = sizeof (si);
+  sa.nLength = sizeof (sa);
+  sa.bInheritHandle = TRUE;
+  event = CreateEvent (&sa, FALSE, FALSE, NULL);
 
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    SetTimer (dispatcher->window, DISPATCH_TIMER_ID, 0, NULL);
+  /* Put process ID and event handle into debugger commandline */
+  if (!_g_win32_subst_pid_and_event (debugger, G_N_ELEMENTS (debugger),
+                                     debugger_env, GetCurrentProcessId (),
+                                     (guintptr) event))
+    {
+      CloseHandle (event);
+      return EXCEPTION_CONTINUE_SEARCH;
+    }
 
-  return dispatcher;
+  /* Run the debugger */
+  debugger[MAX_PATH] = '\0';
+  if (0 != CreateProcessA (NULL,
+                           debugger,
+                           NULL,
+                           NULL,
+                           TRUE,
+                           getenv ("G_DEBUGGER_OLD_CONSOLE") != NULL ? 0 : CREATE_NEW_CONSOLE,
+                           NULL,
+                           NULL,
+                           &si,
+                           &pi))
+    {
+      CloseHandle (pi.hProcess);
+      CloseHandle (pi.hThread);
+      /* If successful, wait for 60 seconds on the event
+       * we passed. The debugger should signal that event.
+       * 60 second limit is here to prevent us from hanging
+       * up forever in case the debugger does not support
+       * event signalling.
+       */
+      WaitForSingleObject (event, 60000);
+    }
+
+  CloseHandle (event);
+
+  /* Now the debugger is present, and we can try
+   * resuming execution, re-triggering the exception,
+   * which will be caught by debugger this time around.
+   */
+  if (IsDebuggerPresent ())
+    return EXCEPTION_CONTINUE_EXECUTION;
+
+  return EXCEPTION_CONTINUE_SEARCH;
 }
 
 void
-g_win32_dispatcher_destroy (GWin32Dispatcher * dispatcher)
+g_crash_handler_win32_init (void)
 {
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    KillTimer (dispatcher->window, DISPATCH_TIMER_ID);
+  if (WinVEH_handle != NULL)
+    return;
 
-  UnhookWindowsHookEx (dispatcher->foreground_idle_hook);
-
-  g_assert (TlsGetValue (g_win32_dispatcher_tls) == dispatcher);
-  TlsSetValue (g_win32_dispatcher_tls, NULL);
-
-  DestroyWindow (dispatcher->window);
-
-  UnregisterClassW ((LPWSTR) MAKEINTATOM (dispatcher->klass),
-                    GetModuleHandleW (NULL));
-
-  g_free (dispatcher);
+  WinVEH_handle = AddVectoredExceptionHandler (0, &g_win32_veh_handler);
 }
 
-glong
-g_win32_dispatcher_dispatch_message (GWin32Dispatcher * dispatcher,
-    gconstpointer msg)
+void
+g_crash_handler_win32_deinit (void)
 {
-  const MSG * m = msg;
-  LRESULT result;
+  if (WinVEH_handle != NULL)
+    RemoveVectoredExceptionHandler (WinVEH_handle);
 
-  g_assert_cmpint (dispatcher->mode, ==, G_DISPATCH_MAINLOOP);
-
-  if (m->hwnd == dispatcher->window && IS_DISPATCHER_MESSAGE (m->message))
-    return 0;
-
-  SetTimer (dispatcher->window, DISPATCH_TIMER_ID, 0, NULL);
-
-  dispatcher->is_dispatching_message = TRUE;
-  result = DispatchMessage (msg);
-  dispatcher->is_dispatching_message = FALSE;
-
-  KillTimer (dispatcher->window, DISPATCH_TIMER_ID);
-
-  return result;
+  WinVEH_handle = NULL;
 }
 
-static gboolean
-g_win32_dispatcher_needs_wakeup (GWin32Dispatcher * dispatcher)
-{
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    return TRUE;
-
-  return dispatcher->is_dispatching_message;
-}
-
-static LRESULT CALLBACK
-g_win32_dispatcher_window_proc (HWND hwnd, UINT umsg, WPARAM wparam,
-    LPARAM lparam)
-{
-  if (IS_DISPATCHER_MESSAGE (umsg))
-    {
-      GWin32Dispatcher * dispatcher;
-
-      dispatcher = GSIZE_TO_POINTER (GetWindowLongPtr (hwnd, GWLP_USERDATA));
-      if (dispatcher != NULL)
-        {
-          KillTimer (hwnd, DISPATCH_TIMER_ID);
-          dispatcher->message_posted = TRUE;
-
-          if (g_win32_dispatcher_needs_wakeup (dispatcher))
-            {
-              g_main_context_iteration (dispatcher->main_context, FALSE);
-
-              while (GetQueueStatus (QS_ALLINPUT) == 0)
-                {
-                  g_main_context_iteration (dispatcher->main_context, TRUE);
-                }
-            }
-
-          dispatcher->message_posted = FALSE;
-          SetTimer (hwnd, DISPATCH_TIMER_ID, 0, NULL);
-        }
-    }
-
-  return DefWindowProcW (hwnd, umsg, wparam, lparam);
-}
-
-static DWORD CALLBACK
-g_win32_dispatcher_on_foreground_idle (int code, DWORD wParam, LONG lParam)
-{
-  GWin32Dispatcher * dispatcher;
-
-  dispatcher = TlsGetValue (g_win32_dispatcher_tls);
-  g_assert (dispatcher != NULL);
-
-  if (code == HC_ACTION && !dispatcher->message_posted &&
-      g_win32_dispatcher_needs_wakeup (dispatcher))
-    {
-      dispatcher->message_posted = TRUE;
-
-      PostMessage (dispatcher->window, CWM_DISPATCH, 0, 0);
-    }
-
-  return CallNextHookEx (dispatcher->foreground_idle_hook, code,
-      wParam, lParam);
-}
+#endif

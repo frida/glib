@@ -192,8 +192,6 @@ g_io_channel_init (GIOChannel *channel)
   channel->buf_size = G_IO_NICE_BUF_SIZE;
   channel->read_cd = (GIConv) -1;
   channel->write_cd = (GIConv) -1;
-  channel->close_converters = NULL;
-  channel->reset_converters = NULL;
   channel->read_buf = NULL; /* Lazy allocate buffers */
   channel->encoded_read_buf = NULL;
   channel->write_buf = NULL;
@@ -243,8 +241,10 @@ g_io_channel_unref (GIOChannel *channel)
       else
         g_io_channel_purge (channel);
       g_free (channel->encoding);
-      if (channel->close_converters != NULL)
-        channel->close_converters (channel);
+      if (channel->read_cd != (GIConv) -1)
+        g_iconv_close (channel->read_cd);
+      if (channel->write_cd != (GIConv) -1)
+        g_iconv_close (channel->write_cd);
       g_free (channel->line_term);
       if (channel->read_buf)
         g_string_free (channel->read_buf, TRUE);
@@ -1139,8 +1139,10 @@ g_io_channel_seek_position (GIOChannel  *channel,
         g_string_truncate (channel->read_buf, 0);
 
       /* Conversion state no longer matches position in file */
-      if (channel->reset_converters != NULL)
-        channel->reset_converters (channel);
+      if (channel->read_cd != (GIConv) -1)
+        g_iconv (channel->read_cd, NULL, NULL, NULL, NULL);
+      if (channel->write_cd != (GIConv) -1)
+        g_iconv (channel->write_cd, NULL, NULL, NULL, NULL);
 
       if (channel->encoded_read_buf)
         {
@@ -1260,24 +1262,6 @@ g_io_channel_get_buffered (GIOChannel *channel)
   return channel->use_buffer;
 }
 
-static void
-g_io_channel_on_close_converters (GIOChannel * channel)
-{
-  if (channel->read_cd != (GIConv) -1)
-    g_iconv_close (channel->read_cd);
-  if (channel->write_cd != (GIConv) -1)
-    g_iconv_close (channel->write_cd);
-}
-
-static void
-g_io_channel_on_reset_converters (GIOChannel * channel)
-{
-  if (channel->read_cd != (GIConv) -1)
-    g_iconv (channel->read_cd, NULL, NULL, NULL, NULL);
-  if (channel->write_cd != (GIConv) -1)
-    g_iconv (channel->write_cd, NULL, NULL, NULL, NULL);
-}
-
 /**
  * g_io_channel_set_encoding:
  * @channel: a #GIOChannel
@@ -1327,7 +1311,9 @@ g_io_channel_set_encoding (GIOChannel	*channel,
 			   GError      **error)
 {
   GIConv read_cd, write_cd;
+#ifndef G_DISABLE_ASSERT
   gboolean did_encode;
+#endif
 
   g_return_val_if_fail (channel != NULL, G_IO_STATUS_ERROR);
   g_return_val_if_fail ((error == NULL) || (*error == NULL), G_IO_STATUS_ERROR);
@@ -1351,7 +1337,9 @@ g_io_channel_set_encoding (GIOChannel	*channel,
       channel->partial_write_buf[0] = '\0';
     }
 
+#ifndef G_DISABLE_ASSERT
   did_encode = channel->do_encode;
+#endif
 
   if (!encoding || strcmp (encoding, "UTF8") == 0 || strcmp (encoding, "UTF-8") == 0)
     {
@@ -1438,9 +1426,6 @@ g_io_channel_set_encoding (GIOChannel	*channel,
 
   channel->read_cd = read_cd;
   channel->write_cd = write_cd;
-
-  channel->close_converters = g_io_channel_on_close_converters;
-  channel->reset_converters = g_io_channel_on_reset_converters;
 
   g_free (channel->encoding);
   channel->encoding = g_strdup (encoding);
@@ -2195,6 +2180,7 @@ g_io_channel_write_chars (GIOChannel   *channel,
 			  gsize        *bytes_written,
                           GError      **error)
 {
+  gsize count_unsigned;
   GIOStatus status;
   gssize wrote_bytes = 0;
 
@@ -2205,8 +2191,9 @@ g_io_channel_write_chars (GIOChannel   *channel,
 
   if ((count < 0) && buf)
     count = strlen (buf);
-  
-  if (count == 0)
+  count_unsigned = count;
+
+  if (count_unsigned == 0)
     {
       if (bytes_written)
         *bytes_written = 0;
@@ -2214,7 +2201,7 @@ g_io_channel_write_chars (GIOChannel   *channel,
     }
 
   g_return_val_if_fail (buf != NULL, G_IO_STATUS_ERROR);
-  g_return_val_if_fail (count > 0, G_IO_STATUS_ERROR);
+  g_return_val_if_fail (count_unsigned > 0, G_IO_STATUS_ERROR);
 
   /* Raw write case */
 
@@ -2225,7 +2212,8 @@ g_io_channel_write_chars (GIOChannel   *channel,
       g_assert (!channel->write_buf || channel->write_buf->len == 0);
       g_assert (channel->partial_write_buf[0] == '\0');
       
-      status = channel->funcs->io_write (channel, buf, count, &tmp_bytes, error);
+      status = channel->funcs->io_write (channel, buf, count_unsigned,
+                                         &tmp_bytes, error);
 
       if (bytes_written)
 	*bytes_written = tmp_bytes;
@@ -2301,7 +2289,7 @@ g_io_channel_write_chars (GIOChannel   *channel,
 
       if (!channel->encoding)
         {
-          gssize write_this = MIN (space_in_buf, count - wrote_bytes);
+          gssize write_this = MIN (space_in_buf, count_unsigned - wrote_bytes);
 
           g_string_append_len (channel->write_buf, buf, write_this);
           buf += write_this;
@@ -2321,7 +2309,7 @@ g_io_channel_write_chars (GIOChannel   *channel,
               from_buf = channel->partial_write_buf;
               from_buf_old_len = strlen (channel->partial_write_buf);
               g_assert (from_buf_old_len > 0);
-              from_buf_len = MIN (6, from_buf_old_len + count);
+              from_buf_len = MIN (6, from_buf_old_len + count_unsigned);
 
               memcpy (channel->partial_write_buf + from_buf_old_len, buf,
                       from_buf_len - from_buf_old_len);
@@ -2329,7 +2317,7 @@ g_io_channel_write_chars (GIOChannel   *channel,
           else
             {
               from_buf = buf;
-              from_buf_len = count - wrote_bytes;
+              from_buf_len = count_unsigned - wrote_bytes;
               from_buf_old_len = 0;
             }
 
@@ -2342,7 +2330,7 @@ reconvert:
 
               /* UTF-8, just validate, emulate g_iconv */
 
-              if (!g_utf8_validate (from_buf, try_len, &badchar))
+              if (!g_utf8_validate_len (from_buf, try_len, &badchar))
                 {
                   gunichar try_char;
                   gsize incomplete_len = from_buf + try_len - badchar;
@@ -2419,7 +2407,7 @@ reconvert:
                         memcpy (channel->partial_write_buf, from_buf, left_len);
                         channel->partial_write_buf[left_len] = '\0';
                         if (bytes_written)
-                          *bytes_written = count;
+                          *bytes_written = count_unsigned;
                         return G_IO_STATUS_NORMAL;
                       }
 
@@ -2431,12 +2419,12 @@ reconvert:
                          * less than a full character
                          */
 
-                        g_assert (count == from_buf_len - from_buf_old_len);
+                        g_assert (count_unsigned == from_buf_len - from_buf_old_len);
 
                         channel->partial_write_buf[from_buf_len] = '\0';
 
                         if (bytes_written)
-                          *bytes_written = count;
+                          *bytes_written = count_unsigned;
 
                         return G_IO_STATUS_NORMAL;
                       }
@@ -2498,7 +2486,7 @@ reconvert:
     }
 
   if (bytes_written)
-    *bytes_written = count;
+    *bytes_written = count_unsigned;
 
   return G_IO_STATUS_NORMAL;
 }

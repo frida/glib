@@ -34,12 +34,10 @@
 #include <gobject/gvalue.h>
 #include <gobject/gvaluearray.h>
 #include <gobject/gvaluetypes.h>
+#include <gobject/glib-enumtypes.h>
 
 #include <gobject/gobject-autocleanups.h>
 
 #undef __GLIB_GOBJECT_H_INSIDE__
-
-GLIB_AVAILABLE_IN_2_58
-void                            gobject_init                            (void);
 
 #endif /* __GLIB_GOBJECT_H__ */

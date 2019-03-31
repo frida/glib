@@ -66,7 +66,6 @@
 #include "gtypes.h"
 #include "gmain.h"
 #include "gprintfint.h"
-#include "gunicode.h"
 #include "gutils.h"
 
 #ifndef G_OS_WIN32
@@ -126,6 +125,10 @@ volatile gboolean glib_on_error_halt = TRUE;
  * If "[P]roceed" is selected, the function returns.
  *
  * This function may cause different actions on non-UNIX platforms.
+ *
+ * On Windows consider using the `G_DEBUGGER` environment
+ * variable (see [Running GLib Applications](glib-running.html)) and
+ * calling g_on_error_stack_trace() instead.
  */
 void
 g_on_error_query (const gchar *prg_name)
@@ -186,22 +189,12 @@ g_on_error_query (const gchar *prg_name)
   else
     goto retry;
 #else
-  WCHAR *caption = NULL;
-
   if (!prg_name)
     prg_name = g_get_prgname ();
 
-  if (prg_name && *prg_name)
-    {
-      caption = g_utf8_to_utf16 (prg_name, -1, NULL, NULL, NULL);
-    }
-
-  MessageBoxW (NULL, L"g_on_error_query called, program terminating",
-               caption,
-               MB_OK|MB_ICONERROR);
-
-  g_free (caption);
-
+  MessageBox (NULL, "g_on_error_query called, program terminating",
+              (prg_name && *prg_name) ? prg_name : NULL,
+              MB_OK|MB_ICONERROR);
   _exit(0);
 #endif
 }
@@ -218,6 +211,12 @@ g_on_error_query (const gchar *prg_name)
  * gdk_init().
  *
  * This function may cause different actions on non-UNIX platforms.
+ *
+ * When running on Windows, this function is *not* called by
+ * g_on_error_query(). If called directly, it will raise an
+ * exception, which will crash the program. If the `G_DEBUGGER` environment
+ * variable is set, a debugger will be invoked to attach and
+ * handle that exception (see [Running GLib Applications](glib-running.html)).
  */
 void
 g_on_error_stack_trace (const gchar *prg_name)

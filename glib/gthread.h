@@ -45,9 +45,7 @@ typedef enum
 } GThreadError;
 
 typedef gpointer (*GThreadFunc) (gpointer data);
-typedef void (*GThreadGarbageHandler) (gpointer data);
 
-typedef struct _GThreadCallbacks GThreadCallbacks;
 typedef struct _GThread         GThread;
 
 typedef union  _GMutex          GMutex;
@@ -56,20 +54,6 @@ typedef struct _GRWLock         GRWLock;
 typedef struct _GCond           GCond;
 typedef struct _GPrivate        GPrivate;
 typedef struct _GOnce           GOnce;
-
-typedef enum
-{
-  G_PRIVATE_DESTROY_LATE = 1 << 0,
-  G_PRIVATE_DESTROY_LAST = 1 << 1,
-} GPrivateFlags;
-
-struct _GThreadCallbacks
-{
-  void (*on_thread_init)      (void);
-  void (*on_thread_realize)   (void);
-  void (*on_thread_dispose)   (void);
-  void (*on_thread_finalize)  (void);
-};
 
 union _GMutex
 {
@@ -99,17 +83,13 @@ struct _GRecMutex
   guint i[2];
 };
 
-#define G_PRIVATE_INIT(notify) \
-    { NULL, (notify), 0, { NULL } }
-#define G_PRIVATE_INIT_WITH_FLAGS(notify, flags) \
-    { NULL, (notify), (flags), { NULL } }
+#define G_PRIVATE_INIT(notify) { NULL, (notify), { NULL, NULL } }
 struct _GPrivate
 {
   /*< private >*/
   gpointer       p;
   GDestroyNotify notify;
-  GPrivateFlags  flags;
-  gpointer future[1];
+  gpointer future[2];
 };
 
 typedef enum
@@ -156,15 +136,6 @@ struct _GOnce
 #  define G_UNLOCK(name) g_mutex_unlock   (&G_LOCK_NAME (name))
 #  define G_TRYLOCK(name) g_mutex_trylock (&G_LOCK_NAME (name))
 #endif /* !G_DEBUG_LOCKS */
-
-GLIB_VAR GThreadCallbacks *glib_thread_callbacks;
-GLIB_AVAILABLE_IN_2_58
-void            g_thread_set_callbacks          (GThreadCallbacks *callbacks);
-GLIB_AVAILABLE_IN_2_58
-void            g_thread_set_garbage_handler    (GThreadGarbageHandler handler,
-                                                 gpointer user_data);
-GLIB_AVAILABLE_IN_2_58
-gboolean        g_thread_garbage_collect        (void);
 
 GLIB_AVAILABLE_IN_2_32
 GThread *       g_thread_ref                    (GThread        *thread);
@@ -363,6 +334,75 @@ static inline void
 g_mutex_locker_free (GMutexLocker *locker)
 {
   g_mutex_unlock ((GMutex *) locker);
+}
+
+/**
+ * GRecMutexLocker:
+ *
+ * Opaque type. See g_rec_mutex_locker_new() for details.
+ * Since: 2.60
+ */
+typedef void GRecMutexLocker;
+
+/**
+ * g_rec_mutex_locker_new:
+ * @rec_mutex: a recursive mutex to lock
+ *
+ * Lock @rec_mutex and return a new #GRecMutexLocker. Unlock with
+ * g_rec_mutex_locker_free(). Using g_rec_mutex_unlock() on @rec_mutex
+ * while a #GRecMutexLocker exists can lead to undefined behaviour.
+ *
+ * This is intended to be used with g_autoptr().  Note that g_autoptr()
+ * is only available when using GCC or clang, so the following example
+ * will only work with those compilers:
+ * |[
+ * typedef struct
+ * {
+ *   ...
+ *   GRecMutex rec_mutex;
+ *   ...
+ * } MyObject;
+ *
+ * static void
+ * my_object_do_stuff (MyObject *self)
+ * {
+ *   g_autoptr(GRecMutexLocker) locker = g_rec_mutex_locker_new (&self->rec_mutex);
+ *
+ *   // Code with rec_mutex locked here
+ *
+ *   if (cond)
+ *     // No need to unlock
+ *     return;
+ *
+ *   // Optionally early unlock
+ *   g_clear_pointer (&locker, g_rec_mutex_locker_free);
+ *
+ *   // Code with rec_mutex unlocked here
+ * }
+ * ]|
+ *
+ * Returns: a #GRecMutexLocker
+ * Since: 2.60
+ */
+static inline GRecMutexLocker *
+g_rec_mutex_locker_new (GRecMutex *rec_mutex)
+{
+  g_rec_mutex_lock (rec_mutex);
+  return (GRecMutexLocker *) rec_mutex;
+}
+
+/**
+ * g_rec_mutex_locker_free:
+ * @locker: a GRecMutexLocker
+ *
+ * Unlock @locker's recursive mutex. See g_rec_mutex_locker_new() for details.
+ *
+ * Since: 2.60
+ */
+static inline void
+g_rec_mutex_locker_free (GRecMutexLocker *locker)
+{
+  g_rec_mutex_unlock ((GRecMutex *) locker);
 }
 
 G_END_DECLS

@@ -1,6 +1,6 @@
 /* GIO - GLib Input, Output and Streaming Library
  *
- * Copyright 2011 Red Hat, Inc.
+ * Copyright 2011-2018 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -23,8 +23,6 @@
 
 #include "gasyncresult.h"
 #include "gcancellable.h"
-#include "gconstructor.h"
-#include "gio-init.h"
 #include "glib-private.h"
 
 #include "glibintl.h"
@@ -545,6 +543,7 @@ struct _GTask {
 
   gpointer source_object;
   gpointer source_tag;
+  gchar *name;  /* (owned); may only be modified before the #GTask is threaded */
 
   gpointer task_data;
   GDestroyNotify task_data_destroy;
@@ -553,20 +552,33 @@ struct _GTask {
   gint64 creation_time;
   gint priority;
   GCancellable *cancellable;
-  gboolean check_cancellable;
 
   GAsyncReadyCallback callback;
   gpointer callback_data;
-  gboolean completed;
 
   GTaskThreadFunc task_func;
   GMutex lock;
   GCond cond;
-  gboolean return_on_cancel;
+
+  /* This can’t be in the bit field because we access it from TRACE(). */
   gboolean thread_cancelled;
-  gboolean synchronous;
-  gboolean thread_complete;
-  gboolean blocking_other_task;
+
+  /* Protected by the lock when task is threaded: */
+  gboolean thread_complete : 1;
+  gboolean return_on_cancel : 1;
+  gboolean : 0;
+
+  /* Unprotected, but written to when task runs in thread: */
+  gboolean completed : 1;
+  gboolean had_error : 1;
+  gboolean result_set : 1;
+  gboolean ever_returned : 1;
+  gboolean : 0;
+
+  /* Read-only once task runs in thread: */
+  gboolean check_cancellable : 1;
+  gboolean synchronous : 1;
+  gboolean blocking_other_task : 1;
 
   GError *error;
   union {
@@ -575,8 +587,6 @@ struct _GTask {
     gboolean boolean;
   } result;
   GDestroyNotify result_destroy;
-  gboolean had_error;
-  gboolean result_set;
 };
 
 #define G_TASK_IS_THREADED(task) ((task)->task_func != NULL)
@@ -599,20 +609,11 @@ G_DEFINE_TYPE_WITH_CODE (GTask, g_task, G_TYPE_OBJECT,
                                                 g_task_async_result_iface_init);
                          g_task_thread_pool_init ();)
 
-#ifdef G_HAS_CONSTRUCTORS
-#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(g_task_deinit)
-#endif
-G_DEFINE_DESTRUCTOR(g_task_deinit)
-#endif /* G_HAS_CONSTRUCTORS */
-
 static GThreadPool *task_pool;
 static GMutex task_pool_mutex;
-static GCond task_pool_cond;
 static GPrivate task_private = G_PRIVATE_INIT (NULL);
 static GSource *task_pool_manager;
 static guint64 task_wait_time;
-static gint tasks_queued;
 static gint tasks_running;
 
 /* When the task pool fills up and blocks, and the program keeps
@@ -632,34 +633,9 @@ static gint tasks_running;
 #define G_TASK_WAIT_TIME_MAX (30 * 60 * 1000000)
 
 static void
-g_task_deinit (void)
-{
-  _g_task_shutdown ();
-}
-
-static void
 g_task_init (GTask *task)
 {
   task->check_cancellable = TRUE;
-}
-
-void
-_g_task_shutdown (void)
-{
-  GThreadPool *pool;
-
-  g_mutex_lock (&task_pool_mutex);
-
-  while (tasks_queued + tasks_running != 0)
-    g_cond_wait (&task_pool_cond, &task_pool_mutex);
-
-  pool = task_pool;
-  task_pool = NULL;
-
-  g_mutex_unlock (&task_pool_mutex);
-
-  if (pool != NULL)
-    g_thread_pool_free (pool, FALSE, TRUE);
 }
 
 static void
@@ -669,6 +645,7 @@ g_task_finalize (GObject *object)
 
   g_clear_object (&task->source_object);
   g_clear_object (&task->cancellable);
+  g_free (task->name);
 
   if (task->context)
     g_main_context_unref (task->context);
@@ -1011,6 +988,36 @@ g_task_set_source_tag (GTask    *task,
 }
 
 /**
+ * g_task_set_name:
+ * @task: a #GTask
+ * @name: (nullable): a human readable name for the task, or %NULL to unset it
+ *
+ * Sets @task’s name, used in debugging and profiling. The name defaults to
+ * %NULL.
+ *
+ * The task name should describe in a human readable way what the task does.
+ * For example, ‘Open file’ or ‘Connect to network host’. It is used to set the
+ * name of the #GSource used for idle completion of the task.
+ *
+ * This function may only be called before the @task is first used in a thread
+ * other than the one it was constructed in.
+ *
+ * Since: 2.60
+ */
+void
+g_task_set_name (GTask       *task,
+                 const gchar *name)
+{
+  gchar *new_name;
+
+  g_return_if_fail (G_IS_TASK (task));
+
+  new_name = g_strdup (name);
+  g_free (task->name);
+  task->name = g_steal_pointer (&new_name);
+}
+
+/**
  * g_task_get_source_object:
  * @task: a #GTask
  *
@@ -1132,7 +1139,8 @@ g_task_get_check_cancellable (GTask *task)
 {
   g_return_val_if_fail (G_IS_TASK (task), FALSE);
 
-  return task->check_cancellable;
+  /* Convert from a bit field to a boolean. */
+  return task->check_cancellable ? TRUE : FALSE;
 }
 
 /**
@@ -1149,7 +1157,8 @@ g_task_get_return_on_cancel (GTask *task)
 {
   g_return_val_if_fail (G_IS_TASK (task), FALSE);
 
-  return task->return_on_cancel;
+  /* Convert from a bit field to a boolean. */
+  return task->return_on_cancel ? TRUE : FALSE;
 }
 
 /**
@@ -1170,6 +1179,22 @@ g_task_get_source_tag (GTask *task)
   return task->source_tag;
 }
 
+/**
+ * g_task_get_name:
+ * @task: a #GTask
+ *
+ * Gets @task’s name. See g_task_set_name().
+ *
+ * Returns: (nullable) (transfer none): @task’s name, or %NULL
+ * Since: 2.60
+ */
+const gchar *
+g_task_get_name (GTask *task)
+{
+  g_return_val_if_fail (G_IS_TASK (task), NULL);
+
+  return task->name;
+}
 
 static void
 g_task_return_now (GTask *task)
@@ -1212,6 +1237,9 @@ g_task_return (GTask           *task,
 {
   GSource *source;
 
+  if (type != G_TASK_RETURN_FROM_THREAD)
+    task->ever_returned = TRUE;
+
   if (type == G_TASK_RETURN_SUCCESS)
     task->result_set = TRUE;
 
@@ -1239,9 +1267,18 @@ g_task_return (GTask           *task,
        */
       if (g_source_get_time (source) > task->creation_time)
         {
-          g_task_return_now (task);
-          g_object_unref (task);
-          return;
+          /* Finally, if the task has been cancelled, we shouldn't
+           * return synchronously from inside the
+           * GCancellable::cancelled handler. It's easier to run
+           * another iteration of the main loop than tracking how the
+           * cancellation was handled.
+           */
+          if (!g_cancellable_is_cancelled (task->cancellable))
+            {
+              g_task_return_now (task);
+              g_object_unref (task);
+              return;
+            }
         }
     }
 
@@ -1313,8 +1350,7 @@ static gboolean
 task_pool_manager_timeout (gpointer user_data)
 {
   g_mutex_lock (&task_pool_mutex);
-  if (task_pool != NULL)
-    g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
+  g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
   g_source_set_ready_time (task_pool_manager, -1);
   g_mutex_unlock (&task_pool_mutex);
 
@@ -1326,7 +1362,6 @@ g_task_thread_setup (void)
 {
   g_private_set (&task_private, GUINT_TO_POINTER (TRUE));
   g_mutex_lock (&task_pool_mutex);
-  tasks_queued--;
   tasks_running++;
 
   if (tasks_running == G_TASK_POOL_SIZE)
@@ -1354,8 +1389,6 @@ g_task_thread_cleanup (void)
     g_source_set_ready_time (task_pool_manager, -1);
 
   tasks_running--;
-  if (tasks_queued + tasks_running == 0)
-    g_cond_signal (&task_pool_cond);
   g_mutex_unlock (&task_pool_mutex);
   g_private_set (&task_private, GUINT_TO_POINTER (FALSE));
 }
@@ -1415,10 +1448,6 @@ static void
 g_task_start_task_thread (GTask           *task,
                           GTaskThreadFunc  task_func)
 {
-  g_mutex_lock (&task_pool_mutex);
-  tasks_queued++;
-  g_mutex_unlock (&task_pool_mutex);
-
   g_mutex_init (&task->lock);
   g_cond_init (&task->cond);
 
@@ -1564,6 +1593,9 @@ g_task_run_in_thread_sync (GTask           *task,
  * #GMainContext with @task's [priority][io-priority], and sets @source's
  * callback to @callback, with @task as the callback's `user_data`.
  *
+ * It will set the @source’s name to the task’s name (as set with
+ * g_task_set_name()), if one has been set.
+ *
  * This takes a reference on @task until @source is destroyed.
  *
  * Since: 2.36
@@ -1578,6 +1610,9 @@ g_task_attach_source (GTask       *task,
   g_source_set_callback (source, callback,
                          g_object_ref (task), g_object_unref);
   g_source_set_priority (source, task->priority);
+  if (task->name != NULL)
+    g_source_set_name (source, task->name);
+
   g_source_attach (source, task->context);
 }
 
@@ -1640,7 +1675,7 @@ g_task_return_pointer (GTask          *task,
                        GDestroyNotify  result_destroy)
 {
   g_return_if_fail (G_IS_TASK (task));
-  g_return_if_fail (task->result_set == FALSE);
+  g_return_if_fail (!task->ever_returned);
 
   task->result.pointer = result;
   task->result_destroy = result_destroy;
@@ -1675,7 +1710,7 @@ g_task_propagate_pointer (GTask   *task,
   if (g_task_propagate_error (task, error))
     return NULL;
 
-  g_return_val_if_fail (task->result_set == TRUE, NULL);
+  g_return_val_if_fail (task->result_set, NULL);
 
   task->result_destroy = NULL;
   task->result_set = FALSE;
@@ -1698,7 +1733,7 @@ g_task_return_int (GTask  *task,
                    gssize  result)
 {
   g_return_if_fail (G_IS_TASK (task));
-  g_return_if_fail (task->result_set == FALSE);
+  g_return_if_fail (!task->ever_returned);
 
   task->result.size = result;
 
@@ -1731,7 +1766,7 @@ g_task_propagate_int (GTask   *task,
   if (g_task_propagate_error (task, error))
     return -1;
 
-  g_return_val_if_fail (task->result_set == TRUE, -1);
+  g_return_val_if_fail (task->result_set, -1);
 
   task->result_set = FALSE;
   return task->result.size;
@@ -1753,7 +1788,7 @@ g_task_return_boolean (GTask    *task,
                        gboolean  result)
 {
   g_return_if_fail (G_IS_TASK (task));
-  g_return_if_fail (task->result_set == FALSE);
+  g_return_if_fail (!task->ever_returned);
 
   task->result.boolean = result;
 
@@ -1786,7 +1821,7 @@ g_task_propagate_boolean (GTask   *task,
   if (g_task_propagate_error (task, error))
     return FALSE;
 
-  g_return_val_if_fail (task->result_set == TRUE, FALSE);
+  g_return_val_if_fail (task->result_set, FALSE);
 
   task->result_set = FALSE;
   return task->result.boolean;
@@ -1816,7 +1851,7 @@ g_task_return_error (GTask  *task,
                      GError *error)
 {
   g_return_if_fail (G_IS_TASK (task));
-  g_return_if_fail (task->result_set == FALSE);
+  g_return_if_fail (!task->ever_returned);
   g_return_if_fail (error != NULL);
 
   task->error = error;
@@ -1877,7 +1912,7 @@ g_task_return_error_if_cancelled (GTask *task)
   GError *error = NULL;
 
   g_return_val_if_fail (G_IS_TASK (task), FALSE);
-  g_return_val_if_fail (task->result_set == FALSE, FALSE);
+  g_return_val_if_fail (!task->ever_returned, FALSE);
 
   if (g_cancellable_set_error_if_cancelled (task->cancellable, &error))
     {
@@ -1935,7 +1970,8 @@ g_task_get_completed (GTask *task)
 {
   g_return_val_if_fail (G_IS_TASK (task), FALSE);
 
-  return task->completed;
+  /* Convert from a bit field to a boolean. */
+  return task->completed ? TRUE : FALSE;
 }
 
 /**
@@ -2038,7 +2074,7 @@ g_task_get_property (GObject    *object,
   switch ((GTaskProperty) prop_id)
     {
     case PROP_COMPLETED:
-      g_value_set_boolean (value, task->completed);
+      g_value_set_boolean (value, g_task_get_completed (task));
       break;
     }
 }

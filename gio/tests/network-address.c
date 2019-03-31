@@ -1,4 +1,5 @@
 #include "config.h"
+#include "mock-resolver.h"
 
 #include <gio/gio.h>
 #include <gio/gnetworking.h>
@@ -270,6 +271,7 @@ find_ifname_and_index (void)
 static void
 test_scope_id (GSocketConnectable *addr)
 {
+#ifndef G_OS_WIN32
   GSocketAddressEnumerator *addr_enum;
   GSocketAddress *saddr;
   GInetSocketAddress *isaddr;
@@ -299,6 +301,9 @@ test_scope_id (GSocketConnectable *addr)
   g_assert (saddr == NULL);
 
   g_object_unref (addr_enum);
+#else
+  g_test_skip ("winsock2 getaddrinfo() can’t understand scope IDs");
+#endif
 }
 
 static void
@@ -416,6 +421,8 @@ test_loopback_sync (void)
 typedef struct {
   GList/*<owned GSocketAddress> */ *addrs;  /* owned */
   GMainLoop *loop;  /* owned */
+  guint delay_ms;
+  gint expected_error_code;
 } AsyncData;
 
 static void
@@ -430,7 +437,14 @@ got_addr (GObject *source_object, GAsyncResult *result, gpointer user_data)
   data = user_data;
 
   a = g_socket_address_enumerator_next_finish (enumerator, result, &error);
-  g_assert_no_error (error);
+
+  if (data->expected_error_code)
+    {
+      g_assert_error (error, G_IO_ERROR, data->expected_error_code);
+      g_clear_error (&error);
+    }
+  else
+    g_assert_no_error (error);
 
   if (a == NULL)
     {
@@ -442,6 +456,9 @@ got_addr (GObject *source_object, GAsyncResult *result, gpointer user_data)
     {
       g_assert (G_IS_INET_SOCKET_ADDRESS (a));
       data->addrs = g_list_prepend (data->addrs, a);
+
+      if (data->delay_ms)
+        g_usleep (data->delay_ms * 1000);
 
       g_socket_address_enumerator_next_async (enumerator, NULL,
                                               got_addr, user_data);
@@ -515,6 +532,385 @@ test_to_string (void)
   g_object_unref (addr);
 }
 
+static int
+sort_addresses (gconstpointer a, gconstpointer b)
+{
+  GSocketFamily family_a = g_inet_address_get_family (G_INET_ADDRESS (a));
+  GSocketFamily family_b = g_inet_address_get_family (G_INET_ADDRESS (b));
+
+  if (family_a == family_b)
+    return 0;
+  else if (family_a == G_SOCKET_FAMILY_IPV4)
+    return -1;
+  else
+    return 1;
+}
+
+static int
+sort_socket_addresses (gconstpointer a, gconstpointer b)
+{
+  GInetAddress *addr_a = g_inet_socket_address_get_address (G_INET_SOCKET_ADDRESS (a));
+  GInetAddress *addr_b = g_inet_socket_address_get_address (G_INET_SOCKET_ADDRESS (b));
+  return sort_addresses (addr_a, addr_b);
+}
+
+static void
+assert_list_matches_expected (GList *result, GList *expected)
+{
+  g_assert_cmpint (g_list_length (result), ==, g_list_length (expected));
+
+  /* Sort by ipv4 first which matches the expected list */
+  result = g_list_sort (result, sort_socket_addresses);
+
+  for (; result != NULL; result = result->next, expected = expected->next)
+    {
+      GInetAddress *address = g_inet_socket_address_get_address (G_INET_SOCKET_ADDRESS (result->data));
+      g_assert_true (g_inet_address_equal (address, expected->data));
+    }
+}
+
+typedef struct {
+  MockResolver *mock_resolver;
+  GResolver *original_resolver;
+  GList *input_ipv4_results;
+  GList *input_ipv6_results;
+  GList *input_all_results;
+  GSocketConnectable *addr;
+  GSocketAddressEnumerator *enumerator;
+  GMainLoop *loop;
+} HappyEyeballsFixture;
+
+static void
+happy_eyeballs_setup (HappyEyeballsFixture *fixture,
+                      gconstpointer         data)
+{
+  static const char * const ipv4_address_strings[] = { "1.1.1.1", "2.2.2.2" };
+  static const char * const ipv6_address_strings[] = { "ff::11", "ff::22" };
+  gsize i;
+
+  fixture->original_resolver = g_resolver_get_default ();
+  fixture->mock_resolver = mock_resolver_new ();
+  g_resolver_set_default (G_RESOLVER (fixture->mock_resolver));
+
+  for (i = 0; i < G_N_ELEMENTS (ipv4_address_strings); ++i)
+    {
+      GInetAddress *ipv4_addr = g_inet_address_new_from_string (ipv4_address_strings[i]);
+      GInetAddress *ipv6_addr = g_inet_address_new_from_string (ipv6_address_strings[i]);
+      fixture->input_ipv4_results = g_list_append (fixture->input_ipv4_results, ipv4_addr);
+      fixture->input_ipv6_results = g_list_append (fixture->input_ipv6_results, ipv6_addr);
+      fixture->input_all_results = g_list_append (fixture->input_all_results, ipv4_addr);
+      fixture->input_all_results = g_list_append (fixture->input_all_results, ipv6_addr);
+    }
+  fixture->input_all_results = g_list_sort (fixture->input_all_results, sort_addresses);
+  mock_resolver_set_ipv4_results (fixture->mock_resolver, fixture->input_ipv4_results);
+  mock_resolver_set_ipv6_results (fixture->mock_resolver, fixture->input_ipv6_results);
+
+  fixture->addr = g_network_address_new ("test.fake", 80);
+  fixture->enumerator = g_socket_connectable_enumerate (fixture->addr);
+
+  fixture->loop = g_main_loop_new (NULL, FALSE);
+}
+
+static void
+happy_eyeballs_teardown (HappyEyeballsFixture *fixture,
+                         gconstpointer         data)
+{
+  g_object_unref (fixture->addr);
+  g_object_unref (fixture->enumerator);
+  g_resolver_free_addresses (fixture->input_all_results);
+  g_list_free (fixture->input_ipv4_results);
+  g_list_free (fixture->input_ipv6_results);
+  g_resolver_set_default (fixture->original_resolver);
+  g_object_unref (fixture->original_resolver);
+  g_object_unref (fixture->mock_resolver);
+  g_main_loop_unref (fixture->loop);
+}
+
+static const guint FAST_DELAY_LESS_THAN_TIMEOUT = 25;
+static const guint SLOW_DELAY_MORE_THAN_TIMEOUT = 100;
+
+static void
+test_happy_eyeballs_basic (HappyEyeballsFixture *fixture,
+                           gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+
+  data.delay_ms = FAST_DELAY_LESS_THAN_TIMEOUT;
+  data.loop = fixture->loop;
+
+  /* This just tests in the common case it gets all results */
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  assert_list_matches_expected (data.addrs, fixture->input_all_results);
+}
+
+static void
+test_happy_eyeballs_slow_ipv4 (HappyEyeballsFixture *fixture,
+                               gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+
+  /* If ipv4 dns response is a bit slow we still get everything */
+
+  data.loop = fixture->loop;
+  mock_resolver_set_ipv4_delay_ms (fixture->mock_resolver, FAST_DELAY_LESS_THAN_TIMEOUT);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  assert_list_matches_expected (data.addrs, fixture->input_all_results);
+}
+
+static void
+test_happy_eyeballs_slow_ipv6 (HappyEyeballsFixture *fixture,
+                               gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+
+  /* If ipv6 is a bit slow it waits for them */
+
+  data.loop = fixture->loop;
+  mock_resolver_set_ipv6_delay_ms (fixture->mock_resolver, FAST_DELAY_LESS_THAN_TIMEOUT);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  assert_list_matches_expected (data.addrs, fixture->input_all_results);
+}
+
+static void
+test_happy_eyeballs_very_slow_ipv6 (HappyEyeballsFixture *fixture,
+                                    gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+
+  /* If ipv6 is very slow we still get everything */
+
+  data.loop = fixture->loop;
+  mock_resolver_set_ipv6_delay_ms (fixture->mock_resolver, SLOW_DELAY_MORE_THAN_TIMEOUT);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  assert_list_matches_expected (data.addrs, fixture->input_all_results);
+}
+
+static void
+test_happy_eyeballs_slow_connection_and_ipv4 (HappyEyeballsFixture *fixture,
+                                              gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+
+  /* Even if the dns response is slow we still get them if our connection attempts
+   * take long enough. */
+
+  data.loop = fixture->loop;
+  data.delay_ms = SLOW_DELAY_MORE_THAN_TIMEOUT * 2;
+  mock_resolver_set_ipv4_delay_ms (fixture->mock_resolver, SLOW_DELAY_MORE_THAN_TIMEOUT);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  assert_list_matches_expected (data.addrs, fixture->input_all_results);
+}
+
+static void
+test_happy_eyeballs_ipv6_error_ipv4_first (HappyEyeballsFixture *fixture,
+                                           gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+  GError *ipv6_error;
+
+  /* If ipv6 fails, ensuring that ipv4 finishes before ipv6 errors, we still get ipv4. */
+
+  data.loop = fixture->loop;
+  ipv6_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv6 Broken");
+  mock_resolver_set_ipv6_error (fixture->mock_resolver, ipv6_error);
+  mock_resolver_set_ipv6_delay_ms (fixture->mock_resolver, FAST_DELAY_LESS_THAN_TIMEOUT);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  assert_list_matches_expected (data.addrs, fixture->input_ipv4_results);
+
+  g_error_free (ipv6_error);
+}
+
+static void
+test_happy_eyeballs_ipv6_error_ipv6_first (HappyEyeballsFixture *fixture,
+                                           gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+  GError *ipv6_error;
+
+  /* If ipv6 fails, ensuring that ipv6 errors before ipv4 finishes, we still get ipv4. */
+
+  data.loop = fixture->loop;
+  ipv6_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv6 Broken");
+  mock_resolver_set_ipv6_error (fixture->mock_resolver, ipv6_error);
+  mock_resolver_set_ipv4_delay_ms (fixture->mock_resolver, FAST_DELAY_LESS_THAN_TIMEOUT);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  assert_list_matches_expected (data.addrs, fixture->input_ipv4_results);
+
+  g_error_free (ipv6_error);
+}
+
+static void
+test_happy_eyeballs_ipv4_error_ipv4_first (HappyEyeballsFixture *fixture,
+                                           gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+  GError *ipv4_error;
+
+  /* If ipv4 fails, ensuring that ipv4 errors before ipv6 finishes, we still get ipv6. */
+
+  data.loop = fixture->loop;
+  ipv4_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv4 Broken");
+  mock_resolver_set_ipv4_error (fixture->mock_resolver, ipv4_error);
+  mock_resolver_set_ipv6_delay_ms (fixture->mock_resolver, FAST_DELAY_LESS_THAN_TIMEOUT);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  assert_list_matches_expected (data.addrs, fixture->input_ipv6_results);
+
+  g_error_free (ipv4_error);
+}
+
+static void
+test_happy_eyeballs_ipv4_error_ipv6_first (HappyEyeballsFixture *fixture,
+                                           gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+  GError *ipv4_error;
+
+  /* If ipv4 fails, ensuring that ipv6 finishes before ipv4 errors, we still get ipv6. */
+
+  data.loop = fixture->loop;
+  ipv4_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv4 Broken");
+  mock_resolver_set_ipv4_error (fixture->mock_resolver, ipv4_error);
+  mock_resolver_set_ipv4_delay_ms (fixture->mock_resolver, FAST_DELAY_LESS_THAN_TIMEOUT);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  assert_list_matches_expected (data.addrs, fixture->input_ipv6_results);
+
+  g_error_free (ipv4_error);
+}
+
+static void
+test_happy_eyeballs_both_error (HappyEyeballsFixture *fixture,
+                                gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+  GError *ipv4_error, *ipv6_error;
+
+  /* If both fail we get an error. */
+
+  data.loop = fixture->loop;
+  data.expected_error_code = G_IO_ERROR_TIMED_OUT;
+  ipv4_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv4 Broken");
+  ipv6_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv6 Broken");
+
+  mock_resolver_set_ipv4_error (fixture->mock_resolver, ipv4_error);
+  mock_resolver_set_ipv6_error (fixture->mock_resolver, ipv6_error);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  g_assert_null (data.addrs);
+
+  g_error_free (ipv4_error);
+  g_error_free (ipv6_error);
+}
+
+static void
+test_happy_eyeballs_both_error_delays_1 (HappyEyeballsFixture *fixture,
+                                         gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+  GError *ipv4_error, *ipv6_error;
+
+  /* The same with some different timings */
+
+  data.loop = fixture->loop;
+  data.expected_error_code = G_IO_ERROR_TIMED_OUT;
+  ipv4_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv4 Broken");
+  ipv6_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv6 Broken");
+
+  mock_resolver_set_ipv4_error (fixture->mock_resolver, ipv4_error);
+  mock_resolver_set_ipv4_delay_ms (fixture->mock_resolver, FAST_DELAY_LESS_THAN_TIMEOUT);
+  mock_resolver_set_ipv6_error (fixture->mock_resolver, ipv6_error);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  g_assert_null (data.addrs);
+
+  g_error_free (ipv4_error);
+  g_error_free (ipv6_error);
+}
+
+static void
+test_happy_eyeballs_both_error_delays_2 (HappyEyeballsFixture *fixture,
+                                         gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+  GError *ipv4_error, *ipv6_error;
+
+  /* The same with some different timings */
+
+  data.loop = fixture->loop;
+  data.expected_error_code = G_IO_ERROR_TIMED_OUT;
+  ipv4_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv4 Broken");
+  ipv6_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv6 Broken");
+
+  mock_resolver_set_ipv4_error (fixture->mock_resolver, ipv4_error);
+  mock_resolver_set_ipv6_error (fixture->mock_resolver, ipv6_error);
+  mock_resolver_set_ipv6_delay_ms (fixture->mock_resolver, FAST_DELAY_LESS_THAN_TIMEOUT);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  g_assert_null (data.addrs);
+
+  g_error_free (ipv4_error);
+  g_error_free (ipv6_error);
+}
+
+static void
+test_happy_eyeballs_both_error_delays_3 (HappyEyeballsFixture *fixture,
+                                         gconstpointer         user_data)
+{
+  AsyncData data = { 0 };
+  GError *ipv4_error, *ipv6_error;
+
+  /* The same with some different timings */
+
+  data.loop = fixture->loop;
+  data.expected_error_code = G_IO_ERROR_TIMED_OUT;
+  ipv4_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv4 Broken");
+  ipv6_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_TIMED_OUT, "IPv6 Broken");
+
+  mock_resolver_set_ipv4_error (fixture->mock_resolver, ipv4_error);
+  mock_resolver_set_ipv6_error (fixture->mock_resolver, ipv6_error);
+  mock_resolver_set_ipv6_delay_ms (fixture->mock_resolver, SLOW_DELAY_MORE_THAN_TIMEOUT);
+
+  g_socket_address_enumerator_next_async (fixture->enumerator, NULL, got_addr, &data);
+  g_main_loop_run (fixture->loop);
+
+  g_assert_null (data.addrs);
+
+  g_error_free (ipv4_error);
+  g_error_free (ipv6_error);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -559,6 +955,33 @@ main (int argc, char *argv[])
   g_test_add_func ("/network-address/loopback/sync", test_loopback_sync);
   g_test_add_func ("/network-address/loopback/async", test_loopback_async);
   g_test_add_func ("/network-address/to-string", test_to_string);
+
+  g_test_add ("/network-address/happy-eyeballs/basic", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_basic, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/slow-ipv4", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_slow_ipv4, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/slow-ipv6", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_slow_ipv6, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/very-slow-ipv6", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_very_slow_ipv6, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/slow-connection-and-ipv4", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_slow_connection_and_ipv4, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/ipv6-error-ipv4-first", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_ipv6_error_ipv4_first, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/ipv6-error-ipv6-first", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_ipv6_error_ipv6_first, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/ipv4-error-ipv6-first", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_ipv4_error_ipv6_first, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/ipv4-error-ipv4-first", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_ipv4_error_ipv4_first, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/both-error", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_both_error, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/both-error-delays-1", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_both_error_delays_1, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/both-error-delays-2", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_both_error_delays_2, happy_eyeballs_teardown);
+  g_test_add ("/network-address/happy-eyeballs/both-error-delays-3", HappyEyeballsFixture, NULL,
+              happy_eyeballs_setup, test_happy_eyeballs_both_error_delays_3, happy_eyeballs_teardown);
 
   return g_test_run ();
 }

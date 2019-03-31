@@ -39,20 +39,20 @@ static void
 lookup_funcs (void)
 {
   HMODULE winhttp = NULL;
-  WCHAR winhttp_dll[MAX_PATH + 100];
+  char winhttp_dll[MAX_PATH + 100];
   int n;
 
   if (lookup_done)
     return;
 
-  n = GetSystemDirectoryW (winhttp_dll, MAX_PATH);
+  n = GetSystemDirectory (winhttp_dll, MAX_PATH);
   if (n > 0 && n < MAX_PATH)
     {
-        if (winhttp_dll[n-1] != L'\\' &&
-            winhttp_dll[n-1] != L'/')
-            wcscat (winhttp_dll, L"\\");
-        wcscat (winhttp_dll, L"winhttp.dll");
-        winhttp = LoadLibraryW (winhttp_dll);
+        if (winhttp_dll[n-1] != '\\' &&
+            winhttp_dll[n-1] != '/')
+            strcat (winhttp_dll, "\\");
+        strcat (winhttp_dll, "winhttp.dll");
+        winhttp = LoadLibrary (winhttp_dll);
     }
 
   if (winhttp != NULL)
@@ -173,7 +173,7 @@ g_winhttp_vfs_get_file_for_uri (GVfs       *vfs,
       return _g_winhttp_file_new (winhttp_vfs, uri);
 
   /* For other URIs fallback to the wrapped GVfs */
-  return g_vfs_parse_name (winhttp_vfs->wrapped_vfs, uri);
+  return g_vfs_get_file_for_uri (winhttp_vfs->wrapped_vfs, uri);
 }
 
 static const gchar * const *

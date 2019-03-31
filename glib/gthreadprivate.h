@@ -22,11 +22,8 @@
 #define __G_THREADPRIVATE_H__
 
 #include "deprecated/gthread.h"
-#include "ghash.h"
 
 typedef struct _GRealThread GRealThread;
-typedef struct _GThreadBeacon GThreadBeacon;
-
 struct  _GRealThread
 {
   GThread thread;
@@ -35,16 +32,16 @@ struct  _GRealThread
   gboolean ours;
   gchar *name;
   gpointer retval;
-  GThreadBeacon *lifetime_beacon;
-  GHashTable *pending_garbage;
-  gboolean destructor_registered;
 };
 
 /* system thread implementation (gthread-posix.c, gthread-win32.c) */
 void            g_system_thread_wait            (GRealThread  *thread);
 
-GRealThread *   g_system_thread_new             (GThreadFunc   func,
+GRealThread *   g_system_thread_new             (GThreadFunc   proxy,
                                                  gulong        stack_size,
+                                                 const char   *name,
+                                                 GThreadFunc   func,
+                                                 gpointer      data,
                                                  GError      **error);
 void            g_system_thread_free            (GRealThread  *thread);
 
@@ -62,13 +59,7 @@ GThread *       g_thread_new_internal           (const gchar  *name,
 
 gpointer        g_thread_proxy                  (gpointer      thread);
 
-void            g_thread_perform_cleanup        (gpointer      thread);
-void            g_thread_schedule_cleanup       (gpointer      thread);
-void            g_thread_private_destroy_later  (GPrivate     *key,
-                                                 gpointer      value);
-
-GThreadBeacon * g_thread_lifetime_beacon_new    (void);
-void            g_thread_lifetime_beacon_free   (GThreadBeacon *beacon);
-gboolean        g_thread_lifetime_beacon_check  (GThreadBeacon *beacon);
+gpointer        g_private_set_alloc0            (GPrivate       *key,
+                                                 gsize           size);
 
 #endif /* __G_THREADPRIVATE_H__ */

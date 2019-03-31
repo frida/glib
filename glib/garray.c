@@ -318,15 +318,15 @@ g_array_get_element_size (GArray *array)
  * @free_segment: if %TRUE the actual element data is freed as well
  *
  * Frees the memory allocated for the #GArray. If @free_segment is
- * %TRUE it frees the memory block holding the elements as well and
- * also each element if @array has a @element_free_func set. Pass
+ * %TRUE it frees the memory block holding the elements as well. Pass
  * %FALSE if you want to free the #GArray wrapper but preserve the
- * underlying array for use elsewhere. If the reference count of @array
- * is greater than one, the #GArray wrapper is preserved but the size
- * of @array will be set to zero.
+ * underlying array for use elsewhere. If the reference count of
+ * @array is greater than one, the #GArray wrapper is preserved but
+ * the size of  @array will be set to zero.
  *
- * If array elements contain dynamically-allocated memory, they should
- * be freed separately.
+ * If array contents point to dynamically-allocated memory, they should
+ * be freed separately if @free_seg is %TRUE and no @clear_func
+ * function has been set for @array.
  *
  * This function is not thread-safe. If using a #GArray from multiple
  * threads, use only the atomic g_array_ref() and g_array_unref()
@@ -803,8 +803,14 @@ static void
 g_array_maybe_expand (GRealArray *array,
                       guint       len)
 {
-  guint want_alloc = g_array_elt_len (array, array->len + len + 
-                                      array->zero_terminated);
+  guint want_alloc;
+
+  /* Detect potential overflow */
+  if G_UNLIKELY ((G_MAXUINT - array->len) < len)
+    g_error ("adding %u to array would overflow", len);
+
+  want_alloc = g_array_elt_len (array, array->len + len +
+                                array->zero_terminated);
 
   if (want_alloc > array->alloc)
     {
@@ -901,7 +907,7 @@ struct _GRealPtrArray
  */
 
 static void g_ptr_array_maybe_expand (GRealPtrArray *array,
-                                      gint           len);
+                                      guint          len);
 
 /**
  * g_ptr_array_new:
@@ -1160,8 +1166,12 @@ ptr_array_free (GPtrArray      *array,
 
 static void
 g_ptr_array_maybe_expand (GRealPtrArray *array,
-                          gint           len)
+                          guint          len)
 {
+  /* Detect potential overflow */
+  if G_UNLIKELY ((G_MAXUINT - array->len) < len)
+    g_error ("adding %u to array would overflow", len);
+
   if ((array->len + len) > array->alloc)
     {
       guint old_alloc = array->alloc;
@@ -1509,7 +1519,7 @@ g_ptr_array_insert (GPtrArray *array,
   if (index_ < 0)
     index_ = rarray->len;
 
-  if (index_ < rarray->len)
+  if ((guint) index_ < rarray->len)
     memmove (&(rarray->pdata[index_ + 1]),
              &(rarray->pdata[index_]),
              (rarray->len - index_) * sizeof (gpointer));

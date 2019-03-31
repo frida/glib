@@ -39,6 +39,9 @@
  * from a certificate or key store. It is an abstract base class which
  * TLS library specific subtypes override.
  *
+ * A #GTlsDatabase may be accessed from multiple threads by the TLS backend.
+ * All implementations are required to be fully thread-safe.
+ *
  * Most common client applications will not directly interact with
  * #GTlsDatabase. It is used internally by #GTlsConnection.
  *
@@ -741,7 +744,7 @@ g_tls_database_lookup_certificate_for_handle_async (GTlsDatabase            *sel
  * @error: a #GError pointer, or %NULL
  *
  * Finish an asynchronous lookup of a certificate by its handle. See
- * g_tls_database_lookup_certificate_by_handle() for more information.
+ * g_tls_database_lookup_certificate_for_handle() for more information.
  *
  * If the handle is no longer valid, or does not point to a certificate in
  * this database, then %NULL will be returned.
@@ -776,7 +779,7 @@ g_tls_database_lookup_certificate_for_handle_finish (GTlsDatabase            *se
  *
  * Lookup the issuer of @certificate in the database.
  *
- * The %issuer property
+ * The #GTlsCertificate:issuer property
  * of @certificate is not modified, and the two certificates are not hooked
  * into a chain.
  *

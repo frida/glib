@@ -179,7 +179,8 @@ ensure_attribute_hash (void)
   attribute_hash = g_hash_table_new (g_str_hash, g_str_equal);
 
 #define REGISTER_ATTRIBUTE(name) G_STMT_START{\
-  guint _u = _lookup_attribute (G_FILE_ATTRIBUTE_ ## name); \
+  guint _u G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */; \
+  _u = _lookup_attribute (G_FILE_ATTRIBUTE_ ## name); \
   /* use for generating the ID: g_print ("#define G_FILE_ATTRIBUTE_ID_%s (%u + %u)\n", #name + 17, _u & ~ID_MASK, _u & ID_MASK); */ \
   g_assert (_u == G_FILE_ATTRIBUTE_ID_ ## name); \
 }G_STMT_END
@@ -245,6 +246,8 @@ ensure_attribute_hash (void)
   REGISTER_ATTRIBUTE (UNIX_IS_MOUNTPOINT);
   REGISTER_ATTRIBUTE (DOS_IS_ARCHIVE);
   REGISTER_ATTRIBUTE (DOS_IS_SYSTEM);
+  REGISTER_ATTRIBUTE (DOS_IS_MOUNTPOINT);
+  REGISTER_ATTRIBUTE (DOS_REPARSE_POINT_TAG);
   REGISTER_ATTRIBUTE (OWNER_USER);
   REGISTER_ATTRIBUTE (OWNER_USER_REAL);
   REGISTER_ATTRIBUTE (OWNER_GROUP);
@@ -1178,7 +1181,8 @@ _g_file_info_set_attribute_stringv_by_id (GFileInfo *info,
  * g_file_info_set_attribute_stringv:
  * @info: a #GFileInfo.
  * @attribute: a file attribute key
- * @attr_value: (array) (element-type utf8): a %NULL terminated array of UTF-8 strings.
+ * @attr_value: (array zero-terminated=1) (element-type utf8): a %NULL
+ *   terminated array of UTF-8 strings.
  *
  * Sets the @attribute to contain the given @attr_value,
  * if possible.

@@ -548,7 +548,7 @@ g_mount_operation_class_init (GMountOperationClass *klass)
    * GMountOperation:is-tcrypt-hidden-volume:
    *
    * Whether the device to be unlocked is a TCRYPT hidden volume.
-   * See https://www.veracrypt.fr/en/Hidden%20Volume.html.
+   * See [the VeraCrypt documentation](https://www.veracrypt.fr/en/Hidden%20Volume.html).
    *
    * Since: 2.58
    */
@@ -568,7 +568,7 @@ g_mount_operation_class_init (GMountOperationClass *klass)
   * In this context, a system volume is a volume with a bootloader
   * and operating system installed. This is only supported for Windows
   * operating systems. For further documentation, see
-  * https://www.veracrypt.fr/en/System%20Encryption.html.
+  * [the VeraCrypt documentation](https://www.veracrypt.fr/en/System%20Encryption.html).
   *
   * Since: 2.58
   */
@@ -585,7 +585,7 @@ g_mount_operation_class_init (GMountOperationClass *klass)
   * GMountOperation:pim:
   *
   * The VeraCrypt PIM value, when unlocking a VeraCrypt volume. See
-  * https://www.veracrypt.fr/en/Personal%20Iterations%20Multiplier%20(PIM).html.
+  * [the VeraCrypt documentation](https://www.veracrypt.fr/en/Personal%20Iterations%20Multiplier%20(PIM).html).
   *
   * Since: 2.58
   */
@@ -799,7 +799,7 @@ g_mount_operation_set_password_save (GMountOperation *op,
  * Gets a choice from the mount operation.
  *
  * Returns: an integer containing an index of the user's choice from 
- * the choice's list, or %0.
+ * the choice's list, or `0`.
  **/
 int
 g_mount_operation_get_choice (GMountOperation *op)

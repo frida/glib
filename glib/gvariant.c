@@ -307,6 +307,11 @@
  * Constructs a new trusted #GVariant instance from the provided data.
  * This is used to implement g_variant_new_* for all the basic types.
  *
+ * Note: @data must be backed by memory that is aligned appropriately for the
+ * @type being loaded. Otherwise this function will internally create a copy of
+ * the memory (since GLib 2.60) or (in older versions) fail and exit the
+ * process.
+ *
  * Returns: a new floating #GVariant
  */
 static GVariant *
@@ -1008,7 +1013,7 @@ g_variant_lookup (GVariant    *dictionary,
  * string specifies what type of value is expected to be inside of the
  * variant. If the value inside the variant has a different type then
  * %NULL is returned. In the event that @dictionary has a value type other
- * than v then @expected_type must directly match the key type and it is
+ * than v then @expected_type must directly match the value type and it is
  * used to unpack the value directly or an error occurs.
  *
  * In either case, if @key is not found in @dictionary, %NULL is returned.
@@ -1547,19 +1552,20 @@ g_variant_new_strv (const gchar * const *strv,
                     gssize               length)
 {
   GVariant **strings;
-  gsize i;
+  gsize i, length_unsigned;
 
   g_return_val_if_fail (length == 0 || strv != NULL, NULL);
 
   if (length < 0)
     length = g_strv_length ((gchar **) strv);
+  length_unsigned = length;
 
-  strings = g_new (GVariant *, length);
-  for (i = 0; i < length; i++)
+  strings = g_new (GVariant *, length_unsigned);
+  for (i = 0; i < length_unsigned; i++)
     strings[i] = g_variant_ref_sink (g_variant_new_string (strv[i]));
 
   return g_variant_new_from_children (G_VARIANT_TYPE_STRING_ARRAY,
-                                      strings, length, TRUE);
+                                      strings, length_unsigned, TRUE);
 }
 
 /**
@@ -1683,19 +1689,20 @@ g_variant_new_objv (const gchar * const *strv,
                     gssize               length)
 {
   GVariant **strings;
-  gsize i;
+  gsize i, length_unsigned;
 
   g_return_val_if_fail (length == 0 || strv != NULL, NULL);
 
   if (length < 0)
     length = g_strv_length ((gchar **) strv);
+  length_unsigned = length;
 
-  strings = g_new (GVariant *, length);
-  for (i = 0; i < length; i++)
+  strings = g_new (GVariant *, length_unsigned);
+  for (i = 0; i < length_unsigned; i++)
     strings[i] = g_variant_ref_sink (g_variant_new_object_path (strv[i]));
 
   return g_variant_new_from_children (G_VARIANT_TYPE_OBJECT_PATH_ARRAY,
-                                      strings, length, TRUE);
+                                      strings, length_unsigned, TRUE);
 }
 
 /**
@@ -1923,19 +1930,20 @@ g_variant_new_bytestring_array (const gchar * const *strv,
                                 gssize               length)
 {
   GVariant **strings;
-  gsize i;
+  gsize i, length_unsigned;
 
   g_return_val_if_fail (length == 0 || strv != NULL, NULL);
 
   if (length < 0)
     length = g_strv_length ((gchar **) strv);
+  length_unsigned = length;
 
-  strings = g_new (GVariant *, length);
-  for (i = 0; i < length; i++)
+  strings = g_new (GVariant *, length_unsigned);
+  for (i = 0; i < length_unsigned; i++)
     strings[i] = g_variant_ref_sink (g_variant_new_bytestring (strv[i]));
 
   return g_variant_new_from_children (G_VARIANT_TYPE_BYTESTRING_ARRAY,
-                                      strings, length, TRUE);
+                                      strings, length_unsigned, TRUE);
 }
 
 /**
@@ -4662,7 +4670,15 @@ g_variant_valist_free_nnp (const gchar *str,
       break;
 
     case '^':
-      if (str[2] != '&')        /* '^as', '^ao' */
+      if (g_str_has_suffix (str, "y"))
+        {
+          if (str[2] != 'a') /* '^a&ay', '^ay' */
+            g_free (ptr);
+          else if (str[1] == 'a') /* '^aay' */
+            g_strfreev (ptr);
+          break; /* '^&ay' */
+        }
+      else if (str[2] != '&') /* '^as', '^ao' */
         g_strfreev (ptr);
       else                      /* '^a&s', '^a&o' */
         g_free (ptr);
@@ -5977,6 +5993,11 @@ g_variant_byteswap (GVariant *value)
  * @notify will be called with @user_data when @data is no longer
  * needed.  The exact time of this call is unspecified and might even be
  * before this function returns.
+ *
+ * Note: @data must be backed by memory that is aligned appropriately for the
+ * @type being loaded. Otherwise this function will internally create a copy of
+ * the memory (since GLib 2.60) or (in older versions) fail and exit the
+ * process.
  *
  * Returns: (transfer none): a new floating #GVariant of type @type
  *

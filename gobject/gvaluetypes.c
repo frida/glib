@@ -435,7 +435,7 @@ _g_value_types_init (void)
     NULL,			/* value_table */
   };
   const GTypeFundamentalInfo finfo = { G_TYPE_FLAG_DERIVABLE, };
-  GType type;
+  GType type G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
   
   /* G_TYPE_CHAR / G_TYPE_UCHAR
    */
@@ -1281,7 +1281,7 @@ g_value_take_variant (GValue   *value,
  *
  * Get the contents of a variant #GValue.
  *
- * Returns: (nullable): variant contents of @value (may be %NULL)
+ * Returns: (transfer none) (nullable): variant contents of @value (may be %NULL)
  *
  * Since: 2.26
  */

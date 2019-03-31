@@ -115,7 +115,7 @@ attribute_type_to_string (GFileAttributeType type)
     case G_FILE_ATTRIBUTE_TYPE_OBJECT:
       return "object";
     default:
-      return "uknown type";
+      return "unknown type";
     }
 }
 
@@ -252,8 +252,6 @@ main (int argc, char **argv)
 {
   const char *command;
   gboolean do_help;
-
-  glib_init ();
 
   setlocale (LC_ALL, "");
   textdomain (GETTEXT_PACKAGE);
