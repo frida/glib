@@ -19,7 +19,6 @@
 
 #include "config.h"
 
-#include "glib.h"
 #include "glib-init.h"
 #include "gmacros.h"
 #include "gtypes.h"
@@ -255,167 +254,28 @@ g_debug_init (void)
   g_mem_gc_friendly = flags & 1;
 }
 
-static void
-glib_perform_init (void)
+void
+glib_init (void)
 {
-#ifdef G_OS_WIN32
-  _g_clock_win32_init ();
-#endif
-  _g_thread_init ();
+  static gboolean glib_inited;
+
+  if (glib_inited)
+    return;
+
+  glib_inited = TRUE;
+
   g_messages_prefixed_init ();
   g_debug_init ();
   g_quark_init ();
-#ifdef G_OS_WIN32
-  _g_console_win32_init ();
-#endif
 }
 
-#ifdef G_OS_WIN32
+#if defined (G_OS_WIN32)
+
+BOOL WINAPI DllMain (HINSTANCE hinstDLL,
+                     DWORD     fdwReason,
+                     LPVOID    lpvReserved);
+
 HMODULE glib_dll;
-#endif
-
-#ifdef GLIB_STATIC_COMPILATION
-
-#define G_MAX_N_XTORS 16
-
-extern void _proxy_libintl_deinit (void);
-
-static gboolean glib_initialized = FALSE;
-
-static GXtorFunc constructors[G_MAX_N_XTORS];
-static gint num_constructors = 0;
-
-static GXtorFunc destructors[G_MAX_N_XTORS];
-static gint num_destructors = 0;
-
-#define G_XTORS_CLEAR(x)                         \
-  G_STMT_START{                                  \
-  num_ ## x = 0;                                 \
-  }G_STMT_END
-#define G_XTORS_APPEND(x, f)                     \
-  G_STMT_START{                                  \
-  g_assert_cmpint (num_ ## x, <, G_MAX_N_XTORS); \
-  x[(num_ ## x)++] = f;                          \
-  }G_STMT_END
-
-void
-glib_init (void)
-{
-  gint i;
-
-  if (glib_initialized)
-    return;
-  glib_initialized = TRUE;
-
-  glib_perform_init ();
-
-  for (i = 0; i != num_constructors; i++)
-    constructors[i] ();
-  G_XTORS_CLEAR (constructors);
-}
-
-void
-glib_shutdown (void)
-{
-  _g_thread_pool_shutdown ();
-  _g_main_shutdown ();
-}
-
-void
-glib_deinit (void)
-{
-  gint i;
-
-  if (!glib_initialized)
-    return;
-
-  glib_shutdown ();
-
-  for (i = num_destructors - 1; i >= 0; i--)
-    destructors[i] ();
-  G_XTORS_CLEAR (destructors);
-
-  _g_main_deinit ();
-  _g_strfuncs_deinit ();
-
-  glib_initialized = FALSE;
-
-# if defined (G_OS_WIN32) && defined (THREADS_WIN32)
-  _g_thread_win32_process_detach ();
-#endif
-
-  _g_thread_deinit ();
-  _g_slice_deinit ();
-  _g_messages_deinit ();
-  _proxy_libintl_deinit ();
-}
-
-void
-_glib_register_constructor (GXtorFunc constructor)
-{
-  if (glib_initialized)
-    constructor ();
-  else
-    G_XTORS_APPEND (constructors, constructor);
-}
-
-void
-_glib_register_destructor (GXtorFunc destructor)
-{
-  G_XTORS_APPEND (destructors, destructor);
-}
-
-# if defined (G_OS_WIN32) && defined (THREADS_WIN32)
-
-static void WINAPI
-glib_tls_callback (HINSTANCE hinstDLL,
-                   DWORD     fdwReason,
-                   LPVOID    lpvReserved)
-{
-  if (fdwReason == DLL_THREAD_DETACH && glib_initialized)
-    _g_thread_win32_thread_detach ();
-}
-
-#  if GLIB_SIZEOF_VOID_P == 8
-#   pragma comment (linker, "/INCLUDE:_tls_used")
-#   pragma comment (linker, "/INCLUDE:_xl_b")
-#   pragma const_seg(".CRT$XLB")
-    EXTERN_C const
-#  else
-#   pragma comment (linker, "/INCLUDE:__tls_used")
-#   pragma comment (linker, "/INCLUDE:__xl_b")
-#   pragma data_seg(".CRT$XLB")
-    EXTERN_C
-#  endif
-
-PIMAGE_TLS_CALLBACK _xl_b = glib_tls_callback;
-
-#if GLIB_SIZEOF_VOID_P == 8
-#   pragma const_seg()
-#  else
-#   pragma data_seg()
-#  endif
-
-# endif
-
-#else /* !GLIB_STATIC_COMPILATION */
-
-void
-glib_init (void)
-{
-}
-
-void
-glib_shutdown (void)
-{
-}
-
-void
-glib_deinit (void)
-{
-}
-
-# if defined (G_OS_WIN32)
 
 BOOL WINAPI
 DllMain (HINSTANCE hinstDLL,
@@ -426,22 +286,28 @@ DllMain (HINSTANCE hinstDLL,
     {
     case DLL_PROCESS_ATTACH:
       glib_dll = hinstDLL;
-      _g_crash_handler_win32_init ();
-      glib_perform_init ();
+      g_crash_handler_win32_init ();
+      g_clock_win32_init ();
+#ifdef THREADS_WIN32
+      g_thread_win32_init ();
+#endif
+      glib_init ();
+      /* must go after glib_init */
+      g_console_win32_init ();
       break;
 
     case DLL_THREAD_DETACH:
 #ifdef THREADS_WIN32
-      _g_thread_win32_thread_detach ();
+      g_thread_win32_thread_detach ();
 #endif
       break;
 
     case DLL_PROCESS_DETACH:
 #ifdef THREADS_WIN32
       if (lpvReserved == NULL)
-        _g_thread_win32_process_detach ();
+        g_thread_win32_process_detach ();
 #endif
-      _g_crash_handler_win32_deinit ();
+      g_crash_handler_win32_deinit ();
       break;
 
     default:
@@ -452,53 +318,19 @@ DllMain (HINSTANCE hinstDLL,
   return TRUE;
 }
 
-# elif defined (G_HAS_CONSTRUCTORS)
+#elif defined (G_HAS_CONSTRUCTORS)
 
-# ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
-# pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(glib_init_ctor)
-# endif
+#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
+#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(glib_init_ctor)
+#endif
 G_DEFINE_CONSTRUCTOR(glib_init_ctor)
 
 static void
 glib_init_ctor (void)
 {
-  glib_perform_init ();
+  glib_init ();
 }
 
-# else
-#  error Your platform/compiler is missing constructor support
-# endif
-
-#endif
-
-#if defined (__BIONIC__) && __ANDROID_API__ < __ANDROID_API_L__
-
-#include <dlfcn.h>
-
-typedef sighandler_t (* BsdSignalImpl) (int signum, sighandler_t handler);
-
-sighandler_t
-bsd_signal (int signum,
-            sighandler_t handler)
-{
-  static BsdSignalImpl signal_impl = NULL;
-
-  if (signal_impl == NULL)
-    {
-      void * libc;
-
-      libc = dlopen ("libc.so", RTLD_LAZY | RTLD_GLOBAL);
-      g_assert (libc != NULL);
-
-      signal_impl = dlsym (libc, "signal");
-      if (signal_impl == NULL)
-        signal_impl = dlsym (libc, "bsd_signal");
-      g_assert (signal_impl != NULL);
-
-      dlclose (libc);
-    }
-
-  return signal_impl (signum, handler);
-}
-
+#else
+# error Your platform/compiler is missing constructor support
 #endif

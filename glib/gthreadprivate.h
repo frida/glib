@@ -22,11 +22,8 @@
 #define __G_THREADPRIVATE_H__
 
 #include "deprecated/gthread.h"
-#include "ghash.h"
 
 typedef struct _GRealThread GRealThread;
-typedef struct _GThreadBeacon GThreadBeacon;
-
 struct  _GRealThread
 {
   GThread thread;
@@ -35,9 +32,6 @@ struct  _GRealThread
   gboolean ours;
   gchar *name;
   gpointer retval;
-  GThreadBeacon *lifetime_beacon;
-  GHashTable *pending_garbage;
-  gboolean destructor_registered;
 };
 
 /* system thread implementation (gthread-posix.c, gthread-win32.c) */
@@ -67,14 +61,5 @@ gpointer        g_thread_proxy                  (gpointer      thread);
 
 gpointer        g_private_set_alloc0            (GPrivate       *key,
                                                  gsize           size);
-
-void            g_thread_perform_cleanup        (gpointer      thread);
-void            g_thread_schedule_cleanup       (gpointer      thread);
-void            g_thread_private_destroy_later  (GPrivate     *key,
-                                                 gpointer      value);
-
-GThreadBeacon * g_thread_lifetime_beacon_new    (void);
-void            g_thread_lifetime_beacon_free   (GThreadBeacon *beacon);
-gboolean        g_thread_lifetime_beacon_check  (GThreadBeacon *beacon);
 
 #endif /* __G_THREADPRIVATE_H__ */

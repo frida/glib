@@ -100,7 +100,6 @@
 #include "gwakeup.h"
 #include "gmain-internal.h"
 #include "glib-init.h"
-#include "glib-fork.h"
 #include "glib-private.h"
 
 /**
@@ -447,13 +446,7 @@ static gboolean g_idle_dispatch    (GSource     *source,
 
 static void block_source (GSource *source);
 
-static void glib_worker_start (void);
-static gboolean glib_worker_try_stop (void);
-static void glib_worker_deinit (void);
-
-static GThread *glib_worker_thread;
 static GMainContext *glib_worker_context;
-static gboolean glib_worker_running = FALSE;
 
 G_LOCK_DEFINE_STATIC (main_loop);
 static GMainContext *default_main_context;
@@ -490,61 +483,6 @@ GSourceFuncs g_unix_signal_funcs =
 G_LOCK_DEFINE_STATIC (main_context_list);
 static GSList *main_context_list = NULL;
 
-#ifdef G_OS_WIN32
-
-#define G_WIN32_TIME_RESYNC_THRESHOLD_SECONDS 30
-
-typedef struct _GWin32TimeSnapshot
-{
-  gboolean initialized;
-
-  GTimeVal system_time;
-  LARGE_INTEGER frequency;
-  LARGE_INTEGER counter;
-} GWin32TimeSnapshot;
-
-G_LOCK_DEFINE_STATIC (g_win32_start_time);
-static GWin32TimeSnapshot g_win32_start_time = { 0, };
-
-static void
-g_win32_get_system_time_now (GTimeVal *result)
-{
-  guint64 time64;
-
-  GetSystemTimeAsFileTime ((FILETIME *) &time64);
-
-  /* Convert from 100s of nanoseconds since 1601-01-01
-   * to Unix epoch. Yes, this is Y2038 unsafe.
-   */
-  time64 -= G_GINT64_CONSTANT (116444736000000000);
-  time64 /= 10;
-
-  result->tv_sec = time64 / 1000000;
-  result->tv_usec = time64 % 1000000;
-}
-
-static void
-g_win32_update_start_time (GWin32TimeSnapshot * start_time)
-{
-  g_win32_get_system_time_now (&start_time->system_time);
-
-  QueryPerformanceFrequency (&start_time->frequency);
-  QueryPerformanceCounter (&start_time->counter);
-}
-
-static guint64
-g_win32_get_elapsed_microseconds_since (GWin32TimeSnapshot * ts)
-{
-  LARGE_INTEGER counter;
-
-  QueryPerformanceCounter (&counter);
-
-  return ((counter.QuadPart - ts->counter.QuadPart) * G_USEC_PER_SEC) /
-      ts->frequency.QuadPart;
-}
-
-#endif /* G_OS_WIN32 */
-
 GSourceFuncs g_timeout_funcs =
 {
   NULL, /* prepare */
@@ -569,60 +507,6 @@ GSourceFuncs g_idle_funcs =
   g_idle_dispatch,
   NULL, NULL, NULL
 };
-
-void
-_g_main_shutdown (void)
-{
-  glib_worker_try_stop ();
-}
-
-void
-_g_main_deinit (void)
-{
-  glib_worker_deinit ();
-
-  if (default_main_context != NULL)
-    {
-      g_main_context_unref (default_main_context);
-      default_main_context = NULL;
-    }
-}
-
-static gboolean glib_worker_was_running;
-
-void
-_g_main_prepare_to_fork (void)
-{
-  glib_worker_was_running = glib_worker_try_stop ();
-}
-
-void
-_g_main_recover_from_fork_in_parent (void)
-{
-  if (glib_worker_was_running)
-    glib_worker_start ();
-}
-
-void
-_g_main_recover_from_fork_in_child (void)
-{
-  GSList *l;
-
-  for (l = main_context_list; l; l = l->next)
-    {
-      GMainContext *context = l->data;
-
-      g_wakeup_free (context->wakeup);
-      context->wakeup = g_wakeup_new ();
-
-      g_main_context_remove_poll_unlocked (context, &context->wake_up_rec);
-      g_wakeup_get_pollfd (context->wakeup, &context->wake_up_rec);
-      g_main_context_add_poll_unlocked (context, 0, &context->wake_up_rec);
-    }
-
-  if (glib_worker_was_running)
-    glib_worker_start ();
-}
 
 /**
  * g_main_context_ref:
@@ -2779,32 +2663,22 @@ g_get_current_time (GTimeVal *result)
   result->tv_sec = r.tv_sec;
   result->tv_usec = r.tv_usec;
 #else
-  GTimeVal system_time;
+  FILETIME ft;
+  guint64 time64;
 
   g_return_if_fail (result != NULL);
 
-  G_LOCK (g_win32_start_time);
+  GetSystemTimeAsFileTime (&ft);
+  memmove (&time64, &ft, sizeof (FILETIME));
 
-  if (G_UNLIKELY (!g_win32_start_time.initialized))
-    {
-      g_win32_update_start_time (&g_win32_start_time);
-      g_win32_start_time.initialized = TRUE;
-    }
+  /* Convert from 100s of nanoseconds since 1601-01-01
+   * to Unix epoch. Yes, this is Y2038 unsafe.
+   */
+  time64 -= G_GINT64_CONSTANT (116444736000000000);
+  time64 /= 10;
 
-  memcpy (result, &g_win32_start_time.system_time, sizeof (GTimeVal));
-  g_time_val_add (result,
-      g_win32_get_elapsed_microseconds_since (&g_win32_start_time));
-
-  g_win32_get_system_time_now (&system_time);
-
-  if (G_UNLIKELY (ABS (system_time.tv_sec - result->tv_sec) >=
-      G_WIN32_TIME_RESYNC_THRESHOLD_SECONDS))
-    {
-      g_win32_update_start_time (&g_win32_start_time);
-      memcpy (result, &g_win32_start_time.system_time, sizeof (GTimeVal));
-    }
-
-  G_UNLOCK (g_win32_start_time);
+  result->tv_sec = time64 / 1000000;
+  result->tv_usec = time64 % 1000000;
 #endif
 }
 
@@ -2864,7 +2738,7 @@ g_get_real_time (void)
 static gdouble g_monotonic_usec_per_tick = 0;
 
 void
-_g_clock_win32_init (void)
+g_clock_win32_init (void)
 {
   LARGE_INTEGER freq;
 
@@ -5991,7 +5865,7 @@ g_main_context_invoke_full (GMainContext   *context,
 static gpointer
 glib_worker_main (gpointer data)
 {
-  while (glib_worker_running)
+  while (TRUE)
     {
       g_main_context_iteration (glib_worker_context, TRUE);
 
@@ -6004,69 +5878,6 @@ glib_worker_main (gpointer data)
   return NULL; /* worst GCC warning message ever... */
 }
 
-static gboolean
-glib_worker_do_stop (gpointer data)
-{
-  glib_worker_running = FALSE;
-
-  return FALSE;
-}
-
-static void
-glib_worker_start (void)
-{
-  /* mask all signals in the worker thread */
-#ifdef G_OS_UNIX
-  sigset_t prev_mask;
-  sigset_t all;
-
-  sigfillset (&all);
-  pthread_sigmask (SIG_SETMASK, &all, &prev_mask);
-#endif
-
-  if (glib_worker_context == NULL)
-    glib_worker_context = g_main_context_new ();
-
-  glib_worker_running = TRUE;
-
-  glib_worker_thread = g_thread_new ("gmain", glib_worker_main, NULL);
-
-#ifdef G_OS_UNIX
-  pthread_sigmask (SIG_SETMASK, &prev_mask, NULL);
-#endif
-}
-
-static gboolean
-glib_worker_try_stop (void)
-{
-  GSource *source;
-
-  if (glib_worker_thread == NULL)
-    return FALSE;
-
-  source = g_idle_source_new ();
-  g_source_set_callback (source, glib_worker_do_stop, NULL, NULL);
-  g_source_attach (source, glib_worker_context);
-  g_source_unref (source);
-
-  g_thread_join (glib_worker_thread);
-  glib_worker_thread = NULL;
-
-  return TRUE;
-}
-
-static void
-glib_worker_deinit (void)
-{
-  if (glib_worker_context != NULL)
-    {
-      g_assert (glib_worker_thread == NULL);
-
-      g_main_context_unref (glib_worker_context);
-      glib_worker_context = NULL;
-    }
-}
-
 GMainContext *
 g_get_worker_context (void)
 {
@@ -6074,8 +5885,19 @@ g_get_worker_context (void)
 
   if (g_once_init_enter (&initialised))
     {
-      glib_worker_start ();
+      /* mask all signals in the worker thread */
+#ifdef G_OS_UNIX
+      sigset_t prev_mask;
+      sigset_t all;
 
+      sigfillset (&all);
+      pthread_sigmask (SIG_SETMASK, &all, &prev_mask);
+#endif
+      glib_worker_context = g_main_context_new ();
+      g_thread_new ("gmain", glib_worker_main, NULL);
+#ifdef G_OS_UNIX
+      pthread_sigmask (SIG_SETMASK, &prev_mask, NULL);
+#endif
       g_once_init_leave (&initialised, TRUE);
     }
 

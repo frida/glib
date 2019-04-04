@@ -77,10 +77,6 @@ installed_tests_template_tap = files('template-tap.test.in')
 
 add_project_arguments('-D_GNU_SOURCE', language: 'c')
 
-if host_system == 'qnx'
-  add_project_arguments('-D_QNX_SOURCE', language: 'c')
-endif
-
 # Disable strict aliasing;
 # see https://bugzilla.gnome.org/show_bug.cgi?id=791622
 if cc.has_argument('-fno-strict-aliasing')
@@ -173,7 +169,7 @@ endif
 # Detect and set symbol visibility
 glib_hidden_visibility_args = []
 if get_option('default_library') != 'static'
-  if host_system == 'windows'
+  if host_system == 'windows' or host_system == 'cygwin'
     glib_conf.set('DLL_EXPORT', true)
     if cc.get_id() == 'msvc'
       glib_conf.set('_GLIB_EXTERN', '__declspec(dllexport) extern')
@@ -187,10 +183,9 @@ if get_option('default_library') != 'static'
   endif
 endif
 
-if get_option('default_library') == 'static'
+if host_system == 'windows' and get_option('default_library') == 'static'
     glibconfig_conf.set('GLIB_STATIC_COMPILATION', '1')
     glibconfig_conf.set('GOBJECT_STATIC_COMPILATION', '1')
-    glibconfig_conf.set('GIO_STATIC_COMPILATION', '1')
 endif
 
 # Cygwin glib port maintainers made it clear
@@ -217,8 +212,8 @@ buildtype = get_option('buildtype')
 glib_debug_cflags = []
 if buildtype.startswith('debug')
   glib_debug_cflags += ['-DG_ENABLE_DEBUG']
-elif buildtype == 'release' or buildtype == 'minsize'
-  glib_debug_cflags += ['-DG_DISABLE_CAST_CHECKS', '-DG_DISABLE_ASSERT', '-DG_DISABLE_CHECKS']
+elif buildtype == 'release'
+  glib_debug_cflags += ['-DG_DISABLE_CAST_CHECKS']
 endif
 
 add_project_arguments(glib_debug_cflags, language: 'c')
@@ -236,7 +231,6 @@ headers = [
   'limits.h',
   'linux/magic.h',
   'locale.h',
-  'mach/mach.h',
   'mach/mach_time.h',
   'memory.h',
   'mntent.h',
@@ -244,7 +238,6 @@ headers = [
   'pwd.h',
   'sched.h',
   'spawn.h',
-  'stdatomic.h',
   'stdint.h',
   'stdlib.h',
   'string.h',
@@ -405,9 +398,9 @@ add_project_arguments(cc.get_supported_arguments(warning_c_args), language: 'c')
 # improve this.
 glib_link_flags = cc.get_supported_link_arguments(warning_c_link_args)
 
-# Windows Support (XP+)
+# Windows Support (7+)
 if host_system == 'windows'
-  glib_conf.set('_WIN32_WINNT', '0x0501')
+  glib_conf.set('_WIN32_WINNT', '0x0601')
 endif
 
 functions = [
@@ -639,9 +632,43 @@ osx_ldflags = []
 glib_have_os_x_9_or_later = false
 glib_have_carbon = false
 glib_have_cocoa = false
+if host_system == 'darwin'
+  add_languages('objc')
+  objcc = meson.get_compiler('objc')
 
-if host_system == 'qnx'
-  glib_conf.set('HAVE_QNX', 1)
+  osx_ldflags += ['-Wl,-framework,CoreFoundation']
+
+  # Mac OS X Carbon support
+  glib_have_carbon = objcc.compiles('''#include <Carbon/Carbon.h>
+                                       #include <CoreServices/CoreServices.h>''',
+                                    name : 'Mac OS X Carbon support')
+
+  if glib_have_carbon
+    glib_conf.set('HAVE_CARBON', true)
+    osx_ldflags += '-Wl,-framework,Carbon'
+    glib_have_os_x_9_or_later = objcc.compiles('''#include <AvailabilityMacros.h>
+                                                  #if MAC_OS_X_VERSION_MIN_REQUIRED < 1090
+                                                  #error Compiling for minimum OS X version before 10.9
+                                                  #endif''',
+                                               name : 'OS X 9 or later')
+  endif
+
+  # Mac OS X Cocoa support
+  glib_have_cocoa = objcc.compiles('''#include <Cocoa/Cocoa.h>
+                                      #ifdef GNUSTEP_BASE_VERSION
+                                      #error "Detected GNUstep, not Cocoa"
+                                      #endif''',
+                                   name : 'Mac OS X Cocoa support')
+
+  if glib_have_cocoa
+    glib_conf.set('HAVE_COCOA', true)
+    osx_ldflags += ['-Wl,-framework,Foundation', '-Wl,-framework,AppKit']
+  endif
+
+  # FIXME: libgio mix C and objC source files and there is no way to reliably
+  # know which language flags it's going to use to link. Add to both languages
+  # for now. See https://github.com/mesonbuild/meson/issues/3585.
+  add_project_link_arguments(osx_ldflags, language : ['objc', 'c'])
 endif
 
 # Check for futex(2)
@@ -745,11 +772,7 @@ have_good_vsnprintf = false
 have_good_snprintf = false
 have_good_printf = false
 
-if get_option('default_library') == 'static'
-  glib_conf.set('HAVE_C99_SNPRINTF', false)
-  glib_conf.set('HAVE_C99_VSNPRINTF', false)
-  glib_conf.set('HAVE_UNIX98_PRINTF', false)
-elif host_system == 'windows' and cc.get_id() == 'msvc'
+if host_system == 'windows' and cc.get_id() == 'msvc'
   # Unfortunately the Visual Studio 2015+ implementations of C99-style
   # snprintf and vsnprintf don't seem to be quite good enough.
   # (Sorry, I don't know exactly what is the problem,
@@ -881,7 +904,6 @@ main (void)
       glib_conf.set('HAVE_UNIX98_PRINTF', have_good_printf)
   endif
 endif
-using_system_printf = have_good_vsnprintf and have_good_snprintf and have_good_printf
 
 if host_system == 'windows'
   glib_conf.set_quoted('EXEEXT', '.exe')
@@ -889,14 +911,15 @@ else
   glib_conf.set('EXEEXT', '')
 endif
 
-if using_system_printf
+if have_good_vsnprintf and have_good_snprintf and have_good_printf
   # Our printf is 'good' only if vsnpintf()/snprintf()/printf() supports C99 well enough
   glib_conf.set('HAVE_GOOD_PRINTF', 1)
 else
   glib_conf.set('HAVE_VASPRINTF', 1)
 endif
 
-glibconfig_conf.set('GLIB_USING_SYSTEM_PRINTF', using_system_printf)
+glibconfig_conf.set('GLIB_USING_SYSTEM_PRINTF',
+                    have_good_vsnprintf and have_good_snprintf and have_good_printf)
 
 # Check whether the printf() family supports Unix98 %n$ positional parameters
 # AC_FUNC_PRINTF_UNIX98
@@ -1767,27 +1790,21 @@ if not libz_dep.found()
   endif
 endif
 
-if get_option('default_library') == 'static'
-  subdir('proxy-libintl')
-  libintl = intl_dep
-  have_bind_textdomain_codeset = true
+# First check in libc, fallback to libintl, and as last chance build
+# proxy-libintl subproject.
+# FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
+# implementations. This could be extended if issues are found in some platforms.
+if cc.has_function('ngettext')
+  libintl = []
+  have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset')
 else
-  # First check in libc, fallback to libintl, and as last chance build
-  # proxy-libintl subproject.
-  # FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
-  # implementations. This could be extended if issues are found in some platforms.
-  if cc.has_function('ngettext')
-    libintl = []
-    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset')
+  libintl = cc.find_library('intl', required : false)
+  if not libintl.found()
+    libintl = subproject('proxy-libintl').get_variable('intl_dep')
+    have_bind_textdomain_codeset = true  # proxy-libintl supports it
   else
-    libintl = cc.find_library('intl', required : false)
-    if not libintl.found()
-      libintl = subproject('proxy-libintl').get_variable('intl_dep')
-      have_bind_textdomain_codeset = true  # proxy-libintl supports it
-    else
-      have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset',
-                                                     dependencies : libintl)
-    endif
+    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset',
+                                                   dependencies : libintl)
   endif
 endif
 
@@ -1881,6 +1898,53 @@ if cc.has_function('strlcpy')
   endif
 endif
 
+cmdline_test_code = '''
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <stdio.h>
+#include <stdlib.h>
+#undef NDEBUG
+#include <assert.h>
+
+static int
+__getcmdline (void)
+{
+/* This code is a dumbed-down version of g_file_get_contents() */
+#define BUFSIZE 1024
+  char result[BUFSIZE];
+  struct stat stat_buf;
+
+  int fd = open ("/proc/self/cmdline", O_RDONLY|O_BINARY);
+  assert (fd >= 0);
+  assert (fstat (fd, &stat_buf) == 0);
+
+  if (stat_buf.st_size > 0 && S_ISREG (stat_buf.st_mode))
+    assert (read (fd, result, BUFSIZE) > 0);
+  else
+    {
+      FILE *f = fdopen (fd, "r");
+      assert (f != NULL);
+      assert (fread (result, 1, BUFSIZE, f) > 0);
+    }
+
+  return 0;
+}
+
+int
+main (void)
+{
+  exit (__getcmdline ());
+}'''
+
+if cc_can_run
+  rres = cc.run(cmdline_test_code, name : '/proc/self/cmdline')
+  have_proc_self_cmdline = rres.compiled() and rres.returncode() == 0
+else
+  have_proc_self_cmdline = meson.get_cross_property('have_proc_self_cmdline', false)
+endif
+
+glib_conf.set('HAVE_PROC_SELF_CMDLINE', have_proc_self_cmdline)
+
 python = import('python').find_installation('python3')
 # used for '#!/usr/bin/env <name>'
 python_name = 'python3'
@@ -1942,7 +2006,7 @@ enable_dtrace = false
 # Since dtrace support is opt-in we just error out if it was requested but
 # is not available. We don't bother with autodetection yet.
 if want_dtrace
-  if host_system == 'darwin'
+  if glib_have_carbon
     error('GLib dtrace support not yet compatible with macOS dtrace')
   endif
   dtrace = find_program('dtrace', required : true) # error out if not found
@@ -1989,9 +2053,7 @@ subdir('gthread')
 subdir('gmodule')
 subdir('gio')
 subdir('fuzzing')
-if get_option('tests')
-  subdir('tests')
-endif
+subdir('tests')
 
 # xgettext is optional (on Windows for instance)
 if find_program('xgettext', required : get_option('nls')).found()

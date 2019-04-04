@@ -631,7 +631,7 @@ g_get_user_database_entry (void)
         gint error;
         gchar *logname;
 
-#  if defined (HAVE_GETPWUID_R) && !defined (__BIONIC__)
+#  if defined (HAVE_GETPWUID_R)
         struct passwd pwd;
 #    ifdef _SC_GETPW_R_SIZE_MAX
         /* This reurns the maximum length */
@@ -1037,7 +1037,8 @@ static gchar *g_prgname = NULL;
  * #GtkApplication::startup handler. The program name is found by
  * taking the last component of @argv[0].
  *
- * Returns: the name of the program. The returned string belongs 
+ * Returns: (nullable): the name of the program, or %NULL if it has not been
+ *     set yet. The returned string belongs
  *     to GLib and must not be modified or freed.
  */
 const gchar*
@@ -1544,7 +1545,7 @@ load_user_special_dirs (void)
 
   wchar_t *wcp;
 
-  p_SHGetKnownFolderPath = (t_SHGetKnownFolderPath) GetProcAddress (GetModuleHandleW (L"shell32.dll"),
+  p_SHGetKnownFolderPath = (t_SHGetKnownFolderPath) GetProcAddress (GetModuleHandle ("shell32.dll"),
 								    "SHGetKnownFolderPath");
 
   g_user_special_dirs[G_USER_DIRECTORY_DESKTOP] = get_special_folder (CSIDL_DESKTOPDIRECTORY);
@@ -1875,14 +1876,26 @@ get_module_for_address (gconstpointer address)
 {
   /* Holds the g_utils_global lock */
 
+  static gboolean beenhere = FALSE;
+  typedef BOOL (WINAPI *t_GetModuleHandleExA) (DWORD, LPCTSTR, HMODULE *);
+  static t_GetModuleHandleExA p_GetModuleHandleExA = NULL;
   HMODULE hmodule = NULL;
 
   if (!address)
     return NULL;
 
-  if (!GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT |
-			   GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-			   address, &hmodule))
+  if (!beenhere)
+    {
+      p_GetModuleHandleExA =
+	(t_GetModuleHandleExA) GetProcAddress (GetModuleHandle ("kernel32.dll"),
+					       "GetModuleHandleExA");
+      beenhere = TRUE;
+    }
+
+  if (p_GetModuleHandleExA == NULL ||
+      !(*p_GetModuleHandleExA) (GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT |
+				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+				address, &hmodule))
     {
       MEMORY_BASIC_INFORMATION mbi;
       VirtualQuery (address, &mbi, sizeof (mbi));
