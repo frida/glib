@@ -40,7 +40,4 @@
 
 #undef __GLIB_GOBJECT_H_INSIDE__
 
-GLIB_AVAILABLE_IN_2_62
-void                            gobject_init                            (void);
-
 #endif /* __GLIB_GOBJECT_H__ */

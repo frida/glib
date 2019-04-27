@@ -50,7 +50,6 @@
 
 #include "gstrfuncs.h"
 
-#include "glib-init.h"
 #include "gprintf.h"
 #include "gprintfint.h"
 #include "glibintl.h"
@@ -317,8 +316,7 @@ static const guint16 ascii_table_data[256] = {
 
 const guint16 * const g_ascii_table = ascii_table_data;
 
-#if !defined (GLIB_STATIC_COMPILATION) && \
-    defined (HAVE_NEWLOCALE) && \
+#if defined (HAVE_NEWLOCALE) && \
     defined (HAVE_USELOCALE) && \
     defined (HAVE_STRTOD_L) && \
     defined (HAVE_STRTOULL_L) && \
@@ -327,12 +325,11 @@ const guint16 * const g_ascii_table = ascii_table_data;
 #endif
 
 #ifdef USE_XLOCALE
-static locale_t C_locale = NULL;
-
 static locale_t
 get_C_locale (void)
 {
   static gsize initialized = FALSE;
+  static locale_t C_locale = NULL;
 
   if (g_once_init_enter (&initialized))
     {
@@ -1288,9 +1285,7 @@ g_strerror (gint errnum)
   if (!msg)
     {
       gchar buf[1024];
-#ifdef G_OS_WIN32
       GError *error = NULL;
-#endif
 
 #if defined(G_OS_WIN32)
       strerror_s (buf, sizeof (buf), errnum);
@@ -1307,16 +1302,13 @@ g_strerror (gint errnum)
       g_strlcpy (buf, strerror (errnum), sizeof (buf));
       msg = buf;
 #endif
-#ifdef G_OS_WIN32
       if (!g_get_charset (NULL))
         {
           msg = g_locale_to_utf8 (msg, -1, NULL, NULL, &error);
           if (error)
             g_print ("%s\n", error->message);
         }
-      else
-#endif
-      if (msg == (const gchar *)buf)
+      else if (msg == (const gchar *)buf)
         msg = g_strdup (buf);
 
       g_hash_table_insert (errors, GINT_TO_POINTER (errnum), (char *) msg);
@@ -1350,10 +1342,8 @@ g_strsignal (gint signum)
 
 #ifdef HAVE_STRSIGNAL
   msg = strsignal (signum);
-# ifdef G_OS_WIN32
   if (!g_get_charset (NULL))
     msg = tofree = g_locale_to_utf8 (msg, -1, NULL, NULL, NULL);
-# endif
 #endif
 
   if (!msg)
@@ -3441,18 +3431,6 @@ g_ascii_string_to_unsigned (const gchar  *str,
   if (out_num != NULL)
     *out_num = number;
   return TRUE;
-}
-
-void
-_g_strfuncs_deinit (void)
-{
-#ifdef USE_XLOCALE
-  if (C_locale != NULL)
-    {
-      freelocale (C_locale);
-      C_locale = NULL;
-    }
-#endif
 }
 
 G_DEFINE_QUARK (g-number-parser-error-quark, g_number_parser_error)

@@ -43,7 +43,7 @@ gobject_sources = files(
   'gvaluetypes.c',
 )
 
-if host_system == 'windows' and get_option('default_library') != 'static'
+if host_system == 'windows'
   gobject_win_rc = configure_file(
     input: 'gobject.rc.in',
     output: 'gobject.rc',
@@ -166,6 +166,8 @@ if enable_systemtap
     install : true)
 endif
 
-if get_option('tests')
+# Don’t build the tests unless we can run them (either natively or in an exe wrapper)
+build_tests = not meson.is_cross_build() or (meson.is_cross_build() and meson.has_exe_wrapper())
+if build_tests
   subdir('tests')
 endif

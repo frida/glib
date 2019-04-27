@@ -631,7 +631,7 @@ g_get_user_database_entry (void)
         gint error;
         gchar *logname;
 
-#  if defined (HAVE_GETPWUID_R) && !defined (__BIONIC__)
+#  if defined (HAVE_GETPWUID_R)
         struct passwd pwd;
 #    ifdef _SC_GETPW_R_SIZE_MAX
         /* This reurns the maximum length */
@@ -1047,29 +1047,6 @@ g_get_prgname (void)
   gchar* retval;
 
   G_LOCK (g_prgname);
-#ifdef G_OS_WIN32
-  if (g_prgname == NULL)
-    {
-      static gboolean beenhere = FALSE;
-
-      if (!beenhere)
-	{
-	  gchar *utf8_buf = NULL;
-	  wchar_t buf[MAX_PATH+1];
-
-	  beenhere = TRUE;
-	  if (GetModuleFileNameW (GetModuleHandle (NULL),
-				  buf, G_N_ELEMENTS (buf)) > 0)
-	    utf8_buf = g_utf16_to_utf8 (buf, -1, NULL, NULL, NULL);
-
-	  if (utf8_buf)
-	    {
-	      g_prgname = g_path_get_basename (utf8_buf);
-	      g_free (utf8_buf);
-	    }
-	}
-    }
-#endif
   retval = g_prgname;
   G_UNLOCK (g_prgname);
 
@@ -1545,7 +1522,7 @@ load_user_special_dirs (void)
 
   wchar_t *wcp;
 
-  p_SHGetKnownFolderPath = (t_SHGetKnownFolderPath) GetProcAddress (GetModuleHandleW (L"shell32.dll"),
+  p_SHGetKnownFolderPath = (t_SHGetKnownFolderPath) GetProcAddress (GetModuleHandle ("shell32.dll"),
 								    "SHGetKnownFolderPath");
 
   g_user_special_dirs[G_USER_DIRECTORY_DESKTOP] = get_special_folder (CSIDL_DESKTOPDIRECTORY);
@@ -1876,14 +1853,26 @@ get_module_for_address (gconstpointer address)
 {
   /* Holds the g_utils_global lock */
 
+  static gboolean beenhere = FALSE;
+  typedef BOOL (WINAPI *t_GetModuleHandleExA) (DWORD, LPCTSTR, HMODULE *);
+  static t_GetModuleHandleExA p_GetModuleHandleExA = NULL;
   HMODULE hmodule = NULL;
 
   if (!address)
     return NULL;
 
-  if (!GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT |
-			   GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-			   address, &hmodule))
+  if (!beenhere)
+    {
+      p_GetModuleHandleExA =
+	(t_GetModuleHandleExA) GetProcAddress (GetModuleHandle ("kernel32.dll"),
+					       "GetModuleHandleExA");
+      beenhere = TRUE;
+    }
+
+  if (p_GetModuleHandleExA == NULL ||
+      !(*p_GetModuleHandleExA) (GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT |
+				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+				address, &hmodule))
     {
       MEMORY_BASIC_INFORMATION mbi;
       VirtualQuery (address, &mbi, sizeof (mbi));

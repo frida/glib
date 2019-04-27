@@ -42,9 +42,6 @@
 #ifdef G_OS_WIN32
 #include <io.h>		/* For open() and close() prototypes. */
 #endif
-#ifdef HAVE_TARGETCONDITIONALS_H
-#include <TargetConditionals.h>
-#endif
 
 #include "gmoduleconf.h"
 #include "gstdio.h"
@@ -545,21 +542,8 @@ g_module_open (const gchar    *file_name,
       return module;
     }
 
-#if defined (HAVE_TARGETCONDITIONALS_H) && defined (TARGET_OS_IPHONE)
-  /*
-   * Special gotcha for iPhone where system libraries are hidden, so no point
-   * in checking if they exist. We don't want to end up adding a suffix to
-   * the name specified, and thus having dlopen() fail. Hence this simple hack.
-   */
-  if (g_str_has_prefix (file_name, "/Library/") ||
-      g_str_has_prefix (file_name, "/System/"))
-    {
-      name = g_strdup (file_name);
-    }
-#endif
-
   /* check whether we have a readable file right away */
-  if (name == NULL && g_file_test (file_name, G_FILE_TEST_IS_REGULAR))
+  if (g_file_test (file_name, G_FILE_TEST_IS_REGULAR))
     name = g_strdup (file_name);
   /* try completing file name with standard library suffix */
   if (!name)

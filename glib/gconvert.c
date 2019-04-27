@@ -52,14 +52,6 @@
 
 #include "glibintl.h"
 
-#if defined(USE_LIBICONV_GNU) && !defined (_LIBICONV_H)
-#error GNU libiconv in use but included iconv.h not from libiconv
-#endif
-#if !defined(USE_LIBICONV_GNU) && defined (_LIBICONV_H) \
-     && !defined (__APPLE_CC__) && !defined (__LP_64__)
-#error GNU libiconv not in use but included iconv.h is from libiconv
-#endif
-
 
 /**
  * SECTION:conversions
@@ -1012,7 +1004,6 @@ g_locale_to_utf8 (const gchar  *opsysstring,
 		  gsize        *bytes_written,
 		  GError      **error)
 {
-#ifdef G_OS_WIN32
   const char *charset;
 
   if (g_get_charset (&charset))
@@ -1021,9 +1012,6 @@ g_locale_to_utf8 (const gchar  *opsysstring,
     return convert_checked (opsysstring, len, "UTF-8", charset,
                             CONVERT_CHECK_NO_NULS_IN_OUTPUT,
                             bytes_read, bytes_written, error);
-#else
-  return strdup_len (opsysstring, len, bytes_read, bytes_written, error);
-#endif
 }
 
 /**
@@ -1219,8 +1207,6 @@ g_get_filename_charsets (const gchar ***filename_charsets)
 
 #endif /* G_PLATFORM_WIN32 */
 
-#ifdef G_OS_WIN32
-
 static gboolean
 get_filename_charset (const gchar **filename_charset)
 {
@@ -1234,8 +1220,6 @@ get_filename_charset (const gchar **filename_charset)
   
   return is_utf8;
 }
-
-#endif
 
 /**
  * g_filename_to_utf8:
@@ -1279,7 +1263,6 @@ g_filename_to_utf8 (const gchar *opsysstring,
 		    gsize       *bytes_written,
 		    GError     **error)
 {
-#ifdef G_OS_WIN32
   const gchar *charset;
 
   g_return_val_if_fail (opsysstring != NULL, NULL);
@@ -1291,9 +1274,6 @@ g_filename_to_utf8 (const gchar *opsysstring,
                             CONVERT_CHECK_NO_NULS_IN_INPUT |
                             CONVERT_CHECK_NO_NULS_IN_OUTPUT,
                             bytes_read, bytes_written, error);
-#else
-  return strdup_len (opsysstring, len, bytes_read, bytes_written, error);
-#endif
 }
 
 /**
@@ -1335,7 +1315,6 @@ g_filename_from_utf8 (const gchar *utf8string,
 		      gsize       *bytes_written,
 		      GError     **error)
 {
-#ifdef G_OS_WIN32
   const gchar *charset;
 
   if (get_filename_charset (&charset))
@@ -1345,9 +1324,6 @@ g_filename_from_utf8 (const gchar *utf8string,
                             CONVERT_CHECK_NO_NULS_IN_INPUT |
                             CONVERT_CHECK_NO_NULS_IN_OUTPUT,
                             bytes_read, bytes_written, error);
-#else
-  return strdup_len (utf8string, len, bytes_read, bytes_written, error);
-#endif
 }
 
 /* Test of haystack has the needle prefix, comparing case
@@ -1956,9 +1932,7 @@ g_filename_display_basename (const gchar *filename)
 gchar *
 g_filename_display_name (const gchar *filename)
 {
-#ifdef G_OS_WIN32
   gint i;
-#endif
   const gchar **charsets;
   gchar *display_name = NULL;
   gboolean is_utf8;
@@ -1971,7 +1945,6 @@ g_filename_display_name (const gchar *filename)
 	display_name = g_strdup (filename);
     }
   
-#ifdef G_OS_WIN32
   if (!display_name)
     {
       /* Try to convert from the filename charsets to UTF-8.
@@ -1986,7 +1959,6 @@ g_filename_display_name (const gchar *filename)
 	    break;
 	}
     }
-#endif
   
   /* if all conversions failed, we replace invalid UTF-8
    * by a question mark

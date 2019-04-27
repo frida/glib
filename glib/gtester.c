@@ -679,8 +679,6 @@ main (int    argc,
 {
   gint ui;
 
-  glib_init ();
-
   g_set_prgname (argv[0]);
   parse_args (&argc, &argv);
   if (gtester_selftest)

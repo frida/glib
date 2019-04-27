@@ -281,8 +281,6 @@ g_local_file_get_uri (GFile *file)
   return g_filename_to_uri (G_LOCAL_FILE (file)->filename, NULL, NULL);
 }
 
-#ifdef G_OS_WIN32
-
 static gboolean
 get_filename_charset (const gchar **filename_charset)
 {
@@ -296,8 +294,6 @@ get_filename_charset (const gchar **filename_charset)
   
   return is_utf8;
 }
-
-#endif
 
 static gboolean
 name_is_valid_for_display (const char *string,
@@ -323,16 +319,14 @@ g_local_file_get_parse_name (GFile *file)
 {
   const char *filename;
   char *parse_name;
-#ifdef G_OS_WIN32
   const gchar *charset;
-#endif
   char *utf8_filename;
+  char *roundtripped_filename;
   gboolean free_utf8_filename;
   gboolean is_valid_utf8;
   char *escaped_path;
   
   filename = G_LOCAL_FILE (file)->filename;
-#ifdef G_OS_WIN32
   if (get_filename_charset (&charset))
     {
       utf8_filename = (char *)filename;
@@ -348,8 +342,6 @@ g_local_file_get_parse_name (GFile *file)
 
       if (utf8_filename != NULL)
 	{
-	  char *roundtripped_filename;
-
 	  /* Make sure we can roundtrip: */
 	  roundtripped_filename = g_convert (utf8_filename, -1,
 					     charset, "UTF-8", NULL, NULL, NULL);
@@ -364,11 +356,6 @@ g_local_file_get_parse_name (GFile *file)
 	  g_free (roundtripped_filename);
 	}
     }
-#else
-  utf8_filename = (char *)filename;
-  free_utf8_filename = FALSE;
-  is_valid_utf8 = FALSE; /* Can't guarantee this */
-#endif
 
   if (utf8_filename != NULL &&
       name_is_valid_for_display (utf8_filename, is_valid_utf8))
