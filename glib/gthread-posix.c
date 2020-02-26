@@ -1602,11 +1602,12 @@ g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
 
 #elif defined (__linux__)
 
+#include "gfileutils.h"
+
 #include <sys/syscall.h>
 
 struct _GThreadBeacon
 {
-  pid_t process_id;
   pid_t thread_id;
 };
 
@@ -1616,7 +1617,6 @@ g_thread_lifetime_beacon_new (void)
   GThreadBeacon *beacon;
 
   beacon = g_slice_new (GThreadBeacon);
-  beacon->process_id = getpid ();
   beacon->thread_id = syscall (__NR_gettid);
 
   return beacon;
@@ -1631,11 +1631,11 @@ g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
 gboolean
 g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
 {
-  gint status;
+  gchar path[32];
 
-  status = syscall (__NR_tgkill, beacon->process_id, beacon->thread_id, 0);
+  sprintf (path, "/proc/self/task/%d", beacon->thread_id);
 
-  return status == -1 && errno == ESRCH;
+  return !g_file_test (path, G_FILE_TEST_EXISTS);
 }
 
 #elif defined (HAVE_QNX)
