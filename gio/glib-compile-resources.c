@@ -43,10 +43,7 @@
 #include "gvdb/gvdb-builder.h"
 
 #include "gconstructor_as_data.h"
-
-#ifdef G_OS_WIN32
 #include "glib/glib-private.h"
-#endif
 
 typedef struct
 {
@@ -479,7 +476,10 @@ end_element (GMarkupParseContext  *context,
 	      g_set_error (error, G_MARKUP_ERROR, G_MARKUP_ERROR_INVALID_CONTENT,
 			   _("Error compressing file %s"),
 			   real_file);
-	      goto cleanup;
+              g_object_unref (compressor);
+              g_object_unref (out);
+              g_object_unref (out2);
+              goto cleanup;
 	    }
 
 	  g_free (data->content);
@@ -754,9 +754,7 @@ main (int argc, char **argv)
   gchar *tmp;
 #endif
 
-  glib_init ();
-
-  setlocale (LC_ALL, "");
+  setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
   textdomain (GETTEXT_PACKAGE);
 
 #ifdef G_OS_WIN32

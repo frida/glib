@@ -203,7 +203,7 @@ struct _GBookmarkFile
   gchar *description;
 
   /* we store our items in a list and keep a copy inside
-   * an hash table for faster lookup performances
+   * a hash table for faster lookup performances
    */
   GList *items;
   GHashTable *items_by_uri;
@@ -245,8 +245,10 @@ static void          g_bookmark_file_add_item    (GBookmarkFile  *bookmark,
 						  BookmarkItem   *item,
 						  GError        **error);
 
-static time_t  timestamp_from_iso8601 (const gchar *iso_date);
-static gchar * timestamp_to_iso8601   (time_t       timestamp);
+static gboolean  timestamp_from_iso8601 (const gchar  *iso_date,
+                                         time_t       *out_timestamp,
+                                         GError      **error);
+static gchar    *timestamp_to_iso8601   (time_t        timestamp);
 
 /********************************
  * BookmarkAppInfo              *
@@ -772,14 +774,23 @@ parse_bookmark_element (GMarkupParseContext  *context,
 
   item = bookmark_item_new (uri);
 
-  if (added)
-    item->added = timestamp_from_iso8601 (added);
+  if (added != NULL && !timestamp_from_iso8601 (added, &item->added, error))
+    {
+      bookmark_item_free (item);
+      return;
+    }
 
-  if (modified)
-    item->modified = timestamp_from_iso8601 (modified);
+  if (modified != NULL && !timestamp_from_iso8601 (modified, &item->modified, error))
+    {
+      bookmark_item_free (item);
+      return;
+    }
 
-  if (visited)
-    item->visited = timestamp_from_iso8601 (visited);
+  if (visited != NULL && !timestamp_from_iso8601 (visited, &item->visited, error))
+    {
+      bookmark_item_free (item);
+      return;
+    }
 
   add_error = NULL;
   g_bookmark_file_add_item (parse_data->bookmark_file,
@@ -872,19 +883,18 @@ parse_application_element (GMarkupParseContext  *context,
   else
     ai->count = 1;
 
-  if (modified)
-    ai->stamp = timestamp_from_iso8601 (modified);
+  if (modified != NULL)
+    {
+      if (!timestamp_from_iso8601 (modified, &ai->stamp, error))
+        return;
+    }
   else
     {
       /* the timestamp attribute has been deprecated but we still parse
        * it for backward compatibility
        */
       if (stamp)
-#if defined (_MSC_VER) && (_MSC_VER >= 1300)
-        ai->stamp = (time_t) _atoi64 (stamp);
-#else
         ai->stamp = (time_t) atol (stamp);
-#endif
       else
         ai->stamp = time (NULL);
     }
@@ -1595,28 +1605,32 @@ out:
 static gchar *
 timestamp_to_iso8601 (time_t timestamp)
 {
-  GTimeVal stamp;
+  GDateTime *dt = g_date_time_new_from_unix_utc (timestamp);
+  gchar *iso8601_string = g_date_time_format_iso8601 (dt);
+  g_date_time_unref (dt);
 
-  if (timestamp == (time_t) -1)
-    g_get_current_time (&stamp);
-  else
-    {
-      stamp.tv_sec = timestamp;
-      stamp.tv_usec = 0;
-    }
-
-  return g_time_val_to_iso8601 (&stamp);
+  return g_steal_pointer (&iso8601_string);
 }
 
-static time_t
-timestamp_from_iso8601 (const gchar *iso_date)
+static gboolean
+timestamp_from_iso8601 (const gchar  *iso_date,
+                        time_t       *out_timestamp,
+                        GError      **error)
 {
-  GTimeVal stamp;
+  gint64 time_val;
+  GDateTime *dt = g_date_time_new_from_iso8601 (iso_date, NULL);
+  if (dt == NULL)
+    {
+      g_set_error (error, G_BOOKMARK_FILE_ERROR, G_BOOKMARK_FILE_ERROR_READ,
+                   _("Invalid date/time ‘%s’ in bookmark file"), iso_date);
+      return FALSE;
+    }
 
-  if (!g_time_val_from_iso8601 (iso_date, &stamp))
-    return (time_t) -1;
+  time_val = g_date_time_to_unix (dt);
+  g_date_time_unref (dt);
 
-  return (time_t) stamp.tv_sec;
+  *out_timestamp = time_val;
+  return TRUE;
 }
 
 G_DEFINE_QUARK (g-bookmark-file-error-quark, g_bookmark_file_error)

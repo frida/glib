@@ -127,12 +127,14 @@ is_valid_unix (const gchar  *address_entry,
   GList *keys;
   GList *l;
   const gchar *path;
+  const gchar *dir;
   const gchar *tmpdir;
   const gchar *abstract;
 
   ret = FALSE;
   keys = NULL;
   path = NULL;
+  dir = NULL;
   tmpdir = NULL;
   abstract = NULL;
 
@@ -142,11 +144,13 @@ is_valid_unix (const gchar  *address_entry,
       const gchar *key = l->data;
       if (g_strcmp0 (key, "path") == 0)
         path = g_hash_table_lookup (key_value_pairs, key);
+      else if (g_strcmp0 (key, "dir") == 0)
+        dir = g_hash_table_lookup (key_value_pairs, key);
       else if (g_strcmp0 (key, "tmpdir") == 0)
         tmpdir = g_hash_table_lookup (key_value_pairs, key);
       else if (g_strcmp0 (key, "abstract") == 0)
         abstract = g_hash_table_lookup (key_value_pairs, key);
-      else
+      else if (g_strcmp0 (key, "guid") != 0)
         {
           g_set_error (error,
                        G_IO_ERROR,
@@ -158,9 +162,8 @@ is_valid_unix (const gchar  *address_entry,
         }
     }
 
-  if ((path != NULL && tmpdir != NULL) ||
-      (tmpdir != NULL && abstract != NULL) ||
-      (abstract != NULL && path != NULL))
+  /* Exactly one key must be set */
+  if ((path != NULL) + (dir != NULL) + (tmpdir != NULL) + (abstract != NULL) > 1)
     {
       g_set_error (error,
              G_IO_ERROR,
@@ -169,12 +172,12 @@ is_valid_unix (const gchar  *address_entry,
              address_entry);
       goto out;
     }
-  else if (path == NULL && tmpdir == NULL && abstract == NULL)
+  else if (path == NULL && dir == NULL && tmpdir == NULL && abstract == NULL)
     {
       g_set_error (error,
                    G_IO_ERROR,
                    G_IO_ERROR_INVALID_ARGUMENT,
-                   _("Address “%s” is invalid (need exactly one of path, tmpdir or abstract keys)"),
+                   _("Address “%s” is invalid (need exactly one of path, dir, tmpdir, or abstract keys)"),
                    address_entry);
       goto out;
     }
@@ -221,7 +224,7 @@ is_valid_nonce_tcp (const gchar  *address_entry,
         family = g_hash_table_lookup (key_value_pairs, key);
       else if (g_strcmp0 (key, "noncefile") == 0)
         nonce_file = g_hash_table_lookup (key_value_pairs, key);
-      else
+      else if (g_strcmp0 (key, "guid") != 0)
         {
           g_set_error (error,
                        G_IO_ERROR,
@@ -241,8 +244,8 @@ is_valid_nonce_tcp (const gchar  *address_entry,
           g_set_error (error,
                        G_IO_ERROR,
                        G_IO_ERROR_INVALID_ARGUMENT,
-                       _("Error in address “%s” — the port attribute is malformed"),
-                       address_entry);
+                       _("Error in address “%s” — the “%s” attribute is malformed"),
+                       address_entry, "port");
           goto out;
         }
     }
@@ -252,8 +255,8 @@ is_valid_nonce_tcp (const gchar  *address_entry,
       g_set_error (error,
                    G_IO_ERROR,
                    G_IO_ERROR_INVALID_ARGUMENT,
-                   _("Error in address “%s” — the family attribute is malformed"),
-                   address_entry);
+                   _("Error in address “%s” — the “%s” attribute is malformed"),
+                   address_entry, "family");
       goto out;
     }
 
@@ -262,9 +265,17 @@ is_valid_nonce_tcp (const gchar  *address_entry,
       /* TODO: validate host */
     }
 
-  nonce_file = nonce_file; /* To avoid -Wunused-but-set-variable */
+  if (nonce_file != NULL && *nonce_file == '\0')
+    {
+      g_set_error (error,
+                   G_IO_ERROR,
+                   G_IO_ERROR_INVALID_ARGUMENT,
+                   _("Error in address “%s” — the “%s” attribute is malformed"),
+                   address_entry, "noncefile");
+      goto out;
+    }
 
-  ret= TRUE;
+  ret = TRUE;
 
  out:
   g_list_free (keys);
@@ -302,7 +313,7 @@ is_valid_tcp (const gchar  *address_entry,
         port = g_hash_table_lookup (key_value_pairs, key);
       else if (g_strcmp0 (key, "family") == 0)
         family = g_hash_table_lookup (key_value_pairs, key);
-      else
+      else if (g_strcmp0 (key, "guid") != 0)
         {
           g_set_error (error,
                        G_IO_ERROR,
@@ -322,8 +333,8 @@ is_valid_tcp (const gchar  *address_entry,
           g_set_error (error,
                        G_IO_ERROR,
                        G_IO_ERROR_INVALID_ARGUMENT,
-                       _("Error in address “%s” — the port attribute is malformed"),
-                       address_entry);
+                       _("Error in address “%s” — the “%s” attribute is malformed"),
+                       address_entry, "port");
           goto out;
         }
     }
@@ -333,8 +344,8 @@ is_valid_tcp (const gchar  *address_entry,
       g_set_error (error,
                    G_IO_ERROR,
                    G_IO_ERROR_INVALID_ARGUMENT,
-                   _("Error in address “%s” — the family attribute is malformed"),
-                   address_entry);
+                   _("Error in address “%s” — the “%s” attribute is malformed"),
+                   address_entry, "family");
       goto out;
     }
 
@@ -1010,8 +1021,6 @@ g_dbus_address_get_stream_sync (const gchar   *address,
   return ret;
 }
 
-#ifndef GIO_STATIC_COMPILATION
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 /*
@@ -1212,20 +1221,6 @@ get_session_address_dbus_launch (GError **error)
 }
 #endif /* neither G_OS_UNIX nor G_OS_WIN32 */
 
-#else /* !GIO_STATIC_COMPILATION */
-
-static gchar *
-get_session_address_dbus_launch (GError **error)
-{
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Session bus not available for static GIO"));
-  return NULL;
-}
-
-#endif /* GIO_STATIC_COMPILATION */
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 static gchar *
@@ -1233,7 +1228,6 @@ get_session_address_platform_specific (GError **error)
 {
   gchar *ret;
 
-#ifndef GIO_STATIC_COMPILATION
   /* Use XDG_RUNTIME_DIR/bus if it exists and is suitable. This is appropriate
    * for systems using the "a session is a user-session" model described in
    * <http://lists.freedesktop.org/archives/dbus/2015-January/016522.html>,
@@ -1258,15 +1252,6 @@ get_session_address_platform_specific (GError **error)
    * mechanism based on shared memory.
    */
   return get_session_address_dbus_launch (error);
-#else
-  ret = NULL;
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Session bus not available for static GIO"));
-#endif
-
-  return ret;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1284,8 +1269,8 @@ get_session_address_platform_specific (GError **error)
  * The returned address will be in the
  * [D-Bus address format](https://dbus.freedesktop.org/doc/dbus-specification.html#addresses).
  *
- * Returns: a valid D-Bus address string for @bus_type or %NULL if
- *     @error is set
+ * Returns: (transfer full): a valid D-Bus address string for @bus_type or
+ *     %NULL if @error is set
  *
  * Since: 2.26
  */

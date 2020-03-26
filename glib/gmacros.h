@@ -96,17 +96,15 @@
  * Deprecated: 2.48: Use "static inline" instead
  */
 
-#ifndef G_DISABLE_DEPRECATED
 /* For historical reasons we need to continue to support those who
  * define G_IMPLEMENT_INLINES to mean "don't implement this here".
  */
 #ifdef G_IMPLEMENT_INLINES
-#  define G_INLINE_FUNC extern
+#  define G_INLINE_FUNC extern GLIB_DEPRECATED_MACRO_IN_2_48_FOR(static inline)
 #  undef  G_CAN_INLINE
 #else
-#  define G_INLINE_FUNC static inline
+#  define G_INLINE_FUNC static inline GLIB_DEPRECATED_MACRO_IN_2_48_FOR(static inline)
 #endif /* G_IMPLEMENT_INLINES */
-#endif /* !G_DISABLE_DEPRECATED */
 
 /* Provide macros to feature the GCC function attribute.
  */
@@ -534,7 +532,7 @@
 /**
  * G_GNUC_FALLTHROUGH:
  *
- * Expands to the GNU C `fallthrough` statement attribute if the compiler is gcc.
+ * Expands to the GNU C `fallthrough` statement attribute if the compiler supports it.
  * This allows declaring case statement to explicitly fall through in switch
  * statements. To enable this feature, use `-Wimplicit-fallthrough` during
  * compilation.
@@ -561,6 +559,8 @@
  */
 #if    __GNUC__ > 6
 #define G_GNUC_FALLTHROUGH __attribute__((fallthrough))
+#elif g_macro__has_attribute (fallthrough)
+#define G_GNUC_FALLTHROUGH __attribute__((fallthrough))
 #else
 #define G_GNUC_FALLTHROUGH
 #endif /* __GNUC__ */
@@ -583,7 +583,7 @@
  *
  * Since: 2.2
  */
-#if    __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 1)
+#if    __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 1) || defined (__clang__)
 #define G_GNUC_DEPRECATED __attribute__((__deprecated__))
 #else
 #define G_GNUC_DEPRECATED
@@ -612,7 +612,7 @@
  *
  * Since: 2.26
  */
-#if    __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
+#if    __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5) || defined (__clang__)
 #define G_GNUC_DEPRECATED_FOR(f)                        \
   __attribute__((deprecated("Use " #f " instead")))
 #else
@@ -631,7 +631,7 @@
   _Pragma ("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
 #define G_GNUC_END_IGNORE_DEPRECATIONS			\
   _Pragma ("GCC diagnostic pop")
-#elif defined (_MSC_VER) && (_MSC_VER >= 1500)
+#elif defined (_MSC_VER) && (_MSC_VER >= 1500) && !defined (__clang__)
 #define G_GNUC_BEGIN_IGNORE_DEPRECATIONS		\
   __pragma (warning (push))  \
   __pragma (warning (disable : 4996))
@@ -689,19 +689,38 @@
 #define G_GNUC_WARN_UNUSED_RESULT
 #endif /* __GNUC__ */
 
-#ifndef G_DISABLE_DEPRECATED
+/**
+ * G_GNUC_FUNCTION:
+ *
+ * Expands to "" on all modern compilers, and to  __FUNCTION__ on gcc
+ * version 2.x. Don't use it.
+ *
+ * Deprecated: 2.16: Use G_STRFUNC() instead
+ */
+
+/**
+ * G_GNUC_PRETTY_FUNCTION:
+ *
+ * Expands to "" on all modern compilers, and to __PRETTY_FUNCTION__
+ * on gcc version 2.x. Don't use it.
+ *
+ * Deprecated: 2.16: Use G_STRFUNC() instead
+ */
+
 /* Wrap the gcc __PRETTY_FUNCTION__ and __FUNCTION__ variables with
  * macros, so we can refer to them as strings unconditionally.
  * usage not-recommended since gcc-3.0
+ *
+ * Mark them as deprecated since 2.26, since that’s when version macros were
+ * introduced.
  */
 #if defined (__GNUC__) && (__GNUC__ < 3)
-#define G_GNUC_FUNCTION         __FUNCTION__
-#define G_GNUC_PRETTY_FUNCTION  __PRETTY_FUNCTION__
+#define G_GNUC_FUNCTION         __FUNCTION__ GLIB_DEPRECATED_MACRO_IN_2_26_FOR(G_STRFUNC)
+#define G_GNUC_PRETTY_FUNCTION  __PRETTY_FUNCTION__ GLIB_DEPRECATED_MACRO_IN_2_26_FOR(G_STRFUNC)
 #else   /* !__GNUC__ */
-#define G_GNUC_FUNCTION         ""
-#define G_GNUC_PRETTY_FUNCTION  ""
+#define G_GNUC_FUNCTION         "" GLIB_DEPRECATED_MACRO_IN_2_26_FOR(G_STRFUNC)
+#define G_GNUC_PRETTY_FUNCTION  "" GLIB_DEPRECATED_MACRO_IN_2_26_FOR(G_STRFUNC)
 #endif  /* !__GNUC__ */
-#endif  /* !G_DISABLE_DEPRECATED */
 
 #if g_macro__has_feature(attribute_analyzer_noreturn) && defined(__clang_analyzer__)
 #define G_ANALYZER_ANALYZING 1
@@ -717,13 +736,21 @@
 #ifndef __GI_SCANNER__ /* The static assert macro really confuses the introspection parser */
 #define G_PASTE_ARGS(identifier1,identifier2) identifier1 ## identifier2
 #define G_PASTE(identifier1,identifier2)      G_PASTE_ARGS (identifier1, identifier2)
+#if !defined(__cplusplus) && defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#define G_STATIC_ASSERT(expr) _Static_assert (expr, "Expression evaluates to false")
+#elif (defined(__cplusplus) && __cplusplus >= 201103L) || \
+      (defined(__cplusplus) && defined (_MSC_VER) && (_MSC_VER >= 1600)) || \
+      (defined (_MSC_VER) && (_MSC_VER >= 1800))
+#define G_STATIC_ASSERT(expr) static_assert (expr, "Expression evaluates to false")
+#else
 #ifdef __COUNTER__
 #define G_STATIC_ASSERT(expr) typedef char G_PASTE (_GStaticAssertCompileTimeAssertion_, __COUNTER__)[(expr) ? 1 : -1] G_GNUC_UNUSED
 #else
 #define G_STATIC_ASSERT(expr) typedef char G_PASTE (_GStaticAssertCompileTimeAssertion_, __LINE__)[(expr) ? 1 : -1] G_GNUC_UNUSED
 #endif
+#endif /* __STDC_VERSION__ */
 #define G_STATIC_ASSERT_EXPR(expr) ((void) sizeof (char[(expr) ? 1 : -1]))
-#endif
+#endif /* !__GI_SCANNER__ */
 
 /* Provide a string identifying the current code position */
 #if defined(__GNUC__) && (__GNUC__ < 3) && !defined(__cplusplus)
@@ -733,10 +760,10 @@
 #endif
 
 /* Provide a string identifying the current function, non-concatenatable */
-#if defined (__func__)
-#define G_STRFUNC     ((const char*) (__func__))
-#elif defined (__GNUC__) && defined (__cplusplus)
+#if defined (__GNUC__) && defined (__cplusplus)
 #define G_STRFUNC     ((const char*) (__PRETTY_FUNCTION__))
+#elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#define G_STRFUNC     ((const char*) (__func__))
 #elif defined (__GNUC__) || (defined(_MSC_VER) && (_MSC_VER > 1300))
 #define G_STRFUNC     ((const char*) (__FUNCTION__))
 #else
@@ -867,14 +894,26 @@
 #define G_ALIGNOF(type) (G_STRUCT_OFFSET (struct { char a; type b; }, b))
 #endif
 
-/* Deprecated -- do not use. */
-#ifndef G_DISABLE_DEPRECATED
+/**
+ * G_CONST_RETURN:
+ *
+ * If %G_DISABLE_CONST_RETURNS is defined, this macro expands
+ * to nothing. By default, the macro expands to const. The macro
+ * can be used in place of const for functions that return a value
+ * that should not be modified. The purpose of this macro is to allow
+ * us to turn on const for returned constant strings by default, while
+ * allowing programmers who find that annoying to turn it off. This macro
+ * should only be used for return values and for "out" parameters, it
+ * doesn't make sense for "in" parameters.
+ *
+ * Deprecated: 2.30: API providers should replace all existing uses with
+ * const and API consumers should adjust their code accordingly
+ */
 #ifdef G_DISABLE_CONST_RETURNS
-#define G_CONST_RETURN
+#define G_CONST_RETURN GLIB_DEPRECATED_MACRO_IN_2_30_FOR(const)
 #else
-#define G_CONST_RETURN const
+#define G_CONST_RETURN const GLIB_DEPRECATED_MACRO_IN_2_30_FOR(const)
 #endif
-#endif /* !G_DISABLE_DEPRECATED */
 
 /*
  * The G_LIKELY and G_UNLIKELY macros let the programmer give hints to 
@@ -901,7 +940,7 @@
 #define G_UNLIKELY(expr) (expr)
 #endif
 
-#if    __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 1)
+#if    __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 1) || defined (__clang__)
 #define G_DEPRECATED __attribute__((__deprecated__))
 #elif defined(_MSC_VER) && (_MSC_VER >= 1300)
 #define G_DEPRECATED __declspec(deprecated)
@@ -909,7 +948,7 @@
 #define G_DEPRECATED
 #endif
 
-#if    __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
+#if    __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5) || defined (__clang__)
 #define G_DEPRECATED_FOR(f) __attribute__((__deprecated__("Use '" #f "' instead")))
 #elif defined(_MSC_FULL_VER) && (_MSC_FULL_VER > 140050320)
 #define G_DEPRECATED_FOR(f) __declspec(deprecated("is deprecated. Use '" #f "' instead"))
@@ -917,7 +956,7 @@
 #define G_DEPRECATED_FOR(f) G_DEPRECATED
 #endif
 
-#if    __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5)
+#if    __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 5) || defined (__clang__)
 #define G_UNAVAILABLE(maj,min) __attribute__((deprecated("Not available before " #maj "." #min)))
 #elif defined(_MSC_FULL_VER) && (_MSC_FULL_VER > 140050320)
 #define G_UNAVAILABLE(maj,min) __declspec(deprecated("is not available before " #maj "." #min))
@@ -929,7 +968,7 @@
 #define _GLIB_EXTERN extern
 #endif
 
-/* These macros are used to mark deprecated functions in GLib headers,
+/* These macros are used to mark deprecated symbols in GLib headers,
  * and thus have to be exposed in installed headers. But please
  * do *not* use them in other projects. Instead, use G_DEPRECATED
  * or define your own wrappers around it.
@@ -945,9 +984,46 @@
 #define GLIB_UNAVAILABLE(maj,min) G_UNAVAILABLE(maj,min) _GLIB_EXTERN
 #endif
 
+#if !defined(GLIB_DISABLE_DEPRECATION_WARNINGS) && \
+    (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6) || \
+     __clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 4))
+#define _GLIB_GNUC_DO_PRAGMA(x) _Pragma(G_STRINGIFY (x))
+#define GLIB_DEPRECATED_MACRO _GLIB_GNUC_DO_PRAGMA(GCC warning "Deprecated pre-processor symbol")
+#define GLIB_DEPRECATED_MACRO_FOR(f) _GLIB_GNUC_DO_PRAGMA(GCC warning "Deprecated pre-processor symbol, replace with " #f)
+#define GLIB_UNAVAILABLE_MACRO(maj,min) _GLIB_GNUC_DO_PRAGMA(GCC warning "Not available before " #maj "." #min)
+#else
+#define GLIB_DEPRECATED_MACRO
+#define GLIB_DEPRECATED_MACRO_FOR(f)
+#define GLIB_UNAVAILABLE_MACRO(maj,min)
+#endif
+
+#if !defined(GLIB_DISABLE_DEPRECATION_WARNINGS) && \
+    ((defined (__GNUC__) && (__GNUC__ > 6 || (__GNUC__ == 6 && __GNUC_MINOR__ >= 1))) || \
+     (defined (__clang_major__) && (__clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 0))))
+#define GLIB_DEPRECATED_ENUMERATOR G_DEPRECATED
+#define GLIB_DEPRECATED_ENUMERATOR_FOR(f) G_DEPRECATED_FOR(f)
+#define GLIB_UNAVAILABLE_ENUMERATOR(maj,min) G_UNAVAILABLE(maj,min)
+#else
+#define GLIB_DEPRECATED_ENUMERATOR
+#define GLIB_DEPRECATED_ENUMERATOR_FOR(f)
+#define GLIB_UNAVAILABLE_ENUMERATOR(maj,min)
+#endif
+
+#if !defined(GLIB_DISABLE_DEPRECATION_WARNINGS) && \
+    ((defined (__GNUC__) && (__GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 1))) || \
+     (defined (__clang_major__) && (__clang_major__ > 3 || (__clang_major__ == 3 && __clang_minor__ >= 0))))
+#define GLIB_DEPRECATED_TYPE G_DEPRECATED
+#define GLIB_DEPRECATED_TYPE_FOR(f) G_DEPRECATED_FOR(f)
+#define GLIB_UNAVAILABLE_TYPE(maj,min) G_UNAVAILABLE(maj,min)
+#else
+#define GLIB_DEPRECATED_TYPE
+#define GLIB_DEPRECATED_TYPE_FOR(f)
+#define GLIB_UNAVAILABLE_TYPE(maj,min)
+#endif
+
 #ifndef __GI_SCANNER__
 
-#ifdef __GNUC__
+#if defined (__GNUC__) || defined (__clang__)
 
 /* these macros are private */
 #define _GLIB_AUTOPTR_FUNC_NAME(TypeName) glib_autoptr_cleanup_##TypeName
@@ -957,12 +1033,15 @@
 #define _GLIB_AUTOPTR_LIST_TYPENAME(TypeName)  TypeName##_listautoptr
 #define _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) glib_slistautoptr_cleanup_##TypeName
 #define _GLIB_AUTOPTR_SLIST_TYPENAME(TypeName)  TypeName##_slistautoptr
+#define _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) glib_queueautoptr_cleanup_##TypeName
+#define _GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName)  TypeName##_queueautoptr
 #define _GLIB_AUTO_FUNC_NAME(TypeName)    glib_auto_cleanup_##TypeName
 #define _GLIB_CLEANUP(func)               __attribute__((cleanup(func)))
 #define _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, ParentName, cleanup) \
   typedef TypeName *_GLIB_AUTOPTR_TYPENAME(TypeName);                                                           \
   typedef GList *_GLIB_AUTOPTR_LIST_TYPENAME(TypeName);                                                         \
   typedef GSList *_GLIB_AUTOPTR_SLIST_TYPENAME(TypeName);                                                       \
+  typedef GQueue *_GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName);                                                       \
   G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
   static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) (TypeName *_ptr)                     \
     { if (_ptr) (cleanup) ((ParentName *) _ptr); }                                                              \
@@ -972,6 +1051,8 @@
     { g_list_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                       \
   static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName) (GSList **_l)                        \
     { g_slist_free_full (*_l, (GDestroyNotify) (void(*)(void)) cleanup); }                                      \
+  static G_GNUC_UNUSED inline void _GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName) (GQueue **_q)                        \
+    { if (*_q) g_queue_free_full (*_q, (GDestroyNotify) (void(*)(void)) cleanup); }                             \
   G_GNUC_END_IGNORE_DEPRECATIONS
 #define _GLIB_DEFINE_AUTOPTR_CHAINUP(ModuleObjName, ParentName) \
   _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(ModuleObjName, ParentName, _GLIB_AUTOPTR_CLEAR_FUNC_NAME(ParentName))
@@ -982,15 +1063,16 @@
   _GLIB_DEFINE_AUTOPTR_CLEANUP_FUNCS(TypeName, TypeName, func)
 #define G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC(TypeName, func) \
   G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
-  static inline void _GLIB_AUTO_FUNC_NAME(TypeName) (TypeName *_ptr) { (func) (_ptr); }                         \
+  static G_GNUC_UNUSED inline void _GLIB_AUTO_FUNC_NAME(TypeName) (TypeName *_ptr) { (func) (_ptr); }                         \
   G_GNUC_END_IGNORE_DEPRECATIONS
 #define G_DEFINE_AUTO_CLEANUP_FREE_FUNC(TypeName, func, none) \
   G_GNUC_BEGIN_IGNORE_DEPRECATIONS                                                                              \
-  static inline void _GLIB_AUTO_FUNC_NAME(TypeName) (TypeName *_ptr) { if (*_ptr != none) (func) (*_ptr); }     \
+  static G_GNUC_UNUSED inline void _GLIB_AUTO_FUNC_NAME(TypeName) (TypeName *_ptr) { if (*_ptr != none) (func) (*_ptr); }     \
   G_GNUC_END_IGNORE_DEPRECATIONS
 #define g_autoptr(TypeName) _GLIB_CLEANUP(_GLIB_AUTOPTR_FUNC_NAME(TypeName)) _GLIB_AUTOPTR_TYPENAME(TypeName)
 #define g_autolist(TypeName) _GLIB_CLEANUP(_GLIB_AUTOPTR_LIST_FUNC_NAME(TypeName)) _GLIB_AUTOPTR_LIST_TYPENAME(TypeName)
 #define g_autoslist(TypeName) _GLIB_CLEANUP(_GLIB_AUTOPTR_SLIST_FUNC_NAME(TypeName)) _GLIB_AUTOPTR_SLIST_TYPENAME(TypeName)
+#define g_autoqueue(TypeName) _GLIB_CLEANUP(_GLIB_AUTOPTR_QUEUE_FUNC_NAME(TypeName)) _GLIB_AUTOPTR_QUEUE_TYPENAME(TypeName)
 #define g_auto(TypeName) _GLIB_CLEANUP(_GLIB_AUTO_FUNC_NAME(TypeName)) TypeName
 #define g_autofree _GLIB_CLEANUP(g_autoptr_cleanup_generic_gfree)
 
@@ -1015,5 +1097,21 @@
 #define G_DEFINE_AUTO_CLEANUP_FREE_FUNC(TypeName, func, none)
 
 #endif /* __GI_SCANNER__ */
+
+/**
+ * G_SIZEOF_MEMBER:
+ * @struct_type: a structure type, e.g. #GOutputVector
+ * @member: a field in the structure, e.g. `size`
+ *
+ * Returns the size of @member in the struct definition without having a
+ * declared instance of @struct_type.
+ *
+ * Returns: the size of @member in bytes.
+ *
+ * Since: 2.64
+ */
+#define G_SIZEOF_MEMBER(struct_type, member) \
+    GLIB_AVAILABLE_MACRO_IN_2_64 \
+    sizeof (((struct_type *) 0)->member)
 
 #endif /* __G_MACROS_H__ */

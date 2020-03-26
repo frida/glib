@@ -59,6 +59,8 @@ c_link_args = []
 c = 'x86_64-w64-mingw32-gcc'
 cpp = 'x86_64-w64-mingw32-g++'
 ar = 'x86_64-w64-mingw32-ar'
+ld = 'x86_64-w64-mingw32-ld'
+objcopy = 'x86_64-w64-mingw32-objcopy'
 strip = 'x86_64-w64-mingw32-strip'
 pkgconfig = 'x86_64-w64-mingw32-pkg-config'
 windres = 'x86_64-w64-mingw32-windres'
@@ -67,7 +69,7 @@ windres = 'x86_64-w64-mingw32-windres'
         Then execute the following commands:
       </para>
       <programlisting>
-meson --cross_file cross_file.txt builddir
+meson --cross-file cross_file.txt builddir
       </programlisting>
       <para>
         The complete list of cross properties follows. Most

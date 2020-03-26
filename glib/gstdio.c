@@ -19,7 +19,9 @@
 #include "config.h"
 #include "glibconfig.h"
 
-#define G_STDIO_NO_WRAP_ON_UNIX
+/* Don’t redefine (for example) g_open() to open(), since we actually want to
+ * define g_open() in this file and export it as a symbol. See gstdio.h. */
+#define G_STDIO_WRAP_ON_UNIX
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -100,21 +102,34 @@ w32_error_to_errno (DWORD error_code)
     case ERROR_ACCESS_DENIED:
       return EACCES;
       break;
-    case ERROR_INVALID_HANDLE:
-      return EBADF;
+    case ERROR_ALREADY_EXISTS:
+    case ERROR_FILE_EXISTS:
+      return EEXIST;
+    case ERROR_FILE_NOT_FOUND:
+      return ENOENT;
       break;
     case ERROR_INVALID_FUNCTION:
       return EFAULT;
       break;
-    case ERROR_FILE_NOT_FOUND:
-      return ENOENT;
+    case ERROR_INVALID_HANDLE:
+      return EBADF;
       break;
-    case ERROR_PATH_NOT_FOUND:
-      return ENOENT; /* or ELOOP, or ENAMETOOLONG */
+    case ERROR_INVALID_PARAMETER:
+      return EINVAL;
+      break;
+    case ERROR_LOCK_VIOLATION:
+    case ERROR_SHARING_VIOLATION:
+      return EACCES;
       break;
     case ERROR_NOT_ENOUGH_MEMORY:
     case ERROR_OUTOFMEMORY:
       return ENOMEM;
+      break;
+    case ERROR_NOT_SAME_DEVICE:
+      return EXDEV;
+      break;
+    case ERROR_PATH_NOT_FOUND:
+      return ENOENT; /* or ELOOP, or ENAMETOOLONG */
       break;
     default:
       return EIO;
@@ -124,6 +139,26 @@ w32_error_to_errno (DWORD error_code)
 
 #include "gstdio-private.c"
 
+/* Windows implementation of fopen() does not accept modes such as
+ * "wb+". The 'b' needs to be appended to "w+", i.e. "w+b". Note
+ * that otherwise these 2 modes are supposed to be aliases, hence
+ * swappable at will. TODO: Is this still true?
+ */
+static void
+_g_win32_fix_mode (wchar_t *mode)
+{
+  wchar_t *ptr;
+  wchar_t temp;
+
+  ptr = wcschr (mode, L'+');
+  if (ptr != NULL && (ptr - mode) > 1)
+    {
+      temp = mode[1];
+      mode[1] = *ptr;
+      *ptr = temp;
+    }
+}
+
 /* From
  * https://support.microsoft.com/en-ca/help/167296/how-to-convert-a-unix-time-t-to-a-win32-filetime-or-systemtime
  * FT = UT * 10000000 + 116444736000000000.
@@ -131,9 +166,13 @@ w32_error_to_errno (DWORD error_code)
  * UT = (FT - 116444736000000000) / 10000000.
  * Converts FILETIME to unix epoch time in form
  * of a signed 64-bit integer (can be negative).
+ *
+ * The function that does the reverse can be found in
+ * gio/glocalfileinfo.c.
  */
 static gint64
-_g_win32_filetime_to_unix_time (FILETIME *ft)
+_g_win32_filetime_to_unix_time (const FILETIME *ft,
+                                gint32         *nsec)
 {
   gint64 result;
   /* 1 unit of FILETIME is 100ns */
@@ -144,7 +183,12 @@ _g_win32_filetime_to_unix_time (FILETIME *ft)
   const gint64 filetime_unix_epoch_offset = 116444736000000000;
 
   result = ((gint64) ft->dwLowDateTime) | (((gint64) ft->dwHighDateTime) << 32);
-  return (result - filetime_unix_epoch_offset) / hundreds_of_usec_per_sec;
+  result -= filetime_unix_epoch_offset;
+
+  if (nsec)
+    *nsec = (result % hundreds_of_usec_per_sec) * 100;
+
+  return result / hundreds_of_usec_per_sec;
 }
 
 #  ifdef _MSC_VER
@@ -171,10 +215,10 @@ _g_win32_filetime_to_unix_time (FILETIME *ft)
  * Tries to reproduce the behaviour and quirks of MS C runtime stat().
  */
 static int
-_g_win32_fill_statbuf_from_handle_info (const wchar_t              *filename,
-                                        const wchar_t              *filename_target,
-                                        BY_HANDLE_FILE_INFORMATION *handle_info,
-                                        struct __stat64            *statbuf)
+_g_win32_fill_statbuf_from_handle_info (const wchar_t                    *filename,
+                                        const wchar_t                    *filename_target,
+                                        const BY_HANDLE_FILE_INFORMATION *handle_info,
+                                        struct __stat64                  *statbuf)
 {
   wchar_t drive_letter_w = 0;
   size_t drive_letter_size = MB_CUR_MAX;
@@ -256,9 +300,9 @@ _g_win32_fill_statbuf_from_handle_info (const wchar_t              *filename,
   statbuf->st_nlink = handle_info->nNumberOfLinks;
   statbuf->st_uid = statbuf->st_gid = 0;
   statbuf->st_size = (((guint64) handle_info->nFileSizeHigh) << 32) | handle_info->nFileSizeLow;
-  statbuf->st_ctime = _g_win32_filetime_to_unix_time (&handle_info->ftCreationTime);
-  statbuf->st_mtime = _g_win32_filetime_to_unix_time (&handle_info->ftLastWriteTime);
-  statbuf->st_atime = _g_win32_filetime_to_unix_time (&handle_info->ftLastAccessTime);
+  statbuf->st_ctime = _g_win32_filetime_to_unix_time (&handle_info->ftCreationTime, NULL);
+  statbuf->st_mtime = _g_win32_filetime_to_unix_time (&handle_info->ftLastWriteTime, NULL);
+  statbuf->st_atime = _g_win32_filetime_to_unix_time (&handle_info->ftLastAccessTime, NULL);
 
   return 0;
 }
@@ -269,30 +313,25 @@ _g_win32_fill_statbuf_from_handle_info (const wchar_t              *filename,
 static void
 _g_win32_fill_privatestat (const struct __stat64            *statbuf,
                            const BY_HANDLE_FILE_INFORMATION *handle_info,
-#if _WIN32_WINNT >= 0x0600
                            const FILE_STANDARD_INFO         *std_info,
-#endif
                            DWORD                             reparse_tag,
                            GWin32PrivateStat                *buf)
 {
   buf->st_dev = statbuf->st_dev;
+  buf->st_ino = statbuf->st_ino;
   buf->st_mode = statbuf->st_mode;
   buf->volume_serial = handle_info->dwVolumeSerialNumber;
   buf->file_index = (((guint64) handle_info->nFileIndexHigh) << 32) | handle_info->nFileIndexLow;
   buf->attributes = handle_info->dwFileAttributes;
   buf->st_nlink = handle_info->nNumberOfLinks;
   buf->st_size = (((guint64) handle_info->nFileSizeHigh) << 32) | handle_info->nFileSizeLow;
-#if _WIN32_WINNT >= 0x0600
   buf->allocated_size = std_info->AllocationSize.QuadPart;
-#else
-  buf->allocated_size = buf->st_size;
-#endif
 
   buf->reparse_tag = reparse_tag;
 
-  buf->st_ctime = statbuf->st_ctime;
-  buf->st_atime = statbuf->st_atime;
-  buf->st_mtime = statbuf->st_mtime;
+  buf->st_ctim.tv_sec = _g_win32_filetime_to_unix_time (&handle_info->ftCreationTime, &buf->st_ctim.tv_nsec);
+  buf->st_mtim.tv_sec = _g_win32_filetime_to_unix_time (&handle_info->ftLastWriteTime, &buf->st_mtim.tv_nsec);
+  buf->st_atim.tv_sec = _g_win32_filetime_to_unix_time (&handle_info->ftLastAccessTime, &buf->st_atim.tv_nsec);
 }
 
 /* Read the link data from a symlink/mountpoint represented
@@ -542,9 +581,7 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
 {
   struct __stat64 statbuf;
   BY_HANDLE_FILE_INFORMATION handle_info;
-#if _WIN32_WINNT >= 0x0600
   FILE_STANDARD_INFO std_info;
-#endif
   gboolean is_symlink = FALSE;
   wchar_t *filename_target = NULL;
   DWORD immediate_attributes;
@@ -593,7 +630,6 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
                                                  &handle_info);
   error_code = GetLastError ();
 
-#if _WIN32_WINNT >= 0x0600
   if (succeeded_so_far)
     {
       succeeded_so_far = GetFileInformationByHandleEx (file_handle,
@@ -602,7 +638,6 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
                                                        sizeof (std_info));
       error_code = GetLastError ();
     }
-#endif
 
   if (!succeeded_so_far)
     {
@@ -638,9 +673,7 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
   g_free (filename_target);
   _g_win32_fill_privatestat (&statbuf,
                              &handle_info,
-#if _WIN32_WINNT >= 0x0600
                              &std_info,
-#endif
                              reparse_tag,
                              buf);
 
@@ -657,9 +690,7 @@ _g_win32_stat_fd (int                 fd,
   DWORD error_code;
   struct __stat64 statbuf;
   BY_HANDLE_FILE_INFORMATION handle_info;
-#if _WIN32_WINNT >= 0x0600
   FILE_STANDARD_INFO std_info;
-#endif
   DWORD reparse_tag = 0;
   gboolean is_symlink = FALSE;
 
@@ -672,7 +703,6 @@ _g_win32_stat_fd (int                 fd,
                                                  &handle_info);
   error_code = GetLastError ();
 
-#if _WIN32_WINNT >= 0x0600
   if (succeeded_so_far)
     {
       succeeded_so_far = GetFileInformationByHandleEx (file_handle,
@@ -681,7 +711,6 @@ _g_win32_stat_fd (int                 fd,
                                                        sizeof (std_info));
       error_code = GetLastError ();
     }
-#endif
 
   if (!succeeded_so_far)
     {
@@ -700,9 +729,7 @@ _g_win32_stat_fd (int                 fd,
 
   _g_win32_fill_privatestat (&statbuf,
                              &handle_info,
-#if _WIN32_WINNT >= 0x0600
                              &std_info,
-#endif
                              reparse_tag,
                              buf);
 
@@ -779,26 +806,6 @@ g_win32_fstat (int                fd,
                GWin32PrivateStat *buf)
 {
   return _g_win32_stat_fd (fd, buf);
-}
-
-static gchar *
-_g_win32_get_mode_alias (const gchar *mode)
-{
-  gchar *alias;
-
-  alias = g_strdup (mode);
-  if (strlen (mode) > 2 && mode[2] == '+')
-    {
-      /* Windows implementation of fopen() does not accept modes such as
-       * "wb+". The 'b' needs to be appended to "w+", i.e. "w+b". Note
-       * that otherwise these 2 modes are supposed to be aliases, hence
-       * swappable at will.
-       */
-      alias[1] = '+';
-      alias[2] = mode[1];
-    }
-
-  return alias;
 }
 
 /**
@@ -1170,20 +1177,7 @@ g_rename (const gchar *oldfilename,
   else
     {
       retval = -1;
-      switch (GetLastError ())
-	{
-#define CASE(a,b) case ERROR_##a: save_errno = b; break
-	  CASE (FILE_NOT_FOUND, ENOENT);
-	  CASE (PATH_NOT_FOUND, ENOENT);
-	  CASE (ACCESS_DENIED, EACCES);
-	  CASE (NOT_SAME_DEVICE, EXDEV);
-	  CASE (LOCK_VIOLATION, EACCES);
-	  CASE (SHARING_VIOLATION, EACCES);
-	  CASE (FILE_EXISTS, EEXIST);
-	  CASE (ALREADY_EXISTS, EEXIST);
-#undef CASE
-	default: save_errno = EIO;
-	}
+      save_errno = w32_error_to_errno (GetLastError ());
     }
 
   g_free (woldfilename);
@@ -1337,9 +1331,9 @@ g_stat (const gchar *filename,
   buf->st_gid = w32_buf.st_gid;
   buf->st_rdev = w32_buf.st_dev;
   buf->st_size = w32_buf.st_size;
-  buf->st_atime = w32_buf.st_atime;
-  buf->st_mtime = w32_buf.st_mtime;
-  buf->st_ctime = w32_buf.st_ctime;
+  buf->st_atime = w32_buf.st_atim.tv_sec;
+  buf->st_mtime = w32_buf.st_mtim.tv_sec;
+  buf->st_ctime = w32_buf.st_ctim.tv_sec;
 
   return retval;
 #else
@@ -1386,9 +1380,9 @@ g_lstat (const gchar *filename,
   buf->st_gid = w32_buf.st_gid;
   buf->st_rdev = w32_buf.st_dev;
   buf->st_size = w32_buf.st_size;
-  buf->st_atime = w32_buf.st_atime;
-  buf->st_mtime = w32_buf.st_mtime;
-  buf->st_ctime = w32_buf.st_ctime;
+  buf->st_atime = w32_buf.st_atim.tv_sec;
+  buf->st_mtime = w32_buf.st_mtim.tv_sec;
+  buf->st_ctime = w32_buf.st_ctim.tv_sec;
 
   return retval;
 #else
@@ -1544,19 +1538,24 @@ g_rmdir (const gchar *filename)
  *     (UTF-8 on Windows)
  * @mode: a string describing the mode in which the file should be opened
  *
- * A wrapper for the stdio fopen() function. The fopen() function
+ * A wrapper for the stdio `fopen()` function. The `fopen()` function
  * opens a file and associates a new stream with it.
  * 
  * Because file descriptors are specific to the C library on Windows,
- * and a file descriptor is part of the FILE struct, the FILE* returned
+ * and a file descriptor is part of the `FILE` struct, the `FILE*` returned
  * by this function makes sense only to functions in the same C library.
  * Thus if the GLib-using code uses a different C library than GLib does,
  * the FILE* returned by this function cannot be passed to C library
- * functions like fprintf() or fread().
+ * functions like `fprintf()` or `fread()`.
  *
- * See your C library manual for more details about fopen().
+ * See your C library manual for more details about `fopen()`.
  *
- * Returns: A FILE* if the file was successfully opened, or %NULL if
+ * As `close()` and `fclose()` are part of the C library, this implies that it is
+ * currently impossible to close a file if the application C library and the C library
+ * used by GLib are different. Convenience functions like g_file_set_contents()
+ * avoid this problem.
+ *
+ * Returns: A `FILE*` if the file was successfully opened, or %NULL if
  *     an error occurred
  * 
  * Since: 2.6
@@ -1568,7 +1567,6 @@ g_fopen (const gchar *filename,
 #ifdef G_OS_WIN32
   wchar_t *wfilename = g_utf8_to_utf16 (filename, -1, NULL, NULL, NULL);
   wchar_t *wmode;
-  gchar   *mode2;
   FILE *retval;
   int save_errno;
 
@@ -1578,9 +1576,7 @@ g_fopen (const gchar *filename,
       return NULL;
     }
 
-  mode2 = _g_win32_get_mode_alias (mode);
-  wmode = g_utf8_to_utf16 (mode2, -1, NULL, NULL, NULL);
-  g_free (mode2);
+  wmode = g_utf8_to_utf16 (mode, -1, NULL, NULL, NULL);
 
   if (wmode == NULL)
     {
@@ -1589,6 +1585,7 @@ g_fopen (const gchar *filename,
       return NULL;
     }
 
+  _g_win32_fix_mode (wmode);
   retval = _wfopen (wfilename, wmode);
   save_errno = errno;
 
@@ -1627,7 +1624,6 @@ g_freopen (const gchar *filename,
 #ifdef G_OS_WIN32
   wchar_t *wfilename = g_utf8_to_utf16 (filename, -1, NULL, NULL, NULL);
   wchar_t *wmode;
-  gchar   *mode2;
   FILE *retval;
   int save_errno;
 
@@ -1637,9 +1633,7 @@ g_freopen (const gchar *filename,
       return NULL;
     }
 
-  mode2 = _g_win32_get_mode_alias (mode);
-  wmode = g_utf8_to_utf16 (mode2, -1, NULL, NULL, NULL);
-  g_free (mode2);
+  wmode = g_utf8_to_utf16 (mode, -1, NULL, NULL, NULL);
 
   if (wmode == NULL)
     {
@@ -1647,7 +1641,8 @@ g_freopen (const gchar *filename,
       errno = EINVAL;
       return NULL;
     }
-  
+
+  _g_win32_fix_mode (wmode);
   retval = _wfreopen (wfilename, wmode, stream);
   save_errno = errno;
 
@@ -1658,6 +1653,31 @@ g_freopen (const gchar *filename,
   return retval;
 #else
   return freopen (filename, mode, stream);
+#endif
+}
+
+/**
+ * g_fsync:
+ * @fd: a file descriptor
+ *
+ * A wrapper for the POSIX fsync() function (_commit() on Windows).
+ * The fsync() function is used to synchronize a file's in-core
+ * state with that of the disk.
+ *
+ * See the C library manual for more details about fsync().
+ *
+ * Returns: 0 on success, or -1 if an error occurred.
+ * The return value can be used exactly like the return value from fsync().
+ *
+ * Since: 2.64
+ */
+gint
+g_fsync (gint fd)
+{
+#ifdef G_OS_WIN32
+  return _commit (fd);
+#else
+  return fsync (fd);
 #endif
 }
 

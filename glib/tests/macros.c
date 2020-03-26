@@ -20,6 +20,15 @@
 
 #include <glib.h>
 
+/* Test that G_STATIC_ASSERT_EXPR can be used as an expression */
+static void
+test_assert_static (void)
+{
+  G_STATIC_ASSERT (4 == 4);
+  if (G_STATIC_ASSERT_EXPR (1 == 1), sizeof (gchar) == 2)
+    g_assert_not_reached ();
+}
+
 /* Test G_ALIGNOF() gives the same results as the G_STRUCT_OFFSET fallback. This
  * should be the minimal alignment for the given type.
  *
@@ -41,6 +50,13 @@ test_alignof_fallback (void)
   check_alignof (struct { char a; int b; });
 }
 
+static void
+test_struct_sizeof_member (void)
+{
+    G_STATIC_ASSERT (G_SIZEOF_MEMBER (struct { char a; int b; }, a) == sizeof (char));
+    g_assert_cmpint (G_SIZEOF_MEMBER (struct { char a; int b; }, b), ==, sizeof (int));
+}
+
 int
 main (int   argc,
       char *argv[])
@@ -48,6 +64,8 @@ main (int   argc,
   g_test_init (&argc, &argv, NULL);
 
   g_test_add_func ("/alignof/fallback", test_alignof_fallback);
+  g_test_add_func ("/assert/static", test_assert_static);
+  g_test_add_func ("/struct/sizeof_member", test_struct_sizeof_member);
 
   return g_test_run ();
 }

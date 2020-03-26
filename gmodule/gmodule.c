@@ -42,9 +42,6 @@
 #ifdef G_OS_WIN32
 #include <io.h>		/* For open() and close() prototypes. */
 #endif
-#ifdef HAVE_TARGETCONDITIONALS_H
-#include <TargetConditionals.h>
-#endif
 
 #include "gmoduleconf.h"
 #include "gstdio.h"
@@ -210,8 +207,7 @@ struct _GModule
 static gpointer		_g_module_open		(const gchar	*file_name,
 						 gboolean	 bind_lazy,
 						 gboolean	 bind_local);
-static void		_g_module_close		(gpointer	 handle,
-						 gboolean	 is_unref);
+static void		_g_module_close		(gpointer	 handle);
 static gpointer		_g_module_self		(void);
 static gpointer		_g_module_symbol	(gpointer	 handle,
 						 const gchar	*symbol_name);
@@ -286,8 +282,6 @@ g_module_set_error (const gchar *error)
 #include "gmodule-dl.c"
 #elif	(G_MODULE_IMPL == G_MODULE_IMPL_WIN32)
 #include "gmodule-win32.c"
-#elif	(G_MODULE_IMPL == G_MODULE_IMPL_DYLD)
-#include "gmodule-dyld.c"
 #elif	(G_MODULE_IMPL == G_MODULE_IMPL_AR)
 #include "gmodule-ar.c"
 #else
@@ -302,8 +296,7 @@ _g_module_open (const gchar	*file_name,
   return NULL;
 }
 static void
-_g_module_close	(gpointer	 handle,
-		 gboolean	 is_unref)
+_g_module_close (gpointer handle)
 {
 }
 static gpointer
@@ -483,7 +476,7 @@ static GRecMutex g_module_global_lock;
  * archive) it tries to open the corresponding module. If that fails
  * and it doesn't have the proper module suffix for the platform
  * (#G_MODULE_SUFFIX), this suffix will be appended and the corresponding
- * module will be opended. If that fails and @file_name doesn't have the
+ * module will be opened. If that fails and @file_name doesn't have the
  * ".la"-suffix, this suffix is appended and g_module_open() tries to open
  * the corresponding module. If eventually that fails as well, %NULL is
  * returned.
@@ -545,21 +538,8 @@ g_module_open (const gchar    *file_name,
       return module;
     }
 
-#if defined (HAVE_TARGETCONDITIONALS_H) && defined (TARGET_OS_IPHONE)
-  /*
-   * Special gotcha for iPhone where system libraries are hidden, so no point
-   * in checking if they exist. We don't want to end up adding a suffix to
-   * the name specified, and thus having dlopen() fail. Hence this simple hack.
-   */
-  if (g_str_has_prefix (file_name, "/Library/") ||
-      g_str_has_prefix (file_name, "/System/"))
-    {
-      name = g_strdup (file_name);
-    }
-#endif
-
   /* check whether we have a readable file right away */
-  if (name == NULL && g_file_test (file_name, G_FILE_TEST_IS_REGULAR))
+  if (g_file_test (file_name, G_FILE_TEST_IS_REGULAR))
     name = g_strdup (file_name);
   /* try completing file name with standard library suffix */
   if (!name)
@@ -633,7 +613,7 @@ g_module_open (const gchar    *file_name,
       module = g_module_find_by_handle (handle);
       if (module)
 	{
-	  _g_module_close (module->handle, TRUE);
+	  _g_module_close (module->handle);
 	  module->ref_count++;
 	  g_module_set_error (NULL);
 	  
@@ -739,7 +719,7 @@ g_module_close (GModule *module)
 	}
       module->next = NULL;
       
-      _g_module_close (module->handle, FALSE);
+      _g_module_close (module->handle);
       g_free (module->file_name);
       g_free (module);
     }

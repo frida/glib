@@ -20,7 +20,6 @@
 
 #mesondefine GLIB_STATIC_COMPILATION
 #mesondefine GOBJECT_STATIC_COMPILATION
-#mesondefine GIO_STATIC_COMPILATION
 
 G_BEGIN_DECLS
 
@@ -108,11 +107,6 @@ typedef unsigned @glib_intptr_type_define@ guintptr;
 #define G_GINTPTR_MODIFIER      @gintptr_modifier@
 #define G_GINTPTR_FORMAT        @gintptr_format@
 #define G_GUINTPTR_FORMAT       @guintptr_format@
-
-#ifndef G_DISABLE_DEPRECATED
-#define g_ATEXIT(proc)	(atexit (proc))
-#define g_memmove(dest,src,len) G_STMT_START { memmove ((dest), (src), (len)); } G_STMT_END
-#endif
 
 #define GLIB_MAJOR_VERSION @GLIB_MAJOR_VERSION@
 #define GLIB_MINOR_VERSION @GLIB_MINOR_VERSION@

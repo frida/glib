@@ -74,6 +74,7 @@
 #include "gcredentials.h"
 #include "gcredentialsprivate.h"
 #include "glibintl.h"
+#include "gioprivate.h"
 
 #ifdef G_OS_WIN32
 /* For Windows XP runtime compatibility, but use the system's if_nametoindex() if available */
@@ -363,6 +364,50 @@ _win32_unset_event_mask (GSocket *socket, int mask)
   recv (sockfd, (gpointer)buf, len, flags)
 #endif
 
+static gchar *
+address_to_string (GSocketAddress *address)
+{
+  GString *ret = g_string_new ("");
+
+  if (G_IS_INET_SOCKET_ADDRESS (address))
+    {
+      GInetSocketAddress *isa = G_INET_SOCKET_ADDRESS (address);
+      GInetAddress *ia = g_inet_socket_address_get_address (isa);
+      GSocketFamily family = g_inet_address_get_family (ia);
+      gchar *tmp;
+
+      /* Represent IPv6 addresses in URL style:
+       * ::1 port 12345 -> [::1]:12345 */
+      if (family == G_SOCKET_FAMILY_IPV6)
+        g_string_append_c (ret, '[');
+
+      tmp = g_inet_address_to_string (ia);
+      g_string_append (ret, tmp);
+      g_free (tmp);
+
+      if (family == G_SOCKET_FAMILY_IPV6)
+        {
+          guint32 scope = g_inet_socket_address_get_scope_id (isa);
+
+          if (scope != 0)
+            g_string_append_printf (ret, "%%%u", scope);
+
+          g_string_append_c (ret, ']');
+        }
+
+      g_string_append_c (ret, ':');
+
+      g_string_append_printf (ret, "%u", g_inet_socket_address_get_port (isa));
+    }
+  else
+    {
+      /* For unknown address types, just show the type */
+      g_string_append_printf (ret, "(%s)", G_OBJECT_TYPE_NAME (address));
+    }
+
+  return g_string_free (ret, FALSE);
+}
+
 static gboolean
 check_socket (GSocket *socket,
 	      GError **error)
@@ -420,9 +465,6 @@ g_socket_details_from_fd (GSocket *socket)
   int errsv;
 
   fd = socket->priv->fd;
-
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-
   if (!g_socket_get_option (socket, SOL_SOCKET, SO_TYPE, &value, NULL))
     {
       errsv = get_socket_errno ();
@@ -555,10 +597,7 @@ g_socket (gint     domain,
   fd = socket (domain, type | SOCK_CLOEXEC, protocol);
   errsv = errno;
   if (fd != -1)
-    {
-      glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-      return fd;
-    }
+    return fd;
 
   /* It's possible that libc has SOCK_CLOEXEC but the kernel does not */
   if (fd < 0 && (errsv == EINVAL || errsv == EPROTOTYPE))
@@ -575,8 +614,6 @@ g_socket (gint     domain,
       return -1;
     }
 
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-
 #ifndef G_OS_WIN32
   {
     int flags;
@@ -591,16 +628,6 @@ g_socket (gint     domain,
 	flags |= FD_CLOEXEC;
 	fcntl (fd, F_SETFD, flags);
       }
-  }
-#else
-  if (type == SOCK_DGRAM)
-  {
-    DWORD bytes_returned = 0;
-    BOOL new_behavior = FALSE;
-
-    /* Disable connection reset error on ICMP port unreachable. */
-    WSAIoctl (fd, SIO_UDP_CONNRESET, &new_behavior, sizeof (new_behavior),
-        NULL, 0, &bytes_returned, NULL, NULL);
   }
 #endif
 
@@ -882,6 +909,19 @@ static void
 g_socket_class_init (GSocketClass *klass)
 {
   GObjectClass *gobject_class G_GNUC_UNUSED = G_OBJECT_CLASS (klass);
+
+#ifdef SIGPIPE
+  /* There is no portable, thread-safe way to avoid having the process
+   * be killed by SIGPIPE when calling send() or sendmsg(), so we are
+   * forced to simply ignore the signal process-wide.
+   *
+   * Even if we ignore it though, gdb will still stop if the app
+   * receives a SIGPIPE, which can be confusing and annoying. So when
+   * possible, we also use MSG_NOSIGNAL / SO_NOSIGPIPE elsewhere to
+   * prevent the signal from occurring at all.
+   */
+  signal (SIGPIPE, SIG_IGN);
+#endif
 
   gobject_class->finalize = g_socket_finalize;
   gobject_class->constructed = g_socket_constructed;
@@ -2157,70 +2197,133 @@ g_socket_bind (GSocket         *socket,
 	    g_socket_address_get_native_size (address)) < 0)
     {
       int errsv = get_socket_errno ();
+      gchar *address_string = address_to_string (address);
+
       g_set_error (error,
 		   G_IO_ERROR, socket_io_error_from_errno (errsv),
-		   _("Error binding to address: %s"), socket_strerror (errsv));
+		   _("Error binding to address %s: %s"),
+		   address_string, socket_strerror (errsv));
+      g_free (address_string);
       return FALSE;
     }
 
   return TRUE;
 }
 
-#if !defined(HAVE_IF_NAMETOINDEX) && defined(G_OS_WIN32)
-static guint
-if_nametoindex (const gchar *iface)
+#ifdef G_OS_WIN32
+static gulong
+g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
 {
-  PIP_ADAPTER_ADDRESSES addresses = NULL, p;
-  gulong addresses_len = 0;
-  guint idx = 0;
-  DWORD res;
+  ULONG bufsize = 15000; /* MS-recommended initial bufsize */
+  DWORD ret = ERROR_BUFFER_OVERFLOW;
+  unsigned int malloc_iterations = 0;
+  PIP_ADAPTER_ADDRESSES addr_buf = NULL, eth_adapter;
+  wchar_t *wchar_name_or_ip = NULL;
+  gulong ip_result;
+  NET_IFINDEX if_index;
 
-  if (ws2funcs.pIfNameToIndex != NULL)
-    return ws2funcs.pIfNameToIndex (iface);
+  /*
+   * For Windows OS only - return adapter IPv4 address in network byte order.
+   *
+   * Input string can be either friendly name of adapter, IP address of adapter,
+   * indextoname, or fullname of adapter.
+   * Example:
+   *    192.168.1.109   ===> IP address given directly,
+   *                         convert directly with inet_addr() function
+   *    Wi-Fi           ===> Adapter friendly name "Wi-Fi",
+   *                         scan with GetAdapterAddresses and adapter->FriendlyName
+   *    ethernet_32774  ===> Adapter name as returned by if_indextoname
+   *    {33E8F5CD-BAEA-4214-BE13-B79AB8080CAB} ===> Adaptername,
+   *                         as returned in GetAdapterAddresses and adapter->AdapterName
+   */
 
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, NULL, &addresses_len);
-  if (res != NO_ERROR && res != ERROR_BUFFER_OVERFLOW)
+  /* Step 1: Check if string is an IP address: */
+  ip_result = inet_addr (name_or_ip);
+  if (ip_result != INADDR_NONE)
+    return ip_result;  /* Success, IP address string was given directly */
+
+  /*
+   *  Step 2: Check if name represents a valid Interface index (e.g. ethernet_75521)
+   *  function if_nametoindex will return >=1 if a valid index, or 0=no match
+   *  valid index will be used later in GetAdaptersAddress loop for lookup of adapter IP address
+   */
+  if_index = if_nametoindex (name_or_ip);
+
+  /* Step 3: Prepare wchar string for friendly name comparision */
+  if (if_index == 0)
     {
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
+      size_t if_name_len = strlen (name_or_ip);
+      if (if_name_len >= MAX_ADAPTER_NAME_LENGTH + 4)
+        return INADDR_NONE;
+      /* Name-check only needed if index=0... */
+      wchar_name_or_ip = (wchar_t *) g_try_malloc ((if_name_len + 1) * sizeof(wchar_t));
+      if (wchar_name_or_ip)
+        mbstowcs (wchar_name_or_ip, name_or_ip, if_name_len + 1);
+      /* NOTE: Even if malloc fails here, some comparisions can still be done later... so no exit here! */
     }
 
-  addresses = g_malloc (addresses_len);
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, addresses, &addresses_len);
-
-  if (res != NO_ERROR)
+  /*
+   *  Step 4: Allocate memory and get adapter addresses.
+   *  Buffer allocation loop recommended by MS, since size can be dynamic
+   *  https://docs.microsoft.com/en-us/windows/desktop/api/iphlpapi/nf-iphlpapi-getadaptersaddresses
+   */
+  #define MAX_ALLOC_ITERATIONS 3
+  do
     {
-      g_free (addresses);
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
+      malloc_iterations++;
+      addr_buf = (PIP_ADAPTER_ADDRESSES) g_try_realloc (addr_buf, bufsize);
+      if (addr_buf)
+        ret = GetAdaptersAddresses (AF_UNSPEC, GAA_FLAG_INCLUDE_PREFIX, NULL, addr_buf, &bufsize);
+    }
+  while (addr_buf &&
+           ret == ERROR_BUFFER_OVERFLOW &&
+           malloc_iterations < MAX_ALLOC_ITERATIONS);
+  #undef MAX_ALLOC_ITERATIONS
+
+  if (addr_buf == 0 || ret != NO_ERROR)
+    {
+      g_free (addr_buf);
+      g_free (wchar_name_or_ip);
+      return INADDR_NONE;
     }
 
-  p = addresses;
-  while (p)
+  /* Step 5: Loop through adapters and check match for index or name */
+  for (eth_adapter = addr_buf; eth_adapter != NULL; eth_adapter = eth_adapter->Next)
     {
-      if (strcmp (p->AdapterName, iface) == 0)
+      /* Check if match for interface index/name: */
+      gboolean any_match = (if_index > 0) && (eth_adapter->IfIndex == if_index);
+
+      /* Check if match for friendly name - but only if NO if_index! */
+      if (!any_match && if_index == 0 && eth_adapter->FriendlyName &&
+          eth_adapter->FriendlyName[0] != 0 && wchar_name_or_ip != NULL)
+        any_match = (_wcsicmp (eth_adapter->FriendlyName, wchar_name_or_ip) == 0);
+
+      /* Check if match for adapter low level name - but only if NO if_index: */
+      if (!any_match && if_index == 0 && eth_adapter->AdapterName &&
+          eth_adapter->AdapterName[0] != 0)
+        any_match = (stricmp (eth_adapter->AdapterName, name_or_ip) == 0);
+
+      if (any_match)
         {
-          idx = p->IfIndex;
-          break;
+          /* We have match for this adapter, lets get its local unicast IP address! */
+          PIP_ADAPTER_UNICAST_ADDRESS uni_addr;
+          for (uni_addr = eth_adapter->FirstUnicastAddress;
+              uni_addr != NULL; uni_addr = uni_addr->Next)
+            {
+              if (uni_addr->Address.lpSockaddr->sa_family == AF_INET)
+                {
+                  ip_result = ((PSOCKADDR_IN) uni_addr->Address.lpSockaddr)->sin_addr.S_un.S_addr;
+                  break; /* finished, exit unicast addr loop */
+                }
+            }
         }
-      p = p->Next;
     }
 
-  if (p == NULL)
-    errno = ENXIO;
+  g_free (addr_buf);
+  g_free (wchar_name_or_ip);
 
-  g_free (addresses);
-
-  return idx;
+  return ip_result;
 }
-
-#define HAVE_IF_NAMETOINDEX 1
 #endif
 
 static gboolean
@@ -2258,9 +2361,9 @@ g_socket_multicast_group_operation (GSocket       *socket,
         mc_req.imr_ifindex = if_nametoindex (iface);
       else
         mc_req.imr_ifindex = 0;  /* Pick any.  */
-#elif defined(G_OS_WIN32) && defined(HAVE_IF_NAMETOINDEX)
+#elif defined(G_OS_WIN32)
       if (iface)
-        mc_req.imr_interface.s_addr = g_htonl (if_nametoindex (iface));
+        mc_req.imr_interface.s_addr = g_socket_w32_get_adapter_ipv4_addr (iface);
       else
         mc_req.imr_interface.s_addr = g_htonl (INADDR_ANY);
 #else
@@ -2459,18 +2562,8 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
 
         if (iface)
           {
-#if defined(G_OS_WIN32) && defined (HAVE_IF_NAMETOINDEX)
-            guint iface_index = if_nametoindex (iface);
-            if (iface_index == 0)
-              {
-                int errsv = errno;
-
-                g_set_error (error, G_IO_ERROR,  g_io_error_from_errno (errsv),
-                             _("Interface not found: %s"), g_strerror (errsv));
-                return FALSE;
-              }
-            /* (0.0.0.iface_index) only works on Windows. */
-            S_ADDR_FIELD(mc_req_src) = g_htonl (iface_index);
+#if defined(G_OS_WIN32)
+            S_ADDR_FIELD(mc_req_src) = g_socket_w32_get_adapter_ipv4_addr (iface);
 #elif defined (HAVE_SIOCGIFADDR)
             int ret;
             struct ifreq ifr;
@@ -2827,7 +2920,6 @@ g_socket_accept (GSocket       *socket,
 #else
       close (ret);
 #endif
-      glib_fd_callbacks->on_fd_closed (ret, "GSocket");
     }
   else
     new_socket->priv->protocol = socket->priv->protocol;
@@ -3621,9 +3713,6 @@ g_socket_close (GSocket  *socket,
 		       socket_strerror (errsv));
 	  return FALSE;
 	}
-
-      glib_fd_callbacks->on_fd_closed (socket->priv->fd, "GSocket");
-
       break;
     }
 
@@ -3703,9 +3792,6 @@ update_select_events (GSocket *socket)
   GList *l;
   WSAEVENT event;
 
-  if (socket->priv->closed)
-    return;
-
   ensure_event (socket);
 
   event_mask = 0;
@@ -3764,8 +3850,7 @@ update_condition_unlocked (GSocket *socket)
   WSANETWORKEVENTS events;
   GIOCondition condition;
 
-  if (!socket->priv->closed &&
-      WSAEnumNetworkEvents (socket->priv->fd,
+  if (WSAEnumNetworkEvents (socket->priv->fd,
 			    socket->priv->event,
 			    &events) == 0)
     {
@@ -4526,7 +4611,7 @@ G_STMT_START { \
     } \
   else \
     { \
-      _msg->msg_controllen = 2016; /* upper limit on QNX */ \
+      _msg->msg_controllen = 2048; \
       _msg->msg_control = g_alloca (_msg->msg_controllen); \
     } \
  \
@@ -4610,7 +4695,8 @@ input_message_from_msghdr (const struct msghdr  *msg,
  * @messages: (array length=num_messages) (nullable): a pointer to an
  *   array of #GSocketControlMessages, or %NULL.
  * @num_messages: number of elements in @messages, or -1.
- * @flags: an int containing #GSocketMsgFlags flags
+ * @flags: an int containing #GSocketMsgFlags flags, which may additionally
+ *    contain [other platform specific flags](http://man7.org/linux/man-pages/man2/recv.2.html)
  * @cancellable: (nullable): a %GCancellable or %NULL
  * @error: #GError for error reporting, or %NULL to ignore.
  *
@@ -4699,7 +4785,8 @@ g_socket_send_message (GSocket                *socket,
  * @messages: (array length=num_messages) (nullable): a pointer to an
  *   array of #GSocketControlMessages, or %NULL.
  * @num_messages: number of elements in @messages, or -1.
- * @flags: an int containing #GSocketMsgFlags flags
+ * @flags: an int containing #GSocketMsgFlags flags, which may additionally
+ *    contain [other platform specific flags](http://man7.org/linux/man-pages/man2/recv.2.html)
  * @timeout_us: the maximum time (in microseconds) to wait, or -1
  * @bytes_written: (out) (optional): location to store the number of bytes that were written to the socket
  * @cancellable: (nullable): a %GCancellable or %NULL
@@ -4932,7 +5019,8 @@ g_socket_send_message_with_timeout (GSocket                *socket,
  * @socket: a #GSocket
  * @messages: (array length=num_messages): an array of #GOutputMessage structs
  * @num_messages: the number of elements in @messages
- * @flags: an int containing #GSocketMsgFlags flags
+ * @flags: an int containing #GSocketMsgFlags flags, which may additionally
+ *    contain [other platform specific flags](http://man7.org/linux/man-pages/man2/recv.2.html)
  * @cancellable: (nullable): a %GCancellable or %NULL
  * @error: #GError for error reporting, or %NULL to ignore.
  *
@@ -5027,14 +5115,11 @@ g_socket_send_messages_with_timeout (GSocket        *socket,
     struct mmsghdr *msgvec;
     gint i, num_sent;
 
-#ifdef UIO_MAXIOV
-#define MAX_NUM_MESSAGES UIO_MAXIOV
-#else
-#define MAX_NUM_MESSAGES 1024
-#endif
-
-    if (num_messages > MAX_NUM_MESSAGES)
-      num_messages = MAX_NUM_MESSAGES;
+    /* Clamp the number of vectors if more given than we can write in one go.
+     * The caller has to handle short writes anyway.
+     */
+    if (num_messages > G_IOV_MAX)
+      num_messages = G_IOV_MAX;
 
     msgvec = g_newa (struct mmsghdr, num_messages);
 
@@ -5432,7 +5517,9 @@ g_socket_receive_message_with_timeout (GSocket                 *socket,
  * @socket: a #GSocket
  * @messages: (array length=num_messages): an array of #GInputMessage structs
  * @num_messages: the number of elements in @messages
- * @flags: an int containing #GSocketMsgFlags flags for the overall operation
+ * @flags: an int containing #GSocketMsgFlags flags for the overall operation,
+ *    which may additionally contain
+ *    [other platform specific flags](http://man7.org/linux/man-pages/man2/recv.2.html)
  * @cancellable: (nullable): a %GCancellable or %NULL
  * @error: #GError for error reporting, or %NULL to ignore
  *
@@ -5547,14 +5634,11 @@ g_socket_receive_messages_with_timeout (GSocket        *socket,
     struct mmsghdr *msgvec;
     guint i, num_received;
 
-#ifdef UIO_MAXIOV
-#define MAX_NUM_MESSAGES UIO_MAXIOV
-#else
-#define MAX_NUM_MESSAGES 1024
-#endif
-
-    if (num_messages > MAX_NUM_MESSAGES)
-      num_messages = MAX_NUM_MESSAGES;
+    /* Clamp the number of vectors if more given than we can write in one go.
+     * The caller has to handle short writes anyway.
+     */
+    if (num_messages > G_IOV_MAX)
+      num_messages = G_IOV_MAX;
 
     msgvec = g_newa (struct mmsghdr, num_messages);
 
@@ -5718,7 +5802,9 @@ g_socket_receive_messages_with_timeout (GSocket        *socket,
  *    which may be filled with an array of #GSocketControlMessages, or %NULL
  * @num_messages: (out): a pointer which will be filled with the number of
  *    elements in @messages, or %NULL
- * @flags: (inout): a pointer to an int containing #GSocketMsgFlags flags
+ * @flags: (inout): a pointer to an int containing #GSocketMsgFlags flags,
+ *    which may additionally contain
+ *    [other platform specific flags](http://man7.org/linux/man-pages/man2/recv.2.html)
  * @cancellable: a %GCancellable or %NULL
  * @error: a #GError pointer, or %NULL
  *
@@ -5817,6 +5903,13 @@ g_socket_receive_message (GSocket                 *socket,
  * If this operation isn't supported on the OS, the method fails with
  * the %G_IO_ERROR_NOT_SUPPORTED error. On Linux this is implemented
  * by reading the %SO_PEERCRED option on the underlying socket.
+ *
+ * This method can be expected to be available on the following platforms:
+ *
+ * - Linux since GLib 2.26
+ * - OpenBSD since GLib 2.30
+ * - Solaris, Illumos and OpenSolaris since GLib 2.40
+ * - NetBSD since GLib 2.42
  *
  * Other ways to obtain credentials from a foreign peer includes the
  * #GUnixCredentialsMessage type and

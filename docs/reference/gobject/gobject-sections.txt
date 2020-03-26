@@ -322,6 +322,9 @@ g_weak_ref_clear
 g_weak_ref_get
 g_weak_ref_set
 
+<SUBSECTION Testing>
+g_assert_finalize_object
+
 <SUBSECTION Standard>
 G_INITIALLY_UNOWNED
 G_INITIALLY_UNOWNED_CLASS
@@ -518,6 +521,7 @@ g_param_value_defaults
 g_param_value_validate
 g_param_value_convert
 g_param_values_cmp
+g_param_spec_is_valid_name
 g_param_spec_get_name
 g_param_spec_get_name_quark
 g_param_spec_get_nick
@@ -856,11 +860,13 @@ g_signal_override_class_handler
 g_signal_chain_from_overridden_handler
 g_signal_add_emission_hook
 g_signal_remove_emission_hook
+g_signal_is_valid_name
 g_signal_parse_name
 g_signal_get_invocation_hint
 g_signal_type_cclosure_new
 g_signal_accumulator_first_wins
 g_signal_accumulator_true_handled
+g_clear_signal_handler
 <SUBSECTION Private>
 g_signal_handlers_destroy
 </SECTION>

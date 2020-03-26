@@ -30,14 +30,6 @@
 
 #include "dep-list.h"
 
-/* Use GLib memory allocation */
-#undef calloc
-#undef free
-#undef strdup
-#define calloc  g_malloc0_n
-#define free    g_free
-#define strdup  g_strdup
-
 static gboolean kdl_debug_enabled = FALSE;
 #define perror_msg if (kdl_debug_enabled) g_warning
 
@@ -369,7 +361,7 @@ G_STMT_START {                                                          \
  *
  * @param[in,out] removed  A list of the removed files in the directory.
  * @param[in,out] added    A list of the added files of the directory.
- * @param[in]     cbs      A pointer to #traverse_cbs, an user-defined set of 
+ * @param[in]     cbs      A pointer to #traverse_cbs, a user-defined set of 
  *     traverse callbacks.
  * @param[in]     udata    A pointer to the user-defined data.
  * @return 0 if no files were renamed, >0 otherwise.
@@ -410,7 +402,7 @@ dl_detect_moves (dep_list           **removed,
  *
  * @param[in,out] removed  A list of the removed files in the directory.
  * @param[in,out] current  A list with the current contents of the directory.
- * @param[in]     cbs      A pointer to #traverse_cbs, an user-defined set of 
+ * @param[in]     cbs      A pointer to #traverse_cbs, a user-defined set of 
  *     traverse callbacks.
  * @param[in]     udata    A pointer to the user-defined data.
  * @return 0 if no files were renamed, >0 otherwise.
@@ -455,7 +447,7 @@ dl_detect_replacements (dep_list           **removed,
  *
  * @param[in,out] previous A list with the previous contents of the directory.
  * @param[in,out] current  A list with the current contents of the directory.
- * @param[in]     cbs      A pointer to #traverse_cbs, an user-defined set of 
+ * @param[in]     cbs      A pointer to #traverse_cbs, a user-defined set of 
  *     traverse callbacks.
  * @param[in]     udata    A pointer to the user-defined data.
  * @return 0 if no files were renamed, >0 otherwise.

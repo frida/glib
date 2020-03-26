@@ -20,6 +20,10 @@
 
 #include "config.h"
 
+/* For the #GDesktopAppInfoLookup macros; since macro deprecation is implemented
+ * in the preprocessor, we need to define this before including glib.h*/
+#define GLIB_DISABLE_DEPRECATION_WARNINGS
+
 #include <string.h>
 
 #include "giomodule.h"
@@ -38,6 +42,9 @@
 #include "gnotificationbackend.h"
 #include "ginitable.h"
 #include "gnetworkmonitor.h"
+#include "gmemorymonitor.h"
+#include "gmemorymonitorportal.h"
+#include "gmemorymonitordbus.h"
 #ifdef G_OS_WIN32
 #include "gregistrysettingsbackend.h"
 #endif
@@ -1021,6 +1028,9 @@ extern GType _g_network_monitor_netlink_get_type (void);
 extern GType _g_network_monitor_nm_get_type (void);
 #endif
 
+extern GType g_memory_monitor_dbus_get_type (void);
+extern GType g_memory_monitor_portal_get_type (void);
+
 #ifdef G_OS_UNIX
 extern GType g_fdo_notification_backend_get_type (void);
 extern GType g_gtk_notification_backend_get_type (void);
@@ -1087,9 +1097,7 @@ _g_io_modules_ensure_extension_points_registered (void)
 #if defined(G_OS_UNIX) && !defined(HAVE_COCOA)
 #if !GLIB_CHECK_VERSION (3, 0, 0)
       ep = g_io_extension_point_register (G_DESKTOP_APP_INFO_LOOKUP_EXTENSION_POINT_NAME);
-      G_GNUC_BEGIN_IGNORE_DEPRECATIONS
       g_io_extension_point_set_required_type (ep, G_TYPE_DESKTOP_APP_INFO_LOOKUP);
-      G_GNUC_END_IGNORE_DEPRECATIONS
 #endif
 #endif
 
@@ -1125,12 +1133,13 @@ _g_io_modules_ensure_extension_points_registered (void)
 
       ep = g_io_extension_point_register (G_NOTIFICATION_BACKEND_EXTENSION_POINT_NAME);
       g_io_extension_point_set_required_type (ep, G_TYPE_NOTIFICATION_BACKEND);
+
+      ep = g_io_extension_point_register (G_MEMORY_MONITOR_EXTENSION_POINT_NAME);
+      g_io_extension_point_set_required_type (ep, G_TYPE_MEMORY_MONITOR);
     }
   
   G_UNLOCK (registered_extensions);
 }
-
-#ifndef GLIB_STATIC_COMPILATION
 
 static gchar *
 get_gio_module_dir (void)
@@ -1144,18 +1153,9 @@ get_gio_module_dir (void)
       gchar *install_dir;
 
       install_dir = g_win32_get_package_installation_directory_of_module (gio_dll);
-#ifdef _MSC_VER
-      /* On Visual Studio builds we have all the libraries and binaries in bin
-       * so better load the gio modules from bin instead of lib
-       */
-      module_dir = g_build_filename (install_dir,
-                                     "bin", "gio", "modules",
-                                     NULL);
-#else
       module_dir = g_build_filename (install_dir,
                                      "lib", "gio", "modules",
                                      NULL);
-#endif
       g_free (install_dir);
 #else
       module_dir = g_strdup (GIO_MODULE_DIR);
@@ -1165,17 +1165,12 @@ get_gio_module_dir (void)
   return module_dir;
 }
 
-#endif /* !GLIB_STATIC_COMPILATION */
-
 void
 _g_io_modules_ensure_loaded (void)
 {
   static gboolean loaded_dirs = FALSE;
-#ifndef GLIB_STATIC_COMPILATION
   const char *module_path;
-  gchar *module_dir;
   GIOModuleScope *scope;
-#endif
 
   _g_io_modules_ensure_extension_points_registered ();
   
@@ -1183,9 +1178,9 @@ _g_io_modules_ensure_loaded (void)
 
   if (!loaded_dirs)
     {
-      loaded_dirs = TRUE;
+      gchar *module_dir;
 
-#ifndef GLIB_STATIC_COMPILATION
+      loaded_dirs = TRUE;
       scope = g_io_module_scope_new (G_IO_MODULE_SCOPE_BLOCK_DUPLICATES);
 
       /* First load any overrides, extras */
@@ -1212,11 +1207,11 @@ _g_io_modules_ensure_loaded (void)
       g_free (module_dir);
 
       g_io_module_scope_free (scope);
-#endif
 
       /* Initialize types from built-in "modules" */
       g_type_ensure (g_null_settings_backend_get_type ());
       g_type_ensure (g_memory_settings_backend_get_type ());
+      g_type_ensure (g_keyfile_settings_backend_get_type ());
 #if defined(HAVE_INOTIFY_INIT1)
       g_type_ensure (g_inotify_file_monitor_get_type ());
 #endif
@@ -1240,6 +1235,8 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (g_fdo_notification_backend_get_type ());
       g_type_ensure (g_gtk_notification_backend_get_type ());
       g_type_ensure (g_portal_notification_backend_get_type ());
+      g_type_ensure (g_memory_monitor_dbus_get_type ());
+      g_type_ensure (g_memory_monitor_portal_get_type ());
       g_type_ensure (g_network_monitor_portal_get_type ());
       g_type_ensure (g_proxy_resolver_portal_get_type ());
 #endif
@@ -1263,7 +1260,7 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (_g_network_monitor_netlink_get_type ());
       g_type_ensure (_g_network_monitor_nm_get_type ());
 #endif
-#if defined(G_OS_WIN32) && _WIN32_WINNT >= 0x0600
+#ifdef G_OS_WIN32
       g_type_ensure (_g_win32_network_monitor_get_type ());
 #endif
     }

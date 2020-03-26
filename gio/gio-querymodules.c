@@ -26,6 +26,8 @@
 #include <errno.h>
 #include <locale.h>
 
+#include "glib/glib-private.h"
+
 static gboolean
 is_valid_module_name (const gchar *basename)
 {
@@ -153,8 +155,6 @@ main (gint   argc,
 {
   int i;
 
-  glib_init ();
-
   if (argc == 1)
     {
       g_print ("Usage: gio-querymodules <directory1> [<directory2> ...]\n");
@@ -162,7 +162,7 @@ main (gint   argc,
       return 1;
     }
 
-  setlocale (LC_ALL, "");
+  setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
 
   /* Be defensive and ensure we're linked to GObject */
   g_type_ensure (G_TYPE_OBJECT);

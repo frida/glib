@@ -715,11 +715,11 @@ typedef enum {
 
 /**
  * GResolverRecordType:
- * @G_RESOLVER_RECORD_SRV: lookup DNS SRV records for a domain
- * @G_RESOLVER_RECORD_MX: lookup DNS MX records for a domain
- * @G_RESOLVER_RECORD_TXT: lookup DNS TXT records for a name
- * @G_RESOLVER_RECORD_SOA: lookup DNS SOA records for a zone
- * @G_RESOLVER_RECORD_NS: lookup DNS NS records for a domain
+ * @G_RESOLVER_RECORD_SRV: look up DNS SRV records for a domain
+ * @G_RESOLVER_RECORD_MX: look up DNS MX records for a domain
+ * @G_RESOLVER_RECORD_TXT: look up DNS TXT records for a name
+ * @G_RESOLVER_RECORD_SOA: look up DNS SOA records for a zone
+ * @G_RESOLVER_RECORD_NS: look up DNS NS records for a domain
  *
  * The type of record that g_resolver_lookup_records() or
  * g_resolver_lookup_records_async() should retrieve. The records are returned
@@ -727,24 +727,30 @@ typedef enum {
  * the variant tuples returned.
  *
  * %G_RESOLVER_RECORD_SRV records are returned as variants with the signature
- * '(qqqs)', containing a guint16 with the priority, a guint16 with the
- * weight, a guint16 with the port, and a string of the hostname.
+ * `(qqqs)`, containing a `guint16` with the priority, a `guint16` with the
+ * weight, a `guint16` with the port, and a string of the hostname.
  *
  * %G_RESOLVER_RECORD_MX records are returned as variants with the signature
- * '(qs)', representing a guint16 with the preference, and a string containing
+ * `(qs)`, representing a `guint16` with the preference, and a string containing
  * the mail exchanger hostname.
  *
  * %G_RESOLVER_RECORD_TXT records are returned as variants with the signature
- * '(as)', representing an array of the strings in the text record.
+ * `(as)`, representing an array of the strings in the text record. Note: Most TXT
+ * records only contain a single string, but
+ * [RFC 1035](https://tools.ietf.org/html/rfc1035#section-3.3.14) does allow a
+ * record to contain multiple strings. The RFC which defines the interpretation
+ * of a specific TXT record will likely require concatenation of multiple
+ * strings if they are present, as with
+ * [RFC 7208](https://tools.ietf.org/html/rfc7208#section-3.3).
  *
  * %G_RESOLVER_RECORD_SOA records are returned as variants with the signature
- * '(ssuuuuu)', representing a string containing the primary name server, a
- * string containing the administrator, the serial as a guint32, the refresh
- * interval as guint32, the retry interval as a guint32, the expire timeout
- * as a guint32, and the ttl as a guint32.
+ * `(ssuuuuu)`, representing a string containing the primary name server, a
+ * string containing the administrator, the serial as a `guint32`, the refresh
+ * interval as a `guint32`, the retry interval as a `guint32`, the expire timeout
+ * as a `guint32`, and the TTL as a `guint32`.
  *
  * %G_RESOLVER_RECORD_NS records are returned as variants with the signature
- * '(s)', representing a string of the hostname of the name server.
+ * `(s)`, representing a string of the hostname of the name server.
  *
  * Since: 2.34
  */
@@ -1622,7 +1628,7 @@ typedef enum {
   G_TLS_REHANDSHAKE_NEVER,
   G_TLS_REHANDSHAKE_SAFELY,
   G_TLS_REHANDSHAKE_UNSAFELY
-} GTlsRehandshakeMode;
+} GTlsRehandshakeMode GLIB_DEPRECATED_TYPE_IN_2_60;
 
 /**
  * GTlsPasswordFlags:
@@ -1957,6 +1963,35 @@ typedef enum {
   G_POLLABLE_RETURN_OK           = 1,
   G_POLLABLE_RETURN_WOULD_BLOCK  = -G_IO_ERROR_WOULD_BLOCK
 } GPollableReturn;
+
+/**
+ * GMemoryMonitorWarningLevel:
+ * @G_MEMORY_MONITOR_WARNING_LEVEL_LOW: Memory on the device is low, processes
+ *   should free up unneeded resources (for example, in-memory caches) so they can
+ *   be used elsewhere.
+ * @G_MEMORY_MONITOR_WARNING_LEVEL_MEDIUM: Same as @G_MEMORY_MONITOR_WARNING_LEVEL_LOW
+ *   but the device has even less free memory, so processes should try harder to free
+ *   up unneeded resources. If your process does not need to stay running, it is a
+ *   good time for it to quit.
+ * @G_MEMORY_MONITOR_WARNING_LEVEL_CRITICAL: The system will soon start terminating
+ *   processes to reclaim memory, including background processes.
+ *
+ * Memory availability warning levels.
+ *
+ * Note that because new values might be added, it is recommended that applications check
+ * #GMemoryMonitorWarningLevel as ranges, for example:
+ * |[<!-- language="C" -->
+ * if (warning_level > G_MEMORY_MONITOR_WARNING_LEVEL_LOW)
+ *   drop_caches ();
+ * ]|
+ *
+ * Since: 2.64
+ */
+typedef enum {
+  G_MEMORY_MONITOR_WARNING_LEVEL_LOW      = 50,
+  G_MEMORY_MONITOR_WARNING_LEVEL_MEDIUM   = 100,
+  G_MEMORY_MONITOR_WARNING_LEVEL_CRITICAL = 255
+} GMemoryMonitorWarningLevel;
 
 G_END_DECLS
 

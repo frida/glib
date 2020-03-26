@@ -23,11 +23,11 @@
 
 #include "gasyncresult.h"
 #include "gcancellable.h"
-#include "gconstructor.h"
-#include "gio-init.h"
 #include "glib-private.h"
 
 #include "glibintl.h"
+
+#include <string.h>
 
 /**
  * SECTION:gtask
@@ -611,20 +611,11 @@ G_DEFINE_TYPE_WITH_CODE (GTask, g_task, G_TYPE_OBJECT,
                                                 g_task_async_result_iface_init);
                          g_task_thread_pool_init ();)
 
-#ifdef G_HAS_CONSTRUCTORS
-#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(g_task_deinit)
-#endif
-G_DEFINE_DESTRUCTOR(g_task_deinit)
-#endif /* G_HAS_CONSTRUCTORS */
-
 static GThreadPool *task_pool;
 static GMutex task_pool_mutex;
-static GCond task_pool_cond;
 static GPrivate task_private = G_PRIVATE_INIT (NULL);
 static GSource *task_pool_manager;
 static guint64 task_wait_time;
-static gint tasks_queued;
 static gint tasks_running;
 
 /* When the task pool fills up and blocks, and the program keeps
@@ -637,41 +628,19 @@ static gint tasks_running;
  * The base and multiplier below gives us 10 extra threads after about
  * a second of blocking, 30 after 5 seconds, 100 after a minute, and
  * 200 after 20 minutes.
+ *
+ * We specify maximum pool size of 330 to increase the waiting time up
+ * to around 30 minutes.
  */
 #define G_TASK_POOL_SIZE 10
 #define G_TASK_WAIT_TIME_BASE 100000
 #define G_TASK_WAIT_TIME_MULTIPLIER 1.03
-#define G_TASK_WAIT_TIME_MAX (30 * 60 * 1000000)
-
-static void
-g_task_deinit (void)
-{
-  _g_task_shutdown ();
-}
+#define G_TASK_WAIT_TIME_MAX_POOL_SIZE 330
 
 static void
 g_task_init (GTask *task)
 {
   task->check_cancellable = TRUE;
-}
-
-void
-_g_task_shutdown (void)
-{
-  GThreadPool *pool;
-
-  g_mutex_lock (&task_pool_mutex);
-
-  while (tasks_queued + tasks_running != 0)
-    g_cond_wait (&task_pool_cond, &task_pool_mutex);
-
-  pool = task_pool;
-  task_pool = NULL;
-
-  g_mutex_unlock (&task_pool_mutex);
-
-  if (pool != NULL)
-    g_thread_pool_free (pool, FALSE, TRUE);
 }
 
 static void
@@ -1386,8 +1355,7 @@ static gboolean
 task_pool_manager_timeout (gpointer user_data)
 {
   g_mutex_lock (&task_pool_mutex);
-  if (task_pool != NULL)
-    g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
+  g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
   g_source_set_ready_time (task_pool_manager, -1);
   g_mutex_unlock (&task_pool_mutex);
 
@@ -1399,12 +1367,11 @@ g_task_thread_setup (void)
 {
   g_private_set (&task_private, GUINT_TO_POINTER (TRUE));
   g_mutex_lock (&task_pool_mutex);
-  tasks_queued--;
   tasks_running++;
 
   if (tasks_running == G_TASK_POOL_SIZE)
     task_wait_time = G_TASK_WAIT_TIME_BASE;
-  else if (tasks_running > G_TASK_POOL_SIZE && task_wait_time < G_TASK_WAIT_TIME_MAX)
+  else if (tasks_running > G_TASK_POOL_SIZE && tasks_running < G_TASK_WAIT_TIME_MAX_POOL_SIZE)
     task_wait_time *= G_TASK_WAIT_TIME_MULTIPLIER;
 
   if (tasks_running >= G_TASK_POOL_SIZE)
@@ -1426,9 +1393,10 @@ g_task_thread_cleanup (void)
   else if (tasks_running + tasks_pending < G_TASK_POOL_SIZE)
     g_source_set_ready_time (task_pool_manager, -1);
 
+  if (tasks_running > G_TASK_POOL_SIZE && tasks_running < G_TASK_WAIT_TIME_MAX_POOL_SIZE)
+    task_wait_time /= G_TASK_WAIT_TIME_MULTIPLIER;
+
   tasks_running--;
-  if (tasks_queued + tasks_running == 0)
-    g_cond_signal (&task_pool_cond);
   g_mutex_unlock (&task_pool_mutex);
   g_private_set (&task_private, GUINT_TO_POINTER (FALSE));
 }
@@ -1488,10 +1456,6 @@ static void
 g_task_start_task_thread (GTask           *task,
                           GTaskThreadFunc  task_func)
 {
-  g_mutex_lock (&task_pool_mutex);
-  tasks_queued++;
-  g_mutex_unlock (&task_pool_mutex);
-
   g_mutex_init (&task->lock);
   g_cond_init (&task->cond);
 
@@ -1535,7 +1499,7 @@ g_task_start_task_thread (GTask           *task,
 /**
  * g_task_run_in_thread:
  * @task: a #GTask
- * @task_func: a #GTaskThreadFunc
+ * @task_func: (scope async): a #GTaskThreadFunc
  *
  * Runs @task_func in another thread. When @task_func returns, @task's
  * #GAsyncReadyCallback will be invoked in @task's #GMainContext.
@@ -1578,7 +1542,7 @@ g_task_run_in_thread (GTask           *task,
 /**
  * g_task_run_in_thread_sync:
  * @task: a #GTask
- * @task_func: a #GTaskThreadFunc
+ * @task_func: (scope async): a #GTaskThreadFunc
  *
  * Runs @task_func in another thread, and waits for it to return or be
  * cancelled. You can use g_task_propagate_pointer(), etc, afterward
@@ -1995,6 +1959,100 @@ g_task_had_error (GTask *task)
     return TRUE;
 
   return FALSE;
+}
+
+static void
+value_free (gpointer value)
+{
+  g_value_unset (value);
+  g_free (value);
+}
+
+/**
+ * g_task_return_value:
+ * @task: a #GTask
+ * @result: (nullable) (transfer none): the #GValue result of
+ *                                      a task function
+ *
+ * Sets @task's result to @result (by copying it) and completes the task.
+ *
+ * If @result is %NULL then a #GValue of type #G_TYPE_POINTER
+ * with a value of %NULL will be used for the result.
+ *
+ * This is a very generic low-level method intended primarily for use
+ * by language bindings; for C code, g_task_return_pointer() and the
+ * like will normally be much easier to use.
+ *
+ * Since: 2.64
+ */
+void
+g_task_return_value (GTask  *task,
+                     GValue *result)
+{
+  GValue *value;
+
+  g_return_if_fail (G_IS_TASK (task));
+  g_return_if_fail (!task->ever_returned);
+
+  value = g_new0 (GValue, 1);
+
+  if (result == NULL)
+    {
+      g_value_init (value, G_TYPE_POINTER);
+      g_value_set_pointer (value, NULL);
+    }
+  else
+    {
+      g_value_init (value, G_VALUE_TYPE (result));
+      g_value_copy (result, value);
+    }
+
+  g_task_return_pointer (task, value, value_free);
+}
+
+/**
+ * g_task_propagate_value:
+ * @task: a #GTask
+ * @value: (out caller-allocates): return location for the #GValue
+ * @error: return location for a #GError
+ *
+ * Gets the result of @task as a #GValue, and transfers ownership of
+ * that value to the caller. As with g_task_return_value(), this is
+ * a generic low-level method; g_task_propagate_pointer() and the like
+ * will usually be more useful for C code.
+ *
+ * If the task resulted in an error, or was cancelled, then this will
+ * instead set @error and return %FALSE.
+ *
+ * Since this method transfers ownership of the return value (or
+ * error) to the caller, you may only call it once.
+ *
+ * Returns: %TRUE if @task succeeded, %FALSE on error.
+ *
+ * Since: 2.64
+ */
+gboolean
+g_task_propagate_value (GTask   *task,
+                        GValue  *value,
+                        GError **error)
+{
+  g_return_val_if_fail (G_IS_TASK (task), FALSE);
+  g_return_val_if_fail (value != NULL, FALSE);
+  g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+
+  if (g_task_propagate_error (task, error))
+    return FALSE;
+
+  g_return_val_if_fail (task->result_set, FALSE);
+  g_return_val_if_fail (task->result_destroy == value_free, FALSE);
+
+  memcpy (value, task->result.pointer, sizeof (GValue));
+  g_free (task->result.pointer);
+
+  task->result_destroy = NULL;
+  task->result_set = FALSE;
+
+  return TRUE;
 }
 
 /**

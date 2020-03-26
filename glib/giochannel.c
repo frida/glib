@@ -192,8 +192,6 @@ g_io_channel_init (GIOChannel *channel)
   channel->buf_size = G_IO_NICE_BUF_SIZE;
   channel->read_cd = (GIConv) -1;
   channel->write_cd = (GIConv) -1;
-  channel->close_converters = NULL;
-  channel->reset_converters = NULL;
   channel->read_buf = NULL; /* Lazy allocate buffers */
   channel->encoded_read_buf = NULL;
   channel->write_buf = NULL;
@@ -243,8 +241,10 @@ g_io_channel_unref (GIOChannel *channel)
       else
         g_io_channel_purge (channel);
       g_free (channel->encoding);
-      if (channel->close_converters != NULL)
-        channel->close_converters (channel);
+      if (channel->read_cd != (GIConv) -1)
+        g_iconv_close (channel->read_cd);
+      if (channel->write_cd != (GIConv) -1)
+        g_iconv_close (channel->write_cd);
       g_free (channel->line_term);
       if (channel->read_buf)
         g_string_free (channel->read_buf, TRUE);
@@ -595,6 +595,9 @@ g_io_channel_purge (GIOChannel *channel)
  * Creates a #GSource that's dispatched when @condition is met for the 
  * given @channel. For example, if condition is #G_IO_IN, the source will 
  * be dispatched when there's data available for reading.
+ *
+ * The callback function invoked by the #GSource should be added with
+ * g_source_set_callback(), but it has type #GIOFunc (not #GSourceFunc).
  *
  * g_io_add_watch() is a simpler interface to this same functionality, for 
  * the case where you want to add the source to the default main loop context 
@@ -1139,8 +1142,10 @@ g_io_channel_seek_position (GIOChannel  *channel,
         g_string_truncate (channel->read_buf, 0);
 
       /* Conversion state no longer matches position in file */
-      if (channel->reset_converters != NULL)
-        channel->reset_converters (channel);
+      if (channel->read_cd != (GIConv) -1)
+        g_iconv (channel->read_cd, NULL, NULL, NULL, NULL);
+      if (channel->write_cd != (GIConv) -1)
+        g_iconv (channel->write_cd, NULL, NULL, NULL, NULL);
 
       if (channel->encoded_read_buf)
         {
@@ -1258,24 +1263,6 @@ g_io_channel_get_buffered (GIOChannel *channel)
   g_return_val_if_fail (channel != NULL, FALSE);
 
   return channel->use_buffer;
-}
-
-static void
-g_io_channel_on_close_converters (GIOChannel * channel)
-{
-  if (channel->read_cd != (GIConv) -1)
-    g_iconv_close (channel->read_cd);
-  if (channel->write_cd != (GIConv) -1)
-    g_iconv_close (channel->write_cd);
-}
-
-static void
-g_io_channel_on_reset_converters (GIOChannel * channel)
-{
-  if (channel->read_cd != (GIConv) -1)
-    g_iconv (channel->read_cd, NULL, NULL, NULL, NULL);
-  if (channel->write_cd != (GIConv) -1)
-    g_iconv (channel->write_cd, NULL, NULL, NULL, NULL);
 }
 
 /**
@@ -1442,9 +1429,6 @@ g_io_channel_set_encoding (GIOChannel	*channel,
 
   channel->read_cd = read_cd;
   channel->write_cd = write_cd;
-
-  channel->close_converters = g_io_channel_on_close_converters;
-  channel->reset_converters = g_io_channel_on_reset_converters;
 
   g_free (channel->encoding);
   channel->encoding = g_strdup (encoding);
@@ -1685,8 +1669,16 @@ g_io_channel_read_line (GIOChannel  *channel,
 
   if (status == G_IO_STATUS_NORMAL)
     {
+      gchar *line;
+
+      /* Copy the read bytes (including any embedded nuls) and nul-terminate.
+       * `USE_BUF (channel)->str` is guaranteed to be nul-terminated as it’s a
+       * #GString, so it’s safe to call g_memdup() with +1 length to allocate
+       * a nul-terminator. */
       g_assert (USE_BUF (channel));
-      *str_return = g_strndup (USE_BUF (channel)->str, got_length);
+      line = g_memdup (USE_BUF (channel)->str, got_length + 1);
+      line[got_length] = '\0';
+      *str_return = g_steal_pointer (&line);
       g_string_erase (USE_BUF (channel), 0, got_length);
     }
   else

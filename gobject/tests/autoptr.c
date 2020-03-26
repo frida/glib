@@ -29,6 +29,18 @@ struct _TestAutoCleanupBaseClass {
   GObjectClass parent_class;
 };
 
+G_DEFINE_TYPE (TestAutoCleanupBase, test_base_auto_cleanup, G_TYPE_OBJECT)
+
+static void
+test_base_auto_cleanup_class_init (TestAutoCleanupBaseClass *class)
+{
+}
+
+static void
+test_base_auto_cleanup_init (TestAutoCleanupBase *tac)
+{
+}
+
 G_DECLARE_FINAL_TYPE (TestAutoCleanup, test_auto_cleanup, TEST, AUTO_CLEANUP, TestAutoCleanupBase)
 
 struct _TestAutoCleanup
@@ -65,6 +77,7 @@ test_autoptr (void)
 
   {
     g_autoptr (TestAutoCleanup) tac = tac_ptr;
+    g_assert_nonnull (tac);
   }
 #ifdef __GNUC__
   g_assert_null (tac_ptr);
@@ -113,6 +126,9 @@ test_autolist (void)
 
     l = g_list_prepend (l, tac1);
     l = g_list_prepend (l, tac2);
+
+    /* Squash warnings about dead stores */
+    (void) l;
   }
 
   /* Only assert if autoptr works */
@@ -159,6 +175,52 @@ test_autoslist (void)
   g_assert_null (tac3);
 }
 
+/* Verify that an object declared with G_DECLARE_FINAL_TYPE provides by default
+ * autoqueue cleanup functions (defined using the ones of the base type declared
+ * with G_DECLARE_DERIVABLE_TYPE) and so that can be used with g_autoqueue, and
+ * that freeing the queue correctly unrefs the object too */
+static void
+test_autoqueue (void)
+{
+  TestAutoCleanup *tac1 = test_auto_cleanup_new ();
+  TestAutoCleanup *tac2 = test_auto_cleanup_new ();
+  g_autoptr (TestAutoCleanup) tac3 = test_auto_cleanup_new ();
+
+  g_object_add_weak_pointer (G_OBJECT (tac1), (gpointer *) &tac1);
+  g_object_add_weak_pointer (G_OBJECT (tac2), (gpointer *) &tac2);
+  g_object_add_weak_pointer (G_OBJECT (tac3), (gpointer *) &tac3);
+
+  {
+    g_autoqueue (TestAutoCleanup) q = g_queue_new ();
+
+    g_queue_push_head (q, tac1);
+    g_queue_push_tail (q, tac2);
+  }
+
+  /* Only assert if autoptr works */
+#ifdef __GNUC__
+  g_assert_null (tac1);
+  g_assert_null (tac2);
+#endif
+  g_assert_nonnull (tac3);
+
+  g_clear_object (&tac3);
+  g_assert_null (tac3);
+}
+
+static void
+test_autoclass (void)
+{
+  g_autoptr (TestAutoCleanupBaseClass) base_class_ptr = NULL;
+  g_autoptr (TestAutoCleanupClass) class_ptr = NULL;
+
+  base_class_ptr = g_type_class_ref (test_base_auto_cleanup_get_type ());
+  class_ptr = g_type_class_ref (test_auto_cleanup_get_type ());
+
+  g_assert_nonnull (base_class_ptr);
+  g_assert_nonnull (class_ptr);
+}
+
 int
 main (int argc, gchar *argv[])
 {
@@ -168,6 +230,8 @@ main (int argc, gchar *argv[])
   g_test_add_func ("/autoptr/autoptr_steal", test_autoptr_steal);
   g_test_add_func ("/autoptr/autolist", test_autolist);
   g_test_add_func ("/autoptr/autoslist", test_autoslist);
+  g_test_add_func ("/autoptr/autoqueue", test_autoqueue);
+  g_test_add_func ("/autoptr/autoclass", test_autoclass);
 
   return g_test_run ();
 }

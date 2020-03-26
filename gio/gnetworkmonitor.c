@@ -68,7 +68,7 @@
  */
 
 G_DEFINE_INTERFACE_WITH_CODE (GNetworkMonitor, g_network_monitor, G_TYPE_OBJECT,
-                              g_type_interface_add_prerequisite (g_define_type_id, G_TYPE_INITABLE);)
+                              g_type_interface_add_prerequisite (g_define_type_id, G_TYPE_INITABLE))
 
 
 enum {
@@ -321,7 +321,7 @@ g_network_monitor_default_init (GNetworkMonitorInterface *iface)
                   G_SIGNAL_RUN_LAST,
                   G_STRUCT_OFFSET (GNetworkMonitorInterface, network_changed),
                   NULL, NULL,
-                  g_cclosure_marshal_VOID__BOOLEAN,
+                  NULL,
                   G_TYPE_NONE, 1,
                   G_TYPE_BOOLEAN);
 

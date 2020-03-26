@@ -77,7 +77,6 @@ test_store_boundaries (void)
   store = g_list_store_new (G_TYPE_MENU_ITEM);
 
   item = g_menu_item_new (NULL, NULL);
-  g_object_add_weak_pointer (G_OBJECT (item), (gpointer *) &item);
 
   /* remove an item from an empty list */
   g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL, "*g_sequence*");
@@ -123,8 +122,7 @@ test_store_boundaries (void)
   g_assert_cmpuint (g_list_model_get_n_items (G_LIST_MODEL (store)), ==, 1);
 
   g_object_unref (store);
-  g_object_unref (item);
-  g_assert_null (item);
+  g_assert_finalize_object (item);
 }
 
 static void
@@ -800,10 +798,77 @@ test_store_past_end (void)
   g_assert_cmpint (g_list_model_get_n_items (model), ==, 1);
   item = g_list_model_get_item (model, 0);
   g_assert_nonnull (item);
+  g_object_unref (item);
   item = g_list_model_get_item (model, G_MAXUINT);
   g_assert_null (item);
 
   g_object_unref (store);
+}
+
+static gboolean
+list_model_casecmp_action_by_name (gconstpointer a,
+                                   gconstpointer b)
+{
+  return g_ascii_strcasecmp (g_action_get_name (G_ACTION (a)),
+                             g_action_get_name (G_ACTION (b))) == 0;
+}
+
+/* Test if find() and find_with_equal_func() works */
+static void
+test_store_find (void)
+{
+  GListStore *store;
+  guint position = 100;
+  const gchar *item_strs[4] = { "aaa", "bbb", "xxx", "ccc" };
+  GSimpleAction *items[4] = { NULL, };
+  GSimpleAction *other_item;
+  guint i;
+
+  store = g_list_store_new (G_TYPE_SIMPLE_ACTION);
+
+  for (i = 0; i < G_N_ELEMENTS (item_strs); i++)
+    items[i] = g_simple_action_new (item_strs[i], NULL);
+
+  /* Shouldn't crash on an empty list, or change the position pointer */
+  g_assert_false (g_list_store_find (store, items[0], NULL));
+  g_assert_false (g_list_store_find (store, items[0], &position));
+  g_assert_cmpint (position, ==, 100);
+
+  for (i = 0; i < G_N_ELEMENTS (item_strs); i++)
+    g_list_store_append (store, items[i]);
+
+  /* Check whether it could still find the the elements */
+  for (i = 0; i < G_N_ELEMENTS (item_strs); i++)
+    {
+      g_assert_true (g_list_store_find (store, items[i], &position));
+      g_assert_cmpint (position, ==, i);
+      /* Shouldn't try to write to position pointer if NULL given */
+      g_assert_true (g_list_store_find (store, items[i], NULL));
+    }
+
+  /* try to find element not part of the list */
+  other_item = g_simple_action_new ("111", NULL);
+  g_assert_false (g_list_store_find (store, other_item, NULL));
+  g_clear_object (&other_item);
+
+  /* Re-add item; find() should only return the first position */
+  g_list_store_append (store, items[0]);
+  g_assert_true (g_list_store_find (store, items[0], &position));
+  g_assert_cmpint (position, ==, 0);
+
+  /* try to find element which should only work with custom equality check */
+  other_item = g_simple_action_new ("XXX", NULL);
+  g_assert_false (g_list_store_find (store, other_item, NULL));
+  g_assert_true (g_list_store_find_with_equal_func (store,
+                                                    other_item,
+                                                    list_model_casecmp_action_by_name,
+                                                    &position));
+  g_assert_cmpint (position, ==, 2);
+  g_clear_object (&other_item);
+
+  for (i = 0; i < G_N_ELEMENTS (item_strs); i++)
+    g_clear_object(&items[i]);
+  g_clear_object (&store);
 }
 
 int main (int argc, char *argv[])
@@ -838,6 +903,7 @@ int main (int argc, char *argv[])
   g_test_add_func ("/glistmodel/store/items-changed",
                    test_store_signal_items_changed);
   g_test_add_func ("/glistmodel/store/past-end", test_store_past_end);
+  g_test_add_func ("/glistmodel/store/find", test_store_find);
 
   return g_test_run ();
 }

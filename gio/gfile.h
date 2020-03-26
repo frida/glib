@@ -111,10 +111,13 @@ typedef struct _GFileIface    		GFileIface;
  * @make_directory: Makes a directory.
  * @make_directory_async: Asynchronously makes a directory.
  * @make_directory_finish: Finishes making a directory asynchronously.
- * @make_symbolic_link: Makes a symbolic link.
+ * @make_symbolic_link: (nullable): Makes a symbolic link. %NULL if symbolic
+ *    links are unsupported.
  * @_make_symbolic_link_async: Asynchronously makes a symbolic link
  * @_make_symbolic_link_finish: Finishes making a symbolic link asynchronously.
- * @copy: Copies a file.
+ * @copy: (nullable): Copies a file. %NULL if copying is unsupported, which will
+ *     cause `GFile` to use a fallback copy method where it reads from the
+ *     source and writes to the destination.
  * @copy_async: Asynchronously copies a file.
  * @copy_finish: Finishes an asynchronous copy operation.
  * @move: Moves a file.
@@ -140,16 +143,16 @@ typedef struct _GFileIface    		GFileIface;
  * @replace_readwrite_async: Asynchronously replaces file read/write. Since 2.22.
  * @replace_readwrite_finish: Finishes an asynchronous replace read/write. Since 2.22.
  * @start_mountable: Starts a mountable object. Since 2.22.
- * @start_mountable_finish: Finishes an start operation. Since 2.22.
+ * @start_mountable_finish: Finishes a start operation. Since 2.22.
  * @stop_mountable: Stops a mountable. Since 2.22.
- * @stop_mountable_finish: Finishes an stop operation. Since 2.22.
+ * @stop_mountable_finish: Finishes a stop operation. Since 2.22.
  * @supports_thread_contexts: a boolean that indicates whether the #GFile implementation supports thread-default contexts. Since 2.22.
  * @unmount_mountable_with_operation: Unmounts a mountable object using a #GMountOperation. Since 2.22.
  * @unmount_mountable_with_operation_finish: Finishes an unmount operation using a #GMountOperation. Since 2.22.
  * @eject_mountable_with_operation: Ejects a mountable object using a #GMountOperation. Since 2.22.
  * @eject_mountable_with_operation_finish: Finishes an eject operation using a #GMountOperation. Since 2.22.
  * @poll_mountable: Polls a mountable object for media changes. Since 2.22.
- * @poll_mountable_finish: Finishes an poll operation for media changes. Since 2.22.
+ * @poll_mountable_finish: Finishes a poll operation for media changes. Since 2.22.
  * @measure_disk_usage: Recursively measures the disk usage of @file. Since 2.38
  * @measure_disk_usage_async: Asynchronously recursively measures the disk usage of @file. Since 2.38
  * @measure_disk_usage_finish: Finishes an asynchronous recursive measurement of the disk usage of @file. Since 2.38

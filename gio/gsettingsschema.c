@@ -345,6 +345,7 @@ initialise_schema_sources (void)
     {
       const gchar * const *dirs;
       const gchar *path;
+      gchar **extra_schema_dirs;
       gint i;
 
       /* iterate in reverse: count up, then count down */
@@ -357,7 +358,15 @@ initialise_schema_sources (void)
       try_prepend_data_dir (g_get_user_data_dir ());
 
       if ((path = g_getenv ("GSETTINGS_SCHEMA_DIR")) != NULL)
-        try_prepend_dir (path);
+        {
+          extra_schema_dirs = g_strsplit (path, G_SEARCHPATH_SEPARATOR_S, 0);
+          for (i = 0; extra_schema_dirs[i]; i++);
+
+          while (i--)
+            try_prepend_dir (extra_schema_dirs[i]);
+
+          g_strfreev (extra_schema_dirs);
+        }
 
       g_once_init_leave (&initialised, TRUE);
     }
@@ -742,9 +751,9 @@ g_settings_schema_source_get_text_tables (GSettingsSchemaSource *source)
  * @source: a #GSettingsSchemaSource
  * @recursive: if we should recurse
  * @non_relocatable: (out) (transfer full) (array zero-terminated=1): the
- *   list of non-relocatable schemas
+ *   list of non-relocatable schemas, in no defined order
  * @relocatable: (out) (transfer full) (array zero-terminated=1): the list
- *   of relocatable schemas
+ *   of relocatable schemas, in no defined order
  *
  * Lists the schemas in a given source.
  *
@@ -857,8 +866,8 @@ ensure_schema_lists (void)
  * Deprecated.
  *
  * Returns: (element-type utf8) (transfer none):  a list of #GSettings
- *   schemas that are available.  The list must not be modified or
- *   freed.
+ *   schemas that are available, in no defined order.  The list must not be
+ *   modified or freed.
  *
  * Since: 2.26
  *
@@ -881,8 +890,8 @@ g_settings_list_schemas (void)
  * Deprecated.
  *
  * Returns: (element-type utf8) (transfer none): a list of relocatable
- *   #GSettings schemas that are available.  The list must not be
- *   modified or freed.
+ *   #GSettings schemas that are available, in no defined order.  The list must
+ *   not be modified or freed.
  *
  * Since: 2.28
  *
@@ -989,7 +998,7 @@ g_settings_schema_get_value (GSettingsSchema *schema,
  * database: those located at the path returned by this function.
  *
  * Relocatable schemas can be referenced by other schemas and can
- * threfore describe multiple sets of keys at different locations.  For
+ * therefore describe multiple sets of keys at different locations.  For
  * relocatable schemas, this function will return %NULL.
  *
  * Returns: (transfer none): the path of the schema, or %NULL
@@ -1035,7 +1044,8 @@ g_settings_schema_has_key (GSettingsSchema *schema,
  * You should free the return value with g_strfreev() when you are done
  * with it.
  *
- * Returns: (transfer full) (element-type utf8): a list of the children on @settings
+ * Returns: (transfer full) (element-type utf8): a list of the children on
+ *    @settings, in no defined order
  *
  * Since: 2.44
  */
@@ -1080,7 +1090,7 @@ g_settings_schema_list_children (GSettingsSchema *schema)
  * function is intended for introspection reasons.
  *
  * Returns: (transfer full) (element-type utf8): a list of the keys on
- *   @schema
+ *   @schema, in no defined order
  *
  * Since: 2.46
  */

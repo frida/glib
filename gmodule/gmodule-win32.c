@@ -70,10 +70,8 @@ _g_module_open (const gchar *file_name,
 {
   HINSTANCE handle;
   wchar_t *wfilename;
-#if _WIN32_WINNT >= 0x0601
   DWORD old_mode;
   BOOL success;
-#endif
 #ifdef G_WITH_CYGWIN
   gchar tmp[MAX_PATH];
 
@@ -82,17 +80,21 @@ _g_module_open (const gchar *file_name,
 #endif
   wfilename = g_utf8_to_utf16 (file_name, -1, NULL, NULL, NULL);
 
-#if _WIN32_WINNT >= 0x0601
   /* suppress error dialog */
   success = SetThreadErrorMode (SEM_NOOPENFILEERRORBOX | SEM_FAILCRITICALERRORS, &old_mode);
   if (!success)
     set_error ("");
-#endif
+
+  /* When building for UWP, load app asset DLLs instead of filesystem DLLs.
+   * Needs MSVC, Windows 8 and newer, and is only usable from apps. */
+#if _WIN32_WINNT >= 0x0602 && defined(G_WINAPI_ONLY_APP)
+  handle = LoadPackagedLibrary (wfilename, 0);
+#else
   handle = LoadLibraryW (wfilename);
-#if _WIN32_WINNT >= 0x0601
+#endif
+
   if (success)
     SetThreadErrorMode (old_mode, NULL);
-#endif
   g_free (wfilename);
       
   if (!handle)
@@ -111,8 +113,7 @@ _g_module_self (void)
 }
 
 static void
-_g_module_close (gpointer handle,
-		 gboolean is_unref)
+_g_module_close (gpointer handle)
 {
   if (handle != null_module_handle)
     if (!FreeLibrary (handle))
@@ -125,8 +126,11 @@ find_in_any_module_using_toolhelp (const gchar *symbol_name)
   HANDLE snapshot; 
   MODULEENTRY32 me32;
 
-  gpointer p;
+  gpointer p = NULL;
 
+  /* Under UWP, Module32Next and Module32First are not available since we're
+   * not allowed to search in the address space of arbitrary loaded DLLs */
+#if !defined(G_WINAPI_ONLY_APP)
   if ((snapshot = CreateToolhelp32Snapshot (TH32CS_SNAPMODULE, 0)) == (HANDLE) -1)
     return NULL;
 
@@ -141,6 +145,7 @@ find_in_any_module_using_toolhelp (const gchar *symbol_name)
     }
 
   CloseHandle (snapshot);
+#endif
 
   return p;
 }

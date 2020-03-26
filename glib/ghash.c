@@ -38,6 +38,7 @@
 #include "gtestutils.h"
 #include "gslice.h"
 #include "grefcount.h"
+#include "gvalgrind.h"
 
 /* The following #pragma is here so we can do this...
  *
@@ -56,7 +57,9 @@
  *
  * ...and still compile successfully when -Werror=duplicated-branches is passed. */
 
+#if defined(__GNUC__) && __GNUC__ > 6
 #pragma GCC diagnostic ignored "-Wduplicated-branches"
+#endif
 
 /**
  * SECTION:hash_tables
@@ -86,7 +89,7 @@
  * To insert a key and value into a #GHashTable, use
  * g_hash_table_insert().
  *
- * To lookup a value corresponding to a given key, use
+ * To look up a value corresponding to a given key, use
  * g_hash_table_lookup() and g_hash_table_lookup_extended().
  *
  * g_hash_table_lookup_extended() can also be used to simply
@@ -95,8 +98,10 @@
  * To remove a key and value, use g_hash_table_remove().
  *
  * To call a function for each key and value pair use
- * g_hash_table_foreach() or use a iterator to iterate over the
- * key/value pairs in the hash table, see #GHashTableIter.
+ * g_hash_table_foreach() or use an iterator to iterate over the
+ * key/value pairs in the hash table, see #GHashTableIter. The iteration order
+ * of a hash table is not defined, and you must not rely on iterating over
+ * keys/values in the same order as they were inserted.
  *
  * To destroy a #GHashTable use g_hash_table_destroy().
  *
@@ -206,6 +211,9 @@
  * to iterate over the elements of a #GHashTable. GHashTableIter
  * structures are typically allocated on the stack and then initialized
  * with g_hash_table_iter_init().
+ *
+ * The iteration order of a #GHashTableIter over the keys/values in a hash
+ * table is not defined.
  */
 
 /**
@@ -428,7 +436,7 @@ g_hash_table_hash_to_index (GHashTable *hash_table, guint hash)
 /*
  * g_hash_table_lookup_node:
  * @hash_table: our #GHashTable
- * @key: the key to lookup against
+ * @key: the key to look up against
  * @hash_return: key hash return location
  *
  * Performs a lookup in the hash table, preserving extra information
@@ -459,13 +467,6 @@ g_hash_table_lookup_node (GHashTable    *hash_table,
   guint first_tombstone = 0;
   gboolean have_tombstone = FALSE;
   guint step = 0;
-
-  /* If this happens, then the application is probably doing too much work
-   * from a destroy notifier. The alternative would be to crash any second
-   * (as keys, etc. will be NULL).
-   * Applications need to either use g_hash_table_destroy, or ensure the hash
-   * table is empty prior to removing the last reference using g_hash_table_unref(). */
-  g_assert (!g_atomic_ref_count_compare (&hash_table->ref_count, 0));
 
   hash_value = hash_table->hash_func (key);
   if (G_UNLIKELY (!HASH_IS_REAL (hash_value)))
@@ -555,15 +556,58 @@ g_hash_table_remove_node (GHashTable   *hash_table,
 }
 
 /*
+ * g_hash_table_setup_storage:
+ * @hash_table: our #GHashTable
+ *
+ * Initialise the hash table size, mask, mod, and arrays.
+ */
+static void
+g_hash_table_setup_storage (GHashTable *hash_table)
+{
+  gboolean small;
+
+  /* We want to use small arrays only if:
+   *   - we are running on a system where that makes sense (64 bit); and
+   *   - we are not running under valgrind.
+   */
+  small = FALSE;
+
+#ifdef USE_SMALL_ARRAYS
+  small = TRUE;
+
+# ifdef ENABLE_VALGRIND
+  if (RUNNING_ON_VALGRIND)
+    small = FALSE;
+# endif
+#endif
+
+  g_hash_table_set_shift (hash_table, HASH_TABLE_MIN_SHIFT);
+
+  hash_table->have_big_keys = !small;
+  hash_table->have_big_values = !small;
+
+  hash_table->keys   = g_hash_table_realloc_key_or_value_array (NULL, hash_table->size, hash_table->have_big_keys);
+  hash_table->values = hash_table->keys;
+  hash_table->hashes = g_new0 (guint, hash_table->size);
+}
+
+/*
  * g_hash_table_remove_all_nodes:
  * @hash_table: our #GHashTable
  * @notify: %TRUE if the destroy notify handlers are to be called
  *
- * Removes all nodes from the table.  Since this may be a precursor to
- * freeing the table entirely, no resize is performed.
+ * Removes all nodes from the table.
  *
  * If @notify is %TRUE then the destroy notify functions are called
  * for the key and value of the hash node.
+ *
+ * Since this may be a precursor to freeing the table entirely, we'd
+ * ideally perform no resize, and we can indeed avoid that in some
+ * cases.  However: in the case that we'll be making callbacks to user
+ * code (via destroy notifies) we need to consider that the user code
+ * might call back into the table again.  In this case, we setup a new
+ * set of arrays so that any callers will see an empty (but valid)
+ * table.
  */
 static void
 g_hash_table_remove_all_nodes (GHashTable *hash_table,
@@ -577,6 +621,8 @@ g_hash_table_remove_all_nodes (GHashTable *hash_table,
   gpointer *old_keys;
   gpointer *old_values;
   guint    *old_hashes;
+  gboolean  old_have_big_keys;
+  gboolean  old_have_big_values;
 
   /* If the hash table is already empty, there is nothing to be done. */
   if (hash_table->nnodes == 0)
@@ -585,6 +631,7 @@ g_hash_table_remove_all_nodes (GHashTable *hash_table,
   hash_table->nnodes = 0;
   hash_table->noccupied = 0;
 
+  /* Easy case: no callbacks, so we just zero out the arrays */
   if (!notify ||
       (hash_table->key_destroy_func == NULL &&
        hash_table->value_destroy_func == NULL))
@@ -605,43 +652,52 @@ g_hash_table_remove_all_nodes (GHashTable *hash_table,
       return;
     }
 
-  /* Keep the old storage space around to iterate over it. */
+  /* Hard case: we need to do user callbacks.  There are two
+   * possibilities here:
+   *
+   *   1) there are no outstanding references on the table and therefore
+   *   nobody should be calling into it again (destroying == true)
+   *
+   *   2) there are outstanding references, and there may be future
+   *   calls into the table, either after we return, or from the destroy
+   *   notifies that we're about to do (destroying == false)
+   *
+   * We handle both cases by taking the current state of the table into
+   * local variables and replacing it with something else: in the "no
+   * outstanding references" cases we replace it with a bunch of
+   * null/zero values so that any access to the table will fail.  In the
+   * "may receive future calls" case, we reinitialise the struct to
+   * appear like a newly-created empty table.
+   *
+   * In both cases, we take over the references for the current state,
+   * freeing them below.
+   */
   old_size = hash_table->size;
-  old_keys   = hash_table->keys;
-  old_values = hash_table->values;
-  old_hashes = hash_table->hashes;
+  old_have_big_keys = hash_table->have_big_keys;
+  old_have_big_values = hash_table->have_big_values;
+  old_keys   = g_steal_pointer (&hash_table->keys);
+  old_values = g_steal_pointer (&hash_table->values);
+  old_hashes = g_steal_pointer (&hash_table->hashes);
 
-  /* Now create a new storage space; If the table is destroyed we can use the
-   * shortcut of not creating a new storage. This saves the allocation at the
-   * cost of not allowing any recursive access.
-   * However, the application doesn't own any reference anymore, so access
-   * is not allowed. If accesses are done, then either an assert or crash
-   * *will* happen. */
-  g_hash_table_set_shift (hash_table, HASH_TABLE_MIN_SHIFT);
   if (!destruction)
-    {
-      hash_table->keys   = g_hash_table_realloc_key_or_value_array (NULL, hash_table->size, FALSE);
-      hash_table->values = hash_table->keys;
-      hash_table->hashes = g_new0 (guint, hash_table->size);
-    }
+    /* Any accesses will see an empty table */
+    g_hash_table_setup_storage (hash_table);
   else
-    {
-      hash_table->keys   = NULL;
-      hash_table->values = NULL;
-      hash_table->hashes = NULL;
-    }
+    /* Will cause a quick crash on any attempted access */
+    hash_table->size = hash_table->mod = hash_table->mask = 0;
 
+  /* Now do the actual destroy notifies */
   for (i = 0; i < old_size; i++)
     {
       if (HASH_IS_REAL (old_hashes[i]))
         {
-          key = g_hash_table_fetch_key_or_value (old_keys, i, hash_table->have_big_keys);
-          value = g_hash_table_fetch_key_or_value (old_values, i, hash_table->have_big_values);
+          key = g_hash_table_fetch_key_or_value (old_keys, i, old_have_big_keys);
+          value = g_hash_table_fetch_key_or_value (old_values, i, old_have_big_values);
 
           old_hashes[i] = UNUSED_HASH_VALUE;
 
-          g_hash_table_assign_key_or_value (old_keys, i, hash_table->have_big_keys, NULL);
-          g_hash_table_assign_key_or_value (old_values, i, hash_table->have_big_values, NULL);
+          g_hash_table_assign_key_or_value (old_keys, i, old_have_big_keys, NULL);
+          g_hash_table_assign_key_or_value (old_values, i, old_have_big_values, NULL);
 
           if (hash_table->key_destroy_func != NULL)
             hash_table->key_destroy_func (key);
@@ -650,9 +706,6 @@ g_hash_table_remove_all_nodes (GHashTable *hash_table,
             hash_table->value_destroy_func (value);
         }
     }
-
-  hash_table->have_big_keys = FALSE;
-  hash_table->have_big_values = FALSE;
 
   /* Destroy old storage space. */
   if (old_keys != old_values)
@@ -1016,7 +1069,6 @@ g_hash_table_new_full (GHashFunc      hash_func,
   GHashTable *hash_table;
 
   hash_table = g_slice_new (GHashTable);
-  g_hash_table_set_shift (hash_table, HASH_TABLE_MIN_SHIFT);
   g_atomic_ref_count_init (&hash_table->ref_count);
   hash_table->nnodes             = 0;
   hash_table->noccupied          = 0;
@@ -1027,17 +1079,8 @@ g_hash_table_new_full (GHashFunc      hash_func,
 #endif
   hash_table->key_destroy_func   = key_destroy_func;
   hash_table->value_destroy_func = value_destroy_func;
-  hash_table->keys               = g_hash_table_realloc_key_or_value_array (NULL, hash_table->size, FALSE);
-  hash_table->values             = hash_table->keys;
-  hash_table->hashes             = g_new0 (guint, hash_table->size);
 
-#ifdef USE_SMALL_ARRAYS
-  hash_table->have_big_keys = FALSE;
-  hash_table->have_big_values = FALSE;
-#else
-  hash_table->have_big_keys = TRUE;
-  hash_table->have_big_values = TRUE;
-#endif
+  g_hash_table_setup_storage (hash_table);
 
   return hash_table;
 }
@@ -1050,6 +1093,10 @@ g_hash_table_new_full (GHashFunc      hash_func,
  * Initializes a key/value pair iterator and associates it with
  * @hash_table. Modifying the hash table after calling this function
  * invalidates the returned iterator.
+ *
+ * The iteration order of a #GHashTableIter over the keys/values in a hash
+ * table is not defined.
+ *
  * |[<!-- language="C" -->
  * GHashTableIter iter;
  * gpointer key, value;
@@ -1613,11 +1660,15 @@ g_hash_table_replace (GHashTable *hash_table,
 /**
  * g_hash_table_add:
  * @hash_table: a #GHashTable
- * @key: a key to insert
+ * @key: (transfer full): a key to insert
  *
  * This is a convenience function for using a #GHashTable as a set.  It
  * is equivalent to calling g_hash_table_replace() with @key as both the
  * key and the value.
+ *
+ * In particular, this means that if @key already exists in the hash table, then
+ * the old copy of @key in the hash table is freed and @key replaces it in the
+ * table.
  *
  * When a hash table only ever contains keys that have themselves as the
  * corresponding value it is able to be stored more efficiently.  See
@@ -1980,6 +2031,9 @@ g_hash_table_foreach_steal (GHashTable *hash_table,
  * be modified while iterating over it (you can't add/remove
  * items). To remove all items matching a predicate, use
  * g_hash_table_foreach_remove().
+ *
+ * The order in which g_hash_table_foreach() iterates over the keys/values in
+ * the hash table is not defined.
  *
  * See g_hash_table_find() for performance caveats for linear
  * order searches in contrast to g_hash_table_lookup().

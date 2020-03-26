@@ -28,8 +28,8 @@
 
 #include <glib.h>
 
-/* Test our stdio wrappers here */
-#define G_STDIO_NO_WRAP_ON_UNIX
+/* Test our stdio wrappers here; this disables redefining (e.g.) g_open() to open() */
+#define G_STDIO_WRAP_ON_UNIX
 #include <glib/gstdio.h>
 
 #ifdef G_OS_UNIX
@@ -37,6 +37,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <utime.h>
+
+#define G_TEST_DIR_MODE 0555
 #endif
 #include <fcntl.h>
 #ifdef G_OS_WIN32
@@ -49,6 +51,8 @@
 #ifndef F_OK
 #define F_OK 0
 #endif
+
+#define G_TEST_DIR_MODE (S_IWRITE | S_IREAD)
 #endif
 
 #define S G_DIR_SEPARATOR_S
@@ -518,6 +522,121 @@ test_mkdir_with_parents (void)
   g_assert_cmpint (errno, ==, EINVAL);
 }
 
+#ifdef G_OS_UNIX
+/*
+ * check_cap_dac_override:
+ * @tmpdir: A temporary directory in which we can create and delete files
+ *
+ * Check whether the current process can bypass DAC permissions.
+ *
+ * Traditionally, "privileged" processes (those with effective uid 0)
+ * could do this (and bypass many other checks), and "unprivileged"
+ * processes could not.
+ *
+ * In Linux, the special powers of euid 0 are divided into many
+ * capabilities: see `capabilities(7)`. The one we are interested in
+ * here is `CAP_DAC_OVERRIDE`.
+ *
+ * We do this generically instead of actually looking at the capability
+ * bits, so that the right thing will happen on non-Linux Unix
+ * implementations, in particular if they have something equivalent to
+ * but not identical to Linux permissions.
+ *
+ * Returns: %TRUE if we have Linux `CAP_DAC_OVERRIDE` or equivalent
+ *  privileges
+ */
+static gboolean
+check_cap_dac_override (const char *tmpdir)
+{
+  gchar *dac_denies_write;
+  gchar *inside;
+  gboolean have_cap;
+
+  dac_denies_write = g_build_filename (tmpdir, "dac-denies-write", NULL);
+  inside = g_build_filename (dac_denies_write, "inside", NULL);
+
+  g_assert_cmpint (mkdir (dac_denies_write, S_IRWXU) == 0 ? 0 : errno, ==, 0);
+  g_assert_cmpint (chmod (dac_denies_write, 0) == 0 ? 0 : errno, ==, 0);
+
+  if (mkdir (inside, S_IRWXU) == 0)
+    {
+      g_test_message ("Looks like we have CAP_DAC_OVERRIDE or equivalent");
+      g_assert_cmpint (rmdir (inside) == 0 ? 0 : errno, ==, 0);
+      have_cap = TRUE;
+    }
+  else
+    {
+      int saved_errno = errno;
+
+      g_test_message ("We do not have CAP_DAC_OVERRIDE or equivalent");
+      g_assert_cmpint (saved_errno, ==, EACCES);
+      have_cap = FALSE;
+    }
+
+  g_assert_cmpint (chmod (dac_denies_write, S_IRWXU) == 0 ? 0 : errno, ==, 0);
+  g_assert_cmpint (rmdir (dac_denies_write) == 0 ? 0 : errno, ==, 0);
+  g_free (dac_denies_write);
+  g_free (inside);
+  return have_cap;
+}
+#endif
+
+/* Reproducer for https://gitlab.gnome.org/GNOME/glib/issues/1852 */
+static void
+test_mkdir_with_parents_permission (void)
+{
+#ifdef G_OS_UNIX
+  gchar *tmpdir;
+  gchar *subdir;
+  gchar *subdir2;
+  gchar *subdir3;
+  GError *error = NULL;
+  int result;
+  int saved_errno;
+  gboolean have_cap_dac_override;
+
+  tmpdir = g_dir_make_tmp ("test-fileutils.XXXXXX", &error);
+  g_assert_no_error (error);
+  g_assert_nonnull (tmpdir);
+
+  have_cap_dac_override = check_cap_dac_override (tmpdir);
+
+  subdir = g_build_filename (tmpdir, "sub", NULL);
+  subdir2 = g_build_filename (subdir, "sub2", NULL);
+  subdir3 = g_build_filename (subdir2, "sub3", NULL);
+  g_assert_cmpint (g_mkdir (subdir, 0700) == 0 ? 0 : errno, ==, 0);
+  g_assert_cmpint (g_chmod (subdir, 0) == 0 ? 0 : errno, ==, 0);
+
+  if (have_cap_dac_override)
+    {
+      g_test_skip ("have CAP_DAC_OVERRIDE or equivalent, cannot test");
+    }
+  else
+    {
+      result = g_mkdir_with_parents (subdir2, 0700);
+      saved_errno = errno;
+      g_assert_cmpint (result, ==, -1);
+      g_assert_cmpint (saved_errno, ==, EACCES);
+
+      result = g_mkdir_with_parents (subdir3, 0700);
+      saved_errno = errno;
+      g_assert_cmpint (result, ==, -1);
+      g_assert_cmpint (saved_errno, ==, EACCES);
+
+      g_assert_cmpint (g_chmod (subdir, 0700) == 0 ? 0 : errno, ==, 0);
+    }
+
+  g_assert_cmpint (g_remove (subdir) == 0 ? 0 : errno, ==, 0);
+  g_assert_cmpint (g_remove (tmpdir) == 0 ? 0 : errno, ==, 0);
+  g_free (subdir3);
+  g_free (subdir2);
+  g_free (subdir);
+  g_free (tmpdir);
+#else
+  g_test_skip ("cannot test without Unix-style permissions");
+#endif
+}
+
 static void
 test_format_size_for_display (void)
 {
@@ -808,6 +927,7 @@ test_set_contents (void)
   fd = g_file_open_tmp (NULL, &name, &error);
   g_assert_no_error (error);
   write (fd, "a", 1);
+  g_assert_cmpint (g_fsync (fd), ==, 0);
   close (fd);
 
   ret = g_file_get_contents (name, &buf, &len, &error);
@@ -890,14 +1010,8 @@ test_stdio_wrappers (void)
   GError *error = NULL;
   GStatBuf path_statbuf, cwd_statbuf;
   time_t now;
-
-  /* The permissions tests here don’t work when running as root. */
 #ifdef G_OS_UNIX
-  if (getuid () == 0 || geteuid () == 0)
-    {
-      g_test_skip ("File permissions tests cannot be run as root");
-      return;
-    }
+  gboolean have_cap_dac_override;
 #endif
 
   g_remove ("mkdir-test/test-create");
@@ -914,13 +1028,32 @@ test_stdio_wrappers (void)
 
   cwd = g_get_current_dir ();
   path = g_build_filename (cwd, "mkdir-test", NULL);
-  g_free (cwd);
-#ifndef G_OS_WIN32
-  /* 0666 on directories means nothing to Windows, it only obeys ACLs */
-  ret = g_chdir (path);
-  g_assert_cmpint (errno, ==, EACCES);
-  g_assert_cmpint (ret, ==, -1);
+#ifdef G_OS_UNIX
+  have_cap_dac_override = check_cap_dac_override (cwd);
 #endif
+  g_free (cwd);
+
+  /* 0666 on directories means nothing to Windows, it only obeys ACLs.
+   * It doesn't necessarily mean anything on Unix either: if we have
+   * Linux CAP_DAC_OVERRIDE or equivalent (in particular if we're root),
+   * then we ignore filesystem permissions. */
+#ifdef G_OS_UNIX
+  if (have_cap_dac_override)
+    {
+      g_test_message ("Cannot test g_chdir() failing with EACCES: we "
+                      "probably have CAP_DAC_OVERRIDE or equivalent");
+    }
+  else
+    {
+      ret = g_chdir (path);
+      g_assert_cmpint (ret == 0 ? 0 : errno, ==, EACCES);
+      g_assert_cmpint (ret, ==, -1);
+    }
+#else
+  g_test_message ("Cannot test g_chdir() failing with EACCES: "
+                  "it's Unix-specific behaviour");
+#endif
+
   ret = g_chmod (path, 0777);
   g_assert_cmpint (ret, ==, 0);
   ret = g_chdir (path);
@@ -936,7 +1069,7 @@ test_stdio_wrappers (void)
   g_free (cwd);
   g_free (path);
 
-  ret = g_creat ("test-creat", 0555);
+  ret = g_creat ("test-creat", G_TEST_DIR_MODE);
   g_close (ret, &error);
   g_assert_no_error (error);
 
@@ -1403,6 +1536,7 @@ main (int   argc,
   g_test_add_func ("/fileutils/build-filename", test_build_filename);
   g_test_add_func ("/fileutils/build-filenamev", test_build_filenamev);
   g_test_add_func ("/fileutils/mkdir-with-parents", test_mkdir_with_parents);
+  g_test_add_func ("/fileutils/mkdir-with-parents-permission", test_mkdir_with_parents_permission);
   g_test_add_func ("/fileutils/format-size-for-display", test_format_size_for_display);
   g_test_add_func ("/fileutils/errors", test_file_errors);
   g_test_add_func ("/fileutils/basename", test_basename);

@@ -1533,7 +1533,7 @@ g_scanner_unexp_token (GScanner		*scanner,
 		   "%s%s",
 		   need_valid ? "valid " : "",
 		   symbol_spec);
-      /* FIXME: should we attempt to lookup the symbol_name for symbol_2_token? */
+      /* FIXME: should we attempt to look up the symbol_name for symbol_2_token? */
       break;
     case G_TOKEN_CHAR:
       _g_snprintf (expected_string, expected_string_len, "%scharacter",
@@ -1955,7 +1955,7 @@ g_scanner_get_token_ll	(GScanner	*scanner,
 	    }
 	  else
 	    ch = '0';
-	  /* fall through */
+          G_GNUC_FALLTHROUGH;
 	case '1':
 	case '2':
 	case '3':

@@ -640,7 +640,7 @@ g_option_context_get_main_group (GOptionContext *context)
 /**
  * g_option_context_add_main_entries:
  * @context: a #GOptionContext
- * @entries: a %NULL-terminated array of #GOptionEntrys
+ * @entries: (array zero-terminated=1): a %NULL-terminated array of #GOptionEntrys
  * @translation_domain: (nullable): a translation domain to use for translating
  *    the `--help` output for the options in @entries
  *    with gettext(), or %NULL
@@ -655,6 +655,7 @@ g_option_context_add_main_entries (GOptionContext      *context,
                                    const GOptionEntry  *entries,
                                    const gchar         *translation_domain)
 {
+  g_return_if_fail (context != NULL);
   g_return_if_fail (entries != NULL);
 
   if (!context->main_group)
@@ -840,6 +841,8 @@ g_option_context_get_help (GOptionContext *context,
   const gchar *rest_description;
   GString *string;
   guchar token;
+
+  g_return_val_if_fail (context != NULL, NULL);
 
   string = g_string_sized_new (1024);
 
@@ -1829,9 +1832,12 @@ platform_get_argv0 (void)
 			    &len,
 			    NULL))
     return NULL;
-  /* Sanity check for a NUL terminator. */
-  if (!memchr (cmdline, 0, len))
-    return NULL;
+
+  /* g_file_get_contents() guarantees to put a NUL immediately after the
+   * file's contents (at cmdline[len] here), even if the file itself was
+   * not NUL-terminated. */
+  g_assert (memchr (cmdline, 0, len + 1));
+
   /* We could just return cmdline, but I think it's better
    * to hold on to a smaller malloc block; the arguments
    * could be large.
@@ -1956,6 +1962,8 @@ g_option_context_parse (GOptionContext   *context,
 {
   gint i, j, k;
   GList *list;
+
+  g_return_val_if_fail (context != NULL, FALSE);
 
   /* Set program name */
   if (!g_get_prgname())
@@ -2392,7 +2400,7 @@ g_option_group_unref (GOptionGroup *group)
 /**
  * g_option_group_add_entries:
  * @group: a #GOptionGroup
- * @entries: a %NULL-terminated array of #GOptionEntrys
+ * @entries: (array zero-terminated=1): a %NULL-terminated array of #GOptionEntrys
  *
  * Adds the options specified in @entries to @group.
  *
@@ -2404,6 +2412,7 @@ g_option_group_add_entries (GOptionGroup       *group,
 {
   gsize i, n_entries;
 
+  g_return_if_fail (group != NULL);
   g_return_if_fail (entries != NULL);
 
   for (n_entries = 0; entries[n_entries].long_name != NULL; n_entries++) ;
@@ -2708,8 +2717,10 @@ g_option_context_get_description (GOptionContext *context)
 /**
  * g_option_context_parse_strv:
  * @context: a #GOptionContext
- * @arguments: (inout) (array zero-terminated=1): a pointer to the
- *    command line arguments (which must be in UTF-8 on Windows)
+ * @arguments: (inout) (array null-terminated=1) (optional): a pointer
+ *    to the command line arguments (which must be in UTF-8 on Windows).
+ *    Starting with GLib 2.62, @arguments can be %NULL, which matches
+ *    g_option_context_parse().
  * @error: a return location for errors
  *
  * Parses the command line arguments.
@@ -2742,8 +2753,10 @@ g_option_context_parse_strv (GOptionContext   *context,
   gboolean success;
   gint argc;
 
+  g_return_val_if_fail (context != NULL, FALSE);
+
   context->strv_mode = TRUE;
-  argc = g_strv_length (*arguments);
+  argc = arguments && *arguments ? g_strv_length (*arguments) : 0;
   success = g_option_context_parse (context, &argc, arguments, error);
   context->strv_mode = FALSE;
 

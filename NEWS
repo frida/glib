@@ -1,3 +1,883 @@
+Overview of changes in GLib 2.64.0
+==================================
+
+* Use `posix_spawn()` to speed up launching test D-Bus instances (!1388)
+
+* Bugs fixed:
+ - #1783 Document using glib-mkenums with meson
+ - #2049 Crash in g_array_copy
+ - !1384 Some minor clang warning fixes
+ - !1386 docs: Document generated headers caveats for genmarshal
+ - !1387 ci: Correctly propagate exit status in run-style-check-diff.sh
+ - !1388 gtestdbus: Use posix_spawn() to spawn dbus-daemon
+ - !1389 Update GError docs to use G_DEFINE_QUARK
+
+* Translation updates:
+ - Czech
+ - Danish
+
+
+Overview of changes in GLib 2.63.6
+==================================
+
+* Fix potential relative read when calling g_printerr(), which could lead to a
+  denial of service from a setuid-root process being used to block access to the
+  TTY for another user (#1919)
+
+* Fix SOCKS proxy resolver sometimes not being used when resolving addresses
+  via Happy Eyeballs (CVE-2020-6750) (#1989)
+
+* Several other Happy Eyeballs fixes for address resolution (#1871, #1872, #1902)
+
+* Various race fixes in `GDBusConnection` and its unit tests (#1515)
+
+* Fix a race condition with D-Bus name ownership (#1517)
+
+* Drop `gio-launch-desktop` helper application in favour of calling `sh` directly (#1633)
+
+* Fix win32 exception handling with C# exceptions (#2025)
+
+* Fix thread safety of `GUnixMountMonitor` (#2030)
+
+* Additional fixes to new thread pool attribute behaviour from GLib 2.63.4 to
+  check if sched_setattr() is allowed by system policies before depending on it (#2039, !1356)
+
+* Fix memory leaks and corruption when freeing `GSource`s while freeing a `GMainContext` (!1353)
+
+* Drop inappropriate installation of object manager example documentation (!1359)
+
+* Bugs fixed:
+ - #938 gdbus call -a doesn't support message bus connections
+ - #1515 gio/gdbus-threading test sometimes fails in CI
+ - #1517 g_bus_own_name does not always call name_lost_handler when _REPLACE and _ALLOW_REPLACEMENT are set
+ - #1633 should not install gio-launch-desktop into PATH
+ - #1919 read from relative path in g_printerr() in 2.58.3
+ - #1995 Tracker issue for Happy Eyeballs regressions
+ - #2002 g_io_channel_read_line does not honour the line_term symbols set
+ - #2025 W32 exception handling misbehaves when C# exceptions are thrown when running inside the Visual Studio debugger
+ - #2030 Random nautilus test suite failures involving GUnixMountMonitor
+ - #2039 sched_setattr() still can cause EPERM through natural causes
+ - #2043 Low memory monitor test failed in CI
+ - #2044 GApplication docs suggest invalid GVariant type
+ - !1185 gtimezone: Tidy up UTC timezone creation
+ - !1281 ci: Update Docker packages
+ - !1283 gmodule: change _g_module_close to only take a handle.
+ - !1298 tests: Speed up the GIO actions test
+ - !1299 gapplication: Fix a minor typo in the documentation
+ - !1339 gsocketclient: Refactor g_socket_client_connect_async()
+ - !1353 GMainContext - Fix memory leaks and memory corruption when freeing sources while freeing a context
+ - !1354 GThreadPool - Add test for !1340
+ - !1355 glist: Add docs examples of how to combine with g_steal_pointer()
+ - !1356 GThread - Check if sched_setattr is allowed by the system policies before depending on it
+ - !1359 docs: Don’t install object manager example separately
+ - !1363 Make tests pass if we are euid != 0 with capabilities
+ - !1366 Fix oss-fuzz coverage link
+ - !1372 gobject: Fix strict aliasing warnings with g_set_object()
+ - !1376 gitlab-ci: 64-bit ARM is aarch64, not arm64
+ - !1381 ghash: Document the iteration order over a hash table is not defined
+ - !1382 tests: Bump the refcount timeout in gdbus-threading
+ - !1383 ci: Enable parallelisation when running installed tests
+
+* Translation updates:
+ - Basque
+ - English (United Kingdom)
+ - French
+ - Galician
+ - German
+ - Greek, Modern (1453-)
+ - Hungarian
+ - Indonesian
+ - Japanese
+ - Korean
+ - Lithuanian
+ - Polish
+ - Portuguese (Brazil)
+ - Spanish
+ - Swedish
+ - Turkish
+
+
+Overview of changes in GLib 2.63.5
+==================================
+
+* Fix behaviour of `g_file_move()` fallback code to not follow symlinks (#986)
+
+* Rename `--glib-min-version` argument of `gdbus-codegen` to `--glib-min-required`
+  (this is not an API break as `--glib-min-version` was added earlier in the
+  2.63 cycle) (#1993)
+
+* Add gtk-doc checks to CI and fix a number of documentation issues
+  (thanks to Xavier Claessens) (!978)
+
+* Add `G_SIZEOF_MEMBER()` macro (!1333)
+
+* Add a debug message if `g_setenv()` or `g_unsetenv()` are used after any
+  threads have been spawned — this will be upgraded to a warning in future (!1337, #715)
+
+* Skip memory monitor tests if xdg-desktop-portal or dbusmock are not available (!1296, !1338)
+
+* Change the `libmount` configure option from a boolean to a Meson `feature` (!1344)
+
+* Do not return `target-uri` from `g_file_peek_path()` when called on trash/recent files (!1346)
+
+* Drop new TLS certificate API for PKCS #11 backed certificates, as the implementation
+  is not ready yet (this is not an API break as the API was added earlier in the
+  2.63 cycle) (!1347)
+
+* Bugs fixed:
+ - #986 g_file_move: remove G_FILE_COPY_NOFOLLOW_SYMLINKS section
+ - #1551 CI: Add checks for `TODO` in MRs
+ - #1925 Large number of routes installed into kernel cause high cpu usage
+ - #1993 Rename gdbus-codegen --glib-min-version argument to --glib-min-required and add --glib-max-allowed
+ - #2012 spawn_thread_queue not initialised in GThreadPool
+ - #2020 g_network_monitor_base_add_network() improperly unrefs GInetAddressMask
+ - !978 Various fixes to make gtkdoc-check pass on glib
+ - !1018 docs: tag enclose 'all' and 'help' values
+ - !1170 Avoid C++20 deprecated assignment to volatile
+ - !1296 tests: Skip GMemoryMonitor tests if the dbusmock template is not available
+ - !1307 Remove global declaration of GMemoryMonitor
+ - !1322 gmain: Mark G_SOURCE_FUNC as available in 2.58
+ - !1333 Add and use G_SIZEOF_MEMBER() macro
+ - !1337 genviron: Message if g_setenv()/g_unsetenv() are used after threads spawned
+ - !1338 tests: Skip GMemoryMonitor tests if xdg-desktop-portal is not available
+ - !1344 meson: libmount autodectection
+ - !1345 gio-tool-info: Print unix mount information where available
+ - !1346 gfile: Do not return target-uri from g_file_peek_path()
+ - !1347 Revert "gtlscertificate: Add support for PKCS #11 backed certificates"
+ - !1348 ghash: Clarify that g_hash_table_add() always consumes the key
+ - !1349 doc: Clarify that _locker_new() does not actually allocate memory
+ - !1351 glib.supp: update g-threaded-resolver-getaddrinfo-config
+
+* Translation updates:
+ - Japanese
+ - Lithuanian
+ - Malay
+ - Portuguese (Brazil)
+ - Swedish
+
+
+Overview of changes in GLib 2.63.4
+==================================
+
+* Fix various race conditions on signal emission in GDBus (#604, #978, #1232)
+
+* Change thread pools so that thread attributes (in particular, priority) are
+  inherited from the thread which created the `GThreadPool` initially, rather
+  than from the thread which is pushing a new job into the pool (#1834, #2007)
+
+* Expand support for running Windows apps with
+  `g_app_info_launch_default_for_uri()` using rundll32 on Windows (#1932)
+
+* Support multiple directories in `GSETTINGS_SCHEMA_DIR` environment variable (#1998)
+
+* Support full Julian day range in `TZ` environment variable (#1999)
+
+* Apply recursion depth limits to variants in D-Bus messages (!1201)
+
+* Support adding call flags and timeouts to method calls generated by
+  `gdbus-codegen` through the new `--glib-min-version` option (!1286)
+
+* Fully deprecate TLS rehandshakes; they are now ignored due to TLS protocol
+  changes (!1305)
+
+* Bugs fixed:
+ - #198 g_fopen and friends: should also state how to close a stream
+ - #604 GDBus name watching dispatch is buggy/excessively-complicated
+ - #833 g_object_set: document the need to cast varargs
+ - #978 SIGSEGV in on_name_lost_or_acquired
+ - #1232 Insufficient thread safety around GDBusObjectManagerClient
+ - #1416 Re-add macOS CI
+ - #1834 Unwanted priority/etc inheritance with GThreadPool and GThread and the POSIX implementation
+ - #1932 Windows: Gio.AppInfo.launch_default_for_uri seems not to work for local files/folders
+ - #1983 glib:gio / dbus-appinfo test fails: GLib-GIO:ERROR:../../../../Projects/glib/gio/tests/dbus-appinfo.c:326:on_flatpak_open: 'g_file_equal (files[0], f)' should be TRUE
+ - #1997 Base64 encoding with "break_lines" claims to wrap at 72 characters but seems to wrap at 76
+ - #1998 support multiple directories in GSETTINGS_SCHEMA_DIR
+ - #1999 GTimeZone fails to accept full Julian day range when parsing the direct $TZ string format
+ - #2007 Thread scheduler attributes fail under valgrind
+ - !388 ci: Avoid downloading subprojects for each job
+ - !1111 gio: test that launch_uris() exports files with the document portal when launching a flatpak
+ - !1201 gdbusmessage: Limit recursion of variants in D-Bus messages
+ - !1279 tests: Fix an error message set by foo_set_property()
+ - !1286 gdbus-codegen: Add a GDBusCallFlags arg to method calls
+ - !1291 gio-tool-list: Add an option to print display names
+ - !1294 GMemoryMonitor docs fixes
+ - !1295 gio: Fix socket test
+ - !1301 GThread - Inherit parent thread priority by default for new Win32 threads
+ - !1303 gvariant-core: Don't pass NULL second argument to memcpy
+ - !1305 Fully deprecate TLS rehandshakes
+ - !1308 gsocketclient: run timeout source on the task's main context
+ - !1309 Fix crash in gutils when application is prevented access to passwd file
+ - !1317 gfdonotificationbackend: remove notifications when bus name vanishes
+ - !1320 subprojects: Temporarily avoid using wrapdb while it’s down
+ - !1324 ci: Add some documentation to the style check CI test
+ - !1325 Check for SYS_sched_getattr before using it unconditionally
+ - !1330 W32: Correctly set st_ino when doing private stat()
+ - !1334 gthread: Ensure GThreadSchedulerSettings is always defined
+
+* Translation updates:
+ - Catalan
+ - Galician
+ - Hungarian
+ - Indonesian
+ - Polish
+ - Portuguese (Brazil)
+ - Spanish
+
+
+Overview of changes in GLib 2.63.3
+==================================
+
+* Add a `--glib-min-version` argument to `gdbus-codegen` which controls breaks in the API of generated code (#1726)
+
+* Add `g_clear_list()` API to clear `GList`s to `NULL` (#1943)
+
+* Add a `GMemoryMonitor` API to be notified of memory pressure situations using the low-memory-monitor project (!1005)
+
+* Add support for dispose functions for `GSource` implementations (!1175)
+
+* Tighten up validation of GObject signal and property names, allowing performance improvements (!1224)
+
+* Fix installation path of GIO modules on MSVC to be the bindir (!1254)
+
+* Bugs fixed:
+ - #650 g_signal_lookup gives too many warnings
+ - #1011 GListStore, easily find if the item is already inserted
+ - #1130 gdbus-codegen: Add an option to strictly generate markdown in source comments
+ - #1687 glocalvfs.c uses non-thread-safe getpwnam()
+ - #1726 Warn when method/signal uses type 'h' but lacks GDBus.C.UnixFD annotation
+ - #1935 Assert in _kqsub_free seems to be too strict
+ - #1943 Consider g_clear_list()
+ - #1947 Documentation clarification for g_uuid_string_random()
+ - #1953 Documentation for g_type_init() and others missing from online gtk-doc documentation
+ - #1961 A typo in the comment of `g_settings_schema_get_path`: threfore -> therefore
+ - !1005 gio: Add GMemoryMonitor to monitor for low-memory
+ - !1172 gptrarray: Add an example to the g_ptr_array_steal() docs
+ - !1175 Implement a dispose function for GSource
+ - !1223 Add additional valgrind suppressions
+ - !1224 Signal name handling improvements
+ - !1230 ci: Run installed-tests on Fedora
+ - !1235 Add sudo to Fedora docker image
+ - !1239 tests: Run "timeout tests" sequentially
+ - !1248 ci: Update all Debian CI runners to use v5 of the Dockerfile
+ - !1249 gio-tool-mount: Allow mounting by the given UUID
+ - !1252 ci: Fix running all jobs on merge requests
+ - !1253 gthread: Fix "zero as null pointer" warning
+ - !1254 giomodule: gio modules are no longer installed in bindir on MSVC
+ - !1255 ci: Build Docker images rather than OCI images if using podman
+ - !1256 gdate: Add autoptr support
+ - !1258 Minor CI fixups
+ - !1261 gtk-doc: Ensure we have recent enough version
+ - !1262 tests: Add tests for the gdbus-codegen executable
+ - !1265 build: don't check for protected visibility
+ - !1267 Revert "doc: Workaround gtkdoc-scan bug leading to undocumented symbols"
+ - !1268 ci: Work-around successful installed tests having no logs
+ - !1269 gvariant: Add guard to g_variant_get()
+ - !1271 tests: Enable GDBus debug for a number of unreliable tests
+ - !1274 trash portal: Don't follow symlinks
+ - !1275 Small doc correction
+ - !1277 Various gtk-doc improvements
+ - !1278 Update installed tests CI
+ - !1280 clang-format-diff: Output diff for multiple files, not just one
+ - !1282 Revert "Revert "docs: remove GDBusObjectManager example""
+ - !1284 Update POTFILES.in 191212
+ - !1287 atomic/tests: test g_atomic_pointer_compare_and_exchange() with const pointers
+ - !1289 gtype: Define auto-cleanup functions for Module class
+
+* Translation updates:
+ - Spanish
+
+
+Overview of changes in GLib 2.63.2
+==================================
+
+* Use `lldb` rather than `gdb` on macOS for debugging (#1004)
+
+* Switch the atomic builtins from `__sync_fetch_*()` to the slightly more modern
+  `__atomic_*()` (#1750)
+
+* Fix calculation of `gsize` width on various platforms (including OpenBSD) (#1777)
+
+* Fix undefined behaviour causing brokenness in `g_utf8_find_prev_char()` when
+  compiling with GCC ≥ 8 (#1917)
+
+* Revert UNIX mode changes in `G_FILE_ATTRIBUTE_ID_UNIX_MODE` which broke OSTree (#1934)
+
+* Slightly improve performance for signal emissions when no handlers are connected (!1083)
+
+* Add `g_task_return_value()` and `g_task_propagate_value()` APIs to allow
+  `GTask` to be used from language bindings more easily (!1216)
+
+* Fix a file monitoring crash on kqueue-based systems (BSD) (!1221)
+
+* Bugs fixed:
+ - #1004 [PATCH] Make gbacktrace use lldb on Mac OS X
+ - #1552 CI: Add code style checks
+ - #1750 Switch from  __sync_fetch_*() to __atomic_*() in glib/gatomic.h
+ - #1777 gsize: improper typedef on (at least) OpenBSD
+ - #1895 Regression: glib does not compile on centos 6: "objcopy: unrecognized option '--add-symbol'"
+ - #1917 Test utf8-pointer fails with static build, LTO, optimisations, and new GCC
+ - #1930 glib/tests/bookmarkfile.c:385:test_modify: assertion failed: (stamp == now)
+ - #1934 ostree tests broken since bfdc5fc4fc84ef8518d2d1a328c8482cf5a38e98: File '/tmp/test-tmp-libostree_test-basic-user.sh.test-QB4SA0/diff-test2' is not empty
+ - #1938 GDateTime doesn't support leap seconds
+ - #1940 atomics test fails on FreeBSD CI since !1123
+ - !1039 Improve documentation for footgun function g_tls_client_connection_copy_session_state()
+ - !1083 Use the GObject hole on 64bit arches for some flags to improve performance
+ - !1202 CI updates after !1177
+ - !1208 gutils: Slightly improve docs formatting for g_get_os_info()
+ - !1209 Make ld executable configurable
+ - !1210 gdbus-server-auth test: Include gcredentialsprivate.h
+ - !1213 gsocket: Improve diagnostics on bind() failure
+ - !1214 gvariant, gbytes: Avoid memcmp (NULL, ., 0) or memcmp (., NULL, 0)
+ - !1216 Make GTask more binding-friendly
+ - !1218 gdb: Fix GHashTable pretty printer off-by-one error
+ - !1220 gparam: fix memory leak in g_param_value_defaults()
+ - !1221 Add NOTE_REVOKE to the list of the monitoring events
+ - !1225 gtlsconnection: clarify handshake() documentation
+ - !1227 Deprecate old GTlsConnection functionality even harder!
+ - !1231 Fix build on old libc that does not define _SC_HOST_NAME_MAX
+ - !1238 gstrfuncs: use gsize type internally for strv functions
+ - !1242 gfileinfo: Clarify the documentation for G_FILE_ATTRIBUTE_UNIX_MODE
+ - !1243 docs: Fix "occurred" typos in API documentation
+
+* Translation updates:
+ - Spanish
+
+
+Overview of changes in GLib 2.63.1
+==================================
+
+* Several usability improvements to command line `gio` tool (!1153)
+
+* Add `g_array_steal()`, `g_ptr_array_steal()` and `g_byte_array_steal()` APIs (#285)
+
+* Add `g_get_os_info()` API (!1063, !1160)
+
+* Add `g_warning_once()` API (!1028)
+
+* Always resolve `localhost` to loopback address in `GResolver` (!616)
+
+* Add `GMainContextPusher` API (!983)
+
+* Limit recursion in `g_variant_parse()` (!1173)
+
+* Fix crash in `g_spawn()` with high FD numbers due to use of `select()` rather
+  than `poll()` (#954)
+
+* Allow passing empty `GValue`s to `g_param_value_set_default()` (!1186)
+
+* Escape header guards generated by `gdbus-codegen` better (#1379)
+
+* Bugs fixed:
+ - #285 [PATCH] add array steal and memdup functions
+ - #954 The g_spawn_sync() function uses select() which has limitations
+ - #1318 rare failure in gdbus-peer test: invalid uninstantiatable type '(null)' in cast to 'GDBusServer'
+ - #1379 gdbus-codegen generates invalid header guards when build directory contains a + character
+ - #1622 NULL pointer derefs on g_vasprintf() failure
+ - #1813 g_option_context_add_main_entries() is missing array annotation for entries parameter
+ - #1831 No reply on private socket due to auth problem
+ - #1836 gobject.c uses undefined annotation “(not optional)”
+ - #1858 docs/reference/gobject/tut_gobject.xml: object properties example uses deprecated API
+ - #1877 g_cancellable_source_new annotated with 'skip'
+ - #1896 Use after free when calling g_dbus_connection_flush_sync() in a dedicated thread
+ - #1897 glib 2.62.0 fails test 'test_writev_no_vectors' wih gcc7
+ - #1903 use-after-free in mimeapps test causes intermittent segfault during testing
+ - #1906 test_os_info fails on FreeBSD
+ - #1916 objcopy not used from cross-compilation file in GIO tests
+ - #1923 Recent Versions of GLib Break Dolphin File-Manager's Thumbnailing when Using 'gtk2' Style
+ - !616 Always resolve localhost to loopback address
+ - !983 gmain: Add GMainContextPusher convenience API
+ - !1014 tests: Add a test for g_assert_finalize_object()
+ - !1028 gmessages: Add g_warning_once()
+ - !1035 Switching from C gnu89 to C gnu99 standard
+ - !1063 gutils: Add g_get_os_info()
+ - !1082 gdatetime: Document RFC 3339 extensions when parsing ISO 8601
+ - !1105 syscall flood on every time*() function call
+ - !1120 Update documentation with FreeBSD build instructions
+ - !1135 gmain: use atomic operation instead of GMutex to access g_main_context_default()
+ - !1146 Solaris build fixes
+ - !1147 gmodule: fix typo in doc comment
+ - !1148 gio/gfileinfo: fix parameter references
+ - !1149 gio/gfile: fix parameter reference for value_p
+ - !1150 gio/gfile: fix parameter references to @contents
+ - !1151 gio/gfile: fix typo in doc comment
+ - !1152 gwinhttpvfs: Handle g_get_prgname() returning NULL
+ - !1153 Several gio-tool bash completion fixes and improvements
+ - !1155 Strict-aliasing fixes to new atomic built-ins
+ - !1157 Fix various compiler warnings on Android
+ - !1160 Add Windows support to g_get_os_info()
+ - !1161 hash: Remove an assertion from the hot path
+ - !1163 gcharset: Expand the documentation for g_get_locale_variants()
+ - !1165 Use uname as a fallback to get OS info
+ - !1167 Fix some minor leaks in testfilemonitor
+ - !1168 Fix gdatetime tests on toolbox
+ - !1171 Revert "gdbus-codegen: emit GUnixFDLists if an arg has type 'h'"
+ - !1173 gvariant: Limit recursion in g_variant_parse()
+ - !1177 ci: Add libdbus development files to CI Docker images
+ - !1179 Improve GPtrArray doc-comments
+ - !1180 array: Avoid use of memcpy(dest, NULL, 0)
+ - !1181 gmain: Clarify thread safety of some common GSource functions
+ - !1182 gio: Fix typo in URL
+ - !1186 Allow using an empty GValue with g_param_value_set_default()
+ - !1189 gparamspecs: Fix type class leaks on error handling paths
+ - !1197 Fix GDBus test failures on non-Linux (in particular FreeBSD)
+ - !1200 Minor fixes from a scan-build run
+
+* Translation updates:
+ - Catalan
+ - Chinese (Taiwan)
+ - Spanish
+
+
+Overview of changes in GLib 2.63.0
+==================================
+
+* Add g_fsync() API (#35)
+
+* Fix regression in g_file_copy() when passing
+  `G_FILE_COPY_TARGET_DEFAULT_PERMS` flag; the destination permissions would be
+  private rather than following the process’ umask (!1142)
+
+* Several `GDateTime` parsing fixes (!1127)
+
+* Always build the tests if installed-tests are enabled, so that the tests can
+  actually be installed (!1141)
+
+* Rework atomic function implementations to use memory barrier in the correct
+  place (when compiler intrinsics aren’t providing the atomics), and fix
+  signedness issues (#1449, #1565)
+
+* Use the OS’ `fdwalk()` function (if safe) to speed up `g_spawn_*()` on BSD (#1638)
+
+* Remove the macOS `dyld` `GModule` implementation in favour of `dl` instead (!1093)
+
+* Bump Python requirement to ≥ 3.5, which we implicitly relied on anyway through
+  our Meson dependency (!1132)
+
+* Bugs fixed:
+ - #35 add g_fsync to API
+ - #174 g_file_copy always preserves  permissions, even if G_FILE_COPY_ALL_METADATA flag is not set
+ - #259 docs: fix a misunderstanding in g_type_add_interface_*
+ - #767 g_signal_lookup fails if class is not referenced
+ - #1052 g_io_write_chars calls abort when given a null byte as input
+ - #1449 glib fallback atomic int/ptr get/set have memory barrier in wrong place
+ - #1565 Signedness of atomic operations
+ - #1638 g_spawn_*() is extremely slow under certain circumstances
+ - #1809 Provide API for working with PKCS11 backed certificates
+ - #1843 TSAN false positive with g_atomic_pointer_get/g_atomic_pointer_set under Clang
+ - #1865 g_variant_get_data_as_bytes fails after serializing a variant
+ - #1875 Segfault and Overflow in __gio_xdg_cache_mime_type_subclass() with Wps-Office installed
+ - #1887 glib 2.62.0 breaks loading dylibs as modules
+ - #1888 2.62: docs build on Windows broken
+ - #1897 glib 2.62.0 fails test 'test_writev_no_vectors' wih gcc7
+ - !1020 docs: Remove priv pointers from the tutorial example
+ - !1062 gtype: mark the inline functions in G_DECLARE_*_TYPE() as UNUSED
+ - !1080 tests: Fix skipping mkdir-with-parents-permission test
+ - !1088 Various small scan-build fixes
+ - !1090 giochannel: Clarify type of GSource callback in documentation
+ - !1093 gmodule: remove macOS dyld implementation
+ - !1095 Define G_IOV_MAX to 512 on macOS/iOS
+ - !1099 gmem: clarify that g_malloc always uses the system allocator
+ - !1109 doc: fix typo in gio/gsettings.c
+ - !1110 gio: Add missing "gio remove" option to bash completion script
+ - !1112 Add version macros for GLib 2.64
+ - !1115 gdatetime: Fix error handling in g_date_time_new_ordinal()
+ - !1116 gmarkup: Add a limit on the number of attributes in an element
+ - !1119 Annotate the return value of various utility functions
+ - !1124 docs: Fix typo in GConverter{Input,Output}Stream section titles
+ - !1125 gdatetime: Fix error handling in g_date_time_new_week()
+ - !1126 fileinfo: Mention that usec mtimes are set
+ - !1129 gdate: Fix tautological comparison warnings on Android
+ - !1130 Improve GLIB_DEPRECATED_MACRO_FOR output
+ - !1131 gio/gfileinfo: fix param reference in doc comment
+ - !1132 build: Bump Python requirement to ≥ 3.5
+ - !1137 gregistrysettings: bump key name length to 2048
+ - !1138 Always build tests if we enabled installed-tests
+ - !1139 g_file_info_get_modification_date_time: Calculate in integer domain
+
+* Translation updates:
+ - Danish
+ - Italian
+ - Panjabi
+ - Serbian
+ - Turkish
+
+
+Overview of changes in GLib 2.62.0
+==================================
+
+* Fix new `GFileInfo` APIs to work when `G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC`
+  was not queried (!1087)
+
+* Bugs fixed:
+ - #487 Add valgrind test runs to CI
+ - !1084 garray: Fix reference to GLIB_SIZEOF_INT
+ - !1086 glib.supp: make gobject_init() calloc also of the possible kind
+ - !1087 fileinfo: ignore USEC if not available
+
+* Translation updates:
+ - Friulian
+ - Portuguese (Brazil)
+
+
+Overview of changes in GLib 2.61.3
+==================================
+
+* Support setting thread name on BSD systems (#1761)
+
+* Install previously-uninstalled headers for public `GNativeSocketAddress`
+  object (#1854)
+
+* Very initial support for Windows apps (UWP) (!1057)
+
+* Add various new valgrind suppressions to `glib.supp` (#1879, !1075)
+
+* Bugs fixed:
+ - #83 Optimisation for g_nearest_pow() in garray.c
+ - #512 GSignal: accumulator function not called to accumulate G_SIGNAL_RUN_CLEANUP object handler return values
+ - #873 allow NULL arguments to parse_strv
+ - #905 Patches from static analysis run on 2.40
+ - #1057 goption: add sanity check to input parameters
+ - #1309 GSettings object stops emitting "changed" signal on g_settings_reset after call to g_settings_delay
+ - #1620 GDBus criticals from GVfs with GLib master
+ - #1761 Setting thread-name on BSD systems
+ - #1803 GDK_SCALE=X is not respected when using "gio open"
+ - #1819 Invalid characters in Open Location dialog crashes GIMP
+ - #1852 Regression: g_mkdir_with_parents() returns 0 on failure
+ - #1854 glib/gio: GNativeSocketAddress headers not installed.
+ - #1860 g_clear_handle_id does not trigger GLIB_VERSION_MAX_ALLOWED warning
+ - #1863 Potential invalid writes on g_utf8_strreverse
+ - #1867 A couple of en_GBisms
+ - #1870 GSettingsBackend watches not thread-safe
+ - #1879 Incomplete valgrind suppressions - 16 KiB leak reported by valgrind from loading libglib-2.0.so
+ - #1880 glib/gbacktrace.c: If dup2 happened to return -1, don't call dup2 with same value
+ - #1881 GIO_USE_VOLUME_MONITOR and GIO_USE_FILE_MONITOR do not work as documented
+ - !1002 Remove mentions of mailing lists from the documentation
+ - !1011 gapplication: Fix a leaking GRemoteActionGroup member
+ - !1015 Post-release version bump
+ - !1016 gnetworkmonitornm fixups
+ - !1017 Improve ISO 8601 parsing by GDateTime
+ - !1023 g_object_get_property: Improve documentation for use of G_VALUE_INIT
+ - !1026 gutf8: Assert that written memory stays in bounds
+ - !1027 gfileutils: Fix error propagation for other than ENOENT
+ - !1031 meson: build gnulib if printf isn't good enough
+ - !1032 meson: small printf check cleanups
+ - !1033 win32: don't assume the format specifier for the stdlib printf/scanf like functions
+ - !1034 glib/tests/fileutils: Add a reproducer for #1852
+ - !1036 cond test: Don't make assumptions about struct sigaction member order
+ - !1037 Meson: Override glib-compile-resources/schemas
+ - !1044 Relax use of g_test_bug() to not require g_test_bug_base() to be called first
+ - !1049 minor typos in the documentation
+ - !1050 tests: Fix a pragma warning on FreeBSD
+ - !1054 gerror: Add a docs paragraph about not displaying errors verbatim in UI
+ - !1057 Some (probably) easy uwp patches
+ - !1059 Update win32 readme, add myself to codeowners
+ - !1066 libffi.wrap: Meson port has moved to FDO gitlab
+ - !1068 gsubprocesslauncher.c: fix documentation
+ - !1071 meson: Move libdl_dep to the top level
+ - !1074 Adjust README formatting
+ - !1075 glib.supp: add suppression for g_type_class_ref()
+
+* Translation updates:
+ - Basque
+ - Catalan
+ - Czech
+ - English (United Kingdom)
+ - French
+ - Galician
+ - German
+ - Hungarian
+ - Indonesian
+ - Korean
+ - Lithuanian
+ - Polish
+ - Romanian
+ - Spanish
+ - Swedish
+
+
+Overview of changes in GLib 2.61.2
+==================================
+
+* Add various new array functions (#236, #269, #373)
+ - `g_array_copy()`
+ - `g_ptr_array_copy()`
+ - `g_ptr_array_extend()`
+ - `g_ptr_array_extend_and_steal()`
+ - `g_array_binary_search()`
+
+* Add `g_assert_finalize_object()` helper function for writing tests (#488)
+
+* Rework how D-Bus connections are closed/unreffed when `g_test_dbus_down()` is
+  called. Tests which leak a `GDBusConnection` may now time out and abort,
+  rather than silently leaking. (#787)
+
+* Add a deprecation macro for GLib macros, and use it; third-party uses of
+  long-deprecated GLib macros may now start causing warnings. (#1060)
+
+* Deprecate `GTime` and `GTimeVal`, and various functions which use them.
+  Use `GDateTime` and `guint64` UNIX timestamps instead. (#1438)
+
+* Stop using `G_DISABLE_DEPRECATED` to allow disabling deprecation warnings;
+  third-party code should now be using
+  `GLIB_VERSION_{MIN_REQUIRED, MAX_ALLOWED}` to control symbol usage (!871)
+
+* Improve support for running `ninja test` when GLib is built statically (#1648)
+
+* Improve `GNetworkMonitor` detection of offline states (#1788)
+
+* Fix build failure on macOS related to missing `_g_content_type_get_mime_dirs`
+  function (#1791)
+
+* Add various installed utilities’ paths to `gio-2.0.pc` (#1796)
+
+* Fix keyfile `GSettings` backend and portal (especially relevant to any version
+  of GLib included in a flatpak runtime) (#1822, !985)
+
+* More IPv6 ‘Happy Eyeballs’ fixes in `GNetworkAddress` (!865)
+
+* Fix CVE-2019-12450, wide permissions of files when copying using GIO (!876)
+
+* Bump the Meson dependency from 0.48.0 to 0.49.2; we won’t depend on anything
+  higher than this for a while, as Debian 10 ships 0.49 (!924)
+
+* Various test fixes for Windows (!930, !931)
+
+* Initial support for Universal Windows Platform (UWP): certification, and use
+  of packaged libraries (!951)
+
+* Add experimental clang-cl support on Windows, allowing `g_autoptr()` support
+  on Windows (!979)
+
+* Bugs fixed:
+ - #77 G_STDIO_NO_WRAP_ON_UNIX wraps
+ - #236 Add a function to copy an array
+ - #269 Additional convenience functions for g_ptr_array
+ - #373 GArray could use a binary search function
+ - #436 running tests leaves lots of coredumps
+ - #453 find-enclosing-mount docs confusing
+ - #488 Add g_object_assert_last_unref() helper macro to detect object leaks in tests
+ - #590 A reader lock can be obtained even if a writer is already waiting for a lock
+ - #638 g_atexit is defined when not declared
+ - #737 Initialize GValue in g_object_get_property()
+ - #787 gtestdbus: Properly close server connections
+ - #804 gdbusproxy prefixes unstripped error
+ - #870 Fix and enhance GDatetime for Windows
+ - #872 ucs4 functions have wrong return transfer
+ - #887 gdusmessage.c mishandles bounds of GDBusMessageType and related enums
+ - #894 gvalue: Avoid expensive checks where possible
+ - #940 Docs for g_socket_listener_set_backlog are not very helpful
+ - #943 G_DEFINE_TYPE_WITH_PRIVATE docs not helpful
+ - #1018 Allow guid key in dbus addresses
+ - #1060 Add deprecation macro for macros
+ - #1169 Tools can display gibberish messages from translations
+ - #1270 g_get_charset always returns 8-bit codepage on Windows, crippling UTF-8 output
+ - #1438 Deprecate GTimeVal- and GTime-based APIs
+ - #1635 g_socket_join_multicast_group iface parameter fails on win32/64
+ - #1648 2.58.2: Assorted asserts fail in Arch Linux when built statically
+ - #1729 g_content_type_guess segfaults when passed an empty data buffer on Mac OS
+ - #1788 GNetworkMonitor claims I am offline
+ - #1790 documentation on g_file_info_get_attribute_as_string
+ - #1791 _g_content_type_get_mime_dirs missing from libgio-2.0.0.dylib on MacOS
+ - #1792 glib-genmarshal generated valist marshal does not respect static scope for some types
+ - #1793 glib-genmarshal generates wrong code for va marshaler for VARIANT type
+ - #1794 API Proposal: g_timer_is_active
+ - #1796 Add gio-querymodules variable to pkg-config file
+ - #1797 glib/tests/win32 test failing on 64-bit Visual Studio builds
+ - #1798 /contenttype/tree reliably fails on FreeBSD since !863
+ - #1807 g_dbus_server_new_sync() documentation references nonexistent function
+ - #1808 Stopping a GDBusServer should clean up Unix socket paths (if not abstract) and nonce-tcp nonce files
+ - #1811 Introspection info for g_unichar_compose's 3rd arg should be OUT
+ - #1822 keyfile gsettings backend not loading
+ - #1823 Documentation for disabling selinux is incorrect
+ - #1825 GKeyFileSettingsBackend created without filename construct property and unchecked assertion
+ - #1828 Small typo in gio manpage
+ - #1837 Specify for each (optional) parameter, whether it is OUT or INOUT
+ - #1838 Reword documentation for G_DECLARE_FINAL_TYPE
+ - #1847 Setting GLIB_VERSION_{MIN_REQUIRED, MAX_ALLOWED} to before 2.56 triggers warnings
+ - !533 docs: Document pitfall of deprecation pragmas
+ - !563 ci: Add scan-build job in a new ‘analysis’ pipeline stage
+ - !678 glib-compile-schemas: Improve translatable strings
+ - !817 gdate: Officially mark GTime as deprecated
+ - !851 gsettings: Document that lists are returned in no defined order
+ - !853 gobject: Fix apostrophe usage in a few small bits of documentation
+ - !859 gobject: Add a g_assert_finalize_object() macro
+ - !863 gunicollate/cygwin: Don't use __STDC_ISO_10646__ for wchar_t related checks
+ - !865 gnetworkaddress: fix "happy eyeballs" logic
+ - !867 Post-release version bump
+ - !871 Drop G_DISABLE_DEPRECATED
+ - !873 Use atomic reference counting for GSource
+ - !874 Clamp number of vectors to IOV_MAX / UIO_MAXIOV for GOutputStream writev()...
+ - !875 CI/msys2: disable coverage reporting, lcov doesn't support gcc9 yet
+ - !876 CVE-2019-12450: gfile: Limit access to files when copying
+ - !877 gio: specify proper c_marshaller and va_marshallers
+ - !883 tests: Fix small race in GSubprocess tests
+ - !884 garcbox.c: Fix typo atomit => atomic
+ - !885 goption: Clarify G_OPTION_ARG_FILENAME documentation
+ - !889 Include <sys/filio.h> for FIONREAD
+ - !901 gmain: Clarify that g_source_destroy() doesn’t drop a reference
+ - !904 Add glib-genmarshal tests and fix some valist marshaller bugs
+ - !906 property action: Add state hints
+ - !908 Improve testfilemonitor test repeatability and debuggability
+ - !909 D-Bus auth mechanism improvements
+ - !914 ci: Run scan-build in a different build directory
+ - !915 docs: fix typo on arrays examples in gvariant-text
+ - !917 docs: Fix name of IRC channel in CONTRIBUTING.md
+ - !919 glib/tests/refcount.c: Fix tests on non-GCC-isque compilers
+ - !920 gmacros: Only use deprecated attributes on enumerators with GCC ≥ 6.5
+ - !923 Check if compiler symbols are defined before using them
+ - !924 Bump the required version of Meson
+ - !930 glib/tests/convert.c: Skip tests that aren't meaningful for Windows
+ - !931 glib/tests/fileutils.c: Fix stdio Wrapper Test on Windows
+ - !934 build: Increase the slow test timeout to 180s
+ - !935 Ignore */__pycache__/* directories
+ - !937 Fix module tests on Visual Studio builds
+ - !939 gstdio: minor cleanups
+ - !941 list model: Expand items-changed docs
+ - !944 gutils: Don't limit the length of the host name to 99
+ - !945 Avoid overrunning stack at the end of the varargs.
+ - !947 gobject/tests/signals.c: Fix tests on Windows
+ - !948 GObject: Fix mkenums.py and genmarshal.py tests on Windows
+ - !950 ci: Enable CI on FreeBSD 12
+ - !951 Preliminary patches for Universal Windows Platform support
+ - !952 gio: Make minor docs improvements
+ - !953 g_utf8_normalize: Doc comment return missing nullable annotation
+ - !954 Fix the ISO 15924 code for Manichaean
+ - !955 gmacros: Use _Static_assert when C11 is available
+ - !958 gthread: fix minor errno problem in GCond
+ - !961 gmain: Fix g_main_context_prepare priority annotation
+ - !962 gmacros: Use _Static_assert only for non-expr static assert
+ - !964 gmacros.h: Use static_assert on MSVC if possible
+ - !968 Fix typo in request handle
+ - !970 gdatetime: Unset LC_ALL for the test as well
+ - !971 docs.c: Forward link from g_auto* → G_DEFINE_AUTO*
+ - !973 doc: fix typo in gio/gresource.c
+ - !979 Experimental clang-cl support
+ - !980 gmacros.h: Add better support for clang-cl
+ - !981 gio: fix typo in g_settings_reset documentation
+ - !982 Various doc fixes
+ - !985 Keyfile portal fixes
+ - !987 gio/tests: Remove code and comments referring to libtool
+ - !991 fix atomic detection on older gcc versions
+ - !992 docs: Add example to g_test_summary() documentation
+ - !994 gio: Fix minor docs mistakes
+ - !996 Small array test fixes
+ - !997 gdbusaddress: Add missing transfer annotation
+ - !1007 Resubmission of !832 “Try to create the complete path right away and fall back”
+ - !1009 gapplication: remove inactivity_timeout source on finalize
+
+* Translation updates:
+ - Hungarian
+ - Indonesian
+ - Portuguese (Brazil)
+ - Spanish
+
+
+Overview of changes in GLib 2.61.1
+==================================
+
+* `g_unichar_isxdigit()` and `g_unichar_xdigit_value()` now handle full-width
+  characters (U+FF21–U+FF26 and U+FF41–U+FF46) (#58)
+
+* Deprecate `gtester` utility and its test reporting format and enable TAP
+  output by default instead — the `--tap` option to tests is now a no-op
+  (#1441, #1619)
+
+* Add `g_test_summary()` to allow test authors to programmatically summarise
+  what each unit test in a test suite does (#1450)
+
+* Upgrade to Unicode Character Database v12.1 (#1713, !822)
+
+* More IPv6 Happy Eyeballs fixes to `GNetworkAddress` and `GSocketClient`
+  (#1747, #1771, #1774)
+
+* Fix valgrind and gdb support for the new `GHashTable` changes (#1749, #1780)
+
+* Fix GTask wait times growing faster than the number of task threads (#1683)
+
+* Change `GApplication` to ignore `-psn_*` arguments on the macOS command line,
+  as they are irrelevant (#1784)
+
+* Add `g_autoqueue()` helper macros, similar to `g_autolist()` (!474)
+
+* Add pre-allocated link helpers for `GList` and `GQueue`:
+ - `g_list_insert_before_link()`
+ - `g_queue_insert_before_link()`
+ - `g_queue_insert_after_link()`
+
+* Improve network availability detection with NetworkManager to treat lower
+  levels of connectivity as having reduced availability (!781)
+
+* Add `g_clear_signal_handler()` to allow disconnecting from a `GObject` signal
+  and clearing the signal handler ID to zero in a single call (!819)
+
+* Add `g_autoptr()` support for `GRWLock` (!825)
+
+* Define `G_OS_UNIX`, not `G_OS_WIN32`, when GLib is built agains Cygwin (!862)
+
+* Bugs fixed:
+ - #29 GScanner: should explicitly document modifiable fields (value, next_value, ...)
+ - #58 g_unichar_isxdigit() and g_unichar_xdigit_value() should deal with full-width a-fA-F
+ - #106 Boxed types should be documented better
+ - #135 g_unichar_totitle(0) returns 0x00001F88 instead of 0
+ - #429 g_format_size() is broken on Windows
+ - #1441 Deprecate gtester
+ - #1450 Add API for tests to describe what they're checking
+ - #1619 GTest should have a way to default to TAP
+ - #1683 GTask: task_wait_time is increased constantly when the number of running thread is greather than 10
+ - #1713 Upgrade to Unicode Character Database v12
+ - #1739 meson build failure libdl
+ - #1747 Critical in g_socket_client_async_connect_complete
+ - #1749 New GHashTable implementation confuses valgrind
+ - #1753 Remove memory leaks from gio/test/resolver.c
+ - #1755 Please revert #535 gmacros: Try to use the standard __func__ first in G_STRFUNC
+ - #1759 test_month_names: assertion failed
+ - #1760 Document for g_resolver_lookup_records why it returns a list of list of gchar*.
+ - #1763 tests: -p runs tests in the reverse of the specified order
+ - #1768 g_strlcat(): Possible buffer overflow in implementation
+ - #1771 GNetworkAddressAddressEnumerator unsafely modifies cache in GNetworkAddress
+ - #1774 Leaks in gsocketclient.c connection code
+ - #1776 glib/date test fails
+ - #1780 GDB pretty-printer for GHashTable no longer works
+ - #1782 Error in documentation for cross-compile.
+ - #1784 MacOS adds a -psn_X_XXXXXX parameter to the command line
+ - !474 Add g_autoqueue
+ - !476 Add pre-allocated link helpers for GList and GQueue
+ - !556 gtestutils: Make --tap compatible with -p and --GTestSkipCount
+ - !732 gsocket: Clarify in docs that `flags` arguments can be platform specific
+ - !766 W32: swap special g_get_prgname() for platform_get_argv0()
+ - !774 Only build tests if certain conditions are met.
+ - !780 Add copyright and licensing terms to test report generator
+ - !781 gnetworkmonitornm: Fix network available detection
+ - !782 build: Fix check for RTLD_NEXT
+ - !785 Remove monitor test
+ - !787 build: Remove */.gitignore files
+ - !791 glib/gconstructor.h: Include stdlib.h for MSVC builds
+ - !792 general: Remove a few unhelpful references to ‘master’
+ - !795 gdesktopappinfo: Add support for MATE and Xfce4 terminals
+ - !802 gio: tests, don't check for libdl on OpenBSD
+ - !806 Get to 100% coverage on GQueue tests
+ - !808 Update the Docker images used for CI
+ - !809 Modified version of !784 — Adding tests cases for a better coverage of glib/tests/strfuncs.c
+ - !813 gappinfo: Add precondition checks to GAppLaunchContext env methods
+ - !814 gschema.dtd: Add target attribute to alias
+ - !819 Clear signal handler
+ - !820 ci: Keep JUnit report script working on Debian stable
+ - !821 Various minor cleanups to autoptrs
+ - !822 glib: Update Unicode Character Database to version 12.1.0
+ - !825 Add autoptr support for GRWLock
+ - !831 build: (Long time after) post-release version bump
+ - !835 Fix typo in German translation
+ - !836 Document the best practices for binding GInitiallyUnowned
+ - !862 build: define G_OS_UNIX, not G_OS_WIN32 under cygwin
+
+* Translation updates:
+ - Basque
+ - Catalan
+ - German
+ - Indonesian
+ - Spanish
+
+
 Overview of changes in GLib 2.61.0
 ==================================
 

@@ -223,8 +223,8 @@ g_variant_type_info_get_type_string (GVariantTypeInfo *info)
 /* < private >
  * g_variant_type_info_query:
  * @info: a #GVariantTypeInfo
- * @alignment: (optional): the location to store the alignment, or %NULL
- * @fixed_size: (optional): the location to store the fixed size, or %NULL
+ * @alignment: (out) (optional): the location to store the alignment, or %NULL
+ * @fixed_size: (out) (optional): the location to store the fixed size, or %NULL
  *
  * Queries @info to determine the alignment requirements and fixed size
  * (if any) of the type.
@@ -332,8 +332,8 @@ g_variant_type_info_element (GVariantTypeInfo *info)
 /* < private >
  * g_variant_type_query_element:
  * @info: a #GVariantTypeInfo for an array or maybe type
- * @alignment: (optional): the location to store the alignment, or %NULL
- * @fixed_size: (optional): the location to store the fixed size, or %NULL
+ * @alignment: (out) (optional): the location to store the alignment, or %NULL
+ * @fixed_size: (out) (optional): the location to store the fixed size, or %NULL
  *
  * Returns the alignment requires and fixed size (if any) for the
  * element type of the array.  This call is a convenience wrapper around
@@ -546,7 +546,7 @@ tuple_align (gsize offset,
  *
  * Imagine we want to find the start of the "i" in the type "(su(qx)ni)".
  * That's a string followed by a uint32, then a tuple containing a
- * uint16 and a int64, then an int16, then our "i".  In order to get to
+ * uint16 and an int64, then an int16, then our "i".  In order to get to
  * our "i" we:
  *
  * Start at the end of the string, align to 4 (for the uint32), add 4.
@@ -660,7 +660,7 @@ tuple_set_base_info (TupleInfo *info)
     {
       /* the empty tuple: '()'.
        *
-       * has a size of 1 and an no alignment requirement.
+       * has a size of 1 and a no alignment requirement.
        *
        * It has a size of 1 (not 0) for two practical reasons:
        *

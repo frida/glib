@@ -3119,7 +3119,7 @@ g_key_file_get_double  (GKeyFile     *key_file,
  * @key_file: a #GKeyFile
  * @group_name: a group name
  * @key: a key
- * @value: an double value
+ * @value: a double value
  *
  * Associates a new double value with @key under @group_name.
  * If @key cannot be found then it is created. 
@@ -3317,6 +3317,7 @@ g_key_file_set_key_comment (GKeyFile     *key_file,
   pair->value = g_key_file_parse_comment_as_value (key_file, comment);
   
   key_node = g_list_insert (key_node, pair, 1);
+  (void) key_node;
 
   return TRUE;
 }

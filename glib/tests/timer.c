@@ -21,6 +21,9 @@
  * Author: Matthias Clasen
  */
 
+/* We test a few deprecated APIs here. */
+#define GLIB_DISABLE_DEPRECATION_WARNINGS 1
+
 #include "glib.h"
 
 static void
@@ -94,6 +97,22 @@ test_timer_reset (void)
   elapsed2 = g_timer_elapsed (timer, NULL);
 
   g_assert_cmpfloat (elapsed, >, elapsed2);
+
+  g_timer_destroy (timer);
+}
+
+static void
+test_timer_is_active (void)
+{
+  GTimer *timer;
+  gboolean is_active;
+
+  timer = g_timer_new ();
+  is_active = g_timer_is_active (timer);
+  g_assert_true (is_active);
+  g_timer_stop (timer);
+  is_active = g_timer_is_active (timer);
+  g_assert_false (is_active);
 
   g_timer_destroy (timer);
 }
@@ -282,6 +301,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/timer/stop", test_timer_stop);
   g_test_add_func ("/timer/continue", test_timer_continue);
   g_test_add_func ("/timer/reset", test_timer_reset);
+  g_test_add_func ("/timer/is_active", test_timer_is_active);
   g_test_add_func ("/timeval/add", test_timeval_add);
   g_test_add_func ("/timeval/from-iso8601", test_timeval_from_iso8601);
   g_test_add_func ("/timeval/to-iso8601", test_timeval_to_iso8601);

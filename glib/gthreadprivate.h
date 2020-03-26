@@ -21,12 +21,11 @@
 #ifndef __G_THREADPRIVATE_H__
 #define __G_THREADPRIVATE_H__
 
+#include "config.h"
+
 #include "deprecated/gthread.h"
-#include "ghash.h"
 
 typedef struct _GRealThread GRealThread;
-typedef struct _GThreadBeacon GThreadBeacon;
-
 struct  _GRealThread
 {
   GThread thread;
@@ -35,46 +34,56 @@ struct  _GRealThread
   gboolean ours;
   gchar *name;
   gpointer retval;
-  GThreadBeacon *lifetime_beacon;
-  GHashTable *pending_garbage;
-  gboolean destructor_registered;
 };
 
 /* system thread implementation (gthread-posix.c, gthread-win32.c) */
+
+/* Platform-specific scheduler settings for a thread */
+typedef struct
+{
+#if defined(HAVE_SYS_SCHED_GETATTR)
+  /* This is for modern Linux */
+  struct sched_attr *attr;
+#elif defined(G_OS_WIN32)
+  gint thread_prio;
+#else
+  /* TODO: Add support for macOS and the BSDs */
+  void *dummy;
+#endif
+} GThreadSchedulerSettings;
+
 void            g_system_thread_wait            (GRealThread  *thread);
 
-GRealThread *   g_system_thread_new             (GThreadFunc   proxy,
-                                                 gulong        stack_size,
-                                                 const char   *name,
-                                                 GThreadFunc   func,
-                                                 gpointer      data,
-                                                 GError      **error);
+GRealThread *g_system_thread_new (GThreadFunc proxy,
+                                  gulong stack_size,
+                                  const GThreadSchedulerSettings *scheduler_settings,
+                                  const char *name,
+                                  GThreadFunc func,
+                                  gpointer data,
+                                  GError **error);
 void            g_system_thread_free            (GRealThread  *thread);
 
 void            g_system_thread_exit            (void);
 void            g_system_thread_set_name        (const gchar  *name);
 
+gboolean        g_system_thread_get_scheduler_settings (GThreadSchedulerSettings *scheduler_settings);
 
 /* gthread.c */
-GThread *       g_thread_new_internal           (const gchar  *name,
-                                                 GThreadFunc   proxy,
-                                                 GThreadFunc   func,
-                                                 gpointer      data,
-                                                 gsize         stack_size,
-                                                 GError      **error);
+GThread *g_thread_new_internal (const gchar *name,
+                                GThreadFunc proxy,
+                                GThreadFunc func,
+                                gpointer data,
+                                gsize stack_size,
+                                const GThreadSchedulerSettings *scheduler_settings,
+                                GError **error);
+
+gboolean g_thread_get_scheduler_settings (GThreadSchedulerSettings *scheduler_settings);
 
 gpointer        g_thread_proxy                  (gpointer      thread);
 
+guint           g_thread_n_created              (void);
+
 gpointer        g_private_set_alloc0            (GPrivate       *key,
                                                  gsize           size);
-
-void            g_thread_perform_cleanup        (gpointer      thread);
-void            g_thread_schedule_cleanup       (gpointer      thread);
-void            g_thread_private_destroy_later  (GPrivate     *key,
-                                                 gpointer      value);
-
-GThreadBeacon * g_thread_lifetime_beacon_new    (void);
-void            g_thread_lifetime_beacon_free   (GThreadBeacon *beacon);
-gboolean        g_thread_lifetime_beacon_check  (GThreadBeacon *beacon);
 
 #endif /* __G_THREADPRIVATE_H__ */

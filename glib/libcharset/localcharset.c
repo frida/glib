@@ -24,20 +24,10 @@
 /* Specification.  */
 #include "localcharset.h"
 
-#include "glib/glib.h"
-
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-
-/* Use GLib memory allocation */
-#undef malloc
-#undef realloc
-#undef free
-#define malloc  g_malloc
-#define realloc g_realloc
-#define free    g_free
 
 #if defined _WIN32 || defined __WIN32__
 # define WIN32_NATIVE
@@ -127,11 +117,7 @@ _g_locale_get_charset_aliases (void)
       const char *base = "charset.alias";
       char *file_name;
 
-      /* Make it possible to override the charset.alias location.  This is
-	 necessary for running the testsuite before "make install".  */
-      dir = getenv ("CHARSETALIASDIR");
-      if (dir == NULL || dir[0] == '\0')
-	dir = relocate (GLIB_CHARSETALIAS_DIR);
+      dir = relocate (GLIB_CHARSETALIAS_DIR);
 
       /* Concatenate dir and base into freshly allocated file_name.  */
       {

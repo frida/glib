@@ -43,7 +43,7 @@ gobject_sources = files(
   'gvaluetypes.c',
 )
 
-if host_system == 'windows' and get_option('default_library') != 'static'
+if host_system == 'windows'
   gobject_win_rc = configure_file(
     input: 'gobject.rc.in',
     output: 'gobject.rc',
@@ -75,7 +75,6 @@ foreach tool: python_tools
     input : tool + '.in',
     output : tool,
     configuration : python_tools_conf,
-    install : true,
     install_dir : glib_bindir,
   )
 
@@ -163,11 +162,9 @@ if enable_systemtap
     output : '@0@.stp'.format(libgobject.full_path().split('/').get(-1)),
     configuration : stp_cdata,
     install_dir : tapset_install_dir,
-    install : true)
+  )
 endif
 
-# Don’t build the tests unless we can run them (either natively or in an exe wrapper)
-build_tests = get_option('tests') and (not meson.is_cross_build() or (meson.is_cross_build() and meson.has_exe_wrapper()))
 if build_tests
   subdir('tests')
 endif

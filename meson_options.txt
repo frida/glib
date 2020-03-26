@@ -30,8 +30,8 @@ option('xattr',
        description : 'build with xattr support')
 
 option('libmount',
-       type : 'boolean',
-       value : true,
+       type : 'feature',
+       value : 'auto',
        description : 'build with libmount support')
 
 option('internal_pcre',
@@ -78,11 +78,6 @@ option('fam',
        type : 'boolean',
        value : false,
        description : 'Use fam for file system monitoring')
-
-option('tests',
-       type : 'boolean',
-       value : true,
-       description : 'build tests')
 
 option('installed_tests',
        type : 'boolean',

@@ -64,7 +64,7 @@ enum {
 struct _GUnixInputStreamPrivate {
   int fd;
   guint close_fd : 1;
-  guint can_poll : 1;
+  guint is_pipe_or_socket : 1;
 };
 
 static void g_unix_input_stream_pollable_iface_init (GPollableInputStreamInterface *iface);
@@ -103,14 +103,6 @@ static void     g_unix_input_stream_skip_async   (GInputStream         *stream,
 static gssize   g_unix_input_stream_skip_finish  (GInputStream         *stream,
 						  GAsyncResult         *result,
 						  GError              **error);
-static void     g_unix_input_stream_close_async  (GInputStream         *stream,
-						  int                   io_priority,
-						  GCancellable         *cancellable,
-						  GAsyncReadyCallback   callback,
-						  gpointer              data);
-static gboolean g_unix_input_stream_close_finish (GInputStream         *stream,
-						  GAsyncResult         *result,
-						  GError              **error);
 
 static gboolean g_unix_input_stream_pollable_can_poll      (GPollableInputStream *stream);
 static gboolean g_unix_input_stream_pollable_is_readable   (GPollableInputStream *stream);
@@ -134,8 +126,6 @@ g_unix_input_stream_class_init (GUnixInputStreamClass *klass)
       stream_class->skip_async = g_unix_input_stream_skip_async;
       stream_class->skip_finish = g_unix_input_stream_skip_finish;
     }
-  stream_class->close_async = g_unix_input_stream_close_async;
-  stream_class->close_finish = g_unix_input_stream_close_finish;
 
   /**
    * GUnixInputStream:fd:
@@ -182,17 +172,6 @@ g_unix_input_stream_file_descriptor_based_iface_init (GFileDescriptorBasedIface 
   iface->get_fd = (int (*) (GFileDescriptorBased *))g_unix_input_stream_get_fd;
 }
 
-static gboolean
-fd_is_pollable (int fd)
-{
-  struct stat st;
-
-  if (fstat (fd, &st) == -1)
-    return TRUE;
-
-  return !S_ISREG (st.st_mode);
-}
-
 static void
 g_unix_input_stream_set_property (GObject         *object,
 				  guint            prop_id,
@@ -207,7 +186,10 @@ g_unix_input_stream_set_property (GObject         *object,
     {
     case PROP_FD:
       unix_stream->priv->fd = g_value_get_int (value);
-      unix_stream->priv->can_poll = fd_is_pollable (unix_stream->priv->fd);
+      if (lseek (unix_stream->priv->fd, 0, SEEK_CUR) == -1 && errno == ESPIPE)
+	unix_stream->priv->is_pipe_or_socket = TRUE;
+      else
+	unix_stream->priv->is_pipe_or_socket = FALSE;
       break;
     case PROP_CLOSE_FD:
       unix_stream->priv->close_fd = g_value_get_boolean (value);
@@ -355,7 +337,7 @@ g_unix_input_stream_read (GInputStream  *stream,
 
   poll_fds[0].fd = unix_stream->priv->fd;
   poll_fds[0].events = G_IO_IN;
-  if (unix_stream->priv->can_poll &&
+  if (unix_stream->priv->is_pipe_or_socket &&
       g_cancellable_make_pollfd (cancellable, &poll_fds[1]))
     nfds = 2;
   else
@@ -460,41 +442,10 @@ g_unix_input_stream_skip_finish  (GInputStream  *stream,
   /* TODO: Not implemented */
 }
 
-static void
-g_unix_input_stream_close_async (GInputStream        *stream,
-				 int                  io_priority,
-				 GCancellable        *cancellable,
-				 GAsyncReadyCallback  callback,
-				 gpointer             user_data)
-{
-  GTask *task;
-  GError *error = NULL;
-
-  task = g_task_new (stream, cancellable, callback, user_data);
-  g_task_set_source_tag (task, g_unix_input_stream_close_async);
-  g_task_set_priority (task, io_priority);
-
-  if (g_unix_input_stream_close (stream, cancellable, &error))
-    g_task_return_boolean (task, TRUE);
-  else
-    g_task_return_error (task, error);
-  g_object_unref (task);
-}
-
-static gboolean
-g_unix_input_stream_close_finish (GInputStream  *stream,
-				  GAsyncResult  *result,
-				  GError       **error)
-{
-  g_return_val_if_fail (g_task_is_valid (result, stream), FALSE);
-
-  return g_task_propagate_boolean (G_TASK (result), error);
-}
-
 static gboolean
 g_unix_input_stream_pollable_can_poll (GPollableInputStream *stream)
 {
-  return G_UNIX_INPUT_STREAM (stream)->priv->can_poll;
+  return G_UNIX_INPUT_STREAM (stream)->priv->is_pipe_or_socket;
 }
 
 static gboolean

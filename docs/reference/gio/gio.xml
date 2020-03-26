@@ -226,6 +226,10 @@
                 <term><option>-P</option>, <option>--no-dereference</option></term>
                 <listitem><para>Never follow symbolic links.</para></listitem>
               </varlistentry>
+              <varlistentry>
+                <term><option>--default-permissions</option></term>
+                <listitem><para>Use the default permissions of the current process for the destination file, rather than copying the permissions of the source file.</para></listitem>
+              </varlistentry>
             </variablelist>
           </refsect3>
         </listitem>
@@ -407,7 +411,7 @@
             functionality.</para>
           <para>Mounting refers to the traditional concept of arranging multiple
             file systems and devices in a single tree, rooted at <filename>/</filename>. Classical
-            mounting happens in the kernel and is controlle by the mount utility.
+            mounting happens in the kernel and is controlled by the mount utility.
             GIO expands this concept by introducing mount daemons that can make
             file systems available to GIO applications without kernel
             involvement.</para>
@@ -490,6 +494,31 @@
             to <replaceable>DESTINATION</replaceable>. If more than one source
             is specified, the destination must be a directory.</para>
           <para>The <command>move</command> command is similar to the traditional <command>mv</command> utility.</para>
+          <refsect3>
+            <title>Options</title>
+            <variablelist>
+              <varlistentry>
+                <term><option>-T</option>, <option>--no-target-directory</option></term>
+                <listitem><para>Don’t copy into <replaceable>DESTINATION</replaceable> even if it is a directory.</para></listitem>
+              </varlistentry>
+              <varlistentry>
+                <term><option>-p</option>, <option>--progress</option></term>
+                <listitem><para>Show progress.</para></listitem>
+              </varlistentry>
+              <varlistentry>
+                <term><option>-i</option>, <option>--interactive</option></term>
+                <listitem><para>Prompt for confirmation before overwriting files.</para></listitem>
+              </varlistentry>
+              <varlistentry>
+                <term><option>-b</option>, <option>--backup</option></term>
+                <listitem><para>Create backups of existing destination files.</para></listitem>
+              </varlistentry>
+              <varlistentry>
+                <term><option>-C</option>, <option>--no-copy-fallback</option></term>
+                <listitem><para>Don’t use copy and delete fallback.</para></listitem>
+              </varlistentry>
+            </variablelist>
+          </refsect3>
         </listitem>
       </varlistentry>
 
@@ -506,6 +535,8 @@
             <filename><envar>$XDG_DATA_HOME</envar>/applications/mimeapps.list</filename>.</para>
           <para>The <command>mime</command> command can be used to change the default handler for
             a mimetype.</para>
+          <para>Environment variables will not be set on the application, as it
+            may be an existing process which is activated to handle the new file.</para>
         </listitem>
       </varlistentry>
 

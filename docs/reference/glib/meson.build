@@ -38,6 +38,7 @@ if get_option('gtk_doc')
     'valgrind.h',
     'gutilsprivate.h',
     'gvalgrind.h',
+    'dirent.h',
   ]
 
   docpath = join_paths(glib_datadir, 'gtk-doc', 'html')
@@ -87,7 +88,8 @@ if get_option('gtk_doc')
                fixxref_args: [
                  '--html-dir=' + docpath,
                ],
-               install: true)
+               install: true,
+               check: true)
 endif
 
 if get_option('man')

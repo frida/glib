@@ -152,7 +152,11 @@ static GList *_g_get_unix_mounts (void);
 static GList *_g_get_unix_mount_points (void);
 static gboolean proc_mounts_watch_is_running (void);
 
+G_LOCK_DEFINE_STATIC (proc_mounts_source);
+
+/* Protected by proc_mounts_source lock */
 static guint64 mount_poller_time = 0;
+static GSource *proc_mounts_watch_source;
 
 #ifdef HAVE_SYS_MNTTAB_H
 #define MNTOPT_RO	"ro"
@@ -165,6 +169,9 @@ static guint64 mount_poller_time = 0;
 #endif
 #elif defined (HAVE_SYS_MNTTAB_H)
 #include <sys/mnttab.h>
+#if defined(__sun) && !defined(mnt_opts)
+#define mnt_opts mnt_mntopts
+#endif
 #endif
 
 #ifdef HAVE_SYS_VFSTAB_H
@@ -949,21 +956,6 @@ _g_get_unix_mounts (void)
   return return_list;
 }
 
-/* QNX {{{2 */
-#elif defined(HAVE_QNX)
-
-static char *
-get_mtab_monitor_file (void)
-{
-  return NULL;
-}
-
-static GList *
-_g_get_unix_mounts (void)
-{
-  return NULL;
-}
-
 /* Common code {{{2 */
 #else
 #error No _g_get_unix_mounts() implementation for system
@@ -1487,14 +1479,6 @@ _g_get_unix_mount_points (void)
   return _g_get_unix_mounts ();
 }
 
-/* QNX {{{2 */
-#elif defined(HAVE_QNX)
-static GList *
-_g_get_unix_mount_points (void)
-{
-  return _g_get_unix_mounts ();
-}
-
 /* Common code {{{2 */
 #else
 #error No g_get_mount_table() implementation for system
@@ -1505,18 +1489,21 @@ get_mounts_timestamp (void)
 {
   const char *monitor_file;
   struct stat buf;
+  guint64 timestamp = 0;
+
+  G_LOCK (proc_mounts_source);
 
   monitor_file = get_mtab_monitor_file ();
   /* Don't return mtime for /proc/ files */
   if (monitor_file && !g_str_has_prefix (monitor_file, "/proc/"))
     {
       if (stat (monitor_file, &buf) == 0)
-        return (guint64)buf.st_mtime;
+        timestamp = buf.st_mtime;
     }
   else if (proc_mounts_watch_is_running ())
     {
       /* it's being monitored by poll, so return mount_poller_time */
-      return mount_poller_time;
+      timestamp = mount_poller_time;
     }
   else
     {
@@ -1525,9 +1512,12 @@ get_mounts_timestamp (void)
        * return TRUE so any application caches depending on it (like eg.
        * the one in GIO) get invalidated and don't hold possibly outdated
        * data - see Bug 787731 */
-     return (guint64) g_get_monotonic_time ();
+     timestamp = g_get_monotonic_time ();
     }
-  return 0;
+
+  G_UNLOCK (proc_mounts_source);
+
+  return timestamp;
 }
 
 static guint64
@@ -1724,10 +1714,10 @@ G_DEFINE_TYPE (GUnixMountMonitor, g_unix_mount_monitor, G_TYPE_OBJECT)
 static GContextSpecificGroup  mount_monitor_group;
 static GFileMonitor          *fstab_monitor;
 static GFileMonitor          *mtab_monitor;
-static GSource               *proc_mounts_watch_source;
 static GList                 *mount_poller_mounts;
 static guint                  mtab_file_changed_id;
 
+/* Called with proc_mounts_source lock held. */
 static gboolean
 proc_mounts_watch_is_running (void)
 {
@@ -1766,6 +1756,9 @@ mtab_file_changed (GFileMonitor      *monitor,
                    GFileMonitorEvent  event_type,
                    gpointer           user_data)
 {
+  GMainContext *context;
+  GSource *source;
+
   if (event_type != G_FILE_MONITOR_EVENT_CHANGED &&
       event_type != G_FILE_MONITOR_EVENT_CREATED &&
       event_type != G_FILE_MONITOR_EVENT_DELETED)
@@ -1778,7 +1771,16 @@ mtab_file_changed (GFileMonitor      *monitor,
   if (mtab_file_changed_id > 0)
     return;
 
-  mtab_file_changed_id = g_idle_add (mtab_file_changed_cb, NULL);
+  context = g_main_context_get_thread_default ();
+  if (!context)
+    context = g_main_context_default ();
+
+  source = g_idle_source_new ();
+  g_source_set_priority (source, G_PRIORITY_DEFAULT);
+  g_source_set_callback (source, mtab_file_changed_cb, NULL, NULL);
+  g_source_set_name (source, "[gio] mtab_file_changed_cb");
+  g_source_attach (source, context);
+  g_source_unref (source);
 }
 
 static gboolean
@@ -1788,7 +1790,10 @@ proc_mounts_changed (GIOChannel   *channel,
 {
   if (cond & G_IO_ERR)
     {
+      G_LOCK (proc_mounts_source);
       mount_poller_time = (guint64) g_get_monotonic_time ();
+      G_UNLOCK (proc_mounts_source);
+
       g_context_specific_group_emit (&mount_monitor_group, signals[MOUNTS_CHANGED]);
     }
 
@@ -1822,7 +1827,10 @@ mount_change_poller (gpointer user_data)
 
   if (has_changed)
     {
+      G_LOCK (proc_mounts_source);
       mount_poller_time = (guint64) g_get_monotonic_time ();
+      G_UNLOCK (proc_mounts_source);
+
       g_context_specific_group_emit (&mount_monitor_group, signals[MOUNTPOINTS_CHANGED]);
     }
 
@@ -1839,16 +1847,24 @@ mount_monitor_stop (void)
       g_object_unref (fstab_monitor);
     }
 
+  G_LOCK (proc_mounts_source);
   if (proc_mounts_watch_source != NULL)
     {
       g_source_destroy (proc_mounts_watch_source);
       proc_mounts_watch_source = NULL;
     }
+  G_UNLOCK (proc_mounts_source);
 
   if (mtab_monitor)
     {
       g_file_monitor_cancel (mtab_monitor);
       g_object_unref (mtab_monitor);
+    }
+
+  if (mtab_file_changed_id)
+    {
+      g_source_remove (mtab_file_changed_id);
+      mtab_file_changed_id = 0;
     }
 
   g_list_free_full (mount_poller_mounts, (GDestroyNotify) g_unix_mount_free);
@@ -1889,7 +1905,10 @@ mount_monitor_start (void)
             }
           else
             {
+              G_LOCK (proc_mounts_source);
+
               proc_mounts_watch_source = g_io_create_watch (proc_mounts_channel, G_IO_ERR);
+              mount_poller_time = (guint64) g_get_monotonic_time ();
               g_source_set_callback (proc_mounts_watch_source,
                                      (GSourceFunc) proc_mounts_changed,
                                      NULL, NULL);
@@ -1897,6 +1916,8 @@ mount_monitor_start (void)
                                g_main_context_get_thread_default ());
               g_source_unref (proc_mounts_watch_source);
               g_io_channel_unref (proc_mounts_channel);
+
+              G_UNLOCK (proc_mounts_source);
             }
         }
       else
@@ -1909,6 +1930,8 @@ mount_monitor_start (void)
     }
   else
     {
+      G_LOCK (proc_mounts_source);
+
       proc_mounts_watch_source = g_timeout_source_new_seconds (3);
       mount_poller_mounts = _g_get_unix_mounts ();
       mount_poller_time = (guint64)g_get_monotonic_time ();
@@ -1918,6 +1941,8 @@ mount_monitor_start (void)
       g_source_attach (proc_mounts_watch_source,
                        g_main_context_get_thread_default ());
       g_source_unref (proc_mounts_watch_source);
+
+      G_UNLOCK (proc_mounts_source);
     }
 }
 
@@ -1952,7 +1977,7 @@ g_unix_mount_monitor_class_init (GUnixMountMonitorClass *klass)
 		  G_SIGNAL_RUN_LAST,
 		  0,
 		  NULL, NULL,
-		  g_cclosure_marshal_VOID__VOID,
+		  NULL,
 		  G_TYPE_NONE, 0);
 
   /**
@@ -1967,7 +1992,7 @@ g_unix_mount_monitor_class_init (GUnixMountMonitorClass *klass)
 		  G_SIGNAL_RUN_LAST,
 		  0,
 		  NULL, NULL,
-		  g_cclosure_marshal_VOID__VOID,
+		  NULL,
 		  G_TYPE_NONE, 0);
 }
 

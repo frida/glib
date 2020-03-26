@@ -42,6 +42,7 @@
 #endif
 
 #include "glib-private.h"
+#include "gioprivate.h"
 
 #ifdef G_OS_WIN32
 #include <io.h>
@@ -223,9 +224,9 @@ g_local_file_output_stream_write (GOutputStream  *stream,
 #ifdef G_OS_UNIX
 /* Macro to check if struct iovec and GOutputVector have the same ABI */
 #define G_OUTPUT_VECTOR_IS_IOVEC (sizeof (struct iovec) == sizeof (GOutputVector) && \
-      sizeof ((struct iovec *) 0)->iov_base == sizeof ((GOutputVector *) 0)->buffer && \
+      G_SIZEOF_MEMBER (struct iovec, iov_base) == G_SIZEOF_MEMBER (GOutputVector, buffer) && \
       G_STRUCT_OFFSET (struct iovec, iov_base) == G_STRUCT_OFFSET (GOutputVector, buffer) && \
-      sizeof ((struct iovec *) 0)->iov_len == sizeof((GOutputVector *) 0)->size && \
+      G_SIZEOF_MEMBER (struct iovec, iov_len) == G_SIZEOF_MEMBER (GOutputVector, size) && \
       G_STRUCT_OFFSET (struct iovec, iov_len) == G_STRUCT_OFFSET (GOutputVector, size))
 
 static gboolean
@@ -243,11 +244,11 @@ g_local_file_output_stream_writev (GOutputStream        *stream,
   if (bytes_written)
     *bytes_written = 0;
 
-  /* Clamp to G_MAXINT as writev() takes an integer for the number of vectors.
-   * We handle this like a short write in this case
+  /* Clamp the number of vectors if more given than we can write in one go.
+   * The caller has to handle short writes anyway.
    */
-  if (n_vectors > G_MAXINT)
-    n_vectors = G_MAXINT;
+  if (n_vectors > G_IOV_MAX)
+    n_vectors = G_IOV_MAX;
 
   file = G_LOCAL_FILE_OUTPUT_STREAM (stream);
 
@@ -978,7 +979,7 @@ handle_overwrite_open (const char    *filename,
 	    fchown (tmpfd, original_stat.st_uid, original_stat.st_gid) == -1 ||
 #endif
 #ifdef HAVE_FCHMOD
-	    fchmod (tmpfd, original_stat.st_mode) == -1 ||
+	    fchmod (tmpfd, original_stat.st_mode & ~S_IFMT) == -1 ||
 #endif
 	    0
 	    )

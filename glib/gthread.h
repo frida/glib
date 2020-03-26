@@ -45,9 +45,7 @@ typedef enum
 } GThreadError;
 
 typedef gpointer (*GThreadFunc) (gpointer data);
-typedef void (*GThreadGarbageHandler) (gpointer data);
 
-typedef struct _GThreadCallbacks GThreadCallbacks;
 typedef struct _GThread         GThread;
 
 typedef union  _GMutex          GMutex;
@@ -56,20 +54,6 @@ typedef struct _GRWLock         GRWLock;
 typedef struct _GCond           GCond;
 typedef struct _GPrivate        GPrivate;
 typedef struct _GOnce           GOnce;
-
-typedef enum
-{
-  G_PRIVATE_DESTROY_LATE = 1 << 0,
-  G_PRIVATE_DESTROY_LAST = 1 << 1,
-} GPrivateFlags;
-
-struct _GThreadCallbacks
-{
-  void (*on_thread_init)      (void);
-  void (*on_thread_realize)   (void);
-  void (*on_thread_dispose)   (void);
-  void (*on_thread_finalize)  (void);
-};
 
 union _GMutex
 {
@@ -99,17 +83,13 @@ struct _GRecMutex
   guint i[2];
 };
 
-#define G_PRIVATE_INIT(notify) \
-    { NULL, (notify), 0, { NULL } }
-#define G_PRIVATE_INIT_WITH_FLAGS(notify, flags) \
-    { NULL, (notify), (flags), { NULL } }
+#define G_PRIVATE_INIT(notify) { NULL, (notify), { NULL, NULL } }
 struct _GPrivate
 {
   /*< private >*/
   gpointer       p;
   GDestroyNotify notify;
-  GPrivateFlags  flags;
-  gpointer future[1];
+  gpointer future[2];
 };
 
 typedef enum
@@ -156,15 +136,6 @@ struct _GOnce
 #  define G_UNLOCK(name) g_mutex_unlock   (&G_LOCK_NAME (name))
 #  define G_TRYLOCK(name) g_mutex_trylock (&G_LOCK_NAME (name))
 #endif /* !G_DEBUG_LOCKS */
-
-GLIB_VAR GThreadCallbacks *glib_thread_callbacks;
-GLIB_AVAILABLE_IN_2_62
-void            g_thread_set_callbacks          (GThreadCallbacks *callbacks);
-GLIB_AVAILABLE_IN_2_62
-void            g_thread_set_garbage_handler    (GThreadGarbageHandler handler,
-                                                 gpointer user_data);
-GLIB_AVAILABLE_IN_2_62
-gboolean        g_thread_garbage_collect        (void);
 
 GLIB_AVAILABLE_IN_2_32
 GThread *       g_thread_ref                    (GThread        *thread);
@@ -276,14 +247,14 @@ void            g_once_init_leave               (volatile void  *location,
 # define g_once_init_enter(location) \
   (G_GNUC_EXTENSION ({                                               \
     G_STATIC_ASSERT (sizeof *(location) == sizeof (gpointer));       \
-    (void) (0 ? (gpointer) *(location) : 0);                         \
+    (void) (0 ? (gpointer) *(location) : NULL);                      \
     (!g_atomic_pointer_get (location) &&                             \
      g_once_init_enter (location));                                  \
   }))
 # define g_once_init_leave(location, result) \
   (G_GNUC_EXTENSION ({                                               \
     G_STATIC_ASSERT (sizeof *(location) == sizeof (gpointer));       \
-    (void) (0 ? *(location) = (result) : 0);                         \
+    0 ? (void) (*(location) = (result)) : (void) 0;                  \
     g_once_init_leave ((location), (gsize) (result));                \
   }))
 #else
@@ -311,6 +282,8 @@ typedef void GMutexLocker;
  * Lock @mutex and return a new #GMutexLocker. Unlock with
  * g_mutex_locker_free(). Using g_mutex_unlock() on @mutex
  * while a #GMutexLocker exists can lead to undefined behaviour.
+ *
+ * No allocation is performed, it is equivalent to a g_mutex_lock() call.
  *
  * This is intended to be used with g_autoptr().  Note that g_autoptr()
  * is only available when using GCC or clang, so the following example
@@ -357,6 +330,8 @@ g_mutex_locker_new (GMutex *mutex)
  *
  * Unlock @locker's mutex. See g_mutex_locker_new() for details.
  *
+ * No memory is freed, it is equivalent to a g_mutex_unlock() call.
+ *
  * Since: 2.44
  */
 static inline void
@@ -380,6 +355,8 @@ typedef void GRecMutexLocker;
  * Lock @rec_mutex and return a new #GRecMutexLocker. Unlock with
  * g_rec_mutex_locker_free(). Using g_rec_mutex_unlock() on @rec_mutex
  * while a #GRecMutexLocker exists can lead to undefined behaviour.
+ *
+ * No allocation is performed, it is equivalent to a g_rec_mutex_lock() call.
  *
  * This is intended to be used with g_autoptr().  Note that g_autoptr()
  * is only available when using GCC or clang, so the following example
@@ -426,12 +403,168 @@ g_rec_mutex_locker_new (GRecMutex *rec_mutex)
  *
  * Unlock @locker's recursive mutex. See g_rec_mutex_locker_new() for details.
  *
+ * No memory is freed, it is equivalent to a g_rec_mutex_unlock() call.
+ *
  * Since: 2.60
  */
 static inline void
 g_rec_mutex_locker_free (GRecMutexLocker *locker)
 {
   g_rec_mutex_unlock ((GRecMutex *) locker);
+}
+
+/**
+ * GRWLockWriterLocker:
+ *
+ * Opaque type. See g_rw_lock_writer_locker_new() for details.
+ * Since: 2.62
+ */
+typedef void GRWLockWriterLocker;
+
+/**
+ * g_rw_lock_writer_locker_new:
+ * @rw_lock: a #GRWLock
+ *
+ * Obtain a write lock on @rw_lock and return a new #GRWLockWriterLocker.
+ * Unlock with g_rw_lock_writer_locker_free(). Using g_rw_lock_writer_unlock()
+ * on @rw_lock while a #GRWLockWriterLocker exists can lead to undefined
+ * behaviour.
+ *
+ * No allocation is performed, it is equivalent to a g_rw_lock_writer_lock() call.
+ *
+ * This is intended to be used with g_autoptr().  Note that g_autoptr()
+ * is only available when using GCC or clang, so the following example
+ * will only work with those compilers:
+ * |[
+ * typedef struct
+ * {
+ *   ...
+ *   GRWLock rw_lock;
+ *   GPtrArray *array;
+ *   ...
+ * } MyObject;
+ *
+ * static gchar *
+ * my_object_get_data (MyObject *self, guint index)
+ * {
+ *   g_autoptr(GRWLockReaderLocker) locker = g_rw_lock_reader_locker_new (&self->rw_lock);
+ *
+ *   // Code with a read lock obtained on rw_lock here
+ *
+ *   if (self->array == NULL)
+ *     // No need to unlock
+ *     return NULL;
+ *
+ *   if (index < self->array->len)
+ *     // No need to unlock
+ *     return g_ptr_array_index (self->array, index);
+ *
+ *   // Optionally early unlock
+ *   g_clear_pointer (&locker, g_rw_lock_reader_locker_free);
+ *
+ *   // Code with rw_lock unlocked here
+ *   return NULL;
+ * }
+ *
+ * static void
+ * my_object_set_data (MyObject *self, guint index, gpointer data)
+ * {
+ *   g_autoptr(GRWLockWriterLocker) locker = g_rw_lock_writer_locker_new (&self->rw_lock);
+ *
+ *   // Code with a write lock obtained on rw_lock here
+ *
+ *   if (self->array == NULL)
+ *     self->array = g_ptr_array_new ();
+ *
+ *   if (cond)
+ *     // No need to unlock
+ *     return;
+ *
+ *   if (index >= self->array->len)
+ *     g_ptr_array_set_size (self->array, index+1);
+ *   g_ptr_array_index (self->array, index) = data;
+ *
+ *   // Optionally early unlock
+ *   g_clear_pointer (&locker, g_rw_lock_writer_locker_free);
+ *
+ *   // Code with rw_lock unlocked here
+ * }
+ * ]|
+ *
+ * Returns: a #GRWLockWriterLocker
+ * Since: 2.62
+ */
+static inline GRWLockWriterLocker *
+g_rw_lock_writer_locker_new (GRWLock *rw_lock)
+{
+  g_rw_lock_writer_lock (rw_lock);
+  return (GRWLockWriterLocker *) rw_lock;
+}
+
+/**
+ * g_rw_lock_writer_locker_free:
+ * @locker: a GRWLockWriterLocker
+ *
+ * Release a write lock on @locker's read-write lock. See
+ * g_rw_lock_writer_locker_new() for details.
+ *
+ * No memory is freed, it is equivalent to a g_rw_lock_writer_unlock() call.
+ *
+ * Since: 2.62
+ */
+static inline void
+g_rw_lock_writer_locker_free (GRWLockWriterLocker *locker)
+{
+  g_rw_lock_writer_unlock ((GRWLock *) locker);
+}
+
+/**
+ * GRWLockReaderLocker:
+ *
+ * Opaque type. See g_rw_lock_reader_locker_new() for details.
+ * Since: 2.62
+ */
+typedef void GRWLockReaderLocker;
+
+/**
+ * g_rw_lock_reader_locker_new:
+ * @rw_lock: a #GRWLock
+ *
+ * Obtain a read lock on @rw_lock and return a new #GRWLockReaderLocker.
+ * Unlock with g_rw_lock_reader_locker_free(). Using g_rw_lock_reader_unlock()
+ * on @rw_lock while a #GRWLockReaderLocker exists can lead to undefined
+ * behaviour.
+ *
+ * No allocation is performed, it is equivalent to a g_rw_lock_reader_lock() call.
+ *
+ * This is intended to be used with g_autoptr(). For a code sample, see
+ * g_rw_lock_writer_locker_new().
+ *
+ * Returns: a #GRWLockReaderLocker
+ * Since: 2.62
+ */
+static inline GRWLockReaderLocker *
+g_rw_lock_reader_locker_new (GRWLock *rw_lock)
+{
+  g_rw_lock_reader_lock (rw_lock);
+  return (GRWLockReaderLocker *) rw_lock;
+}
+
+/**
+ * g_rw_lock_reader_locker_free:
+ * @locker: a GRWLockReaderLocker
+ *
+ * Release a read lock on @locker's read-write lock. See
+ * g_rw_lock_reader_locker_new() for details.
+ *
+ * No memory is freed, it is equivalent to a g_rw_lock_reader_unlock() call.
+ *
+ * Since: 2.62
+ */
+static inline void
+g_rw_lock_reader_locker_free (GRWLockReaderLocker *locker)
+{
+  g_rw_lock_reader_unlock ((GRWLock *) locker);
 }
 
 G_END_DECLS

@@ -35,6 +35,7 @@ glib_tests = {
   'hmac' : {},
   'hook' : {},
   'hostutils' : {},
+  'io-channel' : {},
   'keyfile' : {},
   'list' : {},
   'logging' : {},
@@ -46,7 +47,10 @@ glib_tests = {
   'markup-collect' : {},
   'markup-escape' : {},
   'markup-subparser' : {},
-  'mem-overflow' : {},
+  'mem-overflow' : {
+    'link_args' : cc.get_id() == 'gcc' and cc.version().version_compare('> 6')
+      ? ['-Wno-alloc-size-larger-than'] : [],
+  },
   'mutex' : {},
   'node' : {},
   'once' : {},
@@ -91,6 +95,7 @@ glib_tests = {
   'testing' : {},
   'test-printf' : {},
   'thread' : {},
+  'thread-pool' : {},
   'timeout' : {},
   'timer' : {},
   'tree' : {},
@@ -148,6 +153,27 @@ else
     'include' : {},
     'unix' : {},
   }
+  if have_rtld_next
+    glib_tests += {
+      'gutils-user-database' : {
+        'depends' : [
+          shared_library('getpwuid-preload',
+            'getpwuid-preload.c',
+            name_prefix : '',
+            dependencies: libdl_dep,
+            install_dir : installed_tests_execdir,
+            install: installed_tests_enabled,
+          ),
+        ],
+        'env' : {
+          'LD_PRELOAD': '@0@/getpwuid-preload.so'.format(meson.current_build_dir()),
+        },
+        'installed_tests_env' : {
+          'LD_PRELOAD': '@0@/getpwuid-preload.so'.format(installed_tests_execdir),
+        },
+      },
+    }
+  endif
 endif
 
 if installed_tests_enabled
@@ -197,6 +223,7 @@ foreach test_name, extra_args : glib_tests
 
   exe = executable(test_name, source,
     c_args : test_cargs + extra_args.get('c_args', []),
+    link_args : extra_args.get('link_args', []),
     dependencies : test_deps + extra_args.get('dependencies', []),
     install_dir: installed_tests_execdir,
     install: install,
@@ -204,8 +231,7 @@ foreach test_name, extra_args : glib_tests
 
   suite = ['glib'] + extra_args.get('suite', [])
   timeout = suite.contains('slow') ? test_timeout_slow : test_timeout
-  test(test_name, exe, env : test_env, timeout : timeout, suite : suite,
-    args : ['--tap'])
+  test(test_name, exe, env : test_env, timeout : timeout, suite : suite)
 endforeach
 
 # test-spawn-echo helper binary required by the spawn tests above
@@ -229,7 +255,7 @@ if not meson.is_cross_build() and host_system != 'windows'
   if xmllint.found()
     tmpsample_xml = custom_target('tmpsample.xml',
       output : 'tmpsample.xml',
-      command : [ gtester, '-k', '--quiet', '-o', '@OUTPUT@',
+      command : [ gtester, '-k', '--quiet', '--i-know-this-is-deprecated', '-o', '@OUTPUT@',
                   '--test-arg=--gtester-selftest', gtester])
 
     test('gtester-xmllint-check', xmllint,

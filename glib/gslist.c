@@ -130,6 +130,13 @@ g_slist_alloc (void)
  * If list elements contain dynamically-allocated memory,
  * you should either use g_slist_free_full() or free them manually
  * first.
+ *
+ * It can be combined with g_steal_pointer() to ensure the list head pointer
+ * is not left dangling:
+ * |[<!-- language="C" -->
+ * GSList *list_of_borrowed_things = …;  /<!-- -->* (transfer container) *<!-- -->/
+ * g_slist_free (g_steal_pointer (&list_of_borrowed_things));
+ * ]|
  */
 void
 g_slist_free (GSList *list)
@@ -167,6 +174,15 @@ g_slist_free_1 (GSList *list)
  *
  * @free_func must not modify the list (eg, by removing the freed
  * element from it).
+ *
+ * It can be combined with g_steal_pointer() to ensure the list head pointer
+ * is not left dangling ­— this also has the nice property that the head pointer
+ * is cleared before any of the list elements are freed, to prevent double frees
+ * from @free_func:
+ * |[<!-- language="C" -->
+ * GSList *list_of_owned_things = …;  /<!-- -->* (transfer full) (element-type GObject) *<!-- -->/
+ * g_slist_free_full (g_steal_pointer (&list_of_owned_things), g_object_unref);
+ * ]|
  *
  * Since: 2.28
  **/
@@ -1064,4 +1080,33 @@ g_slist_sort_with_data (GSList           *list,
                         gpointer          user_data)
 {
   return g_slist_sort_real (list, (GFunc) compare_func, user_data);
+}
+
+/**
+ * g_clear_slist: (skip)
+ * @slist_ptr: (not nullable): a #GSList return location
+ * @destroy: (nullable): the function to pass to g_slist_free_full() or %NULL to not free elements
+ *
+ * Clears a pointer to a #GSList, freeing it and, optionally, freeing its elements using @destroy.
+ *
+ * @slist_ptr must be a valid pointer. If @slist_ptr points to a null #GSList, this does nothing.
+ *
+ * Since: 2.64
+ */
+void
+(g_clear_slist) (GSList         **slist_ptr,
+                 GDestroyNotify   destroy)
+{
+  GSList *slist;
+
+  slist = *slist_ptr;
+  if (slist)
+    {
+      *slist_ptr = NULL;
+
+      if (destroy)
+        g_slist_free_full (slist, destroy);
+      else
+        g_slist_free (slist);
+    }
 }

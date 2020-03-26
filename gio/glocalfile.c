@@ -281,8 +281,6 @@ g_local_file_get_uri (GFile *file)
   return g_filename_to_uri (G_LOCAL_FILE (file)->filename, NULL, NULL);
 }
 
-#ifdef G_OS_WIN32
-
 static gboolean
 get_filename_charset (const gchar **filename_charset)
 {
@@ -296,8 +294,6 @@ get_filename_charset (const gchar **filename_charset)
   
   return is_utf8;
 }
-
-#endif
 
 static gboolean
 name_is_valid_for_display (const char *string,
@@ -323,16 +319,14 @@ g_local_file_get_parse_name (GFile *file)
 {
   const char *filename;
   char *parse_name;
-#ifdef G_OS_WIN32
   const gchar *charset;
-#endif
   char *utf8_filename;
+  char *roundtripped_filename;
   gboolean free_utf8_filename;
   gboolean is_valid_utf8;
   char *escaped_path;
   
   filename = G_LOCAL_FILE (file)->filename;
-#ifdef G_OS_WIN32
   if (get_filename_charset (&charset))
     {
       utf8_filename = (char *)filename;
@@ -348,8 +342,6 @@ g_local_file_get_parse_name (GFile *file)
 
       if (utf8_filename != NULL)
 	{
-	  char *roundtripped_filename;
-
 	  /* Make sure we can roundtrip: */
 	  roundtripped_filename = g_convert (utf8_filename, -1,
 					     charset, "UTF-8", NULL, NULL, NULL);
@@ -364,11 +356,6 @@ g_local_file_get_parse_name (GFile *file)
 	  g_free (roundtripped_filename);
 	}
     }
-#else
-  utf8_filename = (char *)filename;
-  free_utf8_filename = FALSE;
-  is_valid_utf8 = FALSE; /* Can't guarantee this */
-#endif
 
   if (utf8_filename != NULL &&
       name_is_valid_for_display (utf8_filename, is_valid_utf8))
@@ -2343,13 +2330,13 @@ g_local_file_make_directory (GFile         *file,
   return TRUE;
 }
 
+#ifdef HAVE_SYMLINK
 static gboolean
 g_local_file_make_symbolic_link (GFile         *file,
 				 const char    *symlink_value,
 				 GCancellable  *cancellable,
 				 GError       **error)
 {
-#ifdef HAVE_SYMLINK
   GLocalFile *local = G_LOCAL_FILE (file);
   
   if (symlink (symlink_value, local->filename) == -1)
@@ -2372,26 +2359,8 @@ g_local_file_make_symbolic_link (GFile         *file,
       return FALSE;
     }
   return TRUE;
-#else
-  g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED, _("Symbolic links not supported"));
-  return FALSE;
+}
 #endif
-}
-
-
-static gboolean
-g_local_file_copy (GFile                  *source,
-		   GFile                  *destination,
-		   GFileCopyFlags          flags,
-		   GCancellable           *cancellable,
-		   GFileProgressCallback   progress_callback,
-		   gpointer                progress_callback_data,
-		   GError                **error)
-{
-  /* Fall back to default copy */
-  g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED, "Copy not supported");
-  return FALSE;
-}
 
 static gboolean
 g_local_file_move (GFile                  *source,
@@ -2992,8 +2961,9 @@ g_local_file_file_iface_init (GFileIface *iface)
   iface->delete_file = g_local_file_delete;
   iface->trash = g_local_file_trash;
   iface->make_directory = g_local_file_make_directory;
+#ifdef HAVE_SYMLINK
   iface->make_symbolic_link = g_local_file_make_symbolic_link;
-  iface->copy = g_local_file_copy;
+#endif
   iface->move = g_local_file_move;
   iface->monitor_dir = g_local_file_monitor_dir;
   iface->monitor_file = g_local_file_monitor_file;

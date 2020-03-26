@@ -198,7 +198,9 @@ G_BEGIN_DECLS
 
 /* Reserved fundamental type numbers to create new fundamental
  * type IDs with G_TYPE_MAKE_FUNDAMENTAL().
- * Send email to gtk-devel-list@gnome.org for reservations.
+ *
+ * Open an issue on https://gitlab.gnome.org/GNOME/glib/issues/new for
+ * reservations.
  */
 /**
  * G_TYPE_FUNDAMENTAL_SHIFT:
@@ -638,7 +640,7 @@ struct _GTypeQuery
  *   `your_type_get_instance_private()` function instead
  * Returns: (not nullable): a pointer to the private data structure
  */
-#define G_TYPE_INSTANCE_GET_PRIVATE(instance, g_type, c_type)   ((c_type*) g_type_instance_get_private ((GTypeInstance*) (instance), (g_type)))
+#define G_TYPE_INSTANCE_GET_PRIVATE(instance, g_type, c_type)   ((c_type*) g_type_instance_get_private ((GTypeInstance*) (instance), (g_type))) GLIB_DEPRECATED_MACRO_IN_2_58_FOR(G_ADD_PRIVATE)
 
 /**
  * G_TYPE_CLASS_GET_PRIVATE:
@@ -680,14 +682,17 @@ typedef enum	/*< skip >*/
   G_TYPE_DEBUG_SIGNALS	= 1 << 1,
   G_TYPE_DEBUG_INSTANCE_COUNT = 1 << 2,
   G_TYPE_DEBUG_MASK	= 0x07
-} GTypeDebugFlags;
+} GTypeDebugFlags GLIB_DEPRECATED_TYPE_IN_2_36;
 
 
 /* --- prototypes --- */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 GLIB_DEPRECATED_IN_2_36
 void                  g_type_init                    (void);
 GLIB_DEPRECATED_IN_2_36
 void                  g_type_init_with_debug_flags   (GTypeDebugFlags  debug_flags);
+G_GNUC_END_IGNORE_DEPRECATIONS
+
 GLIB_AVAILABLE_IN_ALL
 const gchar *         g_type_name                    (GType            type);
 GLIB_AVAILABLE_IN_ALL
@@ -1401,10 +1406,11 @@ guint     g_type_get_type_registration_serial (void);
   typedef struct { ParentName##Class parent_class; } ModuleObjName##Class;                               \
                                                                                                          \
   _GLIB_DEFINE_AUTOPTR_CHAINUP (ModuleObjName, ParentName)                                               \
+  G_DEFINE_AUTOPTR_CLEANUP_FUNC (ModuleObjName##Class, g_type_class_unref)                               \
                                                                                                          \
-  static inline ModuleObjName * MODULE##_##OBJ_NAME (gpointer ptr) {                                     \
+  G_GNUC_UNUSED static inline ModuleObjName * MODULE##_##OBJ_NAME (gpointer ptr) {                       \
     return G_TYPE_CHECK_INSTANCE_CAST (ptr, module_obj_name##_get_type (), ModuleObjName); }             \
-  static inline gboolean MODULE##_IS_##OBJ_NAME (gpointer ptr) {                                         \
+  G_GNUC_UNUSED static inline gboolean MODULE##_IS_##OBJ_NAME (gpointer ptr) {                           \
     return G_TYPE_CHECK_INSTANCE_TYPE (ptr, module_obj_name##_get_type ()); }                            \
   G_GNUC_END_IGNORE_DEPRECATIONS
 
@@ -1417,8 +1423,8 @@ guint     g_type_get_type_registration_serial (void);
  * @OBJ_NAME: The bare name of the type, in all caps (like 'WIDGET')
  * @ParentName: the name of the parent type, in camel case (like GtkWidget)
  *
- * A convenience macro for emitting the usual declarations in the header file for a type which will is intended
- * to be subclassed.
+ * A convenience macro for emitting the usual declarations in the
+ * header file for a type which is intended to be subclassed.
  *
  * You might use it in a header as follows:
  *
@@ -1492,16 +1498,17 @@ guint     g_type_get_type_registration_serial (void);
   struct _##ModuleObjName { ParentName parent_instance; };                                               \
                                                                                                          \
   _GLIB_DEFINE_AUTOPTR_CHAINUP (ModuleObjName, ParentName)                                               \
+  G_DEFINE_AUTOPTR_CLEANUP_FUNC (ModuleObjName##Class, g_type_class_unref)                               \
                                                                                                          \
-  static inline ModuleObjName * MODULE##_##OBJ_NAME (gpointer ptr) {                                     \
+  G_GNUC_UNUSED static inline ModuleObjName * MODULE##_##OBJ_NAME (gpointer ptr) {                       \
     return G_TYPE_CHECK_INSTANCE_CAST (ptr, module_obj_name##_get_type (), ModuleObjName); }             \
-  static inline ModuleObjName##Class * MODULE##_##OBJ_NAME##_CLASS (gpointer ptr) {                      \
+  G_GNUC_UNUSED static inline ModuleObjName##Class * MODULE##_##OBJ_NAME##_CLASS (gpointer ptr) {        \
     return G_TYPE_CHECK_CLASS_CAST (ptr, module_obj_name##_get_type (), ModuleObjName##Class); }         \
-  static inline gboolean MODULE##_IS_##OBJ_NAME (gpointer ptr) {                                         \
+  G_GNUC_UNUSED static inline gboolean MODULE##_IS_##OBJ_NAME (gpointer ptr) {                           \
     return G_TYPE_CHECK_INSTANCE_TYPE (ptr, module_obj_name##_get_type ()); }                            \
-  static inline gboolean MODULE##_IS_##OBJ_NAME##_CLASS (gpointer ptr) {                                 \
+  G_GNUC_UNUSED static inline gboolean MODULE##_IS_##OBJ_NAME##_CLASS (gpointer ptr) {                   \
     return G_TYPE_CHECK_CLASS_TYPE (ptr, module_obj_name##_get_type ()); }                               \
-  static inline ModuleObjName##Class * MODULE##_##OBJ_NAME##_GET_CLASS (gpointer ptr) {                  \
+  G_GNUC_UNUSED static inline ModuleObjName##Class * MODULE##_##OBJ_NAME##_GET_CLASS (gpointer ptr) {    \
     return G_TYPE_INSTANCE_GET_CLASS (ptr, module_obj_name##_get_type (), ModuleObjName##Class); }       \
   G_GNUC_END_IGNORE_DEPRECATIONS
 
@@ -1571,11 +1578,11 @@ guint     g_type_get_type_registration_serial (void);
                                                                                                            \
   _GLIB_DEFINE_AUTOPTR_CHAINUP (ModuleObjName, PrerequisiteName)                                           \
                                                                                                            \
-  static inline ModuleObjName * MODULE##_##OBJ_NAME (gpointer ptr) {                                       \
+  G_GNUC_UNUSED static inline ModuleObjName * MODULE##_##OBJ_NAME (gpointer ptr) {                         \
     return G_TYPE_CHECK_INSTANCE_CAST (ptr, module_obj_name##_get_type (), ModuleObjName); }               \
-  static inline gboolean MODULE##_IS_##OBJ_NAME (gpointer ptr) {                                           \
+  G_GNUC_UNUSED static inline gboolean MODULE##_IS_##OBJ_NAME (gpointer ptr) {                             \
     return G_TYPE_CHECK_INSTANCE_TYPE (ptr, module_obj_name##_get_type ()); }                              \
-  static inline ModuleObjName##Interface * MODULE##_##OBJ_NAME##_GET_IFACE (gpointer ptr) {                \
+  G_GNUC_UNUSED static inline ModuleObjName##Interface * MODULE##_##OBJ_NAME##_GET_IFACE (gpointer ptr) {  \
     return G_TYPE_INSTANCE_GET_INTERFACE (ptr, module_obj_name##_get_type (), ModuleObjName##Interface); } \
   G_GNUC_END_IGNORE_DEPRECATIONS
 
@@ -1626,6 +1633,11 @@ guint     g_type_get_type_registration_serial (void);
  * 
  * Note that private structs added with this macros must have a struct
  * name of the form @TN Private.
+ *
+ * The private instance data can be retrieved using the automatically generated
+ * getter function `t_n_get_instance_private()`.
+ *
+ * See also: G_ADD_PRIVATE()
  *
  * Since: 2.38
  */
@@ -1691,6 +1703,7 @@ guint     g_type_get_type_registration_serial (void);
  *                         gtk_gadget,
  *                         GTK_TYPE_WIDGET,
  *                         0,
+ *                         G_ADD_PRIVATE (GtkGadget)
  *                         G_IMPLEMENT_INTERFACE (TYPE_GIZMO,
  *                                                gtk_gadget_gizmo_init));
  * ]|
@@ -1699,10 +1712,17 @@ guint     g_type_get_type_registration_serial (void);
  * static void     gtk_gadget_init       (GtkGadget      *self);
  * static void     gtk_gadget_class_init (GtkGadgetClass *klass);
  * static gpointer gtk_gadget_parent_class = NULL;
+ * static gint     GtkGadget_private_offset;
  * static void     gtk_gadget_class_intern_init (gpointer klass)
  * {
  *   gtk_gadget_parent_class = g_type_class_peek_parent (klass);
+ *   if (GtkGadget_private_offset != 0)
+ *     g_type_class_adjust_private_offset (klass, &GtkGadget_private_offset);
  *   gtk_gadget_class_init ((GtkGadgetClass*) klass);
+ * }
+ * static inline gpointer gtk_gadget_get_instance_private (GtkGadget *self)
+ * {
+ *   return (G_STRUCT_MEMBER_P (self, GtkGadget_private_offset));
  * }
  *
  * GType
@@ -1719,6 +1739,10 @@ guint     g_type_get_type_registration_serial (void);
  *                                        sizeof (GtkGadget),
  *                                        (GInstanceInitFunc) gtk_gadget_init,
  *                                        0);
+ *       {
+ *         GtkGadget_private_offset =
+ *           g_type_add_instance_private (g_define_type_id, sizeof (GtkGadgetPrivate));
+ *       }
  *       {
  *         const GInterfaceInfo g_implement_interface_info = {
  *           (GInterfaceInitFunc) gtk_gadget_gizmo_init
@@ -1863,9 +1887,9 @@ guint     g_type_get_type_registration_serial (void);
  * Also note that private structs added with these macros must have a struct
  * name of the form `TypeNamePrivate`.
  *
- * It is safe to call _get_instance_private on %NULL or invalid object since
- * it's only adding an offset to the instance pointer. In that case the returned
- * pointer must not be dereferenced.
+ * It is safe to call the `_get_instance_private` function on %NULL or invalid
+ * objects since it's only adding an offset to the instance pointer. In that
+ * case the returned pointer must not be dereferenced.
  *
  * Since: 2.38
  */

@@ -1,4 +1,5 @@
 if get_option('gtk_doc')
+  subdir('gdbus-object-manager-example')
   subdir('xml')
 
   ignore_headers = [
@@ -50,6 +51,8 @@ if get_option('gtk_doc')
     'glocalfilemonitor.h',
     'glocalfileoutputstream.h',
     'glocalvfs.h',
+    'gmemorymonitordbus.h',
+    'gmemorymonitorportal.h',
     'gmountprivate.h',
     'gnativevolumemonitor.h',
     'gnetworkingprivate.h',
@@ -81,14 +84,16 @@ if get_option('gtk_doc')
     'gunixresolver.h',
     'gunixvolume.h',
     'gunixvolumemonitor.h',
+    'gwin32networkmonitor.h',
     'gwin32appinfo.h',
     'gwin32mount.h',
-    'gwin32registrykey.h',
     'gwin32resolver.h',
     'gwin32volumemonitor.h',
     'thumbnail-verify.h',
     'xdp-dbus.h',
   ]
+
+  sections_files = files('gio-sections-common.txt')
 
   if host_system == 'windows'
     ignore_headers += [
@@ -104,6 +109,8 @@ if get_option('gtk_doc')
       'gdesktopappinfo.h',
       'gosxappinfo.h',
     ]
+    sections_files += files('gio-sections-win32.txt')
+    platform_file = files('gio-docs-win32.xml')
   else
     if glib_have_cocoa
       ignore_headers += ['gdesktopappinfo.h']
@@ -112,10 +119,11 @@ if get_option('gtk_doc')
     endif
 
     ignore_headers += [
-      'gwin32networkmonitor.h',
       'gwin32inputstream.h',
       'gwin32outputstream.h',
+      'gwin32registrykey.h',
     ]
+    platform_file = files('gio-docs-unix.xml')
   endif
 
   ignore_sources = [
@@ -125,10 +133,6 @@ if get_option('gtk_doc')
     'xdp-dbus.c',
   ]
 
-  # FIXME: More win32 headers were added to fix building gio-scan
-
-  # FIXME: ExampleAnimal docs aren't built
-
   docpath = join_paths(glib_datadir, 'gtk-doc', 'html')
   version_conf = configuration_data()
   version_conf.set('VERSION', meson.project_version())
@@ -136,6 +140,24 @@ if get_option('gtk_doc')
     input: 'version.xml.in',
     output: 'version.xml',
     configuration: version_conf
+  )
+
+  # FIXME: configure_file() does not support more than one file in input
+  # argument. If input argument is omitted then meson checks that all items in
+  # the command array are strings. But if we have an input then extra files
+  # can be passed in command array.
+  # See https://github.com/mesonbuild/meson/issues/5893
+  concat_files_helper = find_program('concat-files-helper.py')
+  configure_file(
+    output : 'gio-sections.txt',
+    input : sections_files[0],
+    command : [concat_files_helper, '@OUTPUT@'] + sections_files,
+  )
+
+  configure_file(
+    output : 'gio-docs-platform.xml',
+    input : platform_file,
+    copy : true,
   )
 
   gnome.gtkdoc('gio',
@@ -165,6 +187,9 @@ if get_option('gtk_doc')
       'gresource.xml',
       'gdbus.xml',
       'gdbus-codegen.xml',
+      gdbus_example_objectmanager_xml,
+      gdbus_example_objectmanager_sources,
+      gdbus_object_manager_example_doc,
     ],
     expand_content_files : [
       'overview.xml',
@@ -184,7 +209,8 @@ if get_option('gtk_doc')
       '--extra-dir=' + join_paths('gio', '..', 'glib', 'html'),
       '--extra-dir=' + join_paths('gio', '..', 'gobject', 'html'),
     ],
-    install: true
+    install: true,
+    check: true,
   )
 endif
 

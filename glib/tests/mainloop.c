@@ -25,25 +25,29 @@
 #include <stdio.h>
 #include <string.h>
 
-static gboolean cb (gpointer data)
+static gboolean
+cb (gpointer data)
 {
   return FALSE;
 }
 
-static gboolean prepare (GSource *source, gint *time)
+static gboolean
+prepare (GSource *source, gint *time)
 {
   return FALSE;
 }
-static gboolean check (GSource *source)
+static gboolean
+check (GSource *source)
 {
   return FALSE;
 }
-static gboolean dispatch (GSource *source, GSourceFunc cb, gpointer date)
+static gboolean
+dispatch (GSource *source, GSourceFunc cb, gpointer date)
 {
   return FALSE;
 }
 
-GSourceFuncs funcs = {
+static GSourceFuncs funcs = {
   prepare,
   check,
   dispatch,
@@ -167,6 +171,12 @@ test_timeouts (void)
   GMainContext *ctx;
   GMainLoop *loop;
   GSource *source;
+
+  if (!g_test_thorough ())
+    {
+      g_test_skip ("Not running timing heavy test");
+      return;
+    }
 
   a = b = c = 0;
 
@@ -695,7 +705,9 @@ typedef struct {
 
   GSource *timeout1, *timeout2;
   gint64 time1;
-  GTimeVal tv;
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+  GTimeVal tv;  /* needed for g_source_get_current_time() */
+G_GNUC_END_IGNORE_DEPRECATIONS
 } TimeTestData;
 
 static gboolean
@@ -730,7 +742,9 @@ G_GNUC_END_IGNORE_DEPRECATIONS
     }
   else
     {
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
       GTimeVal tv;
+G_GNUC_END_IGNORE_DEPRECATIONS
 
       /* Second iteration */
       g_assert_true (g_source_is_destroyed (data->timeout2));
@@ -1742,13 +1756,264 @@ test_nfds (void)
   g_main_context_unref (ctx);
 }
 
+static gboolean source_finalize_called = FALSE;
+static guint source_dispose_called = 0;
+static gboolean source_dispose_recycle = FALSE;
+
+static void
+finalize (GSource *source)
+{
+  g_assert_false (source_finalize_called);
+  source_finalize_called = TRUE;
+}
+
+static void
+dispose (GSource *source)
+{
+  /* Dispose must always be called before finalize */
+  g_assert_false (source_finalize_called);
+
+  if (source_dispose_recycle)
+    g_source_ref (source);
+  source_dispose_called++;
+}
+
+static GSourceFuncs source_funcs = {
+  prepare,
+  check,
+  dispatch,
+  finalize
+};
+
+static void
+test_maincontext_source_finalization (void)
+{
+  GSource *source;
+
+  /* Check if GSource destruction without dispose function works and calls the
+   * finalize function as expected */
+  source_finalize_called = FALSE;
+  source_dispose_called = 0;
+  source_dispose_recycle = FALSE;
+  source = g_source_new (&source_funcs, sizeof (GSource));
+  g_source_unref (source);
+  g_assert_cmpint (source_dispose_called, ==, 0);
+  g_assert_true (source_finalize_called);
+
+  /* Check if GSource destruction with dispose function works and calls the
+   * dispose and finalize function as expected */
+  source_finalize_called = FALSE;
+  source_dispose_called = 0;
+  source_dispose_recycle = FALSE;
+  source = g_source_new (&source_funcs, sizeof (GSource));
+  g_source_set_dispose_function (source, dispose);
+  g_source_unref (source);
+  g_assert_cmpint (source_dispose_called, ==, 1);
+  g_assert_true (source_finalize_called);
+
+  /* Check if GSource destruction with dispose function works and recycling
+   * the source from dispose works without calling the finalize function */
+  source_finalize_called = FALSE;
+  source_dispose_called = 0;
+  source_dispose_recycle = TRUE;
+  source = g_source_new (&source_funcs, sizeof (GSource));
+  g_source_set_dispose_function (source, dispose);
+  g_source_unref (source);
+  g_assert_cmpint (source_dispose_called, ==, 1);
+  g_assert_false (source_finalize_called);
+
+  /* Check if the source is properly recycled */
+  g_assert_cmpint (source->ref_count, ==, 1);
+
+  /* And then get rid of it properly */
+  source_dispose_recycle = FALSE;
+  g_source_unref (source);
+  g_assert_cmpint (source_dispose_called, ==, 2);
+  g_assert_true (source_finalize_called);
+}
+
+/* GSource implementation which optionally keeps a strong reference to another
+ * GSource until finalization, when it destroys and unrefs the other source.
+ */
+typedef struct {
+  GSource source;
+
+  GSource *other_source;
+} SourceWithSource;
+
+static void
+finalize_source_with_source (GSource *source)
+{
+  SourceWithSource *s = (SourceWithSource *) source;
+
+  if (s->other_source)
+    {
+      g_source_destroy (s->other_source);
+      g_source_unref (s->other_source);
+      s->other_source = NULL;
+    }
+}
+
+static GSourceFuncs source_with_source_funcs = {
+  NULL,
+  NULL,
+  NULL,
+  finalize_source_with_source
+};
+
+static void
+test_maincontext_source_finalization_from_source (gconstpointer user_data)
+{
+  GMainContext *c = g_main_context_new ();
+  GSource *s1, *s2;
+
+  g_test_summary ("Tests if freeing a GSource as part of another GSource "
+                  "during main context destruction works.");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/merge_requests/1353");
+
+  s1 = g_source_new (&source_with_source_funcs, sizeof (SourceWithSource));
+  s2 = g_source_new (&source_with_source_funcs, sizeof (SourceWithSource));
+  ((SourceWithSource *)s1)->other_source = g_source_ref (s2);
+
+  /* Attach sources in a different order so they end up being destroyed
+   * in a different order by the main context */
+  if (GPOINTER_TO_INT (user_data) < 5)
+    {
+      g_source_attach (s1, c);
+      g_source_attach (s2, c);
+    }
+  else
+    {
+      g_source_attach (s2, c);
+      g_source_attach (s1, c);
+    }
+
+  /* Test a few different permutations here */
+  if (GPOINTER_TO_INT (user_data) % 5 == 0)
+    {
+      /* Get rid of our references so that destroying the context
+       * will unref them immediately */
+      g_source_unref (s1);
+      g_source_unref (s2);
+      g_main_context_unref (c);
+    }
+  else if (GPOINTER_TO_INT (user_data) % 5 == 1)
+    {
+      /* Destroy and free the sources before the context */
+      g_source_destroy (s1);
+      g_source_unref (s1);
+      g_source_destroy (s2);
+      g_source_unref (s2);
+      g_main_context_unref (c);
+    }
+  else if (GPOINTER_TO_INT (user_data) % 5 == 2)
+    {
+      /* Destroy and free the sources before the context */
+      g_source_destroy (s2);
+      g_source_unref (s2);
+      g_source_destroy (s1);
+      g_source_unref (s1);
+      g_main_context_unref (c);
+    }
+  else if (GPOINTER_TO_INT (user_data) % 5 == 3)
+    {
+      /* Destroy and free the context before the sources */
+      g_main_context_unref (c);
+      g_source_unref (s2);
+      g_source_unref (s1);
+    }
+  else if (GPOINTER_TO_INT (user_data) % 5 == 4)
+    {
+      /* Destroy and free the context before the sources */
+      g_main_context_unref (c);
+      g_source_unref (s1);
+      g_source_unref (s2);
+    }
+}
+
+static gboolean
+dispatch_source_with_source (GSource *source, GSourceFunc callback, gpointer user_data)
+{
+  return G_SOURCE_REMOVE;
+}
+
+static GSourceFuncs source_with_source_funcs_dispatch = {
+  NULL,
+  NULL,
+  dispatch_source_with_source,
+  finalize_source_with_source
+};
+
+static void
+test_maincontext_source_finalization_from_dispatch (gconstpointer user_data)
+{
+  GMainContext *c = g_main_context_new ();
+  GSource *s1, *s2;
+
+  g_test_summary ("Tests if freeing a GSource as part of another GSource "
+                  "during main context iteration works.");
+
+  s1 = g_source_new (&source_with_source_funcs_dispatch, sizeof (SourceWithSource));
+  s2 = g_source_new (&source_with_source_funcs_dispatch, sizeof (SourceWithSource));
+  ((SourceWithSource *)s1)->other_source = g_source_ref (s2);
+
+  g_source_attach (s1, c);
+  g_source_attach (s2, c);
+
+  if (GPOINTER_TO_INT (user_data) == 0)
+    {
+      /* This finalizes s1 as part of the iteration, which then destroys and
+       * frees s2 too */
+      g_source_set_ready_time (s1, 0);
+    }
+  else if (GPOINTER_TO_INT (user_data) == 1)
+    {
+      /* This destroys s2 as part of the iteration but does not free it as
+       * it's still referenced by s1 */
+      g_source_set_ready_time (s2, 0);
+    }
+  else if (GPOINTER_TO_INT (user_data) == 2)
+    {
+      /* This destroys both s1 and s2 as part of the iteration */
+      g_source_set_ready_time (s1, 0);
+      g_source_set_ready_time (s2, 0);
+    }
+
+  /* Get rid of our references so only the main context has one now */
+  g_source_unref (s1);
+  g_source_unref (s2);
+
+  /* Iterate as long as there are sources to dispatch */
+  while (g_main_context_iteration (c, FALSE))
+    {
+      /* Do nothing here */
+    }
+
+  g_main_context_unref (c);
+}
+
 int
 main (int argc, char *argv[])
 {
+  gint i;
+
   g_test_init (&argc, &argv, NULL);
   g_test_bug_base ("http://bugzilla.gnome.org/");
 
   g_test_add_func ("/maincontext/basic", test_maincontext_basic);
+  g_test_add_func ("/maincontext/source_finalization", test_maincontext_source_finalization);
+  for (i = 0; i < 10; i++)
+    {
+      gchar *name = g_strdup_printf ("/maincontext/source_finalization_from_source/%d", i);
+      g_test_add_data_func (name, GINT_TO_POINTER (i), test_maincontext_source_finalization_from_source);
+      g_free (name);
+    }
+  for (i = 0; i < 3; i++)
+    {
+      gchar *name = g_strdup_printf ("/maincontext/source_finalization_from_dispatch/%d", i);
+      g_test_add_data_func (name, GINT_TO_POINTER (i), test_maincontext_source_finalization_from_dispatch);
+      g_free (name);
+    }
   g_test_add_func ("/mainloop/basic", test_mainloop_basic);
   g_test_add_func ("/mainloop/timeouts", test_timeouts);
   g_test_add_func ("/mainloop/priorities", test_priorities);

@@ -36,6 +36,7 @@
 #include <gio/gsocketconnection.h>
 #include <gio/ginetsocketaddress.h>
 #include "glibintl.h"
+#include "gmarshal-internal.h"
 
 
 /**
@@ -181,10 +182,14 @@ g_socket_listener_class_init (GSocketListenerClass *klass)
                   G_TYPE_FROM_CLASS (gobject_class),
                   G_SIGNAL_RUN_LAST,
                   G_STRUCT_OFFSET (GSocketListenerClass, event),
-                  NULL, NULL, NULL,
+                  NULL, NULL,
+                  _g_cclosure_marshal_VOID__ENUM_OBJECT,
                   G_TYPE_NONE, 2,
                   G_TYPE_SOCKET_LISTENER_EVENT,
                   G_TYPE_SOCKET);
+  g_signal_set_va_marshaller (signals[EVENT],
+                              G_TYPE_FROM_CLASS (gobject_class),
+                              _g_cclosure_marshal_VOID__ENUM_OBJECTv);
 
   source_quark = g_quark_from_static_string ("g-socket-listener-source");
 }
@@ -965,7 +970,9 @@ g_socket_listener_accept_finish (GSocketListener  *listener,
  * @listener: a #GSocketListener
  * @listen_backlog: an integer
  *
- * Sets the listen backlog on the sockets in the listener.
+ * Sets the listen backlog on the sockets in the listener. This must be called
+ * before adding any sockets, addresses or ports to the #GSocketListener (for
+ * example, by calling g_socket_listener_add_inet_port()) to be effective.
  *
  * See g_socket_set_listen_backlog() for details
  *
@@ -1246,26 +1253,24 @@ g_socket_listener_add_any_inet_port (GSocketListener  *listener,
       g_signal_emit (listener, signals[EVENT], 0,
                      G_SOCKET_LISTENER_LISTENING, socket4);
 
-      if (g_socket_listen (socket4, (socket6 == NULL) ? error : NULL))
-        {
-          g_signal_emit (listener, signals[EVENT], 0,
-                         G_SOCKET_LISTENER_LISTENED, socket4);
-
-          if (source_object)
-            g_object_set_qdata_full (G_OBJECT (socket4), source_quark,
-                                     g_object_ref (source_object),
-                                     g_object_unref);
-
-          g_ptr_array_add (listener->priv->sockets, socket4);
-        }
-      else
+      if (!g_socket_listen (socket4, error))
         {
           g_object_unref (socket4);
-          socket4 = NULL;
+          if (socket6)
+            g_object_unref (socket6);
 
-          if (socket6 == NULL)
-            return 0;
+          return 0;
         }
+
+      g_signal_emit (listener, signals[EVENT], 0,
+                     G_SOCKET_LISTENER_LISTENED, socket4);
+
+      if (source_object)
+        g_object_set_qdata_full (G_OBJECT (socket4), source_quark,
+                                 g_object_ref (source_object),
+                                 g_object_unref);
+
+      g_ptr_array_add (listener->priv->sockets, socket4);
     }
 
   if ((socket4 != NULL || socket6 != NULL) &&

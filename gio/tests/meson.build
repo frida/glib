@@ -7,7 +7,6 @@ common_gio_tests_deps = [
 
 test_c_args = [
   '-DG_LOG_DOMAIN="GLib-GIO"',
-  '-DTEST_SERVICES="@0@/gio/tests/services"'.format(meson.build_root()),
   '-DGLIB_MKENUMS="@0@"'.format(glib_mkenums),
   '-DGLIB_COMPILE_SCHEMAS="@0@"'.format(glib_compile_schemas.full_path()),
   '-UG_DISABLE_ASSERT',
@@ -53,8 +52,8 @@ gio_tests = {
   'inet-address' : {},
   'io-stream' : {},
   'memory-input-stream' : {},
+  'memory-monitor' : {},
   'memory-output-stream' : {},
-  'monitor' : {},
   'mount-operation' : {},
   'network-address' : {'extra_sources': ['mock-resolver.c']},
   'network-monitor' : {},
@@ -80,6 +79,7 @@ gio_tests = {
   'tls-interaction' : {'extra_sources' : ['gtesttlsbackend.c']},
   'tls-database' : {'extra_sources' : ['gtesttlsbackend.c']},
   'gdbus-address-get-session' : {},
+  'win32-appinfo' : {},
 }
 
 test_extra_programs = {
@@ -88,17 +88,20 @@ test_extra_programs = {
   'gsubprocess-testprog' : {},
 }
 
+python_tests = [
+  'codegen.py',
+]
+
 test_env = environment()
 test_env.set('G_TEST_SRCDIR', meson.current_source_dir())
 test_env.set('G_TEST_BUILDDIR', meson.current_build_dir())
 test_env.set('GIO_MODULE_DIR', '')
-test_env.set('GIO_LAUNCH_DESKTOP', meson.build_root() + '/gio/gio-launch-desktop')
 
 # Check for libdbus1 - Optional - is only used in the GDBus test cases
 # 1.2.14 required for dbus_message_set_serial
 dbus1_dep = dependency('dbus-1', required : false, version : '>= 1.2.14')
 if not dbus1_dep.found()
-  if cc.get_id() == 'msvc'
+  if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
     # MSVC: Search for the DBus library by the configuration, which corresponds
     # to the output of CMake builds of DBus.  Note that debugoptimized
     # is really a Release build with .PDB files.
@@ -116,7 +119,15 @@ if dbus1_dep.found()
     'gdbus-serialization' : {
       'extra_sources' : ['gdbus-tests.c'],
       'dependencies' : [dbus1_dep],
-    }
+    },
+    'gdbus-server-auth' : {
+      'dependencies' : [dbus1_dep],
+    },
+  }
+else
+  # We can build a cut-down version of this test without libdbus
+  gio_tests += {
+    'gdbus-server-auth' : {},
   }
 endif
 
@@ -147,7 +158,7 @@ if host_machine.system() != 'windows'
           shared_library('slow-connect-preload',
             'slow-connect-preload.c',
             name_prefix : '',
-            dependencies: cc.find_library('dl'),
+            dependencies: libdl_dep,
             install_dir : installed_tests_execdir,
             install: installed_tests_enabled,
           )
@@ -219,7 +230,23 @@ if host_machine.system() != 'windows'
                    '--generate-docbook', 'gdbus-test-codegen-generated-doc',
                    annotate_args,
                    '@INPUT@'])
-
+    # Generate gdbus-test-codegen-generated-min-required-2-64.{c,h}
+    gdbus_test_codegen_generated_min_required_2_64 = custom_target('gdbus-test-codegen-generated-min-required-2-64',
+        input :   ['test-codegen.xml'],
+        output :  ['gdbus-test-codegen-generated-min-required-2-64.h',
+                   'gdbus-test-codegen-generated-min-required-2-64.c'],
+        depend_files : gdbus_codegen_built_files,
+        command : [python, gdbus_codegen,
+                   '--glib-min-required', '2.64',
+                   '--interface-prefix', 'org.project.',
+                   '--output-directory', '@OUTDIR@',
+                   '--generate-c-code', 'gdbus-test-codegen-generated-min-required-2-64',
+                   '--c-generate-object-manager',
+                   '--c-generate-autocleanup', 'all',
+                   '--c-namespace', 'Foo_iGen',
+                   '--generate-docbook', 'gdbus-test-codegen-generated-doc',
+                   annotate_args,
+                   '@INPUT@'])
     gdbus_test_codegen_generated_interface_info = [
       custom_target('gdbus-test-codegen-generated-interface-info-h',
           input :   ['test-codegen.xml'],
@@ -271,10 +298,11 @@ if host_machine.system() != 'windows'
       'gdbus-proxy-well-known-name' : {'extra_sources' : extra_sources},
       'gdbus-test-codegen' : {
         'extra_sources' : [extra_sources, gdbus_test_codegen_generated, gdbus_test_codegen_generated_interface_info],
+        'c_args' : ['-DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_32'],
       },
       'gdbus-threading' : {
         'extra_sources' : extra_sources,
-        'suite' : ['slow', 'flaky'],
+        'suite' : ['slow'],
       },
       'gmenumodel' : {
         'extra_sources' : extra_sources,
@@ -289,6 +317,11 @@ if host_machine.system() != 'windows'
         'c_args' : ['-DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_36',
                     '-DGLIB_VERSION_MAX_ALLOWED=GLIB_VERSION_2_36'],
       },
+      'gdbus-test-codegen-min-required-2-64' : {
+        'source' : 'gdbus-test-codegen.c',
+        'extra_sources' : [extra_sources, gdbus_test_codegen_generated_min_required_2_64, gdbus_test_codegen_generated_interface_info],
+        'c_args' : ['-DGLIB_VERSION_MIN_REQUIRED=GLIB_VERSION_2_64'],
+      },
       'gapplication' : {'extra_sources' : extra_sources},
     }
 
@@ -299,6 +332,24 @@ if host_machine.system() != 'windows'
         },
       }
     endif
+
+    fake_document_portal_generated = custom_target('fake-document-portal-generated',
+        input :   ['../org.freedesktop.portal.Documents.xml'],
+        output :  ['fake-document-portal-generated.h',
+                   'fake-document-portal-generated.c'],
+        depend_files : gdbus_codegen_built_files,
+        command : [python, gdbus_codegen,
+                   '--interface-prefix', 'org.freedesktop.portal.',
+                   '--output-directory', '@OUTDIR@',
+                   '--generate-c-code', 'fake-document-portal-generated',
+                   '--c-namespace', 'Fake',
+                   '@INPUT@'])
+
+    test_extra_programs += {
+      'fake-document-portal' : {
+        'extra_sources': fake_document_portal_generated,
+      },
+    }
   endif # have_dbus_daemon
 
   # This test is currently unreliable
@@ -379,7 +430,12 @@ test_extra_programs += {
   },
 }
 
-if cc.get_id() != 'msvc'
+gdbus_example_objectmanager_sources = files(
+  'gdbus-example-objectmanager-client.c',
+  'gdbus-example-objectmanager-server.c',
+)
+
+if cc.get_id() != 'msvc' and cc.get_id() != 'clang-cl'
   test_extra_programs += {
     # These three are manual-run tests because they need a session bus but don't bring one up themselves
     # FIXME: these build but don't seem to work!
@@ -421,13 +477,20 @@ else
 endif
 
 foreach appinfo_test_desktop_file : appinfo_test_desktop_files
-  configure_file(
-    input: appinfo_test_desktop_file + '.in',
-    output: appinfo_test_desktop_file,
-    install_dir: installed_tests_execdir,
-    install: installed_tests_enabled,
-    configuration: cdata,
-  )
+  if installed_tests_enabled
+    configure_file(
+      input: appinfo_test_desktop_file + '.in',
+      output: appinfo_test_desktop_file,
+      install_dir: installed_tests_execdir,
+      configuration: cdata,
+    )
+  else
+    configure_file(
+      input: appinfo_test_desktop_file + '.in',
+      output: appinfo_test_desktop_file,
+      configuration: cdata,
+    )
+  endif
 endforeach
 
 if installed_tests_enabled
@@ -438,6 +501,7 @@ if installed_tests_enabled
     'appinfo-test-static.desktop',
     'file.c',
     'org.gtk.test.dbusappinfo.desktop',
+    'org.gtk.test.dbusappinfo.flatpak.desktop',
     'test1.overlay',
     install_dir : installed_tests_execdir,
   )
@@ -457,6 +521,31 @@ if installed_tests_enabled
   )
   install_subdir('static-link', install_dir : installed_tests_execdir)
   install_data('static-link.py', install_dir : installed_tests_execdir)
+
+  memory_monitor_tests = [
+    'memory-monitor-dbus',
+    'memory-monitor-portal',
+  ]
+
+  foreach memory_monitor_test : memory_monitor_tests
+    cdata = configuration_data()
+    cdata.set('installed_tests_dir', installed_tests_execdir)
+    cdata.set('program', memory_monitor_test + '.py')
+    configure_file(
+      input: installed_tests_template,
+      output: memory_monitor_test + '.test',
+      install_dir: installed_tests_metadir,
+      configuration: cdata
+    )
+    cdata = configuration_data()
+    cdata.set('libexecdir', join_paths(glib_prefix, get_option('libexecdir')))
+    configure_file(
+      input: memory_monitor_test + '.py.in',
+      output: memory_monitor_test + '.py',
+      install_dir : installed_tests_execdir,
+      configuration: cdata,
+    )
+  endforeach
 endif
 
 if not meson.is_cross_build() or meson.has_exe_wrapper()
@@ -555,7 +644,7 @@ if not meson.is_cross_build() or meson.has_exe_wrapper()
   test_generated_txt = configure_file(input : 'test1.txt',
     output : 'test-generated.txt',
     copy : true,
-    install : false)
+  )
 
   resources_extra_sources = [
     test_gresource,
@@ -571,7 +660,15 @@ if not meson.is_cross_build() or meson.has_exe_wrapper()
   # Support for --add-symbol was added to LLVM objcopy in 2019
   # (https://reviews.llvm.org/D58234). FIXME: This test could be enabled for
   # LLVM once that support is in a stable release.
-  if build_machine.system() == 'linux' and cc.get_id() == 'gcc'
+  objcopy_supports_add_symbol = false
+  objcopy = find_program('objcopy', required : false)
+  if objcopy.found()
+    objcopy_supports_add_symbol = run_command(objcopy, '--help').stdout().contains('--add-symbol')
+  endif
+
+  ld = find_program('ld', required : false)
+
+  if build_machine.system() == 'linux' and cc.get_id() == 'gcc' and objcopy.found() and objcopy_supports_add_symbol and ld.found()
     test_gresource_binary = custom_target('test5.gresource',
       input : 'test5.gresource.xml',
       output : 'test5.gresource',
@@ -600,7 +697,7 @@ if not meson.is_cross_build() or meson.has_exe_wrapper()
     test_resources_binary = custom_target('test_resources.o',
       input : test_gresource_binary,
       output : 'test_resources.o',
-      command : ['ld',
+      command : [ld,
                  '-r',
                  '-b','binary',
                  '@INPUT@',
@@ -610,7 +707,7 @@ if not meson.is_cross_build() or meson.has_exe_wrapper()
     test_resources_binary2 = custom_target('test_resources2.o',
       input : test_resources_binary,
       output : 'test_resources2.o',
-      command : ['objcopy',
+      command : [objcopy,
                  '--add-symbol','_g_binary_test1_resource_data=.data:0',
                  '@INPUT@',
                  '@OUTPUT@'])
@@ -675,7 +772,6 @@ foreach test_name, extra_args : gio_tests
     env : local_test_env,
     timeout : timeout,
     suite : suite,
-    args : ['--tap'],
     is_parallel : extra_args.get('is_parallel', true),
     depends : extra_args.get('depends', []),
   )
@@ -693,5 +789,42 @@ foreach program_name, extra_args : test_extra_programs
   )
 endforeach
 
-# FIXME: subdir('services')
+foreach test_name : python_tests
+  test(
+    test_name,
+    python,
+    args: ['-B', files(test_name)],
+    env: test_env,
+    suite: ['gio', 'no-valgrind'],
+  )
+
+  if installed_tests_enabled
+    install_data(
+      files(test_name),
+      install_dir: installed_tests_execdir,
+      install_mode: 'rwxr-xr-x',
+    )
+
+    test_conf = configuration_data()
+    test_conf.set('installed_tests_dir', installed_tests_execdir)
+    test_conf.set('program', test_name)
+    test_conf.set('env', '')
+    configure_file(
+      input: installed_tests_template_tap,
+      output: test_name + '.test',
+      install_dir: installed_tests_metadir,
+      configuration: test_conf,
+    )
+  endif
+endforeach
+
+# TAP test runner for Python tests
+if installed_tests_enabled
+  install_data(
+    files('taptestrunner.py'),
+    install_dir: installed_tests_execdir,
+  )
+endif
+
+subdir('services')
 subdir('modules')

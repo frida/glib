@@ -19,7 +19,6 @@ tests = {
   'testglib' : {'tap' : true},
   'testgdate' : {},
   'datetime' : {},
-  'atomic-test' : {},
   'bit-test' : {},
   'child-test' : {},
   'completion-test' : {},
@@ -44,9 +43,17 @@ tests = {
   'type-test' : {},
   'unicode-caseconv' : {},
   'unicode-encoding' : {},
-  'module-test' : {
+  'module-test-library' : {
     'dependencies' : [libgmodule_dep],
     'export_dynamic' : true,
+    'source': 'module-test.c',
+    'c_args': ['-DMODULE_TYPE="library"'],
+  },
+  'module-test-plugin' : {
+    'dependencies' : [libgmodule_dep],
+    'export_dynamic' : true,
+    'source': 'module-test.c',
+    'c_args': ['-DMODULE_TYPE="plugin"'],
   },
   'cxx-test' : {
     'source' : 'cxx-test.cpp',
@@ -87,11 +94,25 @@ if installed_tests_enabled
   )
 endif
 
+module_suffix = []
+# Keep the autotools convention for shared module suffix because GModule
+# depends on it: https://gitlab.gnome.org/GNOME/glib/issues/520
+if ['darwin', 'ios'].contains(host_machine.system())
+  module_suffix = 'so'
+endif
+
 foreach module : ['moduletestplugin_a', 'moduletestplugin_b']
-  shared_module(module, 'lib@0@.c'.format(module),
+  shared_module(module + '_plugin', 'lib@0@.c'.format(module),
     dependencies : [libglib_dep, libgmodule_dep],
     install_dir : installed_tests_execdir,
-    install : installed_tests_enabled
+    install : installed_tests_enabled,
+    name_suffix : module_suffix
+  )
+  shared_library(module + '_library', 'lib@0@.c'.format(module),
+    dependencies : [libglib_dep, libgmodule_dep],
+    install_dir : installed_tests_execdir,
+    install : installed_tests_enabled,
+    name_suffix : module_suffix
   )
 endforeach
 
@@ -103,7 +124,6 @@ foreach test_name, extra_args : tests
   extra_sources = extra_args.get('extra_sources', [])
   install = installed_tests_enabled and extra_args.get('install', true)
   template = extra_args.get('tap', false) ? installed_tests_template_tap : installed_tests_template
-  test_command_args = extra_args.get('tap', false) ? ['--tap'] : []
 
   if install
     test_conf = configuration_data()
@@ -131,8 +151,7 @@ foreach test_name, extra_args : tests
   suite = ['glib'] + extra_args.get('suite', [])
   timeout = suite.contains('slow') ? test_timeout_slow : test_timeout
   # FIXME? TESTS_ENVIRONMENT = LIBCHARSET_ALIAS_DIR=$(top_builddir)/glib/libcharset
-  test(test_name, exe, env : test_env, timeout : timeout, suite : suite,
-    args : test_command_args)
+  test(test_name, exe, env : test_env, timeout : timeout, suite : suite)
 endforeach
 
 foreach program_name, extra_args : test_extra_programs

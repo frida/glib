@@ -372,7 +372,7 @@ g_thread_create_full (GThreadFunc       func,
   GThread *thread;
 
   thread = g_thread_new_internal (NULL, g_deprecated_thread_proxy,
-                                  func, data, stack_size, error);
+                                  func, data, stack_size, NULL, error);
 
   if (thread && !joinable)
     {
@@ -669,7 +669,7 @@ g_static_rec_mutex_get_rec_mutex_impl (GStaticRecMutex* mutex)
   if (!g_thread_supported ())
     return NULL;
 
-  result = g_atomic_pointer_get (&mutex->mutex.mutex);
+  result = (GRecMutex *) g_atomic_pointer_get (&mutex->mutex.mutex);
 
   if (!result)
     {
@@ -680,7 +680,7 @@ g_static_rec_mutex_get_rec_mutex_impl (GStaticRecMutex* mutex)
         {
           result = g_slice_new (GRecMutex);
           g_rec_mutex_init (result);
-          g_atomic_pointer_set (&mutex->mutex.mutex, result);
+          g_atomic_pointer_set (&mutex->mutex.mutex, (GMutex *) result);
         }
 
       G_UNLOCK (g_static_mutex);
@@ -1540,7 +1540,7 @@ g_cond_free (GCond *cond)
  * This function can be used even if g_thread_init() has not yet been
  * called, and, in that case, will immediately return %TRUE.
  *
- * To easily calculate @abs_time a combination of g_get_current_time()
+ * To easily calculate @abs_time a combination of g_get_real_time()
  * and g_time_val_add() can be used.
  *
  * Returns: %TRUE if @cond was signalled, or %FALSE on timeout

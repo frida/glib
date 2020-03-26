@@ -46,7 +46,6 @@
 #endif
 #include <errno.h>
 #include <ctype.h>
-#include <strsafe.h>
 #if defined(_MSC_VER) || defined(__DMC__)
 #  include <io.h>
 #endif /* _MSC_VER || __DMC__ */
@@ -108,15 +107,12 @@ g_win32_ftruncate (gint  fd,
 gchar *
 g_win32_getlocale (void)
 {
-  gchar *result;
   LCID lcid;
   LANGID langid;
   gchar *ev;
   gint primary, sub;
-  WCHAR iso639[10];
-  gchar *iso639_utf8;
-  WCHAR iso3166[10];
-  gchar *iso3166_utf8;
+  char iso639[10];
+  char iso3166[10];
   const gchar *script = NULL;
 
   /* Let the user override the system settings through environment
@@ -131,8 +127,8 @@ g_win32_getlocale (void)
 
   lcid = GetThreadLocale ();
 
-  if (!GetLocaleInfoW (lcid, LOCALE_SISO639LANGNAME, iso639, sizeof (iso639)) ||
-      !GetLocaleInfoW (lcid, LOCALE_SISO3166CTRYNAME, iso3166, sizeof (iso3166)))
+  if (!GetLocaleInfo (lcid, LOCALE_SISO639LANGNAME, iso639, sizeof (iso639)) ||
+      !GetLocaleInfo (lcid, LOCALE_SISO3166CTRYNAME, iso3166, sizeof (iso3166)))
     return g_strdup ("C");
   
   /* Strip off the sorting rules, keep only the language part.  */
@@ -177,16 +173,7 @@ g_win32_getlocale (void)
 	}
       break;
     }
-
-  iso639_utf8 = g_utf16_to_utf8 (iso639, -1, NULL, NULL, NULL);
-  iso3166_utf8 = g_utf16_to_utf8 (iso3166, -1, NULL, NULL, NULL);
-
-  result = g_strconcat (iso639_utf8, "_", iso3166_utf8, script, NULL);
-
-  g_free (iso3166_utf8);
-  g_free (iso639_utf8);
-
-  return result;
+  return g_strconcat (iso639, "_", iso3166, script, NULL);
 }
 
 /**
@@ -839,7 +826,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
  * attached to a process, from DllMain().
  */
 void
-_g_console_win32_init (void)
+g_console_win32_init (void)
 {
   struct
     {
@@ -1084,7 +1071,8 @@ g_win32_veh_handler (PEXCEPTION_POINTERS ExceptionInfo)
   SECURITY_ATTRIBUTES  sa;
 
   if (ExceptionInfo == NULL ||
-      ExceptionInfo->ExceptionRecord == NULL)
+      ExceptionInfo->ExceptionRecord == NULL ||
+      IsDebuggerPresent ())
     return EXCEPTION_CONTINUE_SEARCH;
 
   er = ExceptionInfo->ExceptionRecord;
@@ -1094,7 +1082,6 @@ g_win32_veh_handler (PEXCEPTION_POINTERS ExceptionInfo)
     case EXCEPTION_ACCESS_VIOLATION:
     case EXCEPTION_STACK_OVERFLOW:
     case EXCEPTION_ILLEGAL_INSTRUCTION:
-    case EXCEPTION_BREAKPOINT: /* DebugBreak() raises this */
       break;
     default:
       catch_list = getenv ("G_VEH_CATCH");
@@ -1122,46 +1109,35 @@ g_win32_veh_handler (PEXCEPTION_POINTERS ExceptionInfo)
       return EXCEPTION_CONTINUE_SEARCH;
     }
 
-  if (IsDebuggerPresent ())
-    {
-      /* This shouldn't happen, but still try to
-       * avoid recursion with EXCEPTION_BREAKPOINT and
-       * DebugBreak().
-       */
-      if (er->ExceptionCode != EXCEPTION_BREAKPOINT)
-        DebugBreak ();
-      return EXCEPTION_CONTINUE_EXECUTION;
-    }
-
-  fprintf (stderr,
-           "Exception code=0x%lx flags=0x%lx at 0x%p",
-           er->ExceptionCode,
-           er->ExceptionFlags,
-           er->ExceptionAddress);
+  fprintf_s (stderr,
+             "Exception code=0x%lx flags=0x%lx at 0x%p",
+             er->ExceptionCode,
+             er->ExceptionFlags,
+             er->ExceptionAddress);
 
   switch (er->ExceptionCode)
     {
     case EXCEPTION_ACCESS_VIOLATION:
-      fprintf (stderr,
-               ". Access violation - attempting to %s at address 0x%p\n",
-               er->ExceptionInformation[0] == 0 ? "read data" :
-               er->ExceptionInformation[0] == 1 ? "write data" :
-               er->ExceptionInformation[0] == 8 ? "execute data" :
-               "do something bad",
-               (void *) er->ExceptionInformation[1]);
+      fprintf_s (stderr,
+                 ". Access violation - attempting to %s at address 0x%p\n",
+                 er->ExceptionInformation[0] == 0 ? "read data" :
+                 er->ExceptionInformation[0] == 1 ? "write data" :
+                 er->ExceptionInformation[0] == 8 ? "execute data" :
+                 "do something bad",
+                 (void *) er->ExceptionInformation[1]);
       break;
     case EXCEPTION_IN_PAGE_ERROR:
-      fprintf (stderr,
-               ". Page access violation - attempting to %s at address 0x%p with status %Ix\n",
-               er->ExceptionInformation[0] == 0 ? "read from an inaccessible page" :
-               er->ExceptionInformation[0] == 1 ? "write to an inaccessible page" :
-               er->ExceptionInformation[0] == 8 ? "execute data in page" :
-               "do something bad with a page",
-               (void *) er->ExceptionInformation[1],
-               er->ExceptionInformation[2]);
+      fprintf_s (stderr,
+                 ". Page access violation - attempting to %s at address 0x%p with status %Ix\n",
+                 er->ExceptionInformation[0] == 0 ? "read from an inaccessible page" :
+                 er->ExceptionInformation[0] == 1 ? "write to an inaccessible page" :
+                 er->ExceptionInformation[0] == 8 ? "execute data in page" :
+                 "do something bad with a page",
+                 (void *) er->ExceptionInformation[1],
+                 er->ExceptionInformation[2]);
       break;
     default:
-      fprintf (stderr, "\n");
+      fprintf_s (stderr, "\n");
       break;
     }
 
@@ -1227,16 +1203,24 @@ g_win32_veh_handler (PEXCEPTION_POINTERS ExceptionInfo)
 }
 
 void
-_g_crash_handler_win32_init (void)
+g_crash_handler_win32_init (void)
 {
   if (WinVEH_handle != NULL)
+    return;
+
+  /* Do not register an exception handler if we're not supposed to catch any
+   * exceptions. Exception handlers are considered dangerous to use, and can
+   * break advanced exception handling such as in CLRs like C# or other managed
+   * code. See: https://blogs.msdn.microsoft.com/jmstall/2006/05/24/beware-of-the-vectored-exception-handler-and-managed-code/
+   */
+  if (getenv ("G_DEBUGGER") == NULL && getenv("G_VEH_CATCH") == NULL)
     return;
 
   WinVEH_handle = AddVectoredExceptionHandler (0, &g_win32_veh_handler);
 }
 
 void
-_g_crash_handler_win32_deinit (void)
+g_crash_handler_win32_deinit (void)
 {
   if (WinVEH_handle != NULL)
     RemoveVectoredExceptionHandler (WinVEH_handle);
@@ -1245,190 +1229,3 @@ _g_crash_handler_win32_deinit (void)
 }
 
 #endif
-
-#define CWM_DISPATCH      (WM_USER + 0)
-#define DISPATCH_TIMER_ID (1)
-
-#define IS_DISPATCHER_MESSAGE(umsg) \
-    ((umsg) == CWM_DISPATCH || (umsg) == WM_TIMER)
-
-struct _GWin32Dispatcher
-{
-  GWin32DispatchMode mode;
-  GMainContext * main_context;
-
-  ATOM klass;
-  HWND window;
-  gboolean message_posted;
-  gboolean is_dispatching_message;
-  HHOOK foreground_idle_hook;
-};
-
-static LRESULT CALLBACK g_win32_dispatcher_window_proc (HWND hwnd, UINT umsg,
-    WPARAM wparam, LPARAM lparam);
-static DWORD CALLBACK g_win32_dispatcher_on_foreground_idle (int code,
-    DWORD wParam, LONG lParam);
-
-static DWORD g_win32_dispatcher_tls = TLS_OUT_OF_INDEXES;
-
-static gpointer
-g_win32_dispatcher_init (gpointer data)
-{
-  g_win32_dispatcher_tls = TlsAlloc ();
-  return NULL;
-}
-
-GWin32Dispatcher *
-g_win32_dispatcher_new (GWin32DispatchMode mode, GMainContext * main_context)
-{
-  static GOnce init_once = G_ONCE_INIT;
-  GWin32Dispatcher * dispatcher;
-  WNDCLASSW wndclass;
-  WCHAR wndclass_name[64];
-
-  g_once (&init_once, g_win32_dispatcher_init, NULL);
-
-  dispatcher = g_new0 (GWin32Dispatcher, 1);
-  dispatcher->mode = mode;
-  dispatcher->main_context = main_context;
-
-  memset (&wndclass, 0, sizeof (wndclass));
-  wndclass.style = 0;
-  wndclass.lpfnWndProc = g_win32_dispatcher_window_proc;
-  wndclass.cbWndExtra = 0;
-  wndclass.hInstance = GetModuleHandleW (NULL);
-  wndclass.hIcon = NULL;
-  wndclass.hCursor = NULL;
-  wndclass.hbrBackground = NULL;
-  wndclass.lpszMenuName = NULL;
-  StringCbPrintfW (wndclass_name, sizeof (wndclass_name),
-      L"GWin32Dispatcher_%p", dispatcher);
-  wndclass.lpszClassName = wndclass_name;
-
-  dispatcher->klass = RegisterClassW (&wndclass);
-  g_assert (dispatcher->klass != 0);
-
-  dispatcher->window =
-      CreateWindowW ((LPWSTR) MAKEINTATOM (dispatcher->klass),
-                     wndclass.lpszClassName, 0, 0, 0, 1, 1, NULL, NULL,
-                     GetModuleHandle (NULL), NULL);
-  g_assert (dispatcher->window != NULL);
-
-  SetWindowLongPtr (dispatcher->window, GWLP_USERDATA,
-      GPOINTER_TO_SIZE (dispatcher));
-
-  g_assert (TlsGetValue (g_win32_dispatcher_tls) == NULL);
-  TlsSetValue (g_win32_dispatcher_tls, dispatcher);
-
-  dispatcher->foreground_idle_hook = SetWindowsHookEx (WH_FOREGROUNDIDLE,
-      (HOOKPROC) g_win32_dispatcher_on_foreground_idle, NULL,
-      GetCurrentThreadId ());
-
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    SetTimer (dispatcher->window, DISPATCH_TIMER_ID, 0, NULL);
-
-  return dispatcher;
-}
-
-void
-g_win32_dispatcher_destroy (GWin32Dispatcher * dispatcher)
-{
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    KillTimer (dispatcher->window, DISPATCH_TIMER_ID);
-
-  UnhookWindowsHookEx (dispatcher->foreground_idle_hook);
-
-  g_assert (TlsGetValue (g_win32_dispatcher_tls) == dispatcher);
-  TlsSetValue (g_win32_dispatcher_tls, NULL);
-
-  DestroyWindow (dispatcher->window);
-
-  UnregisterClassW ((LPWSTR) MAKEINTATOM (dispatcher->klass),
-                    GetModuleHandleW (NULL));
-
-  g_free (dispatcher);
-}
-
-glong
-g_win32_dispatcher_dispatch_message (GWin32Dispatcher * dispatcher,
-    gconstpointer msg)
-{
-  const MSG * m = msg;
-  LRESULT result;
-
-  g_assert_cmpint (dispatcher->mode, ==, G_DISPATCH_MAINLOOP);
-
-  if (m->hwnd == dispatcher->window && IS_DISPATCHER_MESSAGE (m->message))
-    return 0;
-
-  SetTimer (dispatcher->window, DISPATCH_TIMER_ID, 0, NULL);
-
-  dispatcher->is_dispatching_message = TRUE;
-  result = DispatchMessage (msg);
-  dispatcher->is_dispatching_message = FALSE;
-
-  KillTimer (dispatcher->window, DISPATCH_TIMER_ID);
-
-  return result;
-}
-
-static gboolean
-g_win32_dispatcher_needs_wakeup (GWin32Dispatcher * dispatcher)
-{
-  if (dispatcher->mode == G_DISPATCH_MESSAGEPUMP)
-    return TRUE;
-
-  return dispatcher->is_dispatching_message;
-}
-
-static LRESULT CALLBACK
-g_win32_dispatcher_window_proc (HWND hwnd, UINT umsg, WPARAM wparam,
-    LPARAM lparam)
-{
-  if (IS_DISPATCHER_MESSAGE (umsg))
-    {
-      GWin32Dispatcher * dispatcher;
-
-      dispatcher = GSIZE_TO_POINTER (GetWindowLongPtr (hwnd, GWLP_USERDATA));
-      if (dispatcher != NULL)
-        {
-          KillTimer (hwnd, DISPATCH_TIMER_ID);
-          dispatcher->message_posted = TRUE;
-
-          if (g_win32_dispatcher_needs_wakeup (dispatcher))
-            {
-              g_main_context_iteration (dispatcher->main_context, FALSE);
-
-              while (GetQueueStatus (QS_ALLINPUT) == 0)
-                {
-                  g_main_context_iteration (dispatcher->main_context, TRUE);
-                }
-            }
-
-          dispatcher->message_posted = FALSE;
-          SetTimer (hwnd, DISPATCH_TIMER_ID, 0, NULL);
-        }
-    }
-
-  return DefWindowProcW (hwnd, umsg, wparam, lparam);
-}
-
-static DWORD CALLBACK
-g_win32_dispatcher_on_foreground_idle (int code, DWORD wParam, LONG lParam)
-{
-  GWin32Dispatcher * dispatcher;
-
-  dispatcher = TlsGetValue (g_win32_dispatcher_tls);
-  g_assert (dispatcher != NULL);
-
-  if (code == HC_ACTION && !dispatcher->message_posted &&
-      g_win32_dispatcher_needs_wakeup (dispatcher))
-    {
-      dispatcher->message_posted = TRUE;
-
-      PostMessage (dispatcher->window, CWM_DISPATCH, 0, 0);
-    }
-
-  return CallNextHookEx (dispatcher->foreground_idle_hook, code,
-      wParam, lParam);
-}

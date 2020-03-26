@@ -98,6 +98,10 @@
  * detail part of the signal specification upon connection) serves as a
  * wildcard and matches any detail argument passed in to emission.
  *
+ * While the @detail argument is typically used to pass an object property name
+ * (as with #GObject::notify), no specific format is mandated for the detail
+ * string, other than that it must be non-empty.
+ *
  * ## Memory management of signal handlers # {#signal-memory-management}
  *
  * If you are connecting handlers to signals and using a #GObject instance as
@@ -126,7 +130,7 @@
  */
 
 
-#define REPORT_BUG      "please report occurrence circumstances to gtk-devel-list@gnome.org"
+#define REPORT_BUG      "please report occurrence circumstances to https://gitlab.gnome.org/GNOME/glib/issues/new"
 
 /* --- typedefs --- */
 typedef struct _SignalNode   SignalNode;
@@ -145,8 +149,8 @@ typedef enum
 
 
 /* --- prototypes --- */
-static inline guint		signal_id_lookup	(GQuark		  quark,
-							 GType		  itype);
+static inline guint   signal_id_lookup  (const gchar *name,
+                                         GType        itype);
 static	      void		signal_destroy_R	(SignalNode	 *signal_node);
 static inline HandlerList*	handler_list_ensure	(guint		  signal_id,
 							 gpointer	  instance);
@@ -340,14 +344,64 @@ LOOKUP_SIGNAL_NODE (guint signal_id)
 
 
 /* --- functions --- */
-static inline guint
-signal_id_lookup (GQuark quark,
-		  GType  itype)
+/* @key must have already been validated with is_valid()
+ * Modifies @key in place. */
+static void
+canonicalize_key (gchar *key)
 {
+  gchar *p;
+
+  for (p = key; *p != 0; p++)
+    {
+      gchar c = *p;
+
+      if (c == '_')
+        *p = '-';
+    }
+}
+
+/* @key must have already been validated with is_valid() */
+static gboolean
+is_canonical (const gchar *key)
+{
+  return (strchr (key, '_') == NULL);
+}
+
+/**
+ * g_signal_is_valid_name:
+ * @name: the canonical name of the signal
+ *
+ * Validate a signal name. This can be useful for dynamically-generated signals
+ * which need to be validated at run-time before actually trying to create them.
+ *
+ * See [canonical parameter names][canonical-parameter-names] for details of
+ * the rules for valid names. The rules for signal names are the same as those
+ * for property names.
+ *
+ * Returns: %TRUE if @name is a valid signal name, %FALSE otherwise.
+ * Since: 2.66
+ */
+gboolean
+g_signal_is_valid_name (const gchar *name)
+{
+  /* FIXME: We allow this, against our own documentation (the leading `-` is
+   * invalid), because GTK has historically used this. */
+  if (g_str_equal (name, "-gtk-private-changed"))
+    return TRUE;
+
+  return g_param_spec_is_valid_name (name);
+}
+
+static inline guint
+signal_id_lookup (const gchar *name,
+                  GType  itype)
+{
+  GQuark quark;
   GType *ifaces, type = itype;
   SignalKey key;
   guint n_ifaces;
 
+  quark = g_quark_try_string (name);
   key.quark = quark;
 
   /* try looking up signals for this type and its ancestors */
@@ -381,7 +435,22 @@ signal_id_lookup (GQuark quark,
 	}
     }
   g_free (ifaces);
-  
+
+  /* If the @name is non-canonical, try again. This is the slow path — people
+   * should use canonical names in their queries if they want performance. */
+  if (!is_canonical (name))
+    {
+      guint signal_id;
+      gchar *name_copy = g_strdup (name);
+      canonicalize_key (name_copy);
+
+      signal_id = signal_id_lookup (name_copy, itype);
+
+      g_free (name_copy);
+
+      return signal_id;
+    }
+
   return 0;
 }
 
@@ -711,7 +780,7 @@ handler_insert (guint    signal_id,
   HandlerList *hlist;
   
   g_assert (handler->prev == NULL && handler->next == NULL); /* paranoid */
-  
+
   hlist = handler_list_ensure (signal_id, instance);
   if (!hlist->handlers)
     {
@@ -1080,7 +1149,7 @@ signal_parse_name (const gchar *name,
   
   if (!colon)
     {
-      signal_id = signal_id_lookup (g_quark_try_string (name), itype);
+      signal_id = signal_id_lookup (name, itype);
       if (signal_id && detail_p)
 	*detail_p = 0;
     }
@@ -1089,11 +1158,14 @@ signal_parse_name (const gchar *name,
       gchar buffer[32];
       guint l = colon - name;
       
+      if (colon[2] == '\0')
+        return 0;
+
       if (l < 32)
 	{
 	  memcpy (buffer, name, l);
 	  buffer[l] = 0;
-	  signal_id = signal_id_lookup (g_quark_try_string (buffer), itype);
+	  signal_id = signal_id_lookup (buffer, itype);
 	}
       else
 	{
@@ -1101,12 +1173,12 @@ signal_parse_name (const gchar *name,
 	  
 	  memcpy (signal, name, l);
 	  signal[l] = 0;
-	  signal_id = signal_id_lookup (g_quark_try_string (signal), itype);
+	  signal_id = signal_id_lookup (signal, itype);
 	  g_free (signal);
 	}
       
       if (signal_id && detail_p)
-	*detail_p = colon[2] ? (force_quark ? g_quark_from_string : g_quark_try_string) (colon + 2) : 0;
+        *detail_p = (force_quark ? g_quark_from_string : g_quark_try_string) (colon + 2);
     }
   else
     signal_id = 0;
@@ -1224,6 +1296,10 @@ g_signal_stop_emission_by_name (gpointer     instance,
  *
  * Also tries the ancestors of the given type.
  *
+ * The type class passed as @itype must already have been instantiated (for
+ * example, using g_type_class_ref()) for this function to work, as signals are
+ * always installed during class initialization.
+ *
  * See g_signal_new() for details on allowed signal names.
  *
  * Returns: the signal's identifying number, or 0 if no signal was found.
@@ -1237,20 +1313,17 @@ g_signal_lookup (const gchar *name,
   g_return_val_if_fail (G_TYPE_IS_INSTANTIATABLE (itype) || G_TYPE_IS_INTERFACE (itype), 0);
   
   SIGNAL_LOCK ();
-  signal_id = signal_id_lookup (g_quark_try_string (name), itype);
+  signal_id = signal_id_lookup (name, itype);
   SIGNAL_UNLOCK ();
   if (!signal_id)
     {
       /* give elaborate warnings */
       if (!g_type_name (itype))
-	g_warning (G_STRLOC ": unable to lookup signal \"%s\" for invalid type id '%"G_GSIZE_FORMAT"'",
+	g_warning (G_STRLOC ": unable to look up signal \"%s\" for invalid type id '%"G_GSIZE_FORMAT"'",
 		   name, itype);
-      else if (!G_TYPE_IS_INSTANTIATABLE (itype))
-	g_warning (G_STRLOC ": unable to lookup signal \"%s\" for non instantiatable type '%s'",
-		   name, g_type_name (itype));
-      else if (!g_type_class_peek (itype))
-	g_warning (G_STRLOC ": unable to lookup signal \"%s\" of unloaded type '%s'",
-		   name, g_type_name (itype));
+      else if (!g_signal_is_valid_name (name))
+        g_warning (G_STRLOC ": unable to look up invalid signal name \"%s\" on type '%s'",
+                   name, g_type_name (itype));
     }
   
   return signal_id;
@@ -1287,13 +1360,7 @@ g_signal_list_ids (GType  itype,
   for (i = 0; i < n_nodes; i++)
     if (keys[i].itype == itype)
       {
-	const gchar *name = g_quark_to_string (keys[i].quark);
-	
-	/* Signal names with "_" in them are aliases to the same
-	 * name with "-" instead of "_".
-	 */
-	if (!strchr (name, '_'))
-	  g_array_append_val (result, keys[i].signal_id);
+        g_array_append_val (result, keys[i].signal_id);
       }
   *n_ids = result->len;
   SIGNAL_UNLOCK ();
@@ -1399,19 +1466,27 @@ g_signal_query (guint         signal_id,
  * Creates a new signal. (This is usually done in the class initializer.)
  *
  * A signal name consists of segments consisting of ASCII letters and
- * digits, separated by either the '-' or '_' character. The first
+ * digits, separated by either the `-` or `_` character. The first
  * character of a signal name must be a letter. Names which violate these
- * rules lead to undefined behaviour of the GSignal system.
+ * rules lead to undefined behaviour. These are the same rules as for property
+ * naming (see g_param_spec_internal()).
  *
  * When registering a signal and looking up a signal, either separator can
- * be used, but they cannot be mixed.
+ * be used, but they cannot be mixed. Using `-` is considerably more efficient.
+ * Using `_` is discouraged.
  *
  * If 0 is used for @class_offset subclasses cannot override the class handler
  * in their class_init method by doing super_class->signal_handler = my_signal_handler.
  * Instead they will have to use g_signal_override_class_handler().
  *
- * If c_marshaller is %NULL, g_cclosure_marshal_generic() will be used as
- * the marshaller for this signal.
+ * If @c_marshaller is %NULL, g_cclosure_marshal_generic() will be used as
+ * the marshaller for this signal. In some simple cases, g_signal_new()
+ * will use a more optimized c_marshaller and va_marshaller for the signal
+ * instead of g_cclosure_marshal_generic().
+ *
+ * If @c_marshaller is non-%NULL, you need to also specify a va_marshaller
+ * using g_signal_set_va_marshaller() or the generic va_marshaller will
+ * be used.
  *
  * Returns: the signal id
  */
@@ -1624,7 +1699,8 @@ g_signal_newv (const gchar       *signal_name,
                guint              n_params,
                GType		 *param_types)
 {
-  gchar *name;
+  const gchar *name;
+  gchar *signal_name_copy = NULL;
   guint signal_id, i;
   SignalNode *node;
   GSignalCMarshaller builtin_c_marshaller;
@@ -1632,6 +1708,7 @@ g_signal_newv (const gchar       *signal_name,
   GSignalCVaMarshaller va_marshaller;
   
   g_return_val_if_fail (signal_name != NULL, 0);
+  g_return_val_if_fail (g_signal_is_valid_name (signal_name), 0);
   g_return_val_if_fail (G_TYPE_IS_INSTANTIATABLE (itype) || G_TYPE_IS_INTERFACE (itype), 0);
   if (n_params)
     g_return_val_if_fail (param_types != NULL, 0);
@@ -1641,12 +1718,20 @@ g_signal_newv (const gchar       *signal_name,
   if (!accumulator)
     g_return_val_if_fail (accu_data == NULL, 0);
 
-  name = g_strdup (signal_name);
-  g_strdelimit (name, G_STR_DELIMITERS ":^", '_');  /* FIXME do character checks like for types */
+  if (!is_canonical (signal_name))
+    {
+      signal_name_copy = g_strdup (signal_name);
+      canonicalize_key (signal_name_copy);
+      name = signal_name_copy;
+    }
+  else
+    {
+      name = signal_name;
+    }
   
   SIGNAL_LOCK ();
   
-  signal_id = signal_id_lookup (g_quark_try_string (name), itype);
+  signal_id = signal_id_lookup (name, itype);
   node = LOOKUP_SIGNAL_NODE (signal_id);
   if (node && !node->destroyed)
     {
@@ -1654,7 +1739,7 @@ g_signal_newv (const gchar       *signal_name,
                  name,
                  type_debug_name (node->itype),
                  G_TYPE_IS_INTERFACE (node->itype) ? "interface" : "class ancestry");
-      g_free (name);
+      g_free (signal_name_copy);
       SIGNAL_UNLOCK ();
       return 0;
     }
@@ -1664,7 +1749,7 @@ g_signal_newv (const gchar       *signal_name,
                  name,
                  type_debug_name (itype),
                  type_debug_name (node->itype));
-      g_free (name);
+      g_free (signal_name_copy);
       SIGNAL_UNLOCK ();
       return 0;
     }
@@ -1673,7 +1758,7 @@ g_signal_newv (const gchar       *signal_name,
       {
 	g_warning (G_STRLOC ": parameter %d of type '%s' for signal \"%s::%s\" is not a value type",
 		   i + 1, type_debug_name (param_types[i]), type_debug_name (itype), name);
-	g_free (name);
+	g_free (signal_name_copy);
 	SIGNAL_UNLOCK ();
 	return 0;
       }
@@ -1681,7 +1766,7 @@ g_signal_newv (const gchar       *signal_name,
     {
       g_warning (G_STRLOC ": return value of type '%s' for signal \"%s::%s\" is not a value type",
 		 type_debug_name (return_type), type_debug_name (itype), name);
-      g_free (name);
+      g_free (signal_name_copy);
       SIGNAL_UNLOCK ();
       return 0;
     }
@@ -1690,7 +1775,7 @@ g_signal_newv (const gchar       *signal_name,
     {
       g_warning (G_STRLOC ": signal \"%s::%s\" has return type '%s' and is only G_SIGNAL_RUN_FIRST",
 		 type_debug_name (itype), name, type_debug_name (return_type));
-      g_free (name);
+      g_free (signal_name_copy);
       SIGNAL_UNLOCK ();
       return 0;
     }
@@ -1706,12 +1791,8 @@ g_signal_newv (const gchar       *signal_name,
       g_signal_nodes = g_renew (SignalNode*, g_signal_nodes, g_n_signal_nodes);
       g_signal_nodes[signal_id] = node;
       node->itype = itype;
-      node->name = name;
       key.itype = itype;
-      key.quark = g_quark_from_string (node->name);
       key.signal_id = signal_id;
-      g_signal_key_bsa = g_bsearch_array_insert (g_signal_key_bsa, &g_signal_key_bconfig, &key);
-      g_strdelimit (name, "_", '-');
       node->name = g_intern_string (name);
       key.quark = g_quark_from_string (name);
       g_signal_key_bsa = g_bsearch_array_insert (g_signal_key_bsa, &g_signal_key_bconfig, &key);
@@ -1799,7 +1880,7 @@ g_signal_newv (const gchar       *signal_name,
 
   SIGNAL_UNLOCK ();
 
-  g_free (name);
+  g_free (signal_name_copy);
 
   return signal_id;
 }
@@ -2206,7 +2287,7 @@ g_signal_chain_from_overridden_handler (gpointer instance,
               g_free (error);
 
               /* we purposely leak the value here, it might not be
-               * in a sane state if an error condition occoured
+               * in a sane state if an error condition occurred
                */
               while (i--)
                 g_value_unset (param_values + i);
@@ -2339,7 +2420,10 @@ g_signal_connect_closure_by_id (gpointer  instance,
       else
 	{
 	  Handler *handler = handler_new (signal_id, instance, after);
-	  
+
+          if (G_TYPE_IS_OBJECT (node->itype))
+            _g_object_set_has_signal_handler ((GObject *)instance);
+
 	  handler_seq_no = handler->sequential_number;
 	  handler->detail = detail;
 	  handler->closure = g_closure_ref (closure);
@@ -2403,6 +2487,9 @@ g_signal_connect_closure (gpointer     instance,
       else
 	{
 	  Handler *handler = handler_new (signal_id, instance, after);
+
+          if (G_TYPE_IS_OBJECT (node->itype))
+            _g_object_set_has_signal_handler ((GObject *)instance);
 
 	  handler_seq_no = handler->sequential_number;
 	  handler->detail = detail;
@@ -2504,6 +2591,9 @@ g_signal_connect_data (gpointer       instance,
       else
 	{
 	  Handler *handler = handler_new (signal_id, instance, after);
+
+          if (G_TYPE_IS_OBJECT (node->itype))
+            _g_object_set_has_signal_handler ((GObject *)instance);
 
 	  handler_seq_no = handler->sequential_number;
 	  handler->detail = detail;
@@ -3115,7 +3205,14 @@ g_signal_emitv (const GValue *instance_and_params,
       (node->single_va_closure == SINGLE_VA_CLOSURE_EMPTY_MAGIC ||
        _g_closure_is_void (node->single_va_closure, instance)))
     {
-      HandlerList* hlist = handler_list_lookup (node->signal_id, instance);
+      HandlerList* hlist;
+
+      /* single_va_closure is only true for GObjects, so fast path if no handler ever connected to the signal */
+      if (_g_object_has_signal_handler ((GObject *)instance))
+        hlist = handler_list_lookup (node->signal_id, instance);
+      else
+        hlist = NULL;
+
       if (hlist == NULL || hlist->handlers == NULL)
 	{
 	  /* nothing to do to emit this signal */
@@ -3198,7 +3295,7 @@ g_signal_emit_valist (gpointer instance,
 
   if (node->single_va_closure != NULL)
     {
-      HandlerList* hlist = handler_list_lookup (node->signal_id, instance);
+      HandlerList* hlist;
       Handler *fastpath_handler = NULL;
       Handler *l;
       GClosure *closure = NULL;
@@ -3219,6 +3316,12 @@ g_signal_emit_valist (gpointer instance,
 	  else
 	    fastpath = FALSE;
 	}
+
+      /* single_va_closure is only true for GObjects, so fast path if no handler ever connected to the signal */
+      if (_g_object_has_signal_handler ((GObject *)instance))
+        hlist = handler_list_lookup (node->signal_id, instance);
+      else
+        hlist = NULL;
 
       for (l = hlist ? hlist->handlers : NULL; fastpath && l != NULL; l = l->next)
 	{
@@ -3376,7 +3479,7 @@ g_signal_emit_valist (gpointer instance,
 	  g_free (error);
 
 	  /* we purposely leak the value here, it might not be
-	   * in a sane state if an error condition occoured
+	   * in a sane state if an error condition occurred
 	   */
 	  while (i--)
 	    g_value_unset (param_values + i);
@@ -3753,9 +3856,14 @@ signal_emit_unlocked_R (SignalNode   *node,
 			node->n_params + 1,
 			instance_and_params,
 			&emission.ihint);
+      if (!accumulate (&emission.ihint, emission_return, &accu, accumulator) &&
+          emission.state == EMISSION_RUN)
+        emission.state = EMISSION_STOP;
       if (need_unset)
 	g_value_unset (&accu);
       SIGNAL_LOCK ();
+      return_value_altered = TRUE;
+
       emission.chain_type = G_TYPE_NONE;
       
       if (emission.state == EMISSION_RESTART)
@@ -3892,4 +4000,34 @@ g_signal_accumulator_first_wins (GSignalInvocationHint *ihint,
 {
   g_value_copy (handler_return, return_accu);
   return FALSE;
+}
+
+/**
+ * g_clear_signal_handler:
+ * @handler_id_ptr: A pointer to a handler ID (of type #gulong) of the handler to be disconnected.
+ * @instance: (type GObject.Object): The instance to remove the signal handler from.
+ *
+ * Disconnects a handler from @instance so it will not be called during
+ * any future or currently ongoing emissions of the signal it has been
+ * connected to. The @handler_id_ptr is then set to zero, which is never a valid handler ID value (see g_signal_connect()).
+ *
+ * If the handler ID is 0 then this function does nothing.
+ *
+ * A macro is also included that allows this function to be used without
+ * pointer casts.
+ *
+ * Since: 2.62
+ */
+#undef g_clear_signal_handler
+void
+g_clear_signal_handler (gulong   *handler_id_ptr,
+                        gpointer  instance)
+{
+  g_return_if_fail (handler_id_ptr != NULL);
+
+  if (*handler_id_ptr != 0)
+    {
+      g_signal_handler_disconnect (instance, *handler_id_ptr);
+      *handler_id_ptr = 0;
+    }
 }

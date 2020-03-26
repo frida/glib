@@ -140,7 +140,11 @@ create_server_full (GSocketFamily   family,
     {
       g_socket_set_option (data->server, IPPROTO_IPV6, IPV6_V6ONLY, FALSE, NULL);
       if (!g_socket_speaks_ipv4 (data->server))
-        goto error;
+        {
+          g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                               "IPv6-only server cannot speak IPv4");
+          goto error;
+        }
     }
 #endif
 
@@ -342,6 +346,7 @@ test_ip_async (GSocketFamily family)
       g_clear_error (&error);
       return;
     }
+  g_assert_nonnull (data);
 
   addr = g_socket_get_local_address (data->server, &error);
   g_assert_no_error (error);
@@ -1129,6 +1134,12 @@ test_timed_wait (void)
   GSocketAddress *addr;
   gint64 start_time;
   gint poll_duration;
+
+  if (!g_test_thorough ())
+    {
+      g_test_skip ("Not running timing heavy test");
+      return;
+    }
 
   data = create_server (G_SOCKET_FAMILY_IPV4, echo_server_thread, FALSE, &error);
   if (error != NULL)

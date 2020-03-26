@@ -37,6 +37,7 @@
 #include "gasynchelper.h"
 #include "gfiledescriptorbased.h"
 #include "glibintl.h"
+#include "gioprivate.h"
 
 
 /**
@@ -65,7 +66,7 @@ enum {
 struct _GUnixOutputStreamPrivate {
   int fd;
   guint close_fd : 1;
-  guint can_poll : 1;
+  guint is_pipe_or_socket : 1;
 };
 
 static void g_unix_output_stream_pollable_iface_init (GPollableOutputStreamInterface *iface);
@@ -101,14 +102,6 @@ static gboolean g_unix_output_stream_writev       (GOutputStream        *stream,
 static gboolean g_unix_output_stream_close        (GOutputStream        *stream,
 						   GCancellable         *cancellable,
 						   GError              **error);
-static void     g_unix_output_stream_close_async  (GOutputStream        *stream,
-						   int                   io_priority,
-						   GCancellable         *cancellable,
-						   GAsyncReadyCallback   callback,
-						   gpointer              data);
-static gboolean g_unix_output_stream_close_finish (GOutputStream        *stream,
-						   GAsyncResult         *result,
-						   GError              **error);
 
 static gboolean g_unix_output_stream_pollable_can_poll      (GPollableOutputStream *stream);
 static gboolean g_unix_output_stream_pollable_is_writable   (GPollableOutputStream *stream);
@@ -132,8 +125,6 @@ g_unix_output_stream_class_init (GUnixOutputStreamClass *klass)
   stream_class->write_fn = g_unix_output_stream_write;
   stream_class->writev_fn = g_unix_output_stream_writev;
   stream_class->close_fn = g_unix_output_stream_close;
-  stream_class->close_async = g_unix_output_stream_close_async;
-  stream_class->close_finish = g_unix_output_stream_close_finish;
 
    /**
    * GUnixOutputStream:fd:
@@ -181,17 +172,6 @@ g_unix_output_stream_file_descriptor_based_iface_init (GFileDescriptorBasedIface
   iface->get_fd = (int (*) (GFileDescriptorBased *))g_unix_output_stream_get_fd;
 }
 
-static gboolean
-fd_is_pollable (int fd)
-{
-  struct stat st;
-
-  if (fstat (fd, &st) == -1)
-    return TRUE;
-
-  return !S_ISREG (st.st_mode);
-}
-
 static void
 g_unix_output_stream_set_property (GObject         *object,
 				   guint            prop_id,
@@ -206,7 +186,10 @@ g_unix_output_stream_set_property (GObject         *object,
     {
     case PROP_FD:
       unix_stream->priv->fd = g_value_get_int (value);
-      unix_stream->priv->can_poll = fd_is_pollable (unix_stream->priv->fd);
+      if (lseek (unix_stream->priv->fd, 0, SEEK_CUR) == -1 && errno == ESPIPE)
+	unix_stream->priv->is_pipe_or_socket = TRUE;
+      else
+	unix_stream->priv->is_pipe_or_socket = FALSE;
       break;
     case PROP_CLOSE_FD:
       unix_stream->priv->close_fd = g_value_get_boolean (value);
@@ -356,7 +339,7 @@ g_unix_output_stream_write (GOutputStream  *stream,
   poll_fds[0].events = G_IO_OUT;
   nfds++;
 
-  if (unix_stream->priv->can_poll &&
+  if (unix_stream->priv->is_pipe_or_socket &&
       g_cancellable_make_pollfd (cancellable, &poll_fds[1]))
     nfds++;
 
@@ -410,9 +393,9 @@ g_unix_output_stream_write (GOutputStream  *stream,
 
 /* Macro to check if struct iovec and GOutputVector have the same ABI */
 #define G_OUTPUT_VECTOR_IS_IOVEC (sizeof (struct iovec) == sizeof (GOutputVector) && \
-      sizeof ((struct iovec *) 0)->iov_base == sizeof ((GOutputVector *) 0)->buffer && \
+      G_SIZEOF_MEMBER (struct iovec, iov_base) == G_SIZEOF_MEMBER (GOutputVector, buffer) && \
       G_STRUCT_OFFSET (struct iovec, iov_base) == G_STRUCT_OFFSET (GOutputVector, buffer) && \
-      sizeof ((struct iovec *) 0)->iov_len == sizeof((GOutputVector *) 0)->size && \
+      G_SIZEOF_MEMBER (struct iovec, iov_len) == G_SIZEOF_MEMBER (GOutputVector, size) && \
       G_STRUCT_OFFSET (struct iovec, iov_len) == G_STRUCT_OFFSET (GOutputVector, size))
 
 static gboolean
@@ -433,11 +416,11 @@ g_unix_output_stream_writev (GOutputStream        *stream,
   if (bytes_written)
     *bytes_written = 0;
 
-  /* Clamp to G_MAXINT as writev() takes an integer for the number of vectors.
-   * We handle this like a short write in this case
+  /* Clamp the number of vectors if more given than we can write in one go.
+   * The caller has to handle short writes anyway.
    */
-  if (n_vectors > G_MAXINT)
-    n_vectors = G_MAXINT;
+  if (n_vectors > G_IOV_MAX)
+    n_vectors = G_IOV_MAX;
 
   unix_stream = G_UNIX_OUTPUT_STREAM (stream);
 
@@ -463,7 +446,7 @@ g_unix_output_stream_writev (GOutputStream        *stream,
   poll_fds[0].events = G_IO_OUT;
   nfds++;
 
-  if (unix_stream->priv->can_poll &&
+  if (unix_stream->priv->is_pipe_or_socket &&
       g_cancellable_make_pollfd (cancellable, &poll_fds[1]))
     nfds++;
 
@@ -546,41 +529,10 @@ g_unix_output_stream_close (GOutputStream  *stream,
   return res != -1;
 }
 
-static void
-g_unix_output_stream_close_async (GOutputStream       *stream,
-				  int                  io_priority,
-				  GCancellable        *cancellable,
-				  GAsyncReadyCallback  callback,
-				  gpointer             user_data)
-{
-  GTask *task;
-  GError *error = NULL;
-
-  task = g_task_new (stream, cancellable, callback, user_data);
-  g_task_set_source_tag (task, g_unix_output_stream_close_async);
-  g_task_set_priority (task, io_priority);
-
-  if (g_unix_output_stream_close (stream, cancellable, &error))
-    g_task_return_boolean (task, TRUE);
-  else
-    g_task_return_error (task, error);
-  g_object_unref (task);
-}
-
-static gboolean
-g_unix_output_stream_close_finish (GOutputStream  *stream,
-				   GAsyncResult   *result,
-				   GError        **error)
-{
-  g_return_val_if_fail (g_task_is_valid (result, stream), FALSE);
-
-  return g_task_propagate_boolean (G_TASK (result), error);
-}
-
 static gboolean
 g_unix_output_stream_pollable_can_poll (GPollableOutputStream *stream)
 {
-  return G_UNIX_OUTPUT_STREAM (stream)->priv->can_poll;
+  return G_UNIX_OUTPUT_STREAM (stream)->priv->is_pipe_or_socket;
 }
 
 static gboolean
@@ -643,11 +595,11 @@ g_unix_output_stream_pollable_writev_nonblocking (GPollableOutputStream  *stream
       return G_POLLABLE_RETURN_WOULD_BLOCK;
     }
 
-  /* Clamp to G_MAXINT as writev() takes an integer for the number of vectors.
-   * We handle this like a short write in this case
+  /* Clamp the number of vectors if more given than we can write in one go.
+   * The caller has to handle short writes anyway.
    */
-  if (n_vectors > G_MAXINT)
-    n_vectors = G_MAXINT;
+  if (n_vectors > G_IOV_MAX)
+    n_vectors = G_IOV_MAX;
 
   if (G_OUTPUT_VECTOR_IS_IOVEC)
     {

@@ -226,6 +226,20 @@ g_mkdir_with_parents (const gchar *pathname,
       return -1;
     }
 
+  /* try to create the full path first */
+  if (g_mkdir (pathname, mode) == 0)
+    return 0;
+  else if (errno == EEXIST)
+    {
+      if (!g_file_test (pathname, G_FILE_TEST_IS_DIR))
+        {
+          errno = ENOTDIR;
+          return -1;
+        }
+      return 0;
+    }
+
+  /* walk the full path and try creating each element */
   fn = g_strdup (pathname);
 
   if (g_path_is_absolute (fn))
@@ -248,9 +262,12 @@ g_mkdir_with_parents (const gchar *pathname,
 	  if (g_mkdir (fn, mode) == -1 && errno != EEXIST)
 	    {
 	      int errno_save = errno;
-	      g_free (fn);
-	      errno = errno_save;
-	      return -1;
+	      if (errno != ENOENT || !p)
+                {
+	          g_free (fn);
+	          errno = errno_save;
+	          return -1;
+		}
 	    }
 	}
       else if (!g_file_test (fn, G_FILE_TEST_IS_DIR))
@@ -1301,7 +1318,7 @@ get_tmp_file (gchar            *tmpl,
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   static const int NLETTERS = sizeof (letters) - 1;
   glong value;
-  GTimeVal tv;
+  gint64 now_us;
   static int counter = 0;
 
   g_return_val_if_fail (tmpl != NULL, -1);
@@ -1316,8 +1333,8 @@ get_tmp_file (gchar            *tmpl,
     }
 
   /* Get some more or less random data.  */
-  g_get_current_time (&tv);
-  value = (tv.tv_usec ^ tv.tv_sec) + counter++;
+  now_us = g_get_real_time ();
+  value = ((now_us % G_USEC_PER_SEC) ^ (now_us / G_USEC_PER_SEC)) + counter++;
 
   for (count = 0; count < 100; value += 7777, ++count)
     {

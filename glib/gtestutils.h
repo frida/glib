@@ -79,11 +79,17 @@ typedef void (*GTestFixtureFunc) (gpointer      fixture,
 #define g_assert_cmpmem(m1, l1, m2, l2) G_STMT_START {\
                                              gconstpointer __m1 = m1, __m2 = m2; \
                                              int __l1 = l1, __l2 = l2; \
-                                             if (__l1 != __l2) \
+                                             if (__l1 != 0 && __m1 == NULL) \
+                                               g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                                    "assertion failed (" #l1 " == 0 || " #m1 " != NULL)"); \
+                                             else if (__l2 != 0 && __m2 == NULL) \
+                                               g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                                    "assertion failed (" #l2 " == 0 || " #m2 " != NULL)"); \
+                                             else if (__l1 != __l2) \
                                                g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                                            #l1 " (len(" #m1 ")) == " #l2 " (len(" #m2 "))", \
                                                                            (long double) __l1, "==", (long double) __l2, 'i'); \
-                                             else if (__l1 != 0 && memcmp (__m1, __m2, __l1) != 0) \
+                                             else if (__l1 != 0 && __m2 != NULL && memcmp (__m1, __m2, __l1) != 0) \
                                                g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                                     "assertion failed (" #m1 " == " #m2 ")"); \
                                         } G_STMT_END
@@ -166,17 +172,6 @@ typedef void (*GTestFixtureFunc) (gpointer      fixture,
                                                                          #expr); \
                                         } G_STMT_END
 #endif /* !G_DISABLE_ASSERT */
-
-typedef void (*GAssertionFunc)          (const char     *domain,
-                                         const char     *file,
-                                         int             line,
-                                         const char     *func,
-                                         const char     *message,
-                                         gpointer        user_data);
-
-GLIB_AVAILABLE_IN_2_62
-void g_assertion_set_handler            (GAssertionFunc handler,
-                                         gpointer user_data);
 
 GLIB_AVAILABLE_IN_ALL
 int     g_strcmp0                       (const char     *str1,
@@ -332,6 +327,8 @@ GLIB_AVAILABLE_IN_ALL
 void    g_test_bug_base                 (const char *uri_pattern);
 GLIB_AVAILABLE_IN_ALL
 void    g_test_bug                      (const char *bug_uri_snippet);
+GLIB_AVAILABLE_IN_2_62
+void    g_test_summary                  (const char *summary);
 /* measure test timings */
 GLIB_AVAILABLE_IN_ALL
 void    g_test_timer_start              (void);
@@ -365,7 +362,7 @@ void    g_test_queue_destroy            (GDestroyNotify destroy_func,
  * Test traps are guards around forked tests.
  * These flags determine what traps to set.
  *
- * Deprecated: #GTestTrapFlags is used only with g_test_trap_fork(),
+ * Deprecated: 2.38: #GTestTrapFlags is used only with g_test_trap_fork(),
  * which is deprecated. g_test_trap_subprocess() uses
  * #GTestSubprocessFlags.
  */
@@ -373,11 +370,15 @@ typedef enum {
   G_TEST_TRAP_SILENCE_STDOUT    = 1 << 7,
   G_TEST_TRAP_SILENCE_STDERR    = 1 << 8,
   G_TEST_TRAP_INHERIT_STDIN     = 1 << 9
-} GTestTrapFlags;
+} GTestTrapFlags GLIB_DEPRECATED_TYPE_IN_2_38_FOR(GTestSubprocessFlags);
+
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 
 GLIB_DEPRECATED_IN_2_38_FOR (g_test_trap_subprocess)
 gboolean g_test_trap_fork               (guint64              usec_timeout,
                                          GTestTrapFlags       test_trap_flags);
+
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 typedef enum {
   G_TEST_SUBPROCESS_INHERIT_STDIN  = 1 << 0,

@@ -53,6 +53,7 @@ static gboolean is_unix = TRUE;
 static gboolean is_unix = FALSE;
 #endif
 
+static gchar *tmpdir = NULL;
 static gchar *tmp_address = NULL;
 static gchar *test_guid = NULL;
 static GMutex service_loop_lock;
@@ -263,6 +264,54 @@ on_proxy_signal_received_with_name_set (GDBusProxy *proxy,
   g_assert_cmpstr (sender_name, ==, ":1.42");
   g_assert_cmpstr (signal_name, ==, "PeerSignalWithNameSet");
   g_main_loop_quit (loop);
+}
+
+/* ---------------------------------------------------------------------------------------------------- */
+
+static void
+setup_test_address (void)
+{
+  if (is_unix)
+    {
+      g_test_message ("Testing with unix:dir address");
+      tmpdir = g_dir_make_tmp ("gdbus-test-XXXXXX", NULL);
+      tmp_address = g_strdup_printf ("unix:dir=%s", tmpdir);
+    }
+  else
+    tmp_address = g_strdup ("nonce-tcp:host=127.0.0.1");
+}
+
+#ifdef G_OS_UNIX
+static void
+setup_tmpdir_test_address (void)
+{
+  g_test_message ("Testing with unix:tmpdir address");
+  tmpdir = g_dir_make_tmp ("gdbus-test-XXXXXX", NULL);
+  tmp_address = g_strdup_printf ("unix:tmpdir=%s", tmpdir);
+}
+
+static void
+setup_path_test_address (void)
+{
+  g_test_message ("Testing with unix:path address");
+  tmpdir = g_dir_make_tmp ("gdbus-test-XXXXXX", NULL);
+  tmp_address = g_strdup_printf ("unix:path=%s/gdbus-peer-socket", tmpdir);
+}
+#endif
+
+static void
+teardown_test_address (void)
+{
+  g_free (tmp_address);
+  if (tmpdir)
+    {
+      /* Ensuring the rmdir succeeds also ensures any sockets created on the
+       * filesystem are also deleted.
+       */
+      g_assert_cmpstr (g_rmdir (tmpdir) == 0 ? "OK" : g_strerror (errno),
+                       ==, "OK");
+      g_clear_pointer (&tmpdir, g_free);
+    }
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -656,7 +705,7 @@ read_all_from_fd (gint fd, gsize *out_len, GError **error)
 #endif
 
 static void
-test_peer (void)
+do_test_peer (void)
 {
   GDBusConnection *c;
   GDBusConnection *c2;
@@ -677,7 +726,7 @@ test_peer (void)
   c = g_dbus_connection_new_for_address_sync (is_unix ? "unix:path=/tmp/gdbus-test-does-not-exist-pid" :
                                               /* NOTE: Even if something is listening on port 12345 the connection
                                                * will fail because the nonce file doesn't exist */
-                                              "nonce-tcp:host=localhost,port=12345,noncefile=this-does-not-exist-gdbus",
+                                              "nonce-tcp:host=127.0.0.1,port=12345,noncefile=this-does-not-exist-gdbus",
                                               G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT,
                                               NULL, /* GDBusAuthObserver */
                                               NULL, /* cancellable */
@@ -977,6 +1026,109 @@ test_peer (void)
   g_thread_join (service_thread);
 }
 
+static void
+test_peer (void)
+{
+  test_guid = g_dbus_generate_guid ();
+  loop = g_main_loop_new (NULL, FALSE);
+
+  /* Run this test multiple times using different address formats to ensure
+   * they all work.
+   */
+  setup_test_address ();
+  do_test_peer ();
+  teardown_test_address ();
+
+#ifdef G_OS_UNIX
+  setup_tmpdir_test_address ();
+  do_test_peer ();
+  teardown_test_address ();
+
+  setup_path_test_address ();
+  do_test_peer ();
+  teardown_test_address ();
+#endif
+
+  g_main_loop_unref (loop);
+  g_free (test_guid);
+}
+
+/* ---------------------------------------------------------------------------------------------------- */
+
+static void
+test_peer_signals (void)
+{
+  GDBusConnection *c;
+  GDBusProxy *proxy;
+  GError *error = NULL;
+  PeerData data;
+  GThread *service_thread;
+
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/1620");
+
+  test_guid = g_dbus_generate_guid ();
+  loop = g_main_loop_new (NULL, FALSE);
+
+  setup_test_address ();
+  memset (&data, '\0', sizeof (PeerData));
+  data.current_connections = g_ptr_array_new_with_free_func (g_object_unref);
+
+  /* bring up a server - we run the server in a different thread to avoid deadlocks */
+  service_thread = g_thread_new ("test_peer",
+                                 service_thread_func,
+                                 &data);
+  await_service_loop ();
+  g_assert_nonnull (server);
+
+  /* bring up a connection and accept it */
+  data.accept_connection = TRUE;
+  c = g_dbus_connection_new_for_address_sync (g_dbus_server_get_client_address (server),
+                                              G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT,
+                                              NULL, /* GDBusAuthObserver */
+                                              NULL, /* cancellable */
+                                              &error);
+  g_assert_no_error (error);
+  g_assert_nonnull (c);
+  while (data.current_connections->len < 1)
+    g_main_loop_run (loop);
+  g_assert_cmpint (data.current_connections->len, ==, 1);
+  g_assert_cmpint (data.num_connection_attempts, ==, 1);
+  g_assert_null (g_dbus_connection_get_unique_name (c));
+  g_assert_cmpstr (g_dbus_connection_get_guid (c), ==, test_guid);
+
+  /* Check that we can create a proxy with a non-NULL bus name, even though it's
+   * irrelevant in the non-message-bus case. Since the server runs in another
+   * thread it's fine to use synchronous blocking API here.
+   */
+  proxy = g_dbus_proxy_new_sync (c,
+                                 G_DBUS_PROXY_FLAGS_DO_NOT_LOAD_PROPERTIES |
+                                 G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
+                                 NULL,
+                                 ":1.1", /* bus_name */
+                                 "/org/gtk/GDBus/PeerTestObject",
+                                 "org.gtk.GDBus.PeerTestInterface",
+                                 NULL, /* GCancellable */
+                                 &error);
+  g_assert_no_error (error);
+  g_assert_nonnull (proxy);
+
+  /* unref the server and stop listening for new connections */
+  g_dbus_server_stop (server);
+  g_clear_object (&server);
+
+  g_object_unref (c);
+  g_ptr_array_unref (data.current_connections);
+  g_object_unref (proxy);
+
+  g_main_loop_quit (service_loop);
+  g_thread_join (service_thread);
+
+  teardown_test_address ();
+
+  g_main_loop_unref (loop);
+  g_free (test_guid);
+}
+
 /* ---------------------------------------------------------------------------------------------------- */
 
 typedef struct
@@ -1102,6 +1254,7 @@ dmp_thread_func (gpointer user_data)
   data->loop = g_main_loop_new (data->context, FALSE);
   g_main_loop_run (data->loop);
 
+  g_dbus_server_stop (data->server);
   g_main_context_pop_thread_default (data->context);
 
   g_free (guid);
@@ -1115,6 +1268,11 @@ delayed_message_processing (void)
   DmpData *data;
   GThread *service_thread;
   guint n;
+
+  test_guid = g_dbus_generate_guid ();
+  loop = g_main_loop_new (NULL, FALSE);
+
+  setup_test_address ();
 
   data = g_new0 (DmpData, 1);
 
@@ -1160,6 +1318,10 @@ delayed_message_processing (void)
   g_main_loop_quit (data->loop);
   g_thread_join (service_thread);
   dmp_data_free (data);
+  teardown_test_address ();
+
+  g_main_loop_unref (loop);
+  g_free (test_guid);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1213,7 +1375,7 @@ nonce_tcp_service_thread_func (gpointer user_data)
 
   error = NULL;
   observer = g_dbus_auth_observer_new ();
-  server = g_dbus_server_new_sync ("nonce-tcp:",
+  server = g_dbus_server_new_sync ("nonce-tcp:host=127.0.0.1",
                                    G_DBUS_SERVER_FLAGS_NONE,
                                    test_guid,
                                    observer,
@@ -1257,6 +1419,9 @@ test_nonce_tcp (void)
   gchar *nonce_file;
   gboolean res;
   const gchar *address;
+
+  test_guid = g_dbus_generate_guid ();
+  loop = g_main_loop_new (NULL, FALSE);
 
   memset (&data, '\0', sizeof (PeerData));
   data.current_connections = g_ptr_array_new_with_free_func (g_object_unref);
@@ -1351,16 +1516,23 @@ test_nonce_tcp (void)
   g_error_free (error);
   g_assert (c == NULL);
 
-  g_free (nonce_file);
+  /* Recreate the nonce-file so we can ensure the server deletes it when stopped. */
+  g_assert_cmpint (g_creat (nonce_file, 0600), !=, -1);
 
   g_dbus_server_stop (server);
   g_object_unref (server);
   server = NULL;
 
+  g_assert_false (g_file_test (nonce_file, G_FILE_TEST_EXISTS));
+  g_free (nonce_file);
+
   g_main_loop_quit (service_loop);
   g_thread_join (service_thread);
 
   g_ptr_array_unref (data.current_connections);
+
+  g_main_loop_unref (loop);
+  g_free (test_guid);
 }
 
 static void
@@ -1412,7 +1584,7 @@ tcp_anonymous_service_thread_func (gpointer user_data)
   g_main_context_push_thread_default (service_context);
 
   error = NULL;
-  server = g_dbus_server_new_sync ("tcp:",
+  server = g_dbus_server_new_sync ("tcp:host=127.0.0.1",
                                    G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS,
                                    test_guid,
                                    NULL, /* GDBusObserver* */
@@ -1445,6 +1617,9 @@ test_tcp_anonymous (void)
   GDBusConnection *connection;
   GError *error;
 
+  test_guid = g_dbus_generate_guid ();
+  loop = g_main_loop_new (NULL, FALSE);
+
   seen_connection = FALSE;
   service_thread = g_thread_new ("tcp-anon-service",
                                  tcp_anonymous_service_thread_func,
@@ -1472,6 +1647,9 @@ test_tcp_anonymous (void)
   server = NULL;
 
   g_thread_join (service_thread);
+
+  g_main_loop_unref (loop);
+  g_free (test_guid);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1616,6 +1794,11 @@ codegen_test_peer (void)
   GVariant            *value;
   const gchar         *s;
 
+  test_guid = g_dbus_generate_guid ();
+  loop = g_main_loop_new (NULL, FALSE);
+
+  setup_test_address ();
+
   /* bring up a server - we run the server in a different thread to avoid deadlocks */
   service_thread = g_thread_new ("codegen_test_peer",
                                  codegen_service_thread_func,
@@ -1719,6 +1902,11 @@ codegen_test_peer (void)
   g_object_unref (animal1);
   g_object_unref (animal2);
   g_thread_join (service_thread);
+
+  teardown_test_address ();
+
+  g_main_loop_unref (loop);
+  g_free (test_guid);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1730,33 +1918,15 @@ main (int   argc,
 {
   gint ret;
   GDBusNodeInfo *introspection_data = NULL;
-  gchar *tmpdir = NULL;
 
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   introspection_data = g_dbus_node_info_new_for_xml (test_interface_introspection_xml, NULL);
   g_assert (introspection_data != NULL);
   test_interface_introspection_data = introspection_data->interfaces[0];
 
-  test_guid = g_dbus_generate_guid ();
-
-  if (is_unix)
-    {
-      if (g_unix_socket_address_abstract_names_supported ())
-	tmp_address = g_strdup ("unix:tmpdir=/tmp/gdbus-test-");
-      else
-	{
-	  tmpdir = g_dir_make_tmp ("gdbus-test-XXXXXX", NULL);
-	  tmp_address = g_strdup_printf ("unix:tmpdir=%s", tmpdir);
-	}
-    }
-  else
-    tmp_address = g_strdup ("nonce-tcp:");
-
-  /* all the tests rely on a shared main loop */
-  loop = g_main_loop_new (NULL, FALSE);
-
   g_test_add_func ("/gdbus/peer-to-peer", test_peer);
+  g_test_add_func ("/gdbus/peer-to-peer/signals", test_peer_signals);
   g_test_add_func ("/gdbus/delayed-message-processing", delayed_message_processing);
   g_test_add_func ("/gdbus/nonce-tcp", test_nonce_tcp);
 
@@ -1764,18 +1934,9 @@ main (int   argc,
   g_test_add_func ("/gdbus/credentials", test_credentials);
   g_test_add_func ("/gdbus/codegen-peer-to-peer", codegen_test_peer);
 
-  ret = g_test_run();
+  ret = g_test_run ();
 
-  g_main_loop_unref (loop);
-  g_free (test_guid);
   g_dbus_node_info_unref (introspection_data);
-  if (is_unix)
-    g_free (tmp_address);
-  if (tmpdir)
-    {
-      g_rmdir (tmpdir);
-      g_free (tmpdir);
-    }
 
   return ret;
 }

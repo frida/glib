@@ -119,6 +119,20 @@ typedef void            (*GHFunc)               (gpointer       key,
                                                  gpointer       user_data);
 
 /**
+ * GCopyFunc:
+ * @src: (not nullable): A pointer to the data which should be copied
+ * @data: Additional data
+ *
+ * A function of this signature is used to copy the node data
+ * when doing a deep-copy of a tree.
+ *
+ * Returns: (not nullable): A pointer to the copy
+ *
+ * Since: 2.4
+ */
+typedef gpointer	(*GCopyFunc)            (gconstpointer  src,
+                                                 gpointer       data);
+/**
  * GFreeFunc:
  * @data: a data pointer
  *
@@ -528,13 +542,13 @@ union _GDoubleIEEE754
 #error unknown ENDIAN type
 #endif /* !G_LITTLE_ENDIAN && !G_BIG_ENDIAN */
 
-typedef struct _GTimeVal                GTimeVal;
+typedef struct _GTimeVal GTimeVal GLIB_DEPRECATED_TYPE_IN_2_62_FOR(GDateTime);
 
 struct _GTimeVal
 {
   glong tv_sec;
   glong tv_usec;
-};
+} GLIB_DEPRECATED_TYPE_IN_2_62_FOR(GDateTime);
 
 typedef gint            grefcount;
 typedef volatile gint   gatomicrefcount;

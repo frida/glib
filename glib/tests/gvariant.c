@@ -2304,6 +2304,46 @@ test_byteswaps (void)
 }
 
 static void
+test_serialiser_children (void)
+{
+  GBytes *data1, *data2;
+  GVariant *child1, *child2;
+  GVariantType *mv_type = g_variant_type_new_maybe (G_VARIANT_TYPE_VARIANT);
+  GVariant *variant, *child;
+
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/1865");
+  g_test_summary ("Test that getting a child variant before and after "
+                  "serialisation of the parent works");
+
+  /* Construct a variable sized array containing a child which serialises to a
+   * zero-length bytestring. */
+  child = g_variant_new_maybe (G_VARIANT_TYPE_VARIANT, NULL);
+  variant = g_variant_new_array (mv_type, &child, 1);
+
+  /* Get the child before serialising. */
+  child1 = g_variant_get_child_value (variant, 0);
+  data1 = g_variant_get_data_as_bytes (child1);
+
+  /* Serialise the parent variant. */
+  g_variant_get_data (variant);
+
+  /* Get the child again after serialising — this uses a different code path. */
+  child2 = g_variant_get_child_value (variant, 0);
+  data2 = g_variant_get_data_as_bytes (child2);
+
+  /* Check things are equal. */
+  g_assert_cmpvariant (child1, child2);
+  g_assert_true (g_bytes_equal (data1, data2));
+
+  g_variant_unref (child2);
+  g_variant_unref (child1);
+  g_variant_unref (variant);
+  g_bytes_unref (data2);
+  g_bytes_unref (data1);
+  g_variant_type_free (mv_type);
+}
+
+static void
 test_fuzz (gdouble *fuzziness)
 {
   GVariantSerialised serialised;
@@ -4140,6 +4180,29 @@ test_parser_integer_bounds (void)
 #undef test_bound
 }
 
+/* Test that #GVariants which recurse too deeply are rejected. */
+static void
+test_parser_recursion (void)
+{
+  GVariant *value = NULL;
+  GError *local_error = NULL;
+  const guint recursion_depth = G_VARIANT_MAX_RECURSION_DEPTH + 1;
+  gchar *silly_dict = g_malloc0 (recursion_depth * 2 + 1);
+  gsize i;
+
+  for (i = 0; i < recursion_depth; i++)
+    {
+      silly_dict[i] = '{';
+      silly_dict[recursion_depth * 2 - i - 1] = '}';
+    }
+
+  value = g_variant_parse (NULL, silly_dict, NULL, NULL, &local_error);
+  g_assert_error (local_error, G_VARIANT_PARSE_ERROR, G_VARIANT_PARSE_ERROR_RECURSION);
+  g_assert_null (value);
+  g_error_free (local_error);
+  g_free (silly_dict);
+}
+
 static void
 test_parse_bad_format_char (void)
 {
@@ -5075,6 +5138,7 @@ main (int argc, char **argv)
   guint i;
 
   g_test_init (&argc, &argv, NULL);
+  g_test_bug_base ("");
 
   g_test_add_func ("/gvariant/type", test_gvarianttype);
   g_test_add_func ("/gvariant/type/string-scan/recursion/tuple",
@@ -5088,6 +5152,7 @@ main (int argc, char **argv)
   g_test_add_func ("/gvariant/serialiser/variant", test_variants);
   g_test_add_func ("/gvariant/serialiser/strings", test_strings);
   g_test_add_func ("/gvariant/serialiser/byteswap", test_byteswaps);
+  g_test_add_func ("/gvariant/serialiser/children", test_serialiser_children);
 
   for (i = 1; i <= 20; i += 4)
     {
@@ -5112,6 +5177,7 @@ main (int argc, char **argv)
   g_test_add_func ("/gvariant/byteswap", test_gv_byteswap);
   g_test_add_func ("/gvariant/parser", test_parses);
   g_test_add_func ("/gvariant/parser/integer-bounds", test_parser_integer_bounds);
+  g_test_add_func ("/gvariant/parser/recursion", test_parser_recursion);
   g_test_add_func ("/gvariant/parse-failures", test_parse_failures);
   g_test_add_func ("/gvariant/parse-positional", test_parse_positional);
   g_test_add_func ("/gvariant/parse/subprocess/bad-format-char", test_parse_bad_format_char);

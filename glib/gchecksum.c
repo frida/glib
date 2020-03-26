@@ -462,7 +462,7 @@ md5_sum_digest (Md5sum *md5,
 
 /* The following implementation comes from D-Bus dbus-sha.c. I've changed
  * it to use GLib types and to work more like the MD5 implementation above.
- * I left the comments to have an history of this code.
+ * I left the comments to have a history of this code.
  *      -- Emmanuele Bassi, ebassi@gnome.org
  */
 
@@ -1344,6 +1344,7 @@ sha512_sum_close (Sha512sum *sha512)
   memset (pad + pad_len, 0x00, zeros / 8);
   pad_len += zeros / 8;
   zeros = zeros % 8;
+  (void) zeros;  /* don’t care about the dead store */
 
   /* put message bit length at the end of padding */
   PUT_UINT64 (sha512->data_len[1], pad, pad_len);
@@ -1623,7 +1624,7 @@ g_checksum_update (GChecksum    *checksum,
  * g_checksum_get_string:
  * @checksum: a #GChecksum
  *
- * Gets the digest as an hexadecimal string.
+ * Gets the digest as a hexadecimal string.
  *
  * Once this function has been called the #GChecksum can no longer be
  * updated with g_checksum_update().

@@ -50,7 +50,6 @@
 
 #include "gstrfuncs.h"
 
-#include "glib-init.h"
 #include "gprintf.h"
 #include "gprintfint.h"
 #include "glibintl.h"
@@ -317,8 +316,7 @@ static const guint16 ascii_table_data[256] = {
 
 const guint16 * const g_ascii_table = ascii_table_data;
 
-#if !defined (GLIB_STATIC_COMPILATION) && \
-    defined (HAVE_NEWLOCALE) && \
+#if defined (HAVE_NEWLOCALE) && \
     defined (HAVE_USELOCALE) && \
     defined (HAVE_STRTOD_L) && \
     defined (HAVE_STRTOULL_L) && \
@@ -327,12 +325,11 @@ const guint16 * const g_ascii_table = ascii_table_data;
 #endif
 
 #ifdef USE_XLOCALE
-static locale_t C_locale = NULL;
-
 static locale_t
 get_C_locale (void)
 {
   static gsize initialized = FALSE;
+  static locale_t C_locale = NULL;
 
   if (g_once_init_enter (&initialized))
     {
@@ -494,7 +491,7 @@ g_stpcpy (gchar       *dest,
 
 /**
  * g_strdup_vprintf:
- * @format: a standard printf() format string, but notice
+ * @format: (not nullable): a standard printf() format string, but notice
  *     [string precision pitfalls][string-precision]
  * @args: the list of parameters to insert into the format string
  *
@@ -502,6 +499,10 @@ g_stpcpy (gchar       *dest,
  * calculates the maximum space required and allocates memory to hold
  * the result. The returned string should be freed with g_free() when
  * no longer needed.
+ *
+ * The returned string is guaranteed to be non-NULL, unless @format
+ * contains `%lc` or `%ls` conversions, which can fail if no multibyte
+ * representation is available for the given character.
  *
  * See also g_vasprintf(), which offers the same functionality, but
  * additionally returns the length of the allocated string.
@@ -521,7 +522,7 @@ g_strdup_vprintf (const gchar *format,
 
 /**
  * g_strdup_printf:
- * @format: a standard printf() format string, but notice
+ * @format: (not nullable): a standard printf() format string, but notice
  *     [string precision pitfalls][string-precision]
  * @...: the parameters to insert into the format string
  *
@@ -529,6 +530,10 @@ g_strdup_vprintf (const gchar *format,
  * calculates the maximum space required and allocates memory to hold
  * the result. The returned string should be freed with g_free() when no
  * longer needed.
+ *
+ * The returned string is guaranteed to be non-NULL, unless @format
+ * contains `%lc` or `%ls` conversions, which can fail if no multibyte
+ * representation is available for the given character.
  *
  * Returns: a newly-allocated string holding the result
  */
@@ -1288,9 +1293,7 @@ g_strerror (gint errnum)
   if (!msg)
     {
       gchar buf[1024];
-#ifdef G_OS_WIN32
       GError *error = NULL;
-#endif
 
 #if defined(G_OS_WIN32)
       strerror_s (buf, sizeof (buf), errnum);
@@ -1307,16 +1310,13 @@ g_strerror (gint errnum)
       g_strlcpy (buf, strerror (errnum), sizeof (buf));
       msg = buf;
 #endif
-#ifdef G_OS_WIN32
-      if (!g_get_charset (NULL))
+      if (!g_get_console_charset (NULL))
         {
           msg = g_locale_to_utf8 (msg, -1, NULL, NULL, &error);
           if (error)
             g_print ("%s\n", error->message);
         }
-      else
-#endif
-      if (msg == (const gchar *)buf)
+      else if (msg == (const gchar *)buf)
         msg = g_strdup (buf);
 
       g_hash_table_insert (errors, GINT_TO_POINTER (errnum), (char *) msg);
@@ -1350,10 +1350,8 @@ g_strsignal (gint signum)
 
 #ifdef HAVE_STRSIGNAL
   msg = strsignal (signum);
-# ifdef G_OS_WIN32
-  if (!g_get_charset (NULL))
+  if (!g_get_console_charset (NULL))
     msg = tofree = g_locale_to_utf8 (msg, -1, NULL, NULL, NULL);
-# endif
 #endif
 
   if (!msg)
@@ -1590,7 +1588,7 @@ g_ascii_strup (const gchar *str,
 gboolean
 g_str_is_ascii (const gchar *str)
 {
-  gint i;
+  gsize i;
 
   for (i = 0; str[i]; i++)
     if (str[i] & 0x80)
@@ -1998,8 +1996,15 @@ g_strncasecmp (const gchar *s1,
  * changed to the @new_delimiter character. Modifies @string in place,
  * and returns @string itself, not a copy. The return value is to
  * allow nesting such as
- * |[<!-- language="C" --> 
+ * |[<!-- language="C" -->
  *   g_ascii_strup (g_strdelimit (str, "abc", '?'))
+ * ]|
+ *
+ * In order to modify a copy, you may use `g_strdup()`:
+ * |[<!-- language="C" -->
+ *   reformatted = g_strdelimit (g_strdup (const_str), "abc", '?');
+ *   ...
+ *   g_free (reformatted);
  * ]|
  *
  * Returns: @string
@@ -2035,8 +2040,15 @@ g_strdelimit (gchar       *string,
  * replaces the character with @substitutor. Modifies @string in place,
  * and return @string itself, not a copy. The return value is to allow
  * nesting such as
- * |[<!-- language="C" --> 
+ * |[<!-- language="C" -->
  *   g_ascii_strup (g_strcanon (str, "abc", '?'))
+ * ]|
+ *
+ * In order to modify a copy, you may use `g_strdup()`:
+ * |[<!-- language="C" -->
+ *   reformatted = g_strcanon (g_strdup (const_str), "abc", '?');
+ *   ...
+ *   g_free (reformatted);
  * ]|
  *
  * Returns: @string
@@ -2327,7 +2339,7 @@ g_strchomp (gchar *string)
  *
  * As a special case, the result of splitting the empty string "" is an empty
  * vector, not a vector containing a single string. The reason for this
- * special case is that being able to represent a empty vector is typically
+ * special case is that being able to represent an empty vector is typically
  * more useful than consistent handling of empty elements. If you do need
  * to represent empty elements, you'll need to check for the empty string
  * before calling g_strsplit().
@@ -2409,7 +2421,7 @@ g_strsplit (const gchar *string,
  *
  * As a special case, the result of splitting the empty string "" is an empty
  * vector, not a vector containing a single string. The reason for this
- * special case is that being able to represent a empty vector is typically
+ * special case is that being able to represent an empty vector is typically
  * more useful than consistent handling of empty elements. If you do need
  * to represent empty elements, you'll need to check for the empty string
  * before calling g_strsplit_set().
@@ -2506,7 +2518,7 @@ g_strfreev (gchar **str_array)
 {
   if (str_array)
     {
-      int i;
+      gsize i;
 
       for (i = 0; str_array[i] != NULL; i++)
         g_free (str_array[i]);
@@ -2531,7 +2543,7 @@ g_strdupv (gchar **str_array)
 {
   if (str_array)
     {
-      gint i;
+      gsize i;
       gchar **retval;
 
       i = 0;
@@ -2585,7 +2597,7 @@ g_strjoinv (const gchar  *separator,
 
   if (*str_array)
     {
-      gint i;
+      gsize i;
       gsize len;
       gsize separator_len;
 
@@ -3441,18 +3453,6 @@ g_ascii_string_to_unsigned (const gchar  *str,
   if (out_num != NULL)
     *out_num = number;
   return TRUE;
-}
-
-void
-_g_strfuncs_deinit (void)
-{
-#ifdef USE_XLOCALE
-  if (C_locale != NULL)
-    {
-      freelocale (C_locale);
-      C_locale = NULL;
-    }
-#endif
 }
 
 G_DEFINE_QUARK (g-number-parser-error-quark, g_number_parser_error)

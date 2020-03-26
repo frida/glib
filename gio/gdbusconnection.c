@@ -111,6 +111,7 @@
 #include "giostream.h"
 #include "gasyncresult.h"
 #include "gtask.h"
+#include "gmarshal-internal.h"
 
 #ifdef G_OS_UNIX
 #include "gunixconnection.h"
@@ -127,7 +128,7 @@
  * The #GDBusConnection type is used for D-Bus connections to remote
  * peers such as a message buses. It is a low-level API that offers a
  * lot of flexibility. For instance, it lets you establish a connection
- * over any transport that can by represented as an #GIOStream.
+ * over any transport that can by represented as a #GIOStream.
  *
  * This class is rarely used directly in D-Bus clients. If you are writing
  * a D-Bus client, it is often easier to use the g_bus_own_name(),
@@ -221,7 +222,6 @@ typedef struct
 {
   GDestroyNotify              callback;
   gpointer                    user_data;
-  GMainContext               *context;
 } CallDestroyNotifyData;
 
 static gboolean
@@ -235,8 +235,6 @@ call_destroy_notify_data_in_idle (gpointer user_data)
 static void
 call_destroy_notify_data_free (CallDestroyNotifyData *data)
 {
-  if (data->context != NULL)
-    g_main_context_unref (data->context);
   g_free (data);
 }
 
@@ -257,14 +255,11 @@ call_destroy_notify (GMainContext  *context,
   CallDestroyNotifyData *data;
 
   if (callback == NULL)
-    goto out;
+    return;
 
   data = g_new0 (CallDestroyNotifyData, 1);
   data->callback = callback;
   data->user_data = user_data;
-  data->context = context;
-  if (data->context != NULL)
-    g_main_context_ref (data->context);
 
   idle_source = g_idle_source_new ();
   g_source_set_priority (idle_source, G_PRIORITY_DEFAULT);
@@ -273,11 +268,8 @@ call_destroy_notify (GMainContext  *context,
                          data,
                          (GDestroyNotify) call_destroy_notify_data_free);
   g_source_set_name (idle_source, "[gio] call_destroy_notify_data_in_idle");
-  g_source_attach (idle_source, data->context);
+  g_source_attach (idle_source, context);
   g_source_unref (idle_source);
-
- out:
-  ;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1049,11 +1041,14 @@ g_dbus_connection_class_init (GDBusConnectionClass *klass)
                                          G_STRUCT_OFFSET (GDBusConnectionClass, closed),
                                          NULL,
                                          NULL,
-                                         NULL,
+                                         _g_cclosure_marshal_VOID__BOOLEAN_BOXED,
                                          G_TYPE_NONE,
                                          2,
                                          G_TYPE_BOOLEAN,
                                          G_TYPE_ERROR);
+  g_signal_set_va_marshaller (signals[CLOSED_SIGNAL],
+                              G_TYPE_FROM_CLASS (klass),
+                              _g_cclosure_marshal_VOID__BOOLEAN_BOXEDv);
 }
 
 static void
@@ -2668,7 +2663,7 @@ async_initable_iface_init (GAsyncInitableIface *async_initable_iface)
 /**
  * g_dbus_connection_new:
  * @stream: a #GIOStream
- * @guid: (nullable): the GUID to use if a authenticating as a server or %NULL
+ * @guid: (nullable): the GUID to use if authenticating as a server or %NULL
  * @flags: flags describing how to make the connection
  * @observer: (nullable): a #GDBusAuthObserver or %NULL
  * @cancellable: (nullable): a #GCancellable or %NULL
@@ -2692,7 +2687,7 @@ async_initable_iface_init (GAsyncInitableIface *async_initable_iface)
  * then call g_dbus_connection_new_finish() to get the result of the
  * operation.
  *
- * This is a asynchronous failable constructor. See
+ * This is an asynchronous failable constructor. See
  * g_dbus_connection_new_sync() for the synchronous
  * version.
  *
@@ -2761,7 +2756,7 @@ g_dbus_connection_new_finish (GAsyncResult  *res,
 /**
  * g_dbus_connection_new_sync:
  * @stream: a #GIOStream
- * @guid: (nullable): the GUID to use if a authenticating as a server or %NULL
+ * @guid: (nullable): the GUID to use if authenticating as a server or %NULL
  * @flags: flags describing how to make the connection
  * @observer: (nullable): a #GDBusAuthObserver or %NULL
  * @cancellable: (nullable): a #GCancellable or %NULL
@@ -2831,13 +2826,13 @@ g_dbus_connection_new_sync (GIOStream             *stream,
  * %G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS flags.
  *
  * When the operation is finished, @callback will be invoked. You can
- * then call g_dbus_connection_new_finish() to get the result of the
- * operation.
+ * then call g_dbus_connection_new_for_address_finish() to get the result of
+ * the operation.
  *
  * If @observer is not %NULL it may be used to control the
  * authentication process.
  *
- * This is a asynchronous failable constructor. See
+ * This is an asynchronous failable constructor. See
  * g_dbus_connection_new_for_address_sync() for the synchronous
  * version.
  *
@@ -2964,8 +2959,8 @@ g_dbus_connection_new_for_address_sync (const gchar           *address,
  * more details.
  *
  * Note that this function should be used with care. Most modern UNIX
- * desktops tie the notion of a user session the session bus, and expect
- * all of a users applications to quit when their bus connection goes away.
+ * desktops tie the notion of a user session with the session bus, and expect
+ * all of a user's applications to quit when their bus connection goes away.
  * If you are setting @exit_on_close to %FALSE for the shared session
  * bus connection, you should make sure that your application exits
  * when the user session ends.
@@ -3144,7 +3139,7 @@ g_dbus_connection_add_filter (GDBusConnection            *connection,
 
   CONNECTION_LOCK (connection);
   data = g_new0 (FilterData, 1);
-  data->id = g_atomic_int_add (&_global_filter_id, 1); /* TODO: overflow etc. */
+  data->id = (guint) g_atomic_int_add (&_global_filter_id, 1); /* TODO: overflow etc. */
   data->ref_count = 1;
   data->filter_function = filter_function;
   data->user_data = user_data;
@@ -3244,17 +3239,8 @@ typedef struct
   gchar *object_path;
   gchar *arg0;
   GDBusSignalFlags flags;
-  GArray *subscribers;
+  GPtrArray *subscribers;  /* (owned) (element-type SignalSubscriber) */
 } SignalData;
-
-typedef struct
-{
-  GDBusSignalCallback callback;
-  gpointer user_data;
-  GDestroyNotify user_data_free_func;
-  guint id;
-  GMainContext *context;
-} SignalSubscriber;
 
 static void
 signal_data_free (SignalData *signal_data)
@@ -3266,8 +3252,44 @@ signal_data_free (SignalData *signal_data)
   g_free (signal_data->member);
   g_free (signal_data->object_path);
   g_free (signal_data->arg0);
-  g_array_free (signal_data->subscribers, TRUE);
+  g_ptr_array_unref (signal_data->subscribers);
   g_free (signal_data);
+}
+
+typedef struct
+{
+  /* All fields are immutable after construction. */
+  gatomicrefcount ref_count;
+  GDBusSignalCallback callback;
+  gpointer user_data;
+  GDestroyNotify user_data_free_func;
+  guint id;
+  GMainContext *context;
+} SignalSubscriber;
+
+static SignalSubscriber *
+signal_subscriber_ref (SignalSubscriber *subscriber)
+{
+  g_atomic_ref_count_inc (&subscriber->ref_count);
+  return subscriber;
+}
+
+static void
+signal_subscriber_unref (SignalSubscriber *subscriber)
+{
+  if (g_atomic_ref_count_dec (&subscriber->ref_count))
+    {
+      /* Destroy the user data. It doesn’t matter which thread
+       * signal_subscriber_unref() is called in (or whether it’s called with a
+       * lock held), as call_destroy_notify() always defers to the next
+       * #GMainContext iteration. */
+      call_destroy_notify (subscriber->context,
+                           subscriber->user_data_free_func,
+                           subscriber->user_data);
+
+      g_main_context_unref (subscriber->context);
+      g_free (subscriber);
+    }
 }
 
 static gchar *
@@ -3437,6 +3459,24 @@ is_signal_data_for_name_lost_or_acquired (SignalData *signal_data)
  * signal is unsubscribed from, and may be called after @connection
  * has been destroyed.)
  *
+ * As @callback is potentially invoked in a different thread from where it’s
+ * emitted, it’s possible for this to happen after
+ * g_dbus_connection_signal_unsubscribe() has been called in another thread.
+ * Due to this, @user_data should have a strong reference which is freed with
+ * @user_data_free_func, rather than pointing to data whose lifecycle is tied
+ * to the signal subscription. For example, if a #GObject is used to store the
+ * subscription ID from g_dbus_connection_signal_subscribe(), a strong reference
+ * to that #GObject must be passed to @user_data, and g_object_unref() passed to
+ * @user_data_free_func. You are responsible for breaking the resulting
+ * reference count cycle by explicitly unsubscribing from the signal when
+ * dropping the last external reference to the #GObject. Alternatively, a weak
+ * reference may be used.
+ *
+ * It is guaranteed that if you unsubscribe from a signal using
+ * g_dbus_connection_signal_unsubscribe() from the same thread which made the
+ * corresponding g_dbus_connection_signal_subscribe() call, @callback will not
+ * be invoked after g_dbus_connection_signal_unsubscribe() returns.
+ *
  * The returned subscription identifier is an opaque value which is guaranteed
  * to never be zero.
  *
@@ -3460,7 +3500,7 @@ g_dbus_connection_signal_subscribe (GDBusConnection     *connection,
 {
   gchar *rule;
   SignalData *signal_data;
-  SignalSubscriber subscriber;
+  SignalSubscriber *subscriber;
   GPtrArray *signal_data_array;
   const gchar *sender_unique_name;
 
@@ -3501,17 +3541,19 @@ g_dbus_connection_signal_subscribe (GDBusConnection     *connection,
   else
     sender_unique_name = "";
 
-  subscriber.callback = callback;
-  subscriber.user_data = user_data;
-  subscriber.user_data_free_func = user_data_free_func;
-  subscriber.id = g_atomic_int_add (&_global_subscriber_id, 1); /* TODO: overflow etc. */
-  subscriber.context = g_main_context_ref_thread_default ();
+  subscriber = g_new0 (SignalSubscriber, 1);
+  subscriber->ref_count = 1;
+  subscriber->callback = callback;
+  subscriber->user_data = user_data;
+  subscriber->user_data_free_func = user_data_free_func;
+  subscriber->id = (guint) g_atomic_int_add (&_global_subscriber_id, 1); /* TODO: overflow etc. */
+  subscriber->context = g_main_context_ref_thread_default ();
 
   /* see if we've already have this rule */
   signal_data = g_hash_table_lookup (connection->map_rule_to_signal_data, rule);
   if (signal_data != NULL)
     {
-      g_array_append_val (signal_data->subscribers, subscriber);
+      g_ptr_array_add (signal_data->subscribers, subscriber);
       g_free (rule);
       goto out;
     }
@@ -3525,8 +3567,8 @@ g_dbus_connection_signal_subscribe (GDBusConnection     *connection,
   signal_data->object_path           = g_strdup (object_path);
   signal_data->arg0                  = g_strdup (arg0);
   signal_data->flags                 = flags;
-  signal_data->subscribers           = g_array_new (FALSE, FALSE, sizeof (SignalSubscriber));
-  g_array_append_val (signal_data->subscribers, subscriber);
+  signal_data->subscribers           = g_ptr_array_new_with_free_func ((GDestroyNotify) signal_subscriber_unref);
+  g_ptr_array_add (signal_data->subscribers, subscriber);
 
   g_hash_table_insert (connection->map_rule_to_signal_data,
                        signal_data->rule,
@@ -3556,26 +3598,27 @@ g_dbus_connection_signal_subscribe (GDBusConnection     *connection,
 
  out:
   g_hash_table_insert (connection->map_id_to_signal_data,
-                       GUINT_TO_POINTER (subscriber.id),
+                       GUINT_TO_POINTER (subscriber->id),
                        signal_data);
 
   CONNECTION_UNLOCK (connection);
 
-  return subscriber.id;
+  return subscriber->id;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
 
 /* called in any thread */
-/* must hold lock when calling this (except if connection->finalizing is TRUE) */
-static void
+/* must hold lock when calling this (except if connection->finalizing is TRUE)
+ * returns the number of removed subscribers */
+static guint
 unsubscribe_id_internal (GDBusConnection *connection,
-                         guint            subscription_id,
-                         GArray          *out_removed_subscribers)
+                         guint            subscription_id)
 {
   SignalData *signal_data;
   GPtrArray *signal_data_array;
   guint n;
+  guint n_removed = 0;
 
   signal_data = g_hash_table_lookup (connection->map_id_to_signal_data,
                                      GUINT_TO_POINTER (subscription_id));
@@ -3587,16 +3630,19 @@ unsubscribe_id_internal (GDBusConnection *connection,
 
   for (n = 0; n < signal_data->subscribers->len; n++)
     {
-      SignalSubscriber *subscriber;
+      SignalSubscriber *subscriber = signal_data->subscribers->pdata[n];
 
-      subscriber = &(g_array_index (signal_data->subscribers, SignalSubscriber, n));
       if (subscriber->id != subscription_id)
         continue;
 
+      /* It’s OK to rearrange the array order using the ‘fast’ #GPtrArray
+       * removal functions, since we’re going to exit the loop below anyway — we
+       * never move on to the next element. Secondly, subscription IDs are
+       * guaranteed to be unique. */
       g_warn_if_fail (g_hash_table_remove (connection->map_id_to_signal_data,
                                            GUINT_TO_POINTER (subscription_id)));
-      g_array_append_val (out_removed_subscribers, *subscriber);
-      g_array_remove_index (signal_data->subscribers, n);
+      n_removed++;
+      g_ptr_array_remove_index_fast (signal_data->subscribers, n);
 
       if (signal_data->subscribers->len == 0)
         {
@@ -3637,7 +3683,7 @@ unsubscribe_id_internal (GDBusConnection *connection,
   g_assert_not_reached ();
 
  out:
-  ;
+  return n_removed;
 }
 
 /**
@@ -3648,50 +3694,38 @@ unsubscribe_id_internal (GDBusConnection *connection,
  *
  * Unsubscribes from signals.
  *
+ * Note that there may still be D-Bus traffic to process (relating to this
+ * signal subscription) in the current thread-default #GMainContext after this
+ * function has returned. You should continue to iterate the #GMainContext
+ * until the #GDestroyNotify function passed to
+ * g_dbus_connection_signal_subscribe() is called, in order to avoid memory
+ * leaks through callbacks queued on the #GMainContext after it’s stopped being
+ * iterated.
+ *
  * Since: 2.26
  */
 void
 g_dbus_connection_signal_unsubscribe (GDBusConnection *connection,
                                       guint            subscription_id)
 {
-  GArray *subscribers;
-  guint n;
+  guint n_subscribers_removed G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
 
   g_return_if_fail (G_IS_DBUS_CONNECTION (connection));
   g_return_if_fail (check_initialized (connection));
 
-  subscribers = g_array_new (FALSE, FALSE, sizeof (SignalSubscriber));
-
   CONNECTION_LOCK (connection);
-  unsubscribe_id_internal (connection,
-                           subscription_id,
-                           subscribers);
+  n_subscribers_removed = unsubscribe_id_internal (connection, subscription_id);
   CONNECTION_UNLOCK (connection);
 
   /* invariant */
-  g_assert (subscribers->len == 0 || subscribers->len == 1);
-
-  /* call GDestroyNotify without lock held */
-  for (n = 0; n < subscribers->len; n++)
-    {
-      SignalSubscriber *subscriber;
-      subscriber = &(g_array_index (subscribers, SignalSubscriber, n));
-      call_destroy_notify (subscriber->context,
-                           subscriber->user_data_free_func,
-                           subscriber->user_data);
-      g_main_context_unref (subscriber->context);
-    }
-
-  g_array_free (subscribers, TRUE);
+  g_assert (n_subscribers_removed == 0 || n_subscribers_removed == 1);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
 
 typedef struct
 {
-  guint                subscription_id;
-  GDBusSignalCallback  callback;
-  gpointer             user_data;
+  SignalSubscriber    *subscriber;  /* (owned) */
   GDBusMessage        *message;
   GDBusConnection     *connection;
   const gchar         *sender;
@@ -3723,7 +3757,7 @@ emit_signal_instance_in_idle_cb (gpointer data)
 
 #if 0
   g_print ("in emit_signal_instance_in_idle_cb (id=%d sender=%s path=%s interface=%s member=%s params=%s)\n",
-           signal_instance->subscription_id,
+           signal_instance->subscriber->id,
            signal_instance->sender,
            signal_instance->path,
            signal_instance->interface,
@@ -3735,18 +3769,18 @@ emit_signal_instance_in_idle_cb (gpointer data)
   CONNECTION_LOCK (signal_instance->connection);
   has_subscription = FALSE;
   if (g_hash_table_lookup (signal_instance->connection->map_id_to_signal_data,
-                           GUINT_TO_POINTER (signal_instance->subscription_id)) != NULL)
+                           GUINT_TO_POINTER (signal_instance->subscriber->id)) != NULL)
     has_subscription = TRUE;
   CONNECTION_UNLOCK (signal_instance->connection);
 
   if (has_subscription)
-    signal_instance->callback (signal_instance->connection,
-                               signal_instance->sender,
-                               signal_instance->path,
-                               signal_instance->interface,
-                               signal_instance->member,
-                               parameters,
-                               signal_instance->user_data);
+    signal_instance->subscriber->callback (signal_instance->connection,
+                                           signal_instance->sender,
+                                           signal_instance->path,
+                                           signal_instance->interface,
+                                           signal_instance->member,
+                                           parameters,
+                                           signal_instance->subscriber->user_data);
 
   g_variant_unref (parameters);
 
@@ -3758,6 +3792,7 @@ signal_instance_free (SignalInstance *signal_instance)
 {
   g_object_unref (signal_instance->message);
   g_object_unref (signal_instance->connection);
+  signal_subscriber_unref (signal_instance->subscriber);
   g_free (signal_instance);
 }
 
@@ -3872,16 +3907,12 @@ schedule_callbacks (GDBusConnection *connection,
 
       for (m = 0; m < signal_data->subscribers->len; m++)
         {
-          SignalSubscriber *subscriber;
+          SignalSubscriber *subscriber = signal_data->subscribers->pdata[m];
           GSource *idle_source;
           SignalInstance *signal_instance;
 
-          subscriber = &(g_array_index (signal_data->subscribers, SignalSubscriber, m));
-
           signal_instance = g_new0 (SignalInstance, 1);
-          signal_instance->subscription_id = subscriber->id;
-          signal_instance->callback = subscriber->callback;
-          signal_instance->user_data = subscriber->user_data;
+          signal_instance->subscriber = signal_subscriber_ref (subscriber);
           signal_instance->message = g_object_ref (message);
           signal_instance->connection = g_object_ref (connection);
           signal_instance->sender = sender;
@@ -3950,7 +3981,6 @@ purge_all_signal_subscriptions (GDBusConnection *connection)
   GHashTableIter iter;
   gpointer key;
   GArray *ids;
-  GArray *subscribers;
   guint n;
 
   ids = g_array_new (FALSE, FALSE, sizeof (guint));
@@ -3961,28 +3991,12 @@ purge_all_signal_subscriptions (GDBusConnection *connection)
       g_array_append_val (ids, subscription_id);
     }
 
-  subscribers = g_array_new (FALSE, FALSE, sizeof (SignalSubscriber));
   for (n = 0; n < ids->len; n++)
     {
       guint subscription_id = g_array_index (ids, guint, n);
-      unsubscribe_id_internal (connection,
-                               subscription_id,
-                               subscribers);
+      unsubscribe_id_internal (connection, subscription_id);
     }
   g_array_free (ids, TRUE);
-
-  /* call GDestroyNotify without lock held */
-  for (n = 0; n < subscribers->len; n++)
-    {
-      SignalSubscriber *subscriber;
-      subscriber = &(g_array_index (subscribers, SignalSubscriber, n));
-      call_destroy_notify (subscriber->context,
-                           subscriber->user_data_free_func,
-                           subscriber->user_data);
-      g_main_context_unref (subscriber->context);
-    }
-
-  g_array_free (subscribers, TRUE);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -5194,7 +5208,7 @@ g_dbus_connection_register_object (GDBusConnection             *connection,
     }
 
   ei = g_new0 (ExportedInterface, 1);
-  ei->id = g_atomic_int_add (&_global_registration_id, 1); /* TODO: overflow etc. */
+  ei->id = (guint) g_atomic_int_add (&_global_registration_id, 1); /* TODO: overflow etc. */
   ei->eo = eo;
   ei->user_data = user_data;
   ei->user_data_free_func = user_data_free_func;
@@ -5722,17 +5736,19 @@ g_dbus_connection_call_done (GObject      *source,
       _g_dbus_debug_print_lock ();
       g_print ("========================================================================\n"
                "GDBus-debug:Call:\n"
-               " <<<< ASYNC COMPLETE %s() (serial %d)\n"
-               "      ",
-               state->method_name,
-               g_dbus_message_get_reply_serial (reply));
+               " <<<< ASYNC COMPLETE %s()",
+               state->method_name);
+
       if (reply != NULL)
         {
-          g_print ("SUCCESS\n");
+          g_print (" (serial %d)\n"
+                   "      SUCCESS\n",
+                   g_dbus_message_get_reply_serial (reply));
         }
       else
         {
-          g_print ("FAILED: %s\n",
+          g_print ("\n"
+                   "      FAILED: %s\n",
                    error->message);
         }
       _g_dbus_debug_print_unlock ();
@@ -6854,7 +6870,7 @@ g_dbus_connection_register_subtree (GDBusConnection           *connection,
 
   es->vtable = _g_dbus_subtree_vtable_copy (vtable);
   es->flags = flags;
-  es->id = g_atomic_int_add (&_global_subtree_registration_id, 1); /* TODO: overflow etc. */
+  es->id = (guint) g_atomic_int_add (&_global_subtree_registration_id, 1); /* TODO: overflow etc. */
   es->user_data = user_data;
   es->user_data_free_func = user_data_free_func;
   es->context = g_main_context_ref_thread_default ();
@@ -7360,7 +7376,7 @@ bus_get_async_initable_cb (GObject      *source_object,
  * When the operation is finished, @callback will be invoked. You can
  * then call g_bus_get_finish() to get the result of the operation.
  *
- * This is a asynchronous failable function. See g_bus_get_sync() for
+ * This is an asynchronous failable function. See g_bus_get_sync() for
  * the synchronous version.
  *
  * Since: 2.26

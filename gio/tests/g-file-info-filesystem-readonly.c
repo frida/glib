@@ -25,7 +25,7 @@
 #include <gio/gio.h>
 #include <gio/gunixmounts.h>
 
-static void
+static gboolean
 run (GError **error,
      const gchar *argv0,
      ...)
@@ -34,6 +34,8 @@ run (GError **error,
   const gchar *arg;
   va_list ap;
   GSubprocess *subprocess;
+  gchar *command_line = NULL;
+  gboolean success;
 
   args = g_ptr_array_new ();
 
@@ -44,14 +46,20 @@ run (GError **error,
   g_ptr_array_add (args, NULL);
   va_end (ap);
 
+  command_line = g_strjoinv (" ", (gchar **) args->pdata);
+  g_test_message ("Running command `%s`", command_line);
+  g_free (command_line);
+
   subprocess = g_subprocess_newv ((const gchar * const *) args->pdata, G_SUBPROCESS_FLAGS_NONE, error);
   g_ptr_array_free (args, TRUE);
 
   if (subprocess == NULL)
-    return;
+    return FALSE;
 
-  g_subprocess_wait_check (subprocess, NULL, error);
+  success = g_subprocess_wait_check (subprocess, NULL, error);
   g_object_unref (subprocess);
+
+  return success;
 }
 
 static void
@@ -59,6 +67,24 @@ assert_remove (const gchar *file)
 {
   if (g_remove (file) != 0)
     g_error ("failed to remove %s: %s", file, g_strerror (errno));
+}
+
+static gboolean
+fuse_module_loaded (void)
+{
+  char *contents = NULL;
+  gboolean ret;
+
+  if (!g_file_get_contents ("/proc/modules", &contents, NULL, NULL) ||
+      contents == NULL)
+    {
+      g_free (contents);
+      return FALSE;
+    }
+
+  ret = (strstr (contents, "\nfuse ") != NULL);
+  g_free (contents);
+  return ret;
 }
 
 static void
@@ -87,6 +113,18 @@ test_filesystem_readonly (gconstpointer with_mount_monitor)
       return;
     }
 
+  /* If the fuse module is loaded but there's no /dev/fuse, then we're
+   * we're probably in a rootless container and won't be able to
+   * use bindfs to run our tests */
+  if (fuse_module_loaded () &&
+      !g_file_test ("/dev/fuse", G_FILE_TEST_EXISTS))
+    {
+      g_test_skip ("fuse support is needed to run this test (rootless container?)");
+      g_free (fusermount);
+      g_free (bindfs);
+      return;
+    }
+
   curdir = g_get_current_dir ();
   dir_to_mount = g_strdup_printf ("%s/dir_bindfs_to_mount", curdir);
   file_in_mount = g_strdup_printf ("%s/example.txt", dir_to_mount);
@@ -105,8 +143,14 @@ test_filesystem_readonly (gconstpointer with_mount_monitor)
 
   /* Use bindfs, which does not need root privileges, to mount the contents of one dir
    * into another dir (and do the mount as readonly as per passed '-o ro' option) */
-  run (&error, bindfs, "-n", "-o", "ro", dir_to_mount, dir_mountpoint, NULL);
-  g_assert_no_error (error);
+  if (!run (&error, bindfs, "-n", "-o", "ro", dir_to_mount, dir_mountpoint, NULL))
+    {
+      gchar *skip_message = g_strdup_printf ("Failed to run bindfs to set up test: %s", error->message);
+      g_test_skip (skip_message);
+      g_free (skip_message);
+      g_clear_error (&error);
+      return;
+    }
 
   /* Let's check now, that the file is in indeed in a readonly filesystem */
   file_in_mountpoint = g_strdup_printf ("%s/example.txt", dir_mountpoint);

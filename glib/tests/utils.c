@@ -29,6 +29,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
+#ifdef G_OS_UNIX
+#include <sys/utsname.h>
+#endif
+#ifdef G_OS_WIN32
+#include <windows.h>
+#endif
 
 static gboolean
 strv_check (const gchar * const *strv, ...)
@@ -336,6 +342,42 @@ test_codeset2 (void)
 }
 
 static void
+test_console_charset (void)
+{
+  const gchar *c1;
+  const gchar *c2;
+
+#ifdef G_OS_WIN32
+  /* store current environment and unset $LANG to make sure it does not interfere */
+  const unsigned int initial_cp = GetConsoleOutputCP ();
+  gchar *initial_lang = g_strdup (g_getenv ("LANG"));
+  g_unsetenv ("LANG");
+
+  /* set console output codepage to something specific (ISO-8859-1 aka CP28591) and query it */
+  SetConsoleOutputCP (28591);
+  g_get_console_charset (&c1);
+  g_assert_cmpstr (c1, ==, "ISO-8859-1");
+
+  /* set $LANG to something specific (should override the console output codepage) and query it */
+  g_setenv ("LANG", "de_DE.ISO-8859-15@euro", TRUE);
+  g_get_console_charset (&c2);
+  g_assert_cmpstr (c2, ==, "ISO-8859-15");
+
+  /* reset environment */
+  if (initial_cp)
+    SetConsoleOutputCP (initial_cp);
+  if (initial_lang)
+    g_setenv ("LANG", initial_lang, TRUE);
+  g_free (initial_lang);
+#else
+  g_get_charset (&c1);
+  g_get_console_charset (&c2);
+
+  g_assert_cmpstr (c1, ==, c2);
+#endif
+}
+
+static void
 test_basename (void)
 {
   const gchar *path = "/path/to/a/file/deep/down.sh";
@@ -476,6 +518,39 @@ test_desktop_special_dir (void)
   g_reload_user_special_dirs_cache ();
   dir2 = g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP);
   g_assert (dir2 != NULL);
+}
+
+static void
+test_os_info (void)
+{
+  gchar *name;
+  gchar *contents = NULL;
+#ifdef G_OS_UNIX
+  struct utsname info;
+#endif
+
+  /* Whether this is implemented or not, it must not crash */
+  name = g_get_os_info (G_OS_INFO_KEY_NAME);
+  g_test_message ("%s: %s",
+                  G_OS_INFO_KEY_NAME,
+                  name == NULL ? "(null)" : name);
+
+#if defined (G_OS_WIN32) || defined (__APPLE__)
+  /* These OSs have a special case so NAME should always succeed */
+  g_assert_nonnull (name);
+#elif defined (G_OS_UNIX)
+  if (g_file_get_contents ("/etc/os-release", &contents, NULL, NULL) ||
+      g_file_get_contents ("/usr/lib/os-release", &contents, NULL, NULL) ||
+      uname (&info) == 0)
+    g_assert_nonnull (name);
+  else
+    g_test_skip ("os-release(5) API not implemented on this platform");
+#else
+  g_test_skip ("g_get_os_info() not supported on this platform");
+#endif
+
+  g_free (name);
+  g_free (contents);
 }
 
 static gboolean
@@ -685,6 +760,54 @@ test_int_limits (void)
   g_free (str);
 }
 
+static void
+test_clear_list (void)
+{
+    GList *list = NULL;
+
+    g_clear_list (&list, NULL);
+    g_assert_null (list);
+
+    list = g_list_prepend (list, "test");
+    g_assert_nonnull (list);
+
+    g_clear_list (&list, NULL);
+    g_assert_null (list);
+
+    g_clear_list (&list, g_free);
+    g_assert_null (list);
+
+    list = g_list_prepend (list, g_malloc (16));
+    g_assert_nonnull (list);
+
+    g_clear_list (&list, g_free);
+    g_assert_null (list);
+}
+
+static void
+test_clear_slist (void)
+{
+    GSList *slist = NULL;
+
+    g_clear_slist (&slist, NULL);
+    g_assert_null (slist);
+
+    slist = g_slist_prepend (slist, "test");
+    g_assert_nonnull (slist);
+
+    g_clear_slist (&slist, NULL);
+    g_assert_null (slist);
+
+    g_clear_slist (&slist, g_free);
+    g_assert_null (slist);
+
+    slist = g_slist_prepend (slist, g_malloc (16));
+    g_assert_nonnull (slist);
+
+    g_clear_slist (&slist, g_free);
+    g_assert_null (slist);
+}
+
 int
 main (int   argc,
       char *argv[])
@@ -717,6 +840,7 @@ main (int   argc,
   g_test_add_func ("/utils/debug", test_debug);
   g_test_add_func ("/utils/codeset", test_codeset);
   g_test_add_func ("/utils/codeset2", test_codeset2);
+  g_test_add_func ("/utils/console-charset", test_console_charset);
   g_test_add_func ("/utils/basename", test_basename);
   g_test_add_func ("/utils/gettext", test_gettext);
   g_test_add_func ("/utils/username", test_username);
@@ -727,6 +851,7 @@ main (int   argc,
 #endif
   g_test_add_func ("/utils/specialdir", test_special_dir);
   g_test_add_func ("/utils/specialdir/desktop", test_desktop_special_dir);
+  g_test_add_func ("/utils/os-info", test_os_info);
   g_test_add_func ("/utils/clear-pointer", test_clear_pointer);
   g_test_add_func ("/utils/clear-pointer-cast", test_clear_pointer_cast);
   g_test_add_func ("/utils/clear-pointer/side-effects", test_clear_pointer_side_effects);
@@ -737,6 +862,8 @@ main (int   argc,
   g_test_add_func ("/utils/atexit", test_atexit);
   g_test_add_func ("/utils/check-setuid", test_check_setuid);
   g_test_add_func ("/utils/int-limits", test_int_limits);
+  g_test_add_func ("/utils/clear-list", test_clear_list);
+  g_test_add_func ("/utils/clear-slist", test_clear_slist);
 
   return g_test_run ();
 }

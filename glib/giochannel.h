@@ -41,9 +41,6 @@ G_BEGIN_DECLS
 typedef struct _GIOChannel	GIOChannel;
 typedef struct _GIOFuncs        GIOFuncs;
 
-typedef void (* GIOChannelCloseConvertersFunc) (GIOChannel * channel);
-typedef void (* GIOChannelResetConvertersFunc) (GIOChannel * channel);
-
 typedef enum
 {
   G_IO_ERROR_NONE,
@@ -124,8 +121,8 @@ struct _GIOChannel
   guint is_writeable   : 1;	/* ditto */
   guint is_seekable    : 1;	/* ditto */
 
-  GIOChannelCloseConvertersFunc close_converters;
-  GIOChannelResetConvertersFunc reset_converters;
+  gpointer reserved1;	
+  gpointer reserved2;	
 };
 
 typedef gboolean (*GIOFunc) (GIOChannel   *source,
@@ -348,7 +345,7 @@ void        g_io_channel_win32_make_pollfd (GIOChannel   *channel,
 					    GIOCondition  condition,
 					    GPollFD      *fd);
 
-/* This can be used to wait a until at least one of the channels is readable.
+/* This can be used to wait until at least one of the channels is readable.
  * On Unix you would do a select() on the file descriptors of the channels.
  */
 GLIB_AVAILABLE_IN_ALL

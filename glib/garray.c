@@ -59,14 +59,15 @@
  * To create a new array use g_array_new().
  *
  * To add elements to an array, use g_array_append_val(),
- * g_array_append_vals(), g_array_prepend_val(), and
- * g_array_prepend_vals().
+ * g_array_append_vals(), g_array_prepend_val(), g_array_prepend_vals(),
+ * g_array_insert_val() and g_array_insert_vals().
  *
- * To access an element of an array, use g_array_index().
+ * To access an element of an array (to read it or write it),
+ * use g_array_index().
  *
  * To set the size of an array, use g_array_set_size().
  *
- * To free an array, use g_array_free().
+ * To free an array, use g_array_unref() or g_array_free().
  *
  * Here is an example that stores integers in a #GArray:
  * |[<!-- language="C" -->
@@ -117,14 +118,29 @@ struct _GRealArray
  * @i: the index of the element to return
  *
  * Returns the element of a #GArray at the given index. The return
- * value is cast to the given type.
+ * value is cast to the given type. This is the main way to read or write an
+ * element in a #GArray.
  *
- * This example gets a pointer to an element in a #GArray:
+ * Writing an element is typically done by reference, as in the following
+ * example. This example gets a pointer to an element in a #GArray, and then
+ * writes to a field in it:
  * |[<!-- language="C" -->
  *   EDayViewEvent *event;
  *   // This gets a pointer to the 4th element in the array of
  *   // EDayViewEvent structs.
  *   event = &g_array_index (events, EDayViewEvent, 3);
+ *   event->start_time = g_get_current_time ();
+ * ]|
+ *
+ * This example reads from and writes to an array of integers:
+ * |[<!-- language="C" -->
+ *   g_autoptr(GArray) int_array = g_array_new (FALSE, FALSE, sizeof (guint));
+ *   for (guint i = 0; i < 10; i++)
+ *     g_array_append_val (int_array, i);
+ *
+ *   guint *my_int = &g_array_index (int_array, guint, 1);
+ *   g_print ("Int at index 1 is %u; decrementing it\n", *my_int);
+ *   *my_int = *my_int - 1;
  * ]|
  *
  * Returns: the element of the #GArray at the index given by @i
@@ -163,6 +179,57 @@ g_array_new (gboolean zero_terminated,
   g_return_val_if_fail (elt_size > 0, NULL);
 
   return g_array_sized_new (zero_terminated, clear, elt_size, 0);
+}
+
+/**
+ * g_array_steal:
+ * @array: a #GArray.
+ * @len: (optional) (out caller-allocates): pointer to retrieve the number of
+ *    elements of the original array
+ *
+ * Frees the data in the array and resets the size to zero, while
+ * the underlying array is preserved for use elsewhere and returned
+ * to the caller.
+ *
+ * If the array was created with the @zero_terminate property
+ * set to %TRUE, the returned data is zero terminated too.
+ *
+ * If array elements contain dynamically-allocated memory,
+ * the array elements should also be freed by the caller.
+ *
+ * A short example of use:
+ * |[<!-- language="C" -->
+ * ...
+ * gpointer data;
+ * gsize data_len;
+ * data = g_array_steal (some_array, &data_len);
+ * ...
+ * ]|
+
+ * Returns: (transfer full): the element data, which should be
+ *     freed using g_free().
+ *
+ * Since: 2.64
+ */
+gpointer
+g_array_steal (GArray *array,
+               gsize *len)
+{
+  GRealArray *rarray;
+  gpointer segment;
+
+  g_return_val_if_fail (array != NULL, NULL);
+
+  rarray = (GRealArray *) array;
+  segment = (gpointer) rarray->data;
+
+  if (len != NULL)
+    *len = rarray->len;
+
+  rarray->data  = NULL;
+  rarray->len   = 0;
+  rarray->alloc = 0;
+  return segment;
 }
 
 /**
@@ -512,6 +579,10 @@ g_array_prepend_vals (GArray        *farray,
  * will be initialised to zero if the array was configured to clear elements;
  * otherwise their values will be undefined.
  *
+ * If @index_ is less than the array’s current length, new entries will be
+ * inserted into the array, and the existing entries above @index_ will be moved
+ * upwards.
+ *
  * @data may be %NULL if (and only if) @len is zero. If @len is zero, this
  * function is a no-op.
  *
@@ -785,18 +856,109 @@ g_array_sort_with_data (GArray           *farray,
                      user_data);
 }
 
+/**
+ * g_array_binary_search:
+ * @array: a #GArray.
+ * @target: a pointer to the item to look up.
+ * @compare_func: A #GCompareFunc used to locate @target.
+ * @out_match_index: (optional) (out caller-allocates): return location
+ *    for the index of the element, if found.
+ *
+ * Checks whether @target exists in @array by performing a binary
+ * search based on the given comparison function @compare_func which
+ * get pointers to items as arguments. If the element is found, %TRUE
+ * is returned and the element’s index is returned in @out_match_index
+ * (if non-%NULL). Otherwise, %FALSE is returned and @out_match_index
+ * is undefined. If @target exists multiple times in @array, the index
+ * of the first instance is returned. This search is using a binary
+ * search, so the @array must absolutely be sorted to return a correct
+ * result (if not, the function may produce false-negative).
+ *
+ * This example defines a comparison function and search an element in a #GArray:
+ * |[<!-- language="C" -->
+ * static gint*
+ * cmpint (gconstpointer a, gconstpointer b)
+ * {
+ *   const gint *_a = a;
+ *   const gint *_b = b;
+ *
+ *   return *_a - *_b;
+ * }
+ * ...
+ * gint i = 424242;
+ * guint matched_index;
+ * gboolean result = g_array_binary_search (garray, &i, cmpint, &matched_index);
+ * ...
+ * ]|
+ *
+ * Returns: %TRUE if @target is one of the elements of @array, %FALSE otherwise.
+ *
+ * Since: 2.62
+ */
+gboolean
+g_array_binary_search (GArray        *array,
+                       gconstpointer  target,
+                       GCompareFunc   compare_func,
+                       guint         *out_match_index)
+{
+  gboolean result = FALSE;
+  GRealArray *_array = (GRealArray *) array;
+  guint left, middle, right;
+  gint val;
+
+  g_return_val_if_fail (_array != NULL, FALSE);
+  g_return_val_if_fail (compare_func != NULL, FALSE);
+
+  if (G_LIKELY(_array->len))
+    {
+      left = 0;
+      right = _array->len - 1;
+
+      while (left <= right)
+        {
+          middle = left + (right - left) / 2;
+
+          val = compare_func (_array->data + (_array->elt_size * middle), target);
+          if (val == 0)
+            {
+              result = TRUE;
+              break;
+            }
+          else if (val < 0)
+            left = middle + 1;
+          else if (/* val > 0 && */ middle > 0)
+            right = middle - 1;
+          else
+            break;  /* element not found */
+        }
+    }
+
+  if (result && out_match_index != NULL)
+    *out_match_index = middle;
+
+  return result;
+}
+
 /* Returns the smallest power of 2 greater than n, or n if
  * such power does not fit in a guint
  */
 static guint
 g_nearest_pow (guint num)
 {
-  guint n = 1;
+  guint n = num - 1;
 
-  while (n < num && n > 0)
-    n <<= 1;
+  g_assert (num > 0);
 
-  return n ? n : num;
+  n |= n >> 1;
+  n |= n >> 2;
+  n |= n >> 4;
+  n |= n >> 8;
+  n |= n >> 16;
+#if SIZEOF_INT == 8
+  n |= n >> 32;
+#endif
+
+  return n + 1;
 }
 
 static void
@@ -923,6 +1085,132 @@ g_ptr_array_new (void)
 }
 
 /**
+ * g_ptr_array_steal:
+ * @array: a #GPtrArray.
+ * @len: (optional) (out caller-allocates): pointer to retrieve the number of
+ *    elements of the original array
+ *
+ * Frees the data in the array and resets the size to zero, while
+ * the underlying array is preserved for use elsewhere and returned
+ * to the caller.
+ *
+ * Even if set, the #GDestroyNotify function will never be called
+ * on the current contents of the array and the caller is
+ * responsible for freeing the array elements.
+ *
+ * An example of use:
+ * |[<!-- language="C" -->
+ * g_autoptr(GPtrArray) chunk_buffer = g_ptr_array_new_with_free_func (g_bytes_unref);
+ *
+ * // Some part of your application appends a number of chunks to the pointer array.
+ * g_ptr_array_add (chunk_buffer, g_bytes_new_static ("hello", 5));
+ * g_ptr_array_add (chunk_buffer, g_bytes_new_static ("world", 5));
+ *
+ * …
+ *
+ * // Periodically, the chunks need to be sent as an array-and-length to some
+ * // other part of the program.
+ * GBytes **chunks;
+ * gsize n_chunks;
+ *
+ * chunks = g_ptr_array_steal (chunk_buffer, &n_chunks);
+ * for (gsize i = 0; i < n_chunks; i++)
+ *   {
+ *     // Do something with each chunk here, and then free them, since
+ *     // g_ptr_array_steal() transfers ownership of all the elements and the
+ *     // array to the caller.
+ *     …
+ *
+ *     g_bytes_unref (chunks[i]);
+ *   }
+ *
+ * g_free (chunks);
+ *
+ * // After calling g_ptr_array_steal(), the pointer array can be reused for the
+ * // next set of chunks.
+ * g_assert (chunk_buffer->len == 0);
+ * ]|
+ *
+ * Returns: (transfer full): the element data, which should be
+ *     freed using g_free().
+ *
+ * Since: 2.64
+ */
+gpointer *
+g_ptr_array_steal (GPtrArray *array,
+                   gsize *len)
+{
+  GRealPtrArray *rarray;
+  gpointer *segment;
+
+  g_return_val_if_fail (array != NULL, NULL);
+
+  rarray = (GRealPtrArray *) array;
+  segment = (gpointer *) rarray->pdata;
+
+  if (len != NULL)
+    *len = rarray->len;
+
+  rarray->pdata = NULL;
+  rarray->len   = 0;
+  rarray->alloc = 0;
+  return segment;
+}
+
+/**
+ * g_ptr_array_copy:
+ * @array: #GPtrArray to duplicate
+ * @func: (nullable): a copy function used to copy every element in the array
+ * @user_data: user data passed to the copy function @func, or %NULL
+ *
+ * Makes a full (deep) copy of a #GPtrArray.
+ *
+ * @func, as a #GCopyFunc, takes two arguments, the data to be copied
+ * and a @user_data pointer. On common processor architectures, it's safe to
+ * pass %NULL as @user_data if the copy function takes only one argument. You
+ * may get compiler warnings from this though if compiling with GCC’s
+ * `-Wcast-function-type` warning.
+ *
+ * If @func is %NULL, then only the pointers (and not what they are
+ * pointing to) are copied to the new #GPtrArray.
+ *
+ * The copy of @array will have the same #GDestroyNotify for its elements as
+ * @array.
+ *
+ * Returns: (transfer full): a deep copy of the initial #GPtrArray.
+ *
+ * Since: 2.62
+ **/
+GPtrArray *
+g_ptr_array_copy (GPtrArray *array,
+                  GCopyFunc  func,
+                  gpointer   user_data)
+{
+  gsize i;
+  GPtrArray *new_array;
+
+  g_return_val_if_fail (array != NULL, NULL);
+
+  new_array = g_ptr_array_sized_new (array->len);
+  g_ptr_array_set_free_func (new_array, ((GRealPtrArray *) array)->element_free_func);
+
+  if (func != NULL)
+    {
+      for (i = 0; i < array->len; i++)
+        new_array->pdata[i] = func (array->pdata[i], user_data);
+    }
+  else if (array->len > 0)
+    {
+      memcpy (new_array->pdata, array->pdata,
+              array->len * sizeof (*array->pdata));
+    }
+
+  new_array->len = array->len;
+
+  return new_array;
+}
+
+/**
  * g_ptr_array_sized_new:
  * @reserved_size: number of pointers preallocated
  *
@@ -951,6 +1239,37 @@ g_ptr_array_sized_new (guint reserved_size)
     g_ptr_array_maybe_expand (array, reserved_size);
 
   return (GPtrArray*) array;  
+}
+
+/**
+ * g_array_copy:
+ * @array: A #GArray.
+ *
+ * Create a shallow copy of a #GArray. If the array elements consist of
+ * pointers to data, the pointers are copied but the actual data is not.
+ *
+ * Returns: (transfer container): A copy of @array.
+ *
+ * Since: 2.62
+ **/
+GArray *
+g_array_copy (GArray *array)
+{
+  GRealArray *rarray = (GRealArray *) array;
+  GRealArray *new_rarray;
+
+  g_return_val_if_fail (rarray != NULL, NULL);
+
+  new_rarray =
+    (GRealArray *) g_array_sized_new (rarray->zero_terminated, rarray->clear,
+                                      rarray->elt_size, rarray->alloc / rarray->elt_size);
+  new_rarray->len = rarray->len;
+  if (rarray->len > 0)
+    memcpy (new_rarray->data, rarray->data, rarray->len * rarray->elt_size);
+
+  g_array_zero_terminate (new_rarray);
+
+  return (GArray *) new_rarray;
 }
 
 /**
@@ -1493,6 +1812,89 @@ g_ptr_array_add (GPtrArray *array,
 }
 
 /**
+ * g_ptr_array_extend:
+ * @array_to_extend: a #GPtrArray.
+ * @array: (transfer none): a #GPtrArray to add to the end of @array_to_extend.
+ * @func: (nullable): a copy function used to copy every element in the array
+ * @user_data: user data passed to the copy function @func, or %NULL
+ *
+ * Adds all pointers of @array to the end of the array @array_to_extend.
+ * The array will grow in size automatically if needed. @array_to_extend is
+ * modified in-place.
+ *
+ * @func, as a #GCopyFunc, takes two arguments, the data to be copied
+ * and a @user_data pointer. On common processor architectures, it's safe to
+ * pass %NULL as @user_data if the copy function takes only one argument. You
+ * may get compiler warnings from this though if compiling with GCC’s
+ * `-Wcast-function-type` warning.
+ *
+ * If @func is %NULL, then only the pointers (and not what they are
+ * pointing to) are copied to the new #GPtrArray.
+ *
+ * Since: 2.62
+ **/
+void
+g_ptr_array_extend (GPtrArray  *array_to_extend,
+                    GPtrArray  *array,
+                    GCopyFunc   func,
+                    gpointer    user_data)
+{
+  GRealPtrArray *rarray_to_extend = (GRealPtrArray *) array_to_extend;
+  gsize i;
+
+  g_return_if_fail (array_to_extend != NULL);
+  g_return_if_fail (array != NULL);
+
+  g_ptr_array_maybe_expand (rarray_to_extend, array->len);
+
+  if (func != NULL)
+    {
+      for (i = 0; i < array->len; i++)
+        rarray_to_extend->pdata[i + rarray_to_extend->len] =
+          func (array->pdata[i], user_data);
+    }
+  else if (array->len > 0)
+    {
+      memcpy (rarray_to_extend->pdata + rarray_to_extend->len, array->pdata,
+              array->len * sizeof (*array->pdata));
+    }
+
+  rarray_to_extend->len += array->len;
+}
+
+/**
+ * g_ptr_array_extend_and_steal:
+ * @array_to_extend: (transfer none): a #GPtrArray.
+ * @array: (transfer container): a #GPtrArray to add to the end of
+ *     @array_to_extend.
+ *
+ * Adds all the pointers in @array to the end of @array_to_extend, transferring
+ * ownership of each element from @array to @array_to_extend and modifying
+ * @array_to_extend in-place. @array is then freed.
+ *
+ * As with g_ptr_array_free(), @array will be destroyed if its reference count
+ * is 1. If its reference count is higher, it will be decremented and the
+ * length of @array set to zero.
+ *
+ * Since: 2.62
+ **/
+void
+g_ptr_array_extend_and_steal (GPtrArray  *array_to_extend,
+                              GPtrArray  *array)
+{
+  gpointer *pdata;
+
+  g_ptr_array_extend (array_to_extend, array, NULL, NULL);
+
+  /* Get rid of @array without triggering the GDestroyNotify attached
+   * to the elements moved from @array to @array_to_extend. */
+  pdata = g_steal_pointer (&array->pdata);
+  array->len = 0;
+  g_ptr_array_unref (array);
+  g_free (pdata);
+}
+
+/**
  * g_ptr_array_insert:
  * @array: a #GPtrArray
  * @index_: the index to place the new element at, or -1 to append
@@ -1528,6 +1930,8 @@ g_ptr_array_insert (GPtrArray *array,
   rarray->pdata[index_] = data;
 }
 
+/* Please keep this doc-comment in sync with pointer_array_sort_example()
+ * in glib/tests/array-test.c */
 /**
  * g_ptr_array_sort:
  * @array: a #GPtrArray
@@ -1540,7 +1944,32 @@ g_ptr_array_insert (GPtrArray *array,
  *
  * Note that the comparison function for g_ptr_array_sort() doesn't
  * take the pointers from the array as arguments, it takes pointers to
- * the pointers in the array.
+ * the pointers in the array. Here is a full example of usage:
+ *
+ * |[<!-- language="C" -->
+ * typedef struct
+ * {
+ *   gchar *name;
+ *   gint size;
+ * } FileListEntry;
+ *
+ * static gint
+ * sort_filelist (gconstpointer a, gconstpointer b)
+ * {
+ *   const FileListEntry *entry1 = *((FileListEntry **) a);
+ *   const FileListEntry *entry2 = *((FileListEntry **) b);
+ *
+ *   return g_ascii_strcasecmp (entry1->name, entry2->name);
+ * }
+ *
+ * …
+ * g_autoptr (GPtrArray) file_list = NULL;
+ *
+ * // initialize file_list array and load with many FileListEntry entries
+ * ...
+ * // now sort it with
+ * g_ptr_array_sort (file_list, sort_filelist);
+ * ]|
  *
  * This is guaranteed to be a stable sort since version 2.32.
  */
@@ -1558,6 +1987,8 @@ g_ptr_array_sort (GPtrArray    *array,
                      NULL);
 }
 
+/* Please keep this doc-comment in sync with
+ * pointer_array_sort_with_data_example() in glib/tests/array-test.c */
 /**
  * g_ptr_array_sort_with_data:
  * @array: a #GPtrArray
@@ -1569,7 +2000,52 @@ g_ptr_array_sort (GPtrArray    *array,
  *
  * Note that the comparison function for g_ptr_array_sort_with_data()
  * doesn't take the pointers from the array as arguments, it takes
- * pointers to the pointers in the array.
+ * pointers to the pointers in the array. Here is a full example of use:
+ *
+ * |[<!-- language="C" -->
+ * typedef enum { SORT_NAME, SORT_SIZE } SortMode;
+ *
+ * typedef struct
+ * {
+ *   gchar *name;
+ *   gint size;
+ * } FileListEntry;
+ *
+ * static gint
+ * sort_filelist (gconstpointer a, gconstpointer b, gpointer user_data)
+ * {
+ *   gint order;
+ *   const SortMode sort_mode = GPOINTER_TO_INT (user_data);
+ *   const FileListEntry *entry1 = *((FileListEntry **) a);
+ *   const FileListEntry *entry2 = *((FileListEntry **) b);
+ *
+ *   switch (sort_mode)
+ *     {
+ *     case SORT_NAME:
+ *       order = g_ascii_strcasecmp (entry1->name, entry2->name);
+ *       break;
+ *     case SORT_SIZE:
+ *       order = entry1->size - entry2->size;
+ *       break;
+ *     default:
+ *       order = 0;
+ *       break;
+ *     }
+ *   return order;
+ * }
+ *
+ * ...
+ * g_autoptr (GPtrArray) file_list = NULL;
+ * SortMode sort_mode;
+ *
+ * // initialize file_list array and load with many FileListEntry entries
+ * ...
+ * // now sort it with
+ * sort_mode = SORT_NAME;
+ * g_ptr_array_sort_with_data (file_list,
+ *                             sort_filelist,
+ *                             GINT_TO_POINTER (sort_mode));
+ * ]|
  *
  * This is guaranteed to be a stable sort since version 2.32.
  */
@@ -1745,6 +2221,28 @@ GByteArray*
 g_byte_array_new (void)
 {
   return (GByteArray *)g_array_sized_new (FALSE, FALSE, 1, 0);
+}
+
+/**
+ * g_byte_array_steal:
+ * @array: a #GByteArray.
+ * @len: (optional) (out caller-allocates): pointer to retrieve the number of
+ *    elements of the original array
+ *
+ * Frees the data in the array and resets the size to zero, while
+ * the underlying array is preserved for use elsewhere and returned
+ * to the caller.
+ *
+ * Returns: (transfer full): the element data, which should be
+ *     freed using g_free().
+ *
+ * Since: 2.64
+ */
+guint8 *
+g_byte_array_steal (GByteArray *array,
+                    gsize *len)
+{
+  return (guint8 *) g_array_steal ((GArray *) array, len);
 }
 
 /**

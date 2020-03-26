@@ -191,7 +191,6 @@
 #include "genviron.h"
 #include "gmain.h"
 #include "gmem.h"
-#include "gplatformaudit.h"
 #include "gprintfint.h"
 #include "gtestutils.h"
 #include "gthread.h"
@@ -210,47 +209,6 @@
 
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
-#endif
-
-/* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-
-typedef enum _FILE_INFO_BY_HANDLE_CLASS
-{
-  FileBasicInfo                   = 0,
-  FileStandardInfo                = 1,
-  FileNameInfo                    = 2,
-  FileRenameInfo                  = 3,
-  FileDispositionInfo             = 4,
-  FileAllocationInfo              = 5,
-  FileEndOfFileInfo               = 6,
-  FileStreamInfo                  = 7,
-  FileCompressionInfo             = 8,
-  FileAttributeTagInfo            = 9,
-  FileIdBothDirectoryInfo         = 10,
-  FileIdBothDirectoryRestartInfo  = 11,
-  FileIoPriorityHintInfo          = 12,
-  FileRemoteProtocolInfo          = 13,
-  FileFullDirectoryInfo           = 14,
-  FileFullDirectoryRestartInfo    = 15,
-  FileStorageInfo                 = 16,
-  FileAlignmentInfo               = 17,
-  FileIdInfo                      = 18,
-  FileIdExtdDirectoryInfo         = 19,
-  FileIdExtdDirectoryRestartInfo  = 20,
-  MaximumFileInfoByHandlesClass
-} FILE_INFO_BY_HANDLE_CLASS;
-
-typedef struct _FILE_NAME_INFO
-{
-  DWORD FileNameLength;
-  WCHAR FileName[1];
-} FILE_NAME_INFO;
-
-typedef BOOL (WINAPI fGetFileInformationByHandleEx) (HANDLE,
-                                                     FILE_INFO_BY_HANDLE_CLASS,
-                                                     LPVOID,
-                                                     DWORD);
 #endif
 
 #if defined (_MSC_VER) && (_MSC_VER >=1400)
@@ -1071,8 +1029,6 @@ g_log_remove_handler (const gchar *log_domain,
 #define CHAR_IS_SAFE(wc) (!((wc < 0x20 && wc != '\t' && wc != '\n' && wc != '\r') || \
 			    (wc == 0x7f) || \
 			    (wc >= 0x80 && wc < 0xa0)))
-
-#ifdef G_OS_WIN32
      
 static gchar*
 strdup_convert (const gchar *string,
@@ -1118,8 +1074,6 @@ strdup_convert (const gchar *string,
 	}
     }
 }
-
-#endif
 
 /* For a radix of 8 we need at most 3 output bytes for 1 input
  * byte. Additionally we might need up to 2 output bytes for the
@@ -1359,7 +1313,7 @@ g_logv (const gchar   *log_domain,
     {
       GLogLevelFlags test_level;
 
-      test_level = 1 << i;
+      test_level = 1L << i;
       if (log_level & test_level)
 	{
 	  GLogDomain *domain;
@@ -1404,21 +1358,17 @@ g_logv (const gchar   *log_domain,
 
           if ((test_level & G_LOG_FLAG_FATAL) && !masquerade_fatal)
             {
-#ifdef G_OS_WIN32
-#ifndef _DEBUG
+              /* MessageBox is allowed on UWP apps only when building against
+               * the debug CRT, which will set -D_DEBUG */
+#if defined(G_OS_WIN32) && (defined(_DEBUG) || !defined(G_WINAPI_ONLY_APP))
               if (win32_keep_fatal_message)
                 {
-                  WCHAR *wide_msg;
+                  gchar *locale_msg = g_locale_from_utf8 (fatal_msg_buf, -1, NULL, NULL, NULL);
 
-                  wide_msg = g_utf8_to_utf16 (fatal_msg_buf, -1, NULL, NULL, NULL);
-
-                  MessageBoxW (NULL, wide_msg, NULL,
-                               MB_ICONERROR | MB_SETFOREGROUND);
-
-                  g_free (wide_msg);
+                  MessageBox (NULL, locale_msg, NULL,
+                              MB_ICONERROR|MB_SETFOREGROUND);
                 }
-#endif /* !_DEBUG */
-#endif /* !G_OS_WIN32 */
+#endif
 
               _g_log_abort (!(test_level & G_LOG_FLAG_RECURSION));
 	    }
@@ -1552,33 +1502,12 @@ win32_is_pipe_tty (int fd)
   wchar_t *name = NULL;
   gint length;
 
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  HANDLE h_kerneldll = NULL;
-  fGetFileInformationByHandleEx *GetFileInformationByHandleEx;
-#endif
-
   h_fd = (HANDLE) _get_osfhandle (fd);
 
   if (h_fd == INVALID_HANDLE_VALUE || GetFileType (h_fd) != FILE_TYPE_PIPE)
     goto done_query;
 
-  /* The following check is available on Vista or later, so on XP, no color support */
   /* mintty uses a pipe, in the form of \{cygwin|msys}-xxxxxxxxxxxxxxxx-ptyN-{from|to}-master */
-
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  h_kerneldll = LoadLibraryW (L"kernel32.dll");
-
-  if (h_kerneldll == NULL)
-    goto done_query;
-
-  GetFileInformationByHandleEx =
-    (fGetFileInformationByHandleEx *) GetProcAddress (h_kerneldll, "GetFileInformationByHandleEx");
-
-  if (GetFileInformationByHandleEx == NULL)
-    goto done_query;
-#endif
 
   info = g_try_malloc (info_size);
 
@@ -1626,12 +1555,6 @@ win32_is_pipe_tty (int fd)
 done_query:
   if (info != NULL)
     g_free (info);
-
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  if (h_kerneldll != NULL)
-    FreeLibrary (h_kerneldll);
-#endif
 
   return result;
 }
@@ -2209,13 +2132,11 @@ open_journal (void)
 {
   if ((journal_fd = socket (AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0)) < 0)
     return;
-  glib_fd_callbacks->on_fd_opened (journal_fd, "Journal");
 
 #ifndef HAVE_SOCK_CLOEXEC
   if (fcntl (journal_fd, F_SETFD, FD_CLOEXEC) < 0)
     {
       close (journal_fd);
-      glib_fd_callbacks->on_fd_closed (journal_fd, "Journal");
       journal_fd = -1;
     }
 #endif
@@ -2367,13 +2288,12 @@ g_log_writer_format_fields (GLogLevelFlags   log_level,
   else
     {
       GString *msg;
-#ifdef G_OS_WIN32
       const gchar *charset;
 
       msg = g_string_new (message);
       escape_string (msg);
 
-      if (g_get_charset (&charset))
+      if (g_get_console_charset (&charset))
         {
           /* charset is UTF-8 already */
           g_string_append (gstring, msg->str);
@@ -2384,12 +2304,7 @@ g_log_writer_format_fields (GLogLevelFlags   log_level,
           g_string_append (gstring, lstring);
           g_free (lstring);
         }
-#else
-      msg = g_string_new (message);
-      escape_string (msg);
 
-      g_string_append (gstring, msg->str); /* assume UTF-8 */
-#endif
       g_string_free (msg, TRUE);
     }
 
@@ -2762,19 +2677,18 @@ handled:
   /* Abort if the message was fatal. */
   if (log_level & G_LOG_FLAG_FATAL)
     {
-#ifdef G_OS_WIN32
-#ifndef _DEBUG
+      /* MessageBox is allowed on UWP apps only when building against
+       * the debug CRT, which will set -D_DEBUG */
+#if defined(G_OS_WIN32) && (defined(_DEBUG) || !defined(G_WINAPI_ONLY_APP))
       if (!g_test_initialized ())
         {
-          WCHAR *wide_msg;
+          gchar *locale_msg = NULL;
 
-          wide_msg = g_utf8_to_utf16 (fatal_msg_buf, -1, NULL, NULL, NULL);
-
-          MessageBoxW (NULL, wide_msg, NULL, MB_ICONERROR | MB_SETFOREGROUND);
-
-          g_free (wide_msg);
+          locale_msg = g_locale_from_utf8 (fatal_msg_buf, -1, NULL, NULL, NULL);
+          MessageBox (NULL, locale_msg, NULL,
+                      MB_ICONERROR | MB_SETFOREGROUND);
+          g_free (locale_msg);
         }
-#endif /* !_DEBUG */
 #endif /* !G_OS_WIN32 */
 
       _g_log_abort (!(log_level & G_LOG_FLAG_RECURSION));
@@ -3274,10 +3188,9 @@ g_print (const gchar *format,
     local_glib_print_func (string);
   else
     {
-#ifdef G_OS_WIN32
       const gchar *charset;
 
-      if (g_get_charset (&charset))
+      if (g_get_console_charset (&charset))
         fputs (string, stdout); /* charset is UTF-8 already */
       else
         {
@@ -3286,9 +3199,6 @@ g_print (const gchar *format,
           fputs (lstring, stdout);
           g_free (lstring);
         }
-#else
-      fputs (string, stdout); /* assume UTF-8 */
-#endif
       fflush (stdout);
     }
   g_free (string);
@@ -3357,10 +3267,9 @@ g_printerr (const gchar *format,
     local_glib_printerr_func (string);
   else
     {
-#ifdef G_OS_WIN32
       const gchar *charset;
 
-      if (g_get_charset (&charset))
+      if (g_get_console_charset (&charset))
         fputs (string, stderr); /* charset is UTF-8 already */
       else
         {
@@ -3369,9 +3278,6 @@ g_printerr (const gchar *format,
           fputs (lstring, stderr);
           g_free (lstring);
         }
-#else
-      fputs (string, stderr); /* assume UTF-8 */
-#endif
       fflush (stderr);
     }
   g_free (string);
@@ -3393,17 +3299,4 @@ g_printf_string_upper_bound (const gchar *format,
 {
   gchar c;
   return _g_vsnprintf (&c, 1, format, args) + 1;
-}
-
-void
-_g_messages_deinit (void)
-{
-#if defined(__linux__) && !defined(__BIONIC__)
-  if (journal_fd != -1)
-    {
-      close (journal_fd);
-      glib_fd_callbacks->on_fd_closed (journal_fd, "Journal");
-      journal_fd = -1;
-    }
-#endif
 }

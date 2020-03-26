@@ -1820,22 +1820,6 @@
  */
 
 /**
- * G_CONST_RETURN:
- *
- * If %G_DISABLE_CONST_RETURNS is defined, this macro expands
- * to nothing. By default, the macro expands to const. The macro
- * can be used in place of const for functions that return a value
- * that should not be modified. The purpose of this macro is to allow
- * us to turn on const for returned constant strings by default, while
- * allowing programmers who find that annoying to turn it off. This macro
- * should only be used for return values and for "out" parameters, it
- * doesn't make sense for "in" parameters.
- *
- * Deprecated: 2.30: API providers should replace all existing uses with
- * const and API consumers should adjust their code accordingly
- */
-
-/**
  * G_N_ELEMENTS:
  * @arr: the array
  *
@@ -1995,7 +1979,7 @@
  * @major: major version to check against
  * @minor: minor version to check against
  *
- * Expands to a a check for a compiler with __GNUC__ defined and a version
+ * Expands to a check for a compiler with __GNUC__ defined and a version
  * greater than or equal to the major and minor numbers provided. For example,
  * the following would only match on compilers such as GCC 4.8 or newer.
  *
@@ -2021,7 +2005,44 @@
  * has any effect.)
  *
  * This macro can be used either inside or outside of a function body,
- * but must appear on a line by itself.
+ * but must appear on a line by itself. Both this macro and the corresponding
+ * %G_GNUC_END_IGNORE_DEPRECATIONS are considered statements, so they
+ * should not be used around branching or loop conditions; for instance,
+ * this use is invalid:
+ *
+ * |[<!-- language="C" -->
+ *   G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+ *   if (check == some_deprecated_function ())
+ *   G_GNUC_END_IGNORE_DEPRECATIONS
+ *     {
+ *       do_something ();
+ *     }
+ * ]|
+ *
+ * and you should move the deprecated section outside the condition
+ *
+ * |[<!-- language="C" -->
+ *
+ *   // Solution A
+ *   some_data_t *res;
+ *
+ *   G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+ *   res = some_deprecated_function ();
+ *   G_GNUC_END_IGNORE_DEPRECATIONS
+ *
+ *   if (check == res)
+ *     {
+ *       do_something ();
+ *     }
+ *
+ *   // Solution B
+ *   G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+ *   if (check == some_deprecated_function ())
+ *     {
+ *       do_something ();
+ *     }
+ *   G_GNUC_END_IGNORE_DEPRECATIONS
+ * ]|
  *
  * |[<!-- language="C" --
  * static void
@@ -2100,24 +2121,6 @@
  * A macro that should be defined before including the glib.h header.
  * If it is defined, no compiler warnings will be produced for uses
  * of deprecated GLib APIs.
- */
-
-/**
- * G_GNUC_FUNCTION:
- *
- * Expands to "" on all modern compilers, and to  __FUNCTION__ on gcc
- * version 2.x. Don't use it.
- *
- * Deprecated: 2.16: Use G_STRFUNC() instead
- */
-
-/**
- * G_GNUC_PRETTY_FUNCTION:
- *
- * Expands to "" on all modern compilers, and to __PRETTY_FUNCTION__
- * on gcc version 2.x. Don't use it.
- *
- * Deprecated: 2.16: Use G_STRFUNC() instead
  */
 
 /**
@@ -2212,6 +2215,8 @@
  *
  * The variable is cleaned up in a way appropriate to its type when the
  * variable goes out of scope.  The type must support this.
+ * The way to clean up the type must have been defined using one of the macros
+ * G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC() or G_DEFINE_AUTO_CLEANUP_FREE_FUNC().
  *
  * This feature is only supported on GCC and clang.  This macro is not
  * defined on other compilers and should not be used in programs that
@@ -2224,7 +2229,7 @@
  * This macro can be used to avoid having to do explicit cleanups of
  * local variables when exiting functions.  It often vastly simplifies
  * handling of error conditions, removing the need for various tricks
- * such as 'goto out' or repeating of cleanup code.  It is also helpful
+ * such as `goto out` or repeating of cleanup code.  It is also helpful
  * for non-error cases.
  *
  * Consider the following example:
@@ -2251,8 +2256,8 @@
  * }
  * ]|
  *
- * You must initialize the variable in some way -- either by use of an
- * initialiser or by ensuring that an _init function will be called on
+ * You must initialize the variable in some way — either by use of an
+ * initialiser or by ensuring that an `_init` function will be called on
  * it unconditionally before it goes out of scope.
  *
  * Since: 2.44
@@ -2266,6 +2271,8 @@
  *
  * The variable is cleaned up in a way appropriate to its type when the
  * variable goes out of scope.  The type must support this.
+ * The way to clean up the type must have been defined using the macro
+ * G_DEFINE_AUTOPTR_CLEANUP_FUNC().
  *
  * This feature is only supported on GCC and clang.  This macro is not
  * defined on other compilers and should not be used in programs that
@@ -2273,12 +2280,12 @@
  *
  * This is meant to be used to declare pointers to types with cleanup
  * functions.  The type of the variable is a pointer to @TypeName.  You
- * must not add your own '*'.
+ * must not add your own `*`.
  *
  * This macro can be used to avoid having to do explicit cleanups of
  * local variables when exiting functions.  It often vastly simplifies
  * handling of error conditions, removing the need for various tricks
- * such as 'goto out' or repeating of cleanup code.  It is also helpful
+ * such as `goto out` or repeating of cleanup code.  It is also helpful
  * for non-error cases.
  *
  * Consider the following example:
@@ -2308,7 +2315,7 @@
  * }
  * ]|
  *
- * You must initialise the variable in some way -- either by use of an
+ * You must initialise the variable in some way — either by use of an
  * initialiser or by ensuring that it is assigned to unconditionally
  * before it goes out of scope.
  *
@@ -2330,7 +2337,7 @@
  * This means it's useful for any type that is returned from
  * g_malloc().
  *
- * Otherwise, this macro has similar constraints as g_autoptr() - only
+ * Otherwise, this macro has similar constraints as g_autoptr(): only
  * supported on GCC and clang, the variable must be initialized, etc.
  *
  * |[
@@ -2365,13 +2372,13 @@
  * are intended to be portable to those compilers.
  *
  * This is meant to be used to declare lists of a type with a cleanup
- * function.  The type of the variable is a GList *.  You
- * must not add your own '*'.
+ * function.  The type of the variable is a `GList *`.  You
+ * must not add your own `*`.
  *
  * This macro can be used to avoid having to do explicit cleanups of
  * local variables when exiting functions.  It often vastly simplifies
  * handling of error conditions, removing the need for various tricks
- * such as 'goto out' or repeating of cleanup code.  It is also helpful
+ * such as `goto out` or repeating of cleanup code.  It is also helpful
  * for non-error cases.
  *
  * See also g_autoslist(), g_autoptr() and g_steal_pointer().
@@ -2393,19 +2400,48 @@
  * are intended to be portable to those compilers.
  *
  * This is meant to be used to declare lists of a type with a cleanup
- * function.  The type of the variable is a GSList *.  You
- * must not add your own '*'.
+ * function.  The type of the variable is a `GSList *`.  You
+ * must not add your own `*`.
  *
  * This macro can be used to avoid having to do explicit cleanups of
  * local variables when exiting functions.  It often vastly simplifies
  * handling of error conditions, removing the need for various tricks
- * such as 'goto out' or repeating of cleanup code.  It is also helpful
+ * such as `goto out` or repeating of cleanup code.  It is also helpful
  * for non-error cases.
  *
  * See also g_autolist(), g_autoptr() and g_steal_pointer().
  *
  * Since: 2.56
  */
+
+/**
+ * g_autoqueue:
+ * @TypeName: a supported variable type
+ *
+ * Helper to declare a double-ended queue variable with automatic deep cleanup.
+ *
+ * The queue is deeply freed, in a way appropriate to the specified type, when the
+ * variable goes out of scope.  The type must support this.
+ *
+ * This feature is only supported on GCC and clang.  This macro is not
+ * defined on other compilers and should not be used in programs that
+ * are intended to be portable to those compilers.
+ *
+ * This is meant to be used to declare queues of a type with a cleanup
+ * function.  The type of the variable is a `GQueue *`.  You
+ * must not add your own `*`.
+ *
+ * This macro can be used to avoid having to do explicit cleanups of
+ * local variables when exiting functions.  It often vastly simplifies
+ * handling of error conditions, removing the need for various tricks
+ * such as `goto out` or repeating of cleanup code.  It is also helpful
+ * for non-error cases.
+ *
+ * See also g_autolist(), g_autoptr() and g_steal_pointer().
+ *
+ * Since: 2.62
+ */
+
 
 /**
  * G_DEFINE_AUTOPTR_CLEANUP_FUNC:
@@ -2417,7 +2453,7 @@
  * The function will not be called if the variable to be cleaned up
  * contains %NULL.
  *
- * This will typically be the _free() or _unref() function for the given
+ * This will typically be the `_free()` or `_unref()` function for the given
  * type.
  *
  * With this definition, it will be possible to use g_autoptr() with
@@ -2440,7 +2476,7 @@
  *
  * Defines the appropriate cleanup function for a type.
  *
- * This will typically be the _clear() function for the given type.
+ * This will typically be the `_clear()` function for the given type.
  *
  * With this definition, it will be possible to use g_auto() with
  * @TypeName.
@@ -2472,7 +2508,7 @@
  * and file descriptors.
  *
  * @none specifies the "none" value for the type in question.  It is
- * probably something like %NULL or -1.  If the variable is found to
+ * probably something like %NULL or `-1`.  If the variable is found to
  * contain this value then the free function will not be called.
  *
  * |[

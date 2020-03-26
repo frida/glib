@@ -98,7 +98,7 @@
 //#define TRACE
 
 /* GSettings' limit */
-#define MAX_KEY_NAME_LENGTH   32
+#define MAX_KEY_NAME_LENGTH   128
 
 /* Testing (on Windows XP SP3) shows that WaitForMultipleObjects fails with
  * "The parameter is incorrect" after 64 watches. We need one for the
@@ -408,7 +408,7 @@ registry_cache_add_item (GNode         *parent,
   item->block_count = 0;
   item->readable = FALSE;
 
-  trace ("\treg cache: adding %s to %s\n",
+  trace ("\tregistry cache: adding %s to %s\n",
          name, ((RegistryCacheItem *)parent->data)->name);
 
   cache_node = g_node_new (item);

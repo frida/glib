@@ -50,11 +50,17 @@ gobject_tests = {
   'signals' : {
     'source' : ['signals.c', marshalers_h, marshalers_c],
   },
+  'testing' : {},
 }
 
 if cc.get_id() != 'msvc'
   gobject_tests += {'autoptr' : {}}
 endif
+
+python_tests = [
+  'genmarshal.py',
+  'mkenums.py',
+]
 
 # FIXME: put common bits of test environment() in one location
 # Not entirely random of course, but at least it changes over time
@@ -103,14 +109,42 @@ foreach test_name, extra_args : gobject_tests
     timeout = timeout * 10
   endif
 
-  test(test_name, exe, env : test_env, timeout : timeout, suite : suite,
-    args: ['--tap'])
+  test(test_name, exe, env : test_env, timeout : timeout, suite : suite)
 endforeach
 
-test(
-  'mkenums.py',
-  python,
-  args: files('mkenums.py'),
-  env: test_env,
-  suite: ['gobject'],
-)
+foreach test_name : python_tests
+  test(
+    test_name,
+    python,
+    args: ['-B', files(test_name)],
+    env: test_env,
+    suite: ['gobject', 'no-valgrind'],
+  )
+
+  if installed_tests_enabled
+    install_data(
+      files(test_name),
+      install_dir: installed_tests_execdir,
+      install_mode: 'rwxr-xr-x',
+    )
+
+    test_conf = configuration_data()
+    test_conf.set('installed_tests_dir', installed_tests_execdir)
+    test_conf.set('program', test_name)
+    test_conf.set('env', '')
+    configure_file(
+      input: installed_tests_template_tap,
+      output: test_name + '.test',
+      install_dir: installed_tests_metadir,
+      configuration: test_conf,
+    )
+  endif
+endforeach
+
+# TAP test runner for Python tests
+if installed_tests_enabled
+  install_data(
+    files('taptestrunner.py'),
+    install_dir: installed_tests_execdir,
+  )
+endif
