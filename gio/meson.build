@@ -56,9 +56,6 @@ if host_system != 'windows'
     elif cc.links(res_query_test, args : '-lbind', name : 'res_query() in -lbind')
       network_libs += [ cc.find_library('bind') ]
       network_args += [ '-lbind' ]
-    elif cc.links(res_query_test, args : '-lsocket', name : 'res_query() in -lsocket')
-      network_libs += [ cc.find_library('socket') ]
-      network_args += [ '-lsocket' ]
     else
       error('Could not find res_query()')
     endif
@@ -451,15 +448,13 @@ else
     'gwin32notificationbackend.c',
   )
 
-  if get_option('default_library') != 'static'
-    gio_win_rc = configure_file(
-      input: 'gio.rc.in',
-      output: 'gio.rc',
-      configuration: glibconfig_conf,
-    )
-    gio_win_res = windows.compile_resources(gio_win_rc)
-    win32_sources += [gio_win_res]
-  endif
+  gio_win_rc = configure_file(
+    input: 'gio.rc.in',
+    output: 'gio.rc',
+    configuration: glibconfig_conf,
+  )
+  gio_win_res = windows.compile_resources(gio_win_rc)
+  win32_sources += [gio_win_res]
 
   gio_win32_include_headers = files(
     'gwin32inputstream.h',
@@ -469,8 +464,6 @@ else
 endif
 
 gio_sources = files(
-  'gio-init.c',
-  'gio-fork.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',
@@ -792,11 +785,6 @@ else
   gio_dtrace_obj = []
   gio_dtrace_hdr = []
 endif
-
-internal_objects = []
-foreach dep : internal_deps
-  internal_objects += dep.extract_all_objects()
-endforeach
 
 libgio = library('gio-2.0',
   gioenumtypes_h, gioenumtypes_c, gnetworking_h, gio_sources,

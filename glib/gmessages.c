@@ -191,7 +191,6 @@
 #include "genviron.h"
 #include "gmain.h"
 #include "gmem.h"
-#include "gplatformaudit.h"
 #include "gprintfint.h"
 #include "gtestutils.h"
 #include "gthread.h"
@@ -210,47 +209,6 @@
 
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
-#endif
-
-/* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-
-typedef enum _FILE_INFO_BY_HANDLE_CLASS
-{
-  FileBasicInfo                   = 0,
-  FileStandardInfo                = 1,
-  FileNameInfo                    = 2,
-  FileRenameInfo                  = 3,
-  FileDispositionInfo             = 4,
-  FileAllocationInfo              = 5,
-  FileEndOfFileInfo               = 6,
-  FileStreamInfo                  = 7,
-  FileCompressionInfo             = 8,
-  FileAttributeTagInfo            = 9,
-  FileIdBothDirectoryInfo         = 10,
-  FileIdBothDirectoryRestartInfo  = 11,
-  FileIoPriorityHintInfo          = 12,
-  FileRemoteProtocolInfo          = 13,
-  FileFullDirectoryInfo           = 14,
-  FileFullDirectoryRestartInfo    = 15,
-  FileStorageInfo                 = 16,
-  FileAlignmentInfo               = 17,
-  FileIdInfo                      = 18,
-  FileIdExtdDirectoryInfo         = 19,
-  FileIdExtdDirectoryRestartInfo  = 20,
-  MaximumFileInfoByHandlesClass
-} FILE_INFO_BY_HANDLE_CLASS;
-
-typedef struct _FILE_NAME_INFO
-{
-  DWORD FileNameLength;
-  WCHAR FileName[1];
-} FILE_NAME_INFO;
-
-typedef BOOL (WINAPI fGetFileInformationByHandleEx) (HANDLE,
-                                                     FILE_INFO_BY_HANDLE_CLASS,
-                                                     LPVOID,
-                                                     DWORD);
 #endif
 
 #if defined (_MSC_VER) && (_MSC_VER >=1400)
@@ -1405,14 +1363,10 @@ g_logv (const gchar   *log_domain,
 #if defined(G_OS_WIN32) && (defined(_DEBUG) || !defined(G_WINAPI_ONLY_APP))
               if (win32_keep_fatal_message)
                 {
-                  WCHAR *wide_msg;
+                  gchar *locale_msg = g_locale_from_utf8 (fatal_msg_buf, -1, NULL, NULL, NULL);
 
-                  wide_msg = g_utf8_to_utf16 (fatal_msg_buf, -1, NULL, NULL, NULL);
-
-                  MessageBoxW (NULL, wide_msg, NULL,
-                               MB_ICONERROR | MB_SETFOREGROUND);
-
-                  g_free (wide_msg);
+                  MessageBox (NULL, locale_msg, NULL,
+                              MB_ICONERROR|MB_SETFOREGROUND);
                 }
 #endif
 
@@ -1548,33 +1502,12 @@ win32_is_pipe_tty (int fd)
   wchar_t *name = NULL;
   gint length;
 
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  HANDLE h_kerneldll = NULL;
-  fGetFileInformationByHandleEx *GetFileInformationByHandleEx;
-#endif
-
   h_fd = (HANDLE) _get_osfhandle (fd);
 
   if (h_fd == INVALID_HANDLE_VALUE || GetFileType (h_fd) != FILE_TYPE_PIPE)
     goto done_query;
 
-  /* The following check is available on Vista or later, so on XP, no color support */
   /* mintty uses a pipe, in the form of \{cygwin|msys}-xxxxxxxxxxxxxxxx-ptyN-{from|to}-master */
-
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  h_kerneldll = LoadLibraryW (L"kernel32.dll");
-
-  if (h_kerneldll == NULL)
-    goto done_query;
-
-  GetFileInformationByHandleEx =
-    (fGetFileInformationByHandleEx *) GetProcAddress (h_kerneldll, "GetFileInformationByHandleEx");
-
-  if (GetFileInformationByHandleEx == NULL)
-    goto done_query;
-#endif
 
   info = g_try_malloc (info_size);
 
@@ -1622,12 +1555,6 @@ win32_is_pipe_tty (int fd)
 done_query:
   if (info != NULL)
     g_free (info);
-
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  if (h_kerneldll != NULL)
-    FreeLibrary (h_kerneldll);
-#endif
 
   return result;
 }
@@ -2205,13 +2132,11 @@ open_journal (void)
 {
   if ((journal_fd = socket (AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0)) < 0)
     return;
-  glib_fd_callbacks->on_fd_opened (journal_fd, "Journal");
 
 #ifndef HAVE_SOCK_CLOEXEC
   if (fcntl (journal_fd, F_SETFD, FD_CLOEXEC) < 0)
     {
       close (journal_fd);
-      glib_fd_callbacks->on_fd_closed (journal_fd, "Journal");
       journal_fd = -1;
     }
 #endif
@@ -2757,13 +2682,12 @@ handled:
 #if defined(G_OS_WIN32) && (defined(_DEBUG) || !defined(G_WINAPI_ONLY_APP))
       if (!g_test_initialized ())
         {
-          WCHAR *wide_msg;
+          gchar *locale_msg = NULL;
 
-          wide_msg = g_utf8_to_utf16 (fatal_msg_buf, -1, NULL, NULL, NULL);
-
-          MessageBoxW (NULL, wide_msg, NULL, MB_ICONERROR | MB_SETFOREGROUND);
-
-          g_free (wide_msg);
+          locale_msg = g_locale_from_utf8 (fatal_msg_buf, -1, NULL, NULL, NULL);
+          MessageBox (NULL, locale_msg, NULL,
+                      MB_ICONERROR | MB_SETFOREGROUND);
+          g_free (locale_msg);
         }
 #endif /* !G_OS_WIN32 */
 
@@ -3375,17 +3299,4 @@ g_printf_string_upper_bound (const gchar *format,
 {
   gchar c;
   return _g_vsnprintf (&c, 1, format, args) + 1;
-}
-
-void
-_g_messages_deinit (void)
-{
-#if defined(__linux__) && !defined(__BIONIC__)
-  if (journal_fd != -1)
-    {
-      close (journal_fd);
-      glib_fd_callbacks->on_fd_closed (journal_fd, "Journal");
-      journal_fd = -1;
-    }
-#endif
 }

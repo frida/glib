@@ -83,8 +83,6 @@
 #endif /* HAVE_POSIX_SPAWN */
 
 #ifdef HAVE__NSGETENVIRON
-/* HACK: this one is missing from the iOS SDK */
-extern char *** _NSGetEnviron (void);
 #define environ (*_NSGetEnviron())
 #else
 extern char **environ;
