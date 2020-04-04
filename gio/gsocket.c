@@ -465,9 +465,6 @@ g_socket_details_from_fd (GSocket *socket)
   int errsv;
 
   fd = socket->priv->fd;
-
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-
   if (!g_socket_get_option (socket, SOL_SOCKET, SO_TYPE, &value, NULL))
     {
       errsv = get_socket_errno ();
@@ -600,10 +597,7 @@ g_socket (gint     domain,
   fd = socket (domain, type | SOCK_CLOEXEC, protocol);
   errsv = errno;
   if (fd != -1)
-    {
-      glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-      return fd;
-    }
+    return fd;
 
   /* It's possible that libc has SOCK_CLOEXEC but the kernel does not */
   if (fd < 0 && (errsv == EINVAL || errsv == EPROTOTYPE))
@@ -620,8 +614,6 @@ g_socket (gint     domain,
       return -1;
     }
 
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-
 #ifndef G_OS_WIN32
   {
     int flags;
@@ -636,16 +628,6 @@ g_socket (gint     domain,
 	flags |= FD_CLOEXEC;
 	fcntl (fd, F_SETFD, flags);
       }
-  }
-#else
-  if (type == SOCK_DGRAM)
-  {
-    DWORD bytes_returned = 0;
-    BOOL new_behavior = FALSE;
-
-    /* Disable connection reset error on ICMP port unreachable. */
-    WSAIoctl (fd, SIO_UDP_CONNRESET, &new_behavior, sizeof (new_behavior),
-        NULL, 0, &bytes_returned, NULL, NULL);
   }
 #endif
 
@@ -927,6 +909,19 @@ static void
 g_socket_class_init (GSocketClass *klass)
 {
   GObjectClass *gobject_class G_GNUC_UNUSED = G_OBJECT_CLASS (klass);
+
+#ifdef SIGPIPE
+  /* There is no portable, thread-safe way to avoid having the process
+   * be killed by SIGPIPE when calling send() or sendmsg(), so we are
+   * forced to simply ignore the signal process-wide.
+   *
+   * Even if we ignore it though, gdb will still stop if the app
+   * receives a SIGPIPE, which can be confusing and annoying. So when
+   * possible, we also use MSG_NOSIGNAL / SO_NOSIGPIPE elsewhere to
+   * prevent the signal from occurring at all.
+   */
+  signal (SIGPIPE, SIG_IGN);
+#endif
 
   gobject_class->finalize = g_socket_finalize;
   gobject_class->constructed = g_socket_constructed;
@@ -2216,63 +2211,6 @@ g_socket_bind (GSocket         *socket,
 }
 
 #ifdef G_OS_WIN32
-
-#ifndef HAVE_IF_NAMETOINDEX
-static guint
-if_nametoindex (const gchar *iface)
-{
-  PIP_ADAPTER_ADDRESSES addresses = NULL, p;
-  gulong addresses_len = 0;
-  guint idx = 0;
-  DWORD res;
-
-  if (ws2funcs.pIfNameToIndex != NULL)
-    return ws2funcs.pIfNameToIndex (iface);
-
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, NULL, &addresses_len);
-  if (res != NO_ERROR && res != ERROR_BUFFER_OVERFLOW)
-    {
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
-    }
-
-  addresses = g_malloc (addresses_len);
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, addresses, &addresses_len);
-
-  if (res != NO_ERROR)
-    {
-      g_free (addresses);
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
-    }
-
-  p = addresses;
-  while (p)
-    {
-      if (strcmp (p->AdapterName, iface) == 0)
-        {
-          idx = p->IfIndex;
-          break;
-        }
-      p = p->Next;
-    }
-
-  if (p == NULL)
-    errno = ENXIO;
-
-  g_free (addresses);
-
-  return idx;
-}
-#define HAVE_IF_NAMETOINDEX 1
-#endif
-
 static gulong
 g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
 {
@@ -2982,7 +2920,6 @@ g_socket_accept (GSocket       *socket,
 #else
       close (ret);
 #endif
-      glib_fd_callbacks->on_fd_closed (ret, "GSocket");
     }
   else
     new_socket->priv->protocol = socket->priv->protocol;
@@ -3776,9 +3713,6 @@ g_socket_close (GSocket  *socket,
 		       socket_strerror (errsv));
 	  return FALSE;
 	}
-
-      glib_fd_callbacks->on_fd_closed (socket->priv->fd, "GSocket");
-
       break;
     }
 
@@ -3858,9 +3792,6 @@ update_select_events (GSocket *socket)
   GList *l;
   WSAEVENT event;
 
-  if (socket->priv->closed)
-    return;
-
   ensure_event (socket);
 
   event_mask = 0;
@@ -3919,8 +3850,7 @@ update_condition_unlocked (GSocket *socket)
   WSANETWORKEVENTS events;
   GIOCondition condition;
 
-  if (!socket->priv->closed &&
-      WSAEnumNetworkEvents (socket->priv->fd,
+  if (WSAEnumNetworkEvents (socket->priv->fd,
 			    socket->priv->event,
 			    &events) == 0)
     {
@@ -4681,7 +4611,7 @@ G_STMT_START { \
     } \
   else \
     { \
-      _msg->msg_controllen = 2016; /* upper limit on QNX */ \
+      _msg->msg_controllen = 2048; \
       _msg->msg_control = g_alloca (_msg->msg_controllen); \
     } \
  \

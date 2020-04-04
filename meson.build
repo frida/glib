@@ -84,13 +84,9 @@ installed_tests_template = files('template.test.in')
 installed_tests_template_tap = files('template-tap.test.in')
 
 # Don’t build the tests unless we can run them (either natively, in an exe wrapper, or by installing them for later use)
-build_tests = get_option('tests') and (not meson.is_cross_build() or (meson.is_cross_build() and meson.has_exe_wrapper()) or installed_tests_enabled)
+build_tests = not meson.is_cross_build() or (meson.is_cross_build() and meson.has_exe_wrapper()) or installed_tests_enabled
 
 add_project_arguments('-D_GNU_SOURCE', language: 'c')
-
-if host_system == 'qnx'
-  add_project_arguments('-D_QNX_SOURCE', language: 'c')
-endif
 
 # Disable strict aliasing;
 # see https://bugzilla.gnome.org/show_bug.cgi?id=791622
@@ -195,7 +191,6 @@ endif
 if get_option('default_library') == 'static'
     glibconfig_conf.set('GLIB_STATIC_COMPILATION', '1')
     glibconfig_conf.set('GOBJECT_STATIC_COMPILATION', '1')
-    glibconfig_conf.set('GIO_STATIC_COMPILATION', '1')
 endif
 
 # Cygwin glib port maintainers made it clear
@@ -215,15 +210,27 @@ else
 endif
 glibconfig_conf.set('glib_os', glib_os)
 
-# We need to know the build type to determine what .lib files we need on Visual Studio
-# for dependencies that don't normally come with pkg-config files for Visual Studio builds
-buildtype = get_option('buildtype')
+# We need to know the CRT being used to determine what .lib files we need on
+# Visual Studio for dependencies that don't normally come with pkg-config files
+vs_crt = 'release'
+vs_crt_opt = get_option('b_vscrt')
+if vs_crt_opt in ['mdd', 'mtd']
+  vs_crt = 'debug'
+elif vs_crt_opt == 'from_buildtype'
+  if get_option('buildtype') == 'debug'
+    vs_crt = 'debug'
+  endif
+endif
 
+# Use debug/optimization flags to determine whether to enable debug or disable
+# cast checks
 glib_debug_cflags = []
-if buildtype.startswith('debug')
+if get_option('debug')
   glib_debug_cflags += ['-DG_ENABLE_DEBUG']
-elif buildtype == 'release' or buildtype == 'minsize'
-  glib_debug_cflags += ['-DG_DISABLE_CAST_CHECKS', '-DG_DISABLE_ASSERT', '-DG_DISABLE_CHECKS']
+  message('Enabling various debug infrastructure')
+elif get_option('optimization') in ['2', '3', 's']
+  glib_debug_cflags += ['-DG_DISABLE_CAST_CHECKS']
+  message('Disabling cast checks')
 endif
 
 add_project_arguments(glib_debug_cflags, language: 'c')
@@ -241,7 +248,6 @@ headers = [
   'limits.h',
   'linux/magic.h',
   'locale.h',
-  'mach/mach.h',
   'mach/mach_time.h',
   'memory.h',
   'mntent.h',
@@ -249,7 +255,6 @@ headers = [
   'pwd.h',
   'sched.h',
   'spawn.h',
-  'stdatomic.h',
   'stdint.h',
   'stdlib.h',
   'string.h',
@@ -423,8 +428,8 @@ if host_system == 'windows'
     # We require Windows 10+ on WinRT
     glib_conf.set('_WIN32_WINNT', '0x0A00')
   else
-    # We require Windows XP+ on Win32
-    glib_conf.set('_WIN32_WINNT', '0x0501')
+    # We require Windows 7+ on Win32
+    glib_conf.set('_WIN32_WINNT', '0x0601')
   endif
 endif
 
@@ -657,9 +662,43 @@ osx_ldflags = []
 glib_have_os_x_9_or_later = false
 glib_have_carbon = false
 glib_have_cocoa = false
+if host_system == 'darwin'
+  add_languages('objc')
+  objcc = meson.get_compiler('objc')
 
-if host_system == 'qnx'
-  glib_conf.set('HAVE_QNX', 1)
+  osx_ldflags += ['-Wl,-framework,CoreFoundation']
+
+  # Mac OS X Carbon support
+  glib_have_carbon = objcc.compiles('''#include <Carbon/Carbon.h>
+                                       #include <CoreServices/CoreServices.h>''',
+                                    name : 'Mac OS X Carbon support')
+
+  if glib_have_carbon
+    glib_conf.set('HAVE_CARBON', true)
+    osx_ldflags += '-Wl,-framework,Carbon'
+    glib_have_os_x_9_or_later = objcc.compiles('''#include <AvailabilityMacros.h>
+                                                  #if MAC_OS_X_VERSION_MIN_REQUIRED < 1090
+                                                  #error Compiling for minimum OS X version before 10.9
+                                                  #endif''',
+                                               name : 'OS X 9 or later')
+  endif
+
+  # Mac OS X Cocoa support
+  glib_have_cocoa = objcc.compiles('''#include <Cocoa/Cocoa.h>
+                                      #ifdef GNUSTEP_BASE_VERSION
+                                      #error "Detected GNUstep, not Cocoa"
+                                      #endif''',
+                                   name : 'Mac OS X Cocoa support')
+
+  if glib_have_cocoa
+    glib_conf.set('HAVE_COCOA', true)
+    osx_ldflags += ['-Wl,-framework,Foundation', '-Wl,-framework,AppKit']
+  endif
+
+  # FIXME: libgio mix C and objC source files and there is no way to reliably
+  # know which language flags it's going to use to link. Add to both languages
+  # for now. See https://github.com/mesonbuild/meson/issues/3585.
+  add_project_link_arguments(osx_ldflags, language : ['objc', 'c'])
 endif
 
 # Check for futex(2)
@@ -785,11 +824,7 @@ have_good_vsnprintf = false
 have_good_snprintf = false
 have_good_printf = false
 
-if get_option('default_library') == 'static'
-  glib_conf.set('HAVE_C99_SNPRINTF', false)
-  glib_conf.set('HAVE_C99_VSNPRINTF', false)
-  glib_conf.set('HAVE_UNIX98_PRINTF', false)
-elif host_system == 'windows' and (cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl')
+if host_system == 'windows' and (cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl')
   # Unfortunately the Visual Studio 2015+ implementations of C99-style
   # snprintf and vsnprintf don't seem to be quite good enough.
   # (Sorry, I don't know exactly what is the problem,
@@ -1825,7 +1860,7 @@ else
     # MSVC: Search for the PCRE library by the configuration, which corresponds
     # to the output of CMake builds of PCRE.  Note that debugoptimized
     # is really a Release build with .PDB files.
-      if buildtype == 'debug'
+      if vs_crt == 'debug'
         pcre = cc.find_library('pcred', required : false)
       else
         pcre = cc.find_library('pcre', required : false)
@@ -1877,27 +1912,21 @@ if not libz_dep.found()
   endif
 endif
 
-if get_option('default_library') == 'static'
-  subdir('proxy-libintl')
-  libintl = intl_dep
-  have_bind_textdomain_codeset = true
+# First check in libc, fallback to libintl, and as last chance build
+# proxy-libintl subproject.
+# FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
+# implementations. This could be extended if issues are found in some platforms.
+if cc.has_function('ngettext')
+  libintl = []
+  have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset')
 else
-  # First check in libc, fallback to libintl, and as last chance build
-  # proxy-libintl subproject.
-  # FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
-  # implementations. This could be extended if issues are found in some platforms.
-  if cc.has_function('ngettext')
-    libintl = []
-    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset')
+  libintl = cc.find_library('intl', required : false)
+  if not libintl.found()
+    libintl = subproject('proxy-libintl').get_variable('intl_dep')
+    have_bind_textdomain_codeset = true  # proxy-libintl supports it
   else
-    libintl = cc.find_library('intl', required : false)
-    if not libintl.found()
-      libintl = subproject('proxy-libintl').get_variable('intl_dep')
-      have_bind_textdomain_codeset = true  # proxy-libintl supports it
-    else
-      have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset',
-                                                     dependencies : libintl)
-    endif
+    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset',
+                                                   dependencies : libintl)
   endif
 endif
 
@@ -2110,7 +2139,7 @@ enable_dtrace = false
 # Since dtrace support is opt-in we just error out if it was requested but
 # is not available. We don't bother with autodetection yet.
 if want_dtrace
-  if host_system == 'darwin'
+  if glib_have_carbon
     error('GLib dtrace support not yet compatible with macOS dtrace')
   endif
   dtrace = find_program('dtrace', required : true) # error out if not found

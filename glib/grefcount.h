@@ -25,9 +25,6 @@
 
 #include <glib/gatomic.h>
 #include <glib/gtypes.h>
-#if defined(__GNUC__) && defined(G_DISABLE_CHECKS)
-#include <glib/gatomic.h>
-#endif
 
 G_BEGIN_DECLS
 

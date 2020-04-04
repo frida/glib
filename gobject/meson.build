@@ -43,7 +43,7 @@ gobject_sources = files(
   'gvaluetypes.c',
 )
 
-if host_system == 'windows' and get_option('default_library') != 'static'
+if host_system == 'windows'
   gobject_win_rc = configure_file(
     input: 'gobject.rc.in',
     output: 'gobject.rc',

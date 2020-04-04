@@ -122,8 +122,6 @@ main (gint   argc,
   gint i;
   const gchar *iindent = "";
 
-  glib_init ();
-
   f_out = stdout;
   
   fatal_mask = g_log_set_always_fatal (G_LOG_FATAL_MASK);
