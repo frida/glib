@@ -37,6 +37,30 @@ _GL_INLINE_HEADER_BEGIN
 # define XSIZE_INLINE _GL_INLINE
 #endif
 
+XSIZE_INLINE size_t
+#if __GNUC__ >= 3
+__attribute__ ((__pure__))
+#endif
+xsum (size_t size1, size_t size2);
+
+XSIZE_INLINE size_t
+#if __GNUC__ >= 3
+__attribute__ ((__pure__))
+#endif
+xsum3 (size_t size1, size_t size2, size_t size3);
+
+XSIZE_INLINE size_t
+#if __GNUC__ >= 3
+__attribute__ ((__pure__))
+#endif
+xsum4 (size_t size1, size_t size2, size_t size3, size_t size4);
+
+XSIZE_INLINE size_t
+#if __GNUC__ >= 3
+__attribute__ ((__pure__))
+#endif
+xmax (size_t size1, size_t size2);
+
 /* The size of memory objects is often computed through expressions of
    type size_t. Example:
       void* p = malloc (header_size + n * element_size).
