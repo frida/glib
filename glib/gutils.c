@@ -3027,7 +3027,7 @@ g_check_setuid (void)
   if (errsv)
   {
     /* When running 32-bit user applications on a 64-bit kernel, reading of the
-     * auxilliary vector can unreliable, likely as a result of the vector not
+     * auxilliary vector can be unreliable, likely as a result of the vector not
      * being architecture agnostic.
      *
      * Whilst qemu-user appears to correct these structures depending on the
