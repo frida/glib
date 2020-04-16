@@ -91,7 +91,7 @@
 
 #include "verify.h"
 
-#ifdef HAVE_UCLIBC
+#ifdef __UCLIBC__
 int wctomb (char *__s, wchar_t __wchar) __THROW;
 
 int wctomb (char *__s, wchar_t __wchar)

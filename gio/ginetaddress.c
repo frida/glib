@@ -38,7 +38,7 @@
 #include "gwin32networking.h"
 #endif
 
-#ifdef HAVE_UCLIBC
+#ifdef __UCLIBC__
 # undef HAVE_IPV6
 #else
 # define HAVE_IPV6
@@ -101,9 +101,9 @@ enum
 
 static void
 g_inet_address_set_property (GObject      *object,
-			     guint         prop_id,
-			     const GValue *value,
-			     GParamSpec   *pspec)
+                             guint         prop_id,
+                             const GValue *value,
+                             GParamSpec   *pspec)
 {
   GInetAddress *address = G_INET_ADDRESS (object);
 
@@ -116,14 +116,14 @@ g_inet_address_set_property (GObject      *object,
     case PROP_BYTES:
 #ifdef HAVE_IPV6
       memcpy (&address->priv->addr, g_value_get_pointer (value),
-	      address->priv->family == AF_INET ?
-	      sizeof (address->priv->addr.ipv4) :
-	      sizeof (address->priv->addr.ipv6));
+          address->priv->family == AF_INET ?
+          sizeof (address->priv->addr.ipv4) :
+          sizeof (address->priv->addr.ipv6));
 #else
       if (address->priv->family == AF_INET)
       {
         memcpy (&address->priv->addr, g_value_get_pointer (value),
-	        sizeof (address->priv->addr.ipv4));
+            sizeof (address->priv->addr.ipv4));
       }
 #endif
       break;
@@ -526,7 +526,6 @@ GInetAddress *
 g_inet_address_new_from_string (const gchar *string)
 {
   struct in_addr in_addr;
-
 #ifdef HAVE_IPV6
   struct in6_addr in6_addr;
 #endif
@@ -540,14 +539,10 @@ g_inet_address_new_from_string (const gchar *string)
   g_networking_init ();
 
   if (inet_pton (AF_INET, string, &in_addr) > 0)
-  {
     return g_inet_address_new_from_bytes ((guint8 *)&in_addr, AF_INET);
-  }
 #ifdef HAVE_IPV6
   else if (inet_pton (AF_INET6, string, &in6_addr) > 0)
-  {
     return g_inet_address_new_from_bytes ((guint8 *)&in6_addr, AF_INET6);
-  }
 #endif
 
   return NULL;
@@ -663,7 +658,6 @@ g_inet_address_new_any (GSocketFamily family)
 gchar *
 g_inet_address_to_string (GInetAddress *address)
 {
-
   gchar buffer[INET6_ADDRSTRLEN];
 
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), NULL);
