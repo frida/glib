@@ -636,7 +636,7 @@ g_inet_address_new_any (GSocketFamily family)
   else
     {
 #ifdef HAVE_IPV6
-     return g_inet_address_new_from_bytes (in6addr_any.s6_addr, family);
+      return g_inet_address_new_from_bytes (in6addr_any.s6_addr, family);
 #else
       return NULL;
 #endif
@@ -673,7 +673,7 @@ g_inet_address_to_string (GInetAddress *address)
       inet_ntop (AF_INET6, &address->priv->addr.ipv6, buffer, sizeof (buffer));
       return g_strdup (buffer);
 #else
-     return NULL;
+      return NULL;
 #endif
     }
 }
@@ -763,7 +763,7 @@ g_inet_address_get_is_any (GInetAddress *address)
   else
     {
 #ifdef HAVE_IPV6
-     return IN6_IS_ADDR_UNSPECIFIED (&address->priv->addr.ipv6);
+      return IN6_IS_ADDR_UNSPECIFIED (&address->priv->addr.ipv6);
 #else
       return FALSE;
 #endif
@@ -799,7 +799,7 @@ g_inet_address_get_is_loopback (GInetAddress *address)
 #else
       return FALSE;
 #endif
-   }
+    }
 }
 
 /**
@@ -829,11 +829,11 @@ g_inet_address_get_is_link_local (GInetAddress *address)
   else
     {
 #ifdef HAVE_IPV6
-     return IN6_IS_ADDR_LINKLOCAL (&address->priv->addr.ipv6);
+      return IN6_IS_ADDR_LINKLOCAL (&address->priv->addr.ipv6);
 #else
-     return FALSE;
+      return FALSE;
 #endif
-   }
+    }
 }
 
 /**
@@ -864,7 +864,7 @@ g_inet_address_get_is_site_local (GInetAddress *address)
 	      (addr4 & 0xffff0000) == 0xc0a80000);
     }
   else
-   {
+    {
 #ifdef HAVE_IPV6
       return IN6_IS_ADDR_SITELOCAL (&address->priv->addr.ipv6);
 #else
@@ -930,7 +930,7 @@ g_inet_address_get_is_mc_global (GInetAddress *address)
 #else
       return FALSE;
 #endif
-   }
+    }
 }
 
 /**
@@ -986,7 +986,7 @@ g_inet_address_get_is_mc_node_local (GInetAddress *address)
 #ifdef HAVE_IPV6
       return IN6_IS_ADDR_MC_NODELOCAL (&address->priv->addr.ipv6);
 #else
-     return FALSE;
+      return FALSE;
 #endif
     }
 }
@@ -1013,9 +1013,9 @@ g_inet_address_get_is_mc_org_local  (GInetAddress *address)
   else
     {
 #ifdef HAVE_IPV6
-     return IN6_IS_ADDR_MC_ORGLOCAL (&address->priv->addr.ipv6);
+      return IN6_IS_ADDR_MC_ORGLOCAL (&address->priv->addr.ipv6);
 #else
-     return FALSE;
+      return FALSE;
 #endif
     }
 }
