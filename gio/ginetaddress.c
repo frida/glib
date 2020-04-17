@@ -101,9 +101,9 @@ enum
 
 static void
 g_inet_address_set_property (GObject      *object,
-                             guint         prop_id,
-                             const GValue *value,
-                             GParamSpec   *pspec)
+			     guint         prop_id,
+			     const GValue *value,
+			     GParamSpec   *pspec)
 {
   GInetAddress *address = G_INET_ADDRESS (object);
 
@@ -116,9 +116,9 @@ g_inet_address_set_property (GObject      *object,
     case PROP_BYTES:
 #ifdef HAVE_IPV6
       memcpy (&address->priv->addr, g_value_get_pointer (value),
-          address->priv->family == AF_INET ?
-          sizeof (address->priv->addr.ipv4) :
-          sizeof (address->priv->addr.ipv6));
+	      address->priv->family == AF_INET ?
+	      sizeof (address->priv->addr.ipv4) :
+	      sizeof (address->priv->addr.ipv6));
 #else
       if (address->priv->family == AF_INET)
         {
@@ -594,7 +594,7 @@ g_inet_address_new_loopback (GSocketFamily family)
   g_return_val_if_fail (G_INET_ADDRESS_FAMILY_IS_VALID (family), NULL);
 
   if (family == AF_INET)
-    {
+    {    
       guint8 addr[4] = {127, 0, 0, 1};
 
       return g_inet_address_new_from_bytes (addr, family);
@@ -628,7 +628,7 @@ g_inet_address_new_any (GSocketFamily family)
   g_return_val_if_fail (G_INET_ADDRESS_FAMILY_IS_VALID (family), NULL);
 
   if (family == AF_INET)
-    {
+    {    
       guint8 addr[4] = {0, 0, 0, 0};
 
       return g_inet_address_new_from_bytes (addr, family);
@@ -860,8 +860,8 @@ g_inet_address_get_is_site_local (GInetAddress *address)
 
       /* 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 */
       return ((addr4 & 0xff000000) == 0x0a000000 ||
-        (addr4 & 0xfff00000) == 0xac100000 ||
-        (addr4 & 0xffff0000) == 0xc0a80000);
+	      (addr4 & 0xfff00000) == 0xac100000 ||
+	      (addr4 & 0xffff0000) == 0xc0a80000);
     }
   else
    {
