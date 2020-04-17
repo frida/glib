@@ -94,7 +94,8 @@
 #ifdef __UCLIBC__
 int wctomb (char *__s, wchar_t __wchar) __THROW;
 
-int wctomb (char *__s, wchar_t __wchar)
+int
+wctomb (char *__s, wchar_t __wchar)
 {
   return -1;
 }
