@@ -933,13 +933,11 @@ g_inet_address_get_is_mc_link_local (GInetAddress *address)
   if (address->priv->family == AF_INET)
     return FALSE;
   else
-    {
 #ifdef HAVE_IPV6
-      return IN6_IS_ADDR_MC_LINKLOCAL (&address->priv->addr.ipv6);
+    return IN6_IS_ADDR_MC_LINKLOCAL (&address->priv->addr.ipv6);
 #else
-      return FALSE;
+    return FALSE;
 #endif
-    }
 }
 
 /**
