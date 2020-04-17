@@ -121,10 +121,10 @@ g_inet_address_set_property (GObject      *object,
           sizeof (address->priv->addr.ipv6));
 #else
       if (address->priv->family == AF_INET)
-      {
-        memcpy (&address->priv->addr, g_value_get_pointer (value),
-            sizeof (address->priv->addr.ipv4));
-      }
+        {
+          memcpy (&address->priv->addr, g_value_get_pointer (value),
+              sizeof (address->priv->addr.ipv4));
+        }
 #endif
       break;
 
@@ -594,19 +594,19 @@ g_inet_address_new_loopback (GSocketFamily family)
   g_return_val_if_fail (G_INET_ADDRESS_FAMILY_IS_VALID (family), NULL);
 
   if (family == AF_INET)
-  {
-    guint8 addr[4] = {127, 0, 0, 1};
+    {
+      guint8 addr[4] = {127, 0, 0, 1};
 
-    return g_inet_address_new_from_bytes (addr, family);
-  }
+      return g_inet_address_new_from_bytes (addr, family);
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    return g_inet_address_new_from_bytes (in6addr_loopback.s6_addr, family);
+      return g_inet_address_new_from_bytes (in6addr_loopback.s6_addr, family);
 #else
-    return NULL;
+      return NULL;
 #endif
-  }
+    }
 }
 
 /**
@@ -628,19 +628,19 @@ g_inet_address_new_any (GSocketFamily family)
   g_return_val_if_fail (G_INET_ADDRESS_FAMILY_IS_VALID (family), NULL);
 
   if (family == AF_INET)
-  {
-    guint8 addr[4] = {0, 0, 0, 0};
+    {
+      guint8 addr[4] = {0, 0, 0, 0};
 
-    return g_inet_address_new_from_bytes (addr, family);
-  }
+      return g_inet_address_new_from_bytes (addr, family);
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    return g_inet_address_new_from_bytes (in6addr_any.s6_addr, family);
+     return g_inet_address_new_from_bytes (in6addr_any.s6_addr, family);
 #else
-    return NULL;
+      return NULL;
 #endif
-  }
+    }
 }
 
 
@@ -663,19 +663,19 @@ g_inet_address_to_string (GInetAddress *address)
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), NULL);
 
   if (address->priv->family == AF_INET)
-  {
-    inet_ntop (AF_INET, &address->priv->addr.ipv4, buffer, sizeof (buffer));
-    return g_strdup (buffer);
-  }
+    {
+      inet_ntop (AF_INET, &address->priv->addr.ipv4, buffer, sizeof (buffer));
+      return g_strdup (buffer);
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    inet_ntop (AF_INET6, &address->priv->addr.ipv6, buffer, sizeof (buffer));
-    return g_strdup (buffer);
+      inet_ntop (AF_INET6, &address->priv->addr.ipv6, buffer, sizeof (buffer));
+      return g_strdup (buffer);
 #else
-    return NULL;
+     return NULL;
 #endif
-  }
+    }
 }
 
 /**
@@ -755,19 +755,19 @@ g_inet_address_get_is_any (GInetAddress *address)
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), FALSE);
 
   if (address->priv->family == AF_INET)
-  {
-    guint32 addr4 = g_ntohl (address->priv->addr.ipv4.s_addr);
+    {
+      guint32 addr4 = g_ntohl (address->priv->addr.ipv4.s_addr);
 
-    return addr4 == INADDR_ANY;
-  }
+      return addr4 == INADDR_ANY;
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    return IN6_IS_ADDR_UNSPECIFIED (&address->priv->addr.ipv6);
+     return IN6_IS_ADDR_UNSPECIFIED (&address->priv->addr.ipv6);
 #else
-    return FALSE;
+      return FALSE;
 #endif
-  }
+    }
 }
 
 /**
@@ -786,20 +786,20 @@ g_inet_address_get_is_loopback (GInetAddress *address)
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), FALSE);
 
   if (address->priv->family == AF_INET)
-  {
-    guint32 addr4 = g_ntohl (address->priv->addr.ipv4.s_addr);
+    {
+      guint32 addr4 = g_ntohl (address->priv->addr.ipv4.s_addr);
 
-    /* 127.0.0.0/8 */
-    return ((addr4 & 0xff000000) == 0x7f000000);
-  }
+      /* 127.0.0.0/8 */
+      return ((addr4 & 0xff000000) == 0x7f000000);
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    return IN6_IS_ADDR_LOOPBACK (&address->priv->addr.ipv6);
+      return IN6_IS_ADDR_LOOPBACK (&address->priv->addr.ipv6);
 #else
-    return FALSE;
+      return FALSE;
 #endif
-  }
+   }
 }
 
 /**
@@ -820,20 +820,20 @@ g_inet_address_get_is_link_local (GInetAddress *address)
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), FALSE);
 
   if (address->priv->family == AF_INET)
-  {
-    guint32 addr4 = g_ntohl (address->priv->addr.ipv4.s_addr);
+    {
+      guint32 addr4 = g_ntohl (address->priv->addr.ipv4.s_addr);
 
-    /* 169.254.0.0/16 */
-    return ((addr4 & 0xffff0000) == 0xa9fe0000);
-  }
+      /* 169.254.0.0/16 */
+      return ((addr4 & 0xffff0000) == 0xa9fe0000);
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    return IN6_IS_ADDR_LINKLOCAL (&address->priv->addr.ipv6);
+     return IN6_IS_ADDR_LINKLOCAL (&address->priv->addr.ipv6);
 #else
-    return FALSE;
+     return FALSE;
 #endif
-  }
+   }
 }
 
 /**
@@ -855,22 +855,22 @@ g_inet_address_get_is_site_local (GInetAddress *address)
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), FALSE);
 
   if (address->priv->family == AF_INET)
-  {
-    guint32 addr4 = g_ntohl (address->priv->addr.ipv4.s_addr);
+    {
+      guint32 addr4 = g_ntohl (address->priv->addr.ipv4.s_addr);
 
-    /* 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 */
-    return ((addr4 & 0xff000000) == 0x0a000000 ||
-      (addr4 & 0xfff00000) == 0xac100000 ||
-      (addr4 & 0xffff0000) == 0xc0a80000);
-  }
+      /* 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 */
+      return ((addr4 & 0xff000000) == 0x0a000000 ||
+        (addr4 & 0xfff00000) == 0xac100000 ||
+        (addr4 & 0xffff0000) == 0xc0a80000);
+    }
   else
-  {
+   {
 #ifdef HAVE_IPV6
-    return IN6_IS_ADDR_SITELOCAL (&address->priv->addr.ipv6);
+      return IN6_IS_ADDR_SITELOCAL (&address->priv->addr.ipv6);
 #else
-    return FALSE;
+      return FALSE;
 #endif
-  }
+    }
 }
 
 /**
@@ -889,19 +889,19 @@ g_inet_address_get_is_multicast (GInetAddress *address)
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), FALSE);
 
   if (address->priv->family == AF_INET)
-  {
-    guint32 addr4 = g_ntohl (address->priv->addr.ipv4.s_addr);
+    {
+      guint32 addr4 = g_ntohl (address->priv->addr.ipv4.s_addr);
 
-    return IN_MULTICAST (addr4);
-  }
+      return IN_MULTICAST (addr4);
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    return IN6_IS_ADDR_MULTICAST (&address->priv->addr.ipv6);
+      return IN6_IS_ADDR_MULTICAST (&address->priv->addr.ipv6);
 #else
-    return FALSE;
+      return FALSE;
 #endif
-  }
+    }
 }
 
 /**
@@ -920,17 +920,17 @@ g_inet_address_get_is_mc_global (GInetAddress *address)
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), FALSE);
 
   if (address->priv->family == AF_INET)
-  {
-    return FALSE;
-  }
+    {
+      return FALSE;
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    return IN6_IS_ADDR_MC_GLOBAL (&address->priv->addr.ipv6);
+      return IN6_IS_ADDR_MC_GLOBAL (&address->priv->addr.ipv6);
 #else
-    return FALSE;
+      return FALSE;
 #endif
-  }
+   }
 }
 
 /**
@@ -949,17 +949,17 @@ g_inet_address_get_is_mc_link_local (GInetAddress *address)
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), FALSE);
 
   if (address->priv->family == AF_INET)
-  {
-    return FALSE;
-  }
+    {
+      return FALSE;
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    return IN6_IS_ADDR_MC_LINKLOCAL (&address->priv->addr.ipv6);
+      return IN6_IS_ADDR_MC_LINKLOCAL (&address->priv->addr.ipv6);
 #else
-    return FALSE;
+      return FALSE;
 #endif
-  }
+    }
 }
 
 /**
@@ -978,17 +978,17 @@ g_inet_address_get_is_mc_node_local (GInetAddress *address)
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), FALSE);
 
   if (address->priv->family == AF_INET)
-  {
-    return FALSE;
-  }
+    {
+      return FALSE;
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    return IN6_IS_ADDR_MC_NODELOCAL (&address->priv->addr.ipv6);
+      return IN6_IS_ADDR_MC_NODELOCAL (&address->priv->addr.ipv6);
 #else
-    return FALSE;
+     return FALSE;
 #endif
-  }
+    }
 }
 
 /**
@@ -1007,17 +1007,17 @@ g_inet_address_get_is_mc_org_local  (GInetAddress *address)
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), FALSE);
 
   if (address->priv->family == AF_INET)
-  {
-    return FALSE;
-  }
+    {
+      return FALSE;
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    return IN6_IS_ADDR_MC_ORGLOCAL (&address->priv->addr.ipv6);
+     return IN6_IS_ADDR_MC_ORGLOCAL (&address->priv->addr.ipv6);
 #else
-    return FALSE;
+     return FALSE;
 #endif
-  }
+    }
 }
 
 /**
@@ -1036,17 +1036,17 @@ g_inet_address_get_is_mc_site_local (GInetAddress *address)
   g_return_val_if_fail (G_IS_INET_ADDRESS (address), FALSE);
 
   if (address->priv->family == AF_INET)
-  {
-    return FALSE;
-  }
+    {
+      return FALSE;
+    }
   else
-  {
+    {
 #ifdef HAVE_IPV6
-    return IN6_IS_ADDR_MC_SITELOCAL (&address->priv->addr.ipv6);
+      return IN6_IS_ADDR_MC_SITELOCAL (&address->priv->addr.ipv6);
 #else
-    return FALSE;
+      return FALSE;
 #endif
-  }
+    }
 }
 
 /**
