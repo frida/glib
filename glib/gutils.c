@@ -1594,8 +1594,6 @@ set_str_if_different (gchar       **global_str,
   if (*global_str == NULL ||
       !g_str_equal (new_value, *global_str))
     {
-      g_debug ("g_set_user_dirs: Setting %s to %s", type, new_value);
-
       /* We have to leak the old value, as user code could be retaining pointers
        * to it. */
       *global_str = g_strdup (new_value);
@@ -1611,7 +1609,6 @@ set_strv_if_different (gchar                ***global_strv,
       !g_strv_equal (new_value, (const gchar * const *) *global_strv))
     {
       gchar *new_value_str = g_strjoinv (":", (gchar **) new_value);
-      g_debug ("g_set_user_dirs: Setting %s to %s", type, new_value_str);
       g_free (new_value_str);
 
       /* We have to leak the old value, as user code could be retaining pointers
