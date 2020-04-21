@@ -1809,7 +1809,6 @@ fork_exec_with_fds (gboolean              intermediate_child,
        * So if it fails with ENOEXEC, we fall through to the regular
        * gspawn codepath so that script execution can be attempted,
        * per standard gspawn behaviour. */
-      g_debug ("posix_spawn failed (ENOEXEC), fall back to regular gspawn");
     }
   else
     {
