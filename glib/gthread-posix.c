@@ -1282,7 +1282,6 @@ g_system_thread_get_scheduler_settings (GThreadSchedulerSettings *scheduler_sett
             }
           else
             {
-              g_debug ("Failed to get thread scheduler attributes: %s", g_strerror (errsv));
               g_free (scheduler_settings->attr);
 
               return FALSE;
@@ -1298,7 +1297,6 @@ g_system_thread_get_scheduler_settings (GThreadSchedulerSettings *scheduler_sett
     {
       int errsv = errno;
 
-      g_debug ("Failed to set thread scheduler attributes: %s", g_strerror (errsv));
       g_free (scheduler_settings->attr);
 
       return FALSE;
