@@ -1602,13 +1602,11 @@ g_socket_client_async_connect_complete (ConnectionAttempt *attempt)
 
   if (g_cancellable_set_error_if_cancelled (g_task_get_cancellable (data->task), &error))
     {
-      g_debug ("GSocketClient: Connection cancelled!");
       g_socket_client_emit_event (data->client, G_SOCKET_CLIENT_COMPLETE, data->connectable, NULL);
       g_task_return_error (data->task, g_steal_pointer (&error));
     }
   else
     {
-      g_debug ("GSocketClient: Connection successful!");
       g_socket_client_emit_event (data->client, G_SOCKET_CLIENT_COMPLETE, data->connectable, attempt->connection);
       g_task_return_pointer (data->task, g_steal_pointer (&attempt->connection), g_object_unref);
     }
@@ -1634,7 +1632,6 @@ enumerator_next_async (GSocketClientAsyncConnectData *data,
 
   if (!data->enumerated_at_least_once)
     g_socket_client_emit_event (data->client, G_SOCKET_CLIENT_RESOLVING, data->connectable, NULL);
-  g_debug ("GSocketClient: Starting new address enumeration");
   g_socket_address_enumerator_next_async (data->enumerator,
 					  data->enumeration_cancellable,
 					  g_socket_client_enumerator_callback,
@@ -1658,7 +1655,6 @@ g_socket_client_tls_handshake_callback (GObject      *object,
       g_object_unref (attempt->connection);
       attempt->connection = G_IO_STREAM (object);
 
-      g_debug ("GSocketClient: TLS handshake succeeded");
       g_socket_client_emit_event (data->client, G_SOCKET_CLIENT_TLS_HANDSHAKED, data->connectable, attempt->connection);
       g_socket_client_async_connect_complete (attempt);
     }
@@ -1667,7 +1663,6 @@ g_socket_client_tls_handshake_callback (GObject      *object,
       g_object_unref (object);
       connection_attempt_unref (attempt);
 
-      g_debug ("GSocketClient: TLS handshake failed: %s", data->error_info->tmp_error->message);
       consider_tmp_error (data->error_info, G_SOCKET_CLIENT_TLS_HANDSHAKING);
       try_next_connection_or_finish (data, TRUE);
     }
@@ -1685,7 +1680,6 @@ g_socket_client_tls_handshake (ConnectionAttempt *attempt)
       return;
     }
 
-  g_debug ("GSocketClient: Starting TLS handshake");
   tlsconn = g_tls_client_connection_new (attempt->connection,
 					 data->connectable,
 					 &data->error_info->tmp_error);
@@ -1741,7 +1735,6 @@ static void
 complete_connection_with_error (GSocketClientAsyncConnectData *data,
                                 GError                        *error)
 {
-  g_debug ("GSocketClient: Connection failed: %s", error->message);
   g_assert (!data->completed);
 
   g_socket_client_emit_event (data->client, G_SOCKET_CLIENT_COMPLETE, data->connectable, NULL);
@@ -1784,8 +1777,6 @@ try_next_successful_connection (GSocketClientAsyncConnectData *data)
   data->successful_connections = g_slist_remove (data->successful_connections, attempt);
   data->connection_in_progress = TRUE;
 
-  g_debug ("GSocketClient: Starting application layer connection");
-
   if (!attempt->proxy_addr)
     {
       g_socket_client_tls_handshake (g_steal_pointer (&attempt));
@@ -1820,7 +1811,6 @@ try_next_successful_connection (GSocketClientAsyncConnectData *data)
       GProxyAddress *proxy_addr = attempt->proxy_addr;
 
       g_socket_client_emit_event (data->client, G_SOCKET_CLIENT_PROXY_NEGOTIATING, data->connectable, attempt->connection);
-      g_debug ("GSocketClient: Starting proxy connection");
       g_proxy_connect_async (proxy,
                              connection,
                              proxy_addr,
@@ -1895,7 +1885,6 @@ g_socket_client_connected_callback (GObject      *source,
     {
       if (!g_cancellable_is_cancelled (attempt->cancellable))
         {
-          g_debug ("GSocketClient: Connection attempt failed: %s", data->error_info->tmp_error->message);
           clarify_connect_error (data->error_info->tmp_error, data->connectable, attempt->address);
           consider_tmp_error (data->error_info, G_SOCKET_CLIENT_CONNECTING);
           connection_attempt_remove (attempt);
@@ -1913,7 +1902,6 @@ g_socket_client_connected_callback (GObject      *source,
     }
 
   g_socket_connection_set_cached_remote_address ((GSocketConnection*)attempt->connection, NULL);
-  g_debug ("GSocketClient: TCP connection successful");
   g_socket_client_emit_event (data->client, G_SOCKET_CLIENT_CONNECTED, data->connectable, attempt->connection);
 
   /* wrong, but backward compatible */
@@ -1936,7 +1924,6 @@ on_connection_attempt_timeout (gpointer data)
 
   if (!attempt->data->enumeration_completed)
     {
-      g_debug ("GSocketClient: Timeout reached, trying another enumeration");
       enumerator_next_async (attempt->data, TRUE);
     }
 
@@ -1977,7 +1964,6 @@ g_socket_client_enumerator_callback (GObject      *object,
         return;
 
       data->enumeration_completed = TRUE;
-      g_debug ("GSocketClient: Address enumeration completed (out of addresses)");
 
       /* As per API docs: We only care about error if it's the first call,
          after that the enumerator is done.
@@ -1990,8 +1976,6 @@ g_socket_client_enumerator_callback (GObject      *object,
       if ((data->enumerated_at_least_once && !data->connection_attempts && !data->connection_in_progress) ||
           !data->enumerated_at_least_once)
         {
-          g_debug ("GSocketClient: Address enumeration failed: %s",
-                   data->error_info->tmp_error ? data->error_info->tmp_error->message : NULL);
           consider_tmp_error (data->error_info, G_SOCKET_CLIENT_RESOLVING);
           g_assert (data->error_info->best_error);
           complete_connection_with_error (data, g_steal_pointer (&data->error_info->best_error));
@@ -2002,7 +1986,6 @@ g_socket_client_enumerator_callback (GObject      *object,
       return;
     }
 
-  g_debug ("GSocketClient: Address enumeration succeeded");
   if (!data->enumerated_at_least_once)
     {
       g_socket_client_emit_event (data->client, G_SOCKET_CLIENT_RESOLVED,
@@ -2043,7 +2026,6 @@ g_socket_client_enumerator_callback (GObject      *object,
     }
 
   g_socket_connection_set_cached_remote_address ((GSocketConnection *)attempt->connection, address);
-  g_debug ("GSocketClient: Starting TCP connection attempt");
   g_socket_client_emit_event (data->client, G_SOCKET_CLIENT_CONNECTING, data->connectable, attempt->connection);
   g_socket_connection_connect_async (G_SOCKET_CONNECTION (attempt->connection),
 				     address,
@@ -2270,7 +2252,6 @@ g_socket_client_connect_to_uri_async (GSocketClient        *client,
     }
   else
     {
-      g_debug("g_socket_client_connect_to_uri_async");
       g_socket_client_connect_async (client,
 				     connectable, cancellable,
 				     callback, user_data);
