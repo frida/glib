@@ -46,34 +46,15 @@
  * If g_mem_gc_friendly is TRUE, freed memory should be 0-wiped.
  */
 
-#ifdef HAVE_POSIX_MEMALIGN
-static gpointer
-g_memalign (gsize alignment,
-            gsize size)
-{
-  gpointer aligned_memory = NULL;
-
-  posix_memalign (&aligned_memory, alignment, size);
-
-  return aligned_memory;
-}
-#elif HAVE_MEMALIGN
-# define g_memalign memalign
-#else
-# define g_memalign NULL
-#endif
-
 /* --- variables --- */
 static GMemVTable glib_mem_vtable = {
   malloc,
   realloc,
-  g_memalign,
   free,
   calloc,
   malloc,
   realloc,
 };
-GMemVTable *glib_mem_table = &glib_mem_vtable;
 
 /**
  * SECTION:memory
@@ -95,7 +76,10 @@ GMemVTable *glib_mem_table = &glib_mem_vtable;
  * g_slice_free(), plain malloc() with free(), and (if you're using C++)
  * new with delete and new[] with delete[]. Otherwise bad things can happen,
  * since these allocators may use different memory pools (and new/delete call
- * constructors and destructors). See also g_mem_set_vtable().
+ * constructors and destructors).
+ *
+ * Since GLib 2.46 g_malloc() is hardcoded to always use the system malloc
+ * implementation.
  */
 
 /* --- functions --- */
@@ -115,7 +99,7 @@ g_malloc (gsize n_bytes)
     {
       gpointer mem;
 
-      mem = glib_mem_vtable.malloc (n_bytes);
+      mem = malloc (n_bytes);
       TRACE (GLIB_MEM_ALLOC((void*) mem, (unsigned int) n_bytes, 0, 0));
       if (mem)
 	return mem;
@@ -145,7 +129,7 @@ g_malloc0 (gsize n_bytes)
     {
       gpointer mem;
 
-      mem = glib_mem_vtable.calloc (1, n_bytes);
+      mem = calloc (1, n_bytes);
       TRACE (GLIB_MEM_ALLOC((void*) mem, (unsigned int) n_bytes, 1, 0));
       if (mem)
 	return mem;
@@ -180,7 +164,7 @@ g_realloc (gpointer mem,
 
   if (G_LIKELY (n_bytes))
     {
-      newmem = glib_mem_vtable.realloc (mem, n_bytes);
+      newmem = realloc (mem, n_bytes);
       TRACE (GLIB_MEM_REALLOC((void*) newmem, (void*)mem, (unsigned int) n_bytes, 0));
       if (newmem)
 	return newmem;
@@ -189,8 +173,7 @@ g_realloc (gpointer mem,
                G_STRLOC, n_bytes);
     }
 
-  if (mem)
-    glib_mem_vtable.free (mem);
+  free (mem);
 
   TRACE (GLIB_MEM_REALLOC((void*) NULL, (void*)mem, 0, 0));
 
@@ -209,8 +192,7 @@ g_realloc (gpointer mem,
 void
 g_free (gpointer mem)
 {
-  if (G_LIKELY (mem))
-    glib_mem_vtable.free (mem);
+  free (mem);
   TRACE(GLIB_MEM_FREE((void*) mem));
 }
 
@@ -267,7 +249,7 @@ g_try_malloc (gsize n_bytes)
   gpointer mem;
 
   if (G_LIKELY (n_bytes))
-    mem = glib_mem_vtable.try_malloc (n_bytes);
+    mem = malloc (n_bytes);
   else
     mem = NULL;
 
@@ -292,12 +274,9 @@ g_try_malloc0 (gsize n_bytes)
   gpointer mem;
 
   if (G_LIKELY (n_bytes))
-    mem = glib_mem_vtable.try_malloc (n_bytes);
+    mem = calloc (1, n_bytes);
   else
     mem = NULL;
-
-  if (mem)
-    memset (mem, 0, n_bytes);
 
   return mem;
 }
@@ -322,12 +301,11 @@ g_try_realloc (gpointer mem,
   gpointer newmem;
 
   if (G_LIKELY (n_bytes))
-    newmem = glib_mem_vtable.try_realloc (mem, n_bytes);
+    newmem = realloc (mem, n_bytes);
   else
     {
       newmem = NULL;
-      if (mem)
-	glib_mem_vtable.free (mem);
+      free (mem);
     }
 
   TRACE (GLIB_MEM_REALLOC((void*) newmem, (void*)mem, (unsigned int) n_bytes, 1));
@@ -477,21 +455,6 @@ g_try_realloc_n (gpointer mem,
   return g_try_realloc (mem, n_blocks * n_block_bytes);
 }
 
-static gpointer
-fallback_calloc (gsize n_blocks,
-		 gsize n_block_bytes)
-{
-  gsize l = n_blocks * n_block_bytes;
-  gpointer mem = glib_mem_vtable.malloc (l);
-
-  if (mem)
-    memset (mem, 0, l);
-
-  return mem;
-}
-
-static gboolean vtable_set = FALSE;
-
 /**
  * g_mem_is_system_malloc:
  * 
@@ -501,53 +464,33 @@ static gboolean vtable_set = FALSE;
  * This function is useful for avoiding an extra copy of allocated memory returned
  * by a non-GLib-based API.
  *
- * A different allocator can be set using g_mem_set_vtable().
- *
  * Returns: if %TRUE, malloc() and g_malloc() can be mixed.
+ *
+ * Deprecated: 2.46: GLib always uses the system malloc, so this function always
+ * returns %TRUE.
  **/
 gboolean
 g_mem_is_system_malloc (void)
 {
-  return !vtable_set;
+  return TRUE;
 }
 
 /**
  * g_mem_set_vtable:
  * @vtable: table of memory allocation routines.
+ * 
+ * This function used to let you override the memory allocation function.
+ * However, its use was incompatible with the use of global constructors
+ * in GLib and GIO, because those use the GLib allocators before main is
+ * reached. Therefore this function is now deprecated and is just a stub.
  *
- * Sets the #GMemVTable to use for memory allocation. You can use this
- * to provide custom memory allocation routines.
- *
- * The @vtable only needs to provide malloc(), realloc(), and free()
- * functions; GLib can provide default implementations of the others.
- * The malloc() and realloc() implementations should return %NULL on
- * failure, GLib will handle error-checking for you. @vtable is copied,
- * so need not persist after this function has been called.
- *
- * Note that this function must be called before using any other GLib
- * functions.
+ * Deprecated: 2.46: This function now does nothing. Use other memory
+ * profiling tools instead
  */
 void
 g_mem_set_vtable (GMemVTable *vtable)
 {
-  if (!vtable_set)
-    {
-      if (vtable->malloc && vtable->realloc && vtable->free)
-	{
-	  glib_mem_vtable.malloc = vtable->malloc;
-	  glib_mem_vtable.realloc = vtable->realloc;
-	  glib_mem_vtable.memalign = vtable->memalign;
-	  glib_mem_vtable.free = vtable->free;
-	  glib_mem_vtable.calloc = vtable->calloc ? vtable->calloc : fallback_calloc;
-	  glib_mem_vtable.try_malloc = vtable->try_malloc ? vtable->try_malloc : glib_mem_vtable.malloc;
-	  glib_mem_vtable.try_realloc = vtable->try_realloc ? vtable->try_realloc : glib_mem_vtable.realloc;
-	  vtable_set = TRUE;
-	}
-      else
-	g_warning (G_STRLOC ": memory allocation vtable lacks one of malloc(), realloc() or free()");
-    }
-  else
-    g_warning (G_STRLOC ": memory allocation vtable can only be set once at startup");
+  g_warning (G_STRLOC ": custom memory allocation vtable not supported");
 }
 
 

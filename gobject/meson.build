@@ -43,7 +43,7 @@ gobject_sources = files(
   'gvaluetypes.c',
 )
 
-if host_system == 'windows' and get_option('default_library') != 'static'
+if host_system == 'windows'
   gobject_win_rc = configure_file(
     input: 'gobject.rc.in',
     output: 'gobject.rc',
@@ -142,6 +142,10 @@ pkg.generate(libgobject,
 libgobject_dep = declare_dependency(link_with : libgobject,
   include_directories : [gobjectinc],
   dependencies : [libglib_dep, glib_enumtypes_dep])
+
+if meson.version().version_compare('>=0.54.0')
+  meson.override_dependency('gobject-2.0', libgobject_dep)
+endif
 
 executable('gobject-query', 'gobject-query.c',
   install : true,

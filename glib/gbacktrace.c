@@ -66,7 +66,6 @@
 #include "gtypes.h"
 #include "gmain.h"
 #include "gprintfint.h"
-#include "gunicode.h"
 #include "gutils.h"
 
 #ifndef G_OS_WIN32
@@ -207,20 +206,9 @@ g_on_error_query (const gchar *prg_name)
   /* MessageBox is allowed on UWP apps only when building against
    * the debug CRT, which will set -D_DEBUG */
 #if defined(_DEBUG) || !defined(G_WINAPI_ONLY_APP)
-  {
-    WCHAR *caption = NULL;
-
-    if (prg_name && *prg_name)
-      {
-        caption = g_utf8_to_utf16 (prg_name, -1, NULL, NULL, NULL);
-      }
-
-    MessageBoxW (NULL, L"g_on_error_query called, program terminating",
-                 caption,
-                 MB_OK|MB_ICONERROR);
-
-    g_free (caption);
-  }
+  MessageBox (NULL, "g_on_error_query called, program terminating",
+              (prg_name && *prg_name) ? prg_name : NULL,
+              MB_OK|MB_ICONERROR);
 #else
   printf ("g_on_error_query called, program '%s' terminating\n",
       (prg_name && *prg_name) ? prg_name : "(null)");

@@ -859,6 +859,11 @@ try_implementation (const char           *extension_point,
       if (impl)
         return impl;
 
+      g_debug ("Failed to initialize %s (%s) for %s: %s",
+               g_io_extension_get_name (extension),
+               g_type_name (type),
+               extension_point,
+               error ? error->message : "");
       g_clear_error (&error);
       return NULL;
     }
@@ -938,6 +943,9 @@ _g_io_module_get_default (const gchar         *extension_point,
 
   if (!ep)
     {
+      g_debug ("%s: Failed to find extension point ‘%s’",
+               G_STRFUNC, extension_point);
+      g_warn_if_reached ();
       g_rec_mutex_unlock (&default_modules_lock);
       return NULL;
     }
@@ -987,7 +995,13 @@ _g_io_module_get_default (const gchar         *extension_point,
   if (impl != NULL)
     {
       g_assert (extension != NULL);
+      g_debug ("%s: Found default implementation %s (%s) for ‘%s’",
+               G_STRFUNC, g_io_extension_get_name (extension),
+               G_OBJECT_TYPE_NAME (impl), extension_point);
     }
+  else
+    g_debug ("%s: Failed to find default implementation for ‘%s’",
+             G_STRFUNC, extension_point);
 
   return impl;
 }
@@ -1127,8 +1141,6 @@ _g_io_modules_ensure_extension_points_registered (void)
   G_UNLOCK (registered_extensions);
 }
 
-#ifndef GLIB_STATIC_COMPILATION
-
 static gchar *
 get_gio_module_dir (void)
 {
@@ -1153,17 +1165,12 @@ get_gio_module_dir (void)
   return module_dir;
 }
 
-#endif /* !GLIB_STATIC_COMPILATION */
-
 void
 _g_io_modules_ensure_loaded (void)
 {
   static gboolean loaded_dirs = FALSE;
-#ifndef GLIB_STATIC_COMPILATION
   const char *module_path;
-  gchar *module_dir;
   GIOModuleScope *scope;
-#endif
 
   _g_io_modules_ensure_extension_points_registered ();
   
@@ -1171,9 +1178,9 @@ _g_io_modules_ensure_loaded (void)
 
   if (!loaded_dirs)
     {
-      loaded_dirs = TRUE;
+      gchar *module_dir;
 
-#ifndef GLIB_STATIC_COMPILATION
+      loaded_dirs = TRUE;
       scope = g_io_module_scope_new (G_IO_MODULE_SCOPE_BLOCK_DUPLICATES);
 
       /* First load any overrides, extras */
@@ -1200,7 +1207,6 @@ _g_io_modules_ensure_loaded (void)
       g_free (module_dir);
 
       g_io_module_scope_free (scope);
-#endif
 
       /* Initialize types from built-in "modules" */
       g_type_ensure (g_null_settings_backend_get_type ());
@@ -1254,7 +1260,7 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (_g_network_monitor_netlink_get_type ());
       g_type_ensure (_g_network_monitor_nm_get_type ());
 #endif
-#if defined(G_OS_WIN32) && _WIN32_WINNT >= 0x0600
+#ifdef G_OS_WIN32
       g_type_ensure (_g_win32_network_monitor_get_type ());
 #endif
     }

@@ -2,7 +2,7 @@
 # has been moved into glib now
 
 gthread_sources = ['gthread-impl.c']
-if host_system == 'windows' and get_option('default_library') != 'static'
+if host_system == 'windows'
   gthread_win_rc = configure_file(
     input: 'gthread.rc.in',
     output: 'gthread.rc',
@@ -34,3 +34,7 @@ pkg.generate(libgthread,
 )
 
 libgthread_dep = declare_dependency(link_with : libgthread)
+
+if meson.version().version_compare('>=0.54.0')
+  meson.override_dependency('gthread-2.0', libgthread_dep)
+endif

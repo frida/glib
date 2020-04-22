@@ -79,11 +79,6 @@ option('fam',
        value : false,
        description : 'Use fam for file system monitoring')
 
-option('tests',
-       type : 'boolean',
-       value : true,
-       description : 'build tests')
-
 option('installed_tests',
        type : 'boolean',
        value : false,
@@ -99,3 +94,15 @@ option('oss_fuzz',
        type : 'feature',
        value : 'disabled',
        description : 'Indicate oss-fuzz build environment')
+
+option('glib_assert',
+       type : 'boolean',
+       value : true,
+       yield : true,
+       description : 'Enable GLib assertion (see docs/macros.txt)')
+
+option('glib_checks',
+       type : 'boolean',
+       value : true,
+       yield : true,
+       description : 'Enable GLib checks such as API guards (see docs/macros.txt)')

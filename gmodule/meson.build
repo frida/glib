@@ -62,7 +62,7 @@ gmoduleconf_h = configure_file(input : 'gmoduleconf.h.in',
 install_headers(['gmodule.h'], subdir : 'glib-2.0')
 
 gmodule_sources = ['gmodule.c']
-if host_system == 'windows' and get_option('default_library') != 'static'
+if host_system == 'windows'
   gmodule_win_rc = configure_file(
     input: 'gmodule.rc.in',
     output: 'gmodule.rc',
@@ -120,3 +120,9 @@ pkg.generate(libraries : [libgmodule, export_dynamic_ldflags],
 libgmodule_dep = declare_dependency(link_with : libgmodule,
   include_directories : [gmoduleinc],
   dependencies : [libglib_dep])
+
+if meson.version().version_compare('>=0.54.0')
+  meson.override_dependency('gmodule-no-export-2.0', libgmodule_dep)
+  meson.override_dependency('gmodule-export-2.0', libgmodule_dep)
+  meson.override_dependency('gmodule-2.0', libgmodule_dep)
+endif
