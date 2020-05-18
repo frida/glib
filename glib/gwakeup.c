@@ -115,6 +115,25 @@ g_wakeup_free (GWakeup *wakeup)
 
 #if defined (HAVE_EVENTFD)
 #include <sys/eventfd.h>
+#elif defined (__linux__)
+# include <sys/syscall.h>
+# ifndef __NR_eventfd
+#  if defined (__i386__)
+#   define __NR_eventfd 323
+#  elif defined (__x86_64__)
+#   define __NR_eventfd 284
+#  else
+#   error Please implement for your architecture
+#  endif
+# endif
+# ifndef EFD_CLOEXEC
+#  define EFD_CLOEXEC 0x80000
+# endif
+# ifndef EFD_NONBLOCK
+#  define EFD_NONBLOCK 0x800
+# endif
+# define eventfd g_try_eventfd
+static int g_try_eventfd (unsigned int count, int flags);
 #endif
 
 struct _GWakeup
@@ -142,7 +161,7 @@ g_wakeup_new (void)
   wakeup = g_slice_new (GWakeup);
 
   /* try eventfd first, if we think we can */
-#if defined (HAVE_EVENTFD)
+#if defined (__linux__)
 #ifndef TEST_EVENTFD_FALLBACK
   wakeup->fds[0] = eventfd (0, EFD_CLOEXEC | EFD_NONBLOCK);
 #else
@@ -279,5 +298,16 @@ g_wakeup_free (GWakeup *wakeup)
 
   g_slice_free (GWakeup, wakeup);
 }
+
+#if defined (__linux__) && !defined (HAVE_EVENTFD)
+
+static int
+g_try_eventfd (unsigned int count,
+               int flags)
+{
+  return syscall (__NR_eventfd, count, flags);
+}
+
+#endif
 
 #endif /* !_WIN32 */
