@@ -33,6 +33,24 @@
 #include <sys/types.h>
 #include <pwd.h>
 
+#if defined (__linux__) && !defined (HAVE_PIPE2)
+# include <sys/syscall.h>
+# ifndef __NR_pipe2
+#  if defined (__i386__)
+#   define __NR_pipe2 331
+#  elif defined (__x86_64__)
+#   define __NR_pipe2 293
+#  else
+#   error Please implement for your architecture
+#  endif
+# endif
+# ifndef O_CLOEXEC
+#  define O_CLOEXEC 0x80000
+# endif
+# define pipe2 g_try_pipe2
+static int g_try_pipe2 (int pipedes[2], int flags);
+#endif
+
 /**
  * SECTION:gunix
  * @title: UNIX-specific utilities and integration
@@ -91,7 +109,7 @@ g_unix_open_pipe (int     *fds,
   /* We only support FD_CLOEXEC */
   g_return_val_if_fail ((flags & (FD_CLOEXEC)) == flags, FALSE);
 
-#ifdef HAVE_PIPE2
+#ifdef __linux__
   {
     int pipe2_flags = 0;
     if (flags & FD_CLOEXEC)
@@ -542,3 +560,14 @@ g_unix_get_passwd_entry (const gchar  *user_name,
 
   return (struct passwd *) g_steal_pointer (&buffer);
 }
+
+#if defined (__linux__) && !defined (HAVE_PIPE2)
+
+static int
+g_try_pipe2 (int pipedes[2],
+             int flags)
+{
+  return syscall (__NR_pipe2, pipedes, flags);
+}
+
+#endif
