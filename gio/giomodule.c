@@ -1277,7 +1277,7 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (g_null_settings_backend_get_type ());
       g_type_ensure (g_memory_settings_backend_get_type ());
       g_type_ensure (g_keyfile_settings_backend_get_type ());
-#if defined(HAVE_INOTIFY_INIT1)
+#if defined(__linux__)
       g_type_ensure (g_inotify_file_monitor_get_type ());
 #endif
 #if defined(HAVE_KQUEUE)
