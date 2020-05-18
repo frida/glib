@@ -117,6 +117,37 @@ g_wakeup_free (GWakeup *wakeup)
 
 #if defined (HAVE_EVENTFD)
 #include <sys/eventfd.h>
+#elif defined (__linux__)
+# include <sys/syscall.h>
+# ifndef __NR_eventfd
+#  if defined (__i386__)
+#   define __NR_eventfd 323
+#  elif defined (__x86_64__)
+#   define __NR_eventfd 284
+#  elif defined (__arm__)
+#   define __NR_eventfd (__NR_SYSCALL_BASE + 351)
+#  elif defined (__mips__)
+#   if _MIPS_SIM == _MIPS_SIM_ABI32
+#    define __NR_eventfd 4319
+#   elif _MIPS_SIM == _MIPS_SIM_ABI64
+#    define __NR_eventfd 5278
+#   elif _MIPS_SIM == _MIPS_SIM_NABI32
+#    define __NR_eventfd 6282
+#   else
+#    error Unexpected MIPS ABI
+#   endif
+#  else
+#   error Please implement for your architecture
+#  endif
+# endif
+# ifndef EFD_CLOEXEC
+#  define EFD_CLOEXEC 0x80000
+# endif
+# ifndef EFD_NONBLOCK
+#  define EFD_NONBLOCK 0x800
+# endif
+# define eventfd g_try_eventfd
+static int g_try_eventfd (unsigned int count, int flags);
 #endif
 
 struct _GWakeup
@@ -144,7 +175,7 @@ g_wakeup_new (void)
   wakeup = g_slice_new (GWakeup);
 
   /* try eventfd first, if we think we can */
-#if defined (HAVE_EVENTFD)
+#if defined (__linux__)
 #ifndef TEST_EVENTFD_FALLBACK
   wakeup->fds[0] = eventfd (0, EFD_CLOEXEC | EFD_NONBLOCK);
 #else
@@ -281,5 +312,16 @@ g_wakeup_free (GWakeup *wakeup)
 
   g_slice_free (GWakeup, wakeup);
 }
+
+#if defined (__linux__) && !defined (HAVE_EVENTFD)
+
+static int
+g_try_eventfd (unsigned int count,
+               int flags)
+{
+  return syscall (__NR_eventfd, count, flags);
+}
+
+#endif
 
 #endif /* !_WIN32 */

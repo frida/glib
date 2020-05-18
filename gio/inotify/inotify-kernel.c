@@ -29,7 +29,11 @@
 #include <string.h>
 #include <glib.h>
 #include "inotify-kernel.h"
+#ifdef HAVE_SYS_INOTIFY_H
 #include <sys/inotify.h>
+#else
+#include "inotify-compat.h"
+#endif
 #ifdef HAVE_SYS_FILIO_H
 #include <sys/filio.h>
 #endif
@@ -48,6 +52,60 @@
  */
 #define MOVE_PAIR_DELAY      (10 * G_TIME_SPAN_MILLISECOND)
 #define MOVE_PAIR_DISTANCE   (100)
+
+#ifndef HAVE_INOTIFY_INIT
+# include <stdint.h>
+# include <sys/syscall.h>
+# ifndef __NR_inotify_init
+#  if defined (__arm__)
+#   define __NR_inotify_init      (__NR_SYSCALL_BASE + 316)
+#   define __NR_inotify_add_watch (__NR_SYSCALL_BASE + 317)
+#   define __NR_inotify_rm_watch  (__NR_SYSCALL_BASE + 318)
+#  else
+#   error Please implement for your architecture
+#  endif
+# endif
+# define inotify_init ik_try_inotify_init
+# define inotify_add_watch ik_try_inotify_add_watch
+# define inotify_rm_watch ik_try_inotify_rm_watch
+static int ik_try_inotify_init	    (void);
+static int ik_try_inotify_add_watch (int	 fd,
+				     const char *pathname,
+				     uint32_t	 mask);
+static int ik_try_inotify_rm_watch  (int fd,
+				     int wd);
+#endif
+
+#ifndef HAVE_INOTIFY_INIT1
+# include <sys/syscall.h>
+# ifndef __NR_inotify_init1
+#  if defined (__i386__)
+#   define __NR_inotify_init1 332
+#  elif defined (__x86_64__)
+#   define __NR_inotify_init1 294
+#  elif defined (__arm__)
+#   define __NR_inotify_init1 (__NR_SYSCALL_BASE + 360)
+#  elif defined (__mips__)
+#   if _MIPS_SIM == _MIPS_SIM_ABI32
+#    define __NR_inotify_init1 4329
+#   elif _MIPS_SIM == _MIPS_SIM_ABI64
+#    define __NR_inotify_init1 5288
+#   elif _MIPS_SIM == _MIPS_SIM_NABI32
+#    define __NR_inotify_init1 6292
+#   else
+#    error Unexpected MIPS ABI
+#   endif
+#  else
+#   error Please implement for your architecture
+#  endif
+# endif
+# define inotify_init1 ik_try_inotify_init1
+static int ik_try_inotify_init1 (int flags);
+#endif
+
+#ifndef IN_CLOEXEC
+# define IN_CLOEXEC 0x80000
+#endif
 
 /* We use the lock from inotify-helper.c
  *
@@ -456,3 +514,38 @@ _ik_ignore (const char *path,
 
   return 0;
 }
+
+#ifndef HAVE_INOTIFY_INIT
+
+static int
+ik_try_inotify_init (void)
+{
+  return syscall (__NR_inotify_init);
+}
+
+static int
+ik_try_inotify_add_watch (int         fd,
+                          const char *pathname,
+                          uint32_t    mask)
+{
+  return syscall (__NR_inotify_add_watch, fd, pathname, mask);
+}
+
+static int
+ik_try_inotify_rm_watch (int fd,
+			 int wd)
+{
+  return syscall (__NR_inotify_rm_watch, fd, wd);
+}
+
+#endif
+
+#ifndef HAVE_INOTIFY_INIT1
+
+static int
+ik_try_inotify_init1 (int flags)
+{
+  return syscall (__NR_inotify_init1, flags);
+}
+
+#endif
