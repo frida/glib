@@ -1378,6 +1378,22 @@ g_thread_get_name (GThread *thread)
  *
  * Since: 2.36
  */
+#if defined(HAVE_PTHREAD_GETAFFINITY_NP) && !defined(CPU_COUNT)
+static int
+g_cpu_count_fallback (const cpu_set_t *set)
+{
+  int count = 0;
+  int i;
+
+  for (i = 0; i < CPU_SETSIZE; i++)
+    if (CPU_ISSET (i, set))
+      count++;
+
+  return count;
+}
+#define CPU_COUNT(set) g_cpu_count_fallback (set)
+#endif
+
 guint
 g_get_num_processors (void)
 {
