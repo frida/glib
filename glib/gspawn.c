@@ -53,6 +53,24 @@
 #include <sys/syscall.h>  /* for syscall and SYS_getdents64 */
 #endif
 
+#ifdef __linux__
+# ifndef SYS_getdents64
+#  ifdef __mips__
+#   if _MIPS_SIM == _MIPS_SIM_ABI32
+#    define SYS_getdents64 4219
+#   elif _MIPS_SIM == _MIPS_SIM_ABI64
+#    define SYS_getdents64 5308
+#   elif _MIPS_SIM == _MIPS_SIM_NABI32
+#    define SYS_getdents64 6299
+#   else
+#    error Unexpected MIPS ABI
+#   endif
+#  else
+#   error Please implement for your architecture
+#  endif
+# endif
+#endif
+
 #include "gspawn.h"
 #include "gspawn-private.h"
 #include "gthread.h"

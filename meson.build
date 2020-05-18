@@ -564,6 +564,7 @@ functions = [
   'getvfsstat',
   'gmtime_r',
   'hasmntopt',
+  'inotify_init',
   'inotify_init1',
   'issetugid',
   'kevent',
@@ -690,6 +691,12 @@ endif
 
 if host_system != 'windows' and cc.has_function('posix_memalign', prefix: '#include <stdlib.h>')
   glib_conf.set('HAVE_POSIX_MEMALIGN', 1)
+elif host_system == 'linux'
+  old_glibc_kludge = '#define _XOPEN_SOURCE 600\n'
+  if cc.has_function('posix_memalign', prefix : old_glibc_kludge + '#include <stdlib.h>')
+    glib_conf.set('HAVE_POSIX_MEMALIGN', 1)
+    add_project_arguments('-D_XOPEN_SOURCE=600', language: 'c')
+  endif
 endif
 
 # Check that posix_spawn() is usable; must use header

@@ -51,6 +51,10 @@
 #include "gmacros.h" /* For G_STATIC_ASSERT define */
 #undef GLIB_COMPILATION
 
+#if defined (__linux__) && !defined (SOCK_CLOEXEC)
+# define SOCK_CLOEXEC 02000000
+#endif
+
 /*
  * write_all:
  * @fd: a file descriptor

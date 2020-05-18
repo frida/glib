@@ -84,6 +84,10 @@
 #include "gwin32networking.h"
 #endif
 
+#if defined (__linux__) && !defined (SOCK_CLOEXEC)
+# define SOCK_CLOEXEC 02000000
+#endif
+
 /**
  * SECTION:gsocket
  * @short_description: Low-level socket object

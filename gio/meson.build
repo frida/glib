@@ -798,7 +798,7 @@ gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_
   dependencies : [libgmodule_dep])
 
 # inotify
-if glib_conf.has('HAVE_SYS_INOTIFY_H') and have_func_inotify_init1
+if host_system in ['linux', 'android']
   subdir('inotify')
   internal_deps += [ inotify_lib ]
 endif
