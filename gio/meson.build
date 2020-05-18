@@ -836,7 +836,7 @@ gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_
 
 file_monitor_backend = get_option('file_monitor_backend')
 if file_monitor_backend == 'auto'
-  if glib_conf.has('HAVE_SYS_INOTIFY_H') and have_func_inotify_init1
+  if host_system in ['linux', 'android'] or (glib_conf.has('HAVE_SYS_INOTIFY_H') and have_func_inotify_init1)
     file_monitor_backend = 'inotify'
   elif have_func_kqueue and have_func_kevent
     file_monitor_backend = 'kqueue'

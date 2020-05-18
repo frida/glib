@@ -48,8 +48,13 @@
 /* must come at the end to pick system includes from
  * gnetworkingprivate.h */
 #ifdef HAVE_LINUX_NETLINK_H
+#include <asm/types.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+
+#ifndef RTA_TABLE
+#define RTA_TABLE 15
+#endif
 /* <linux/netlink.h> defines NETLINK_GET_STRICT_CHK but not its setsockopt
  * level SOL_NETLINK. */
 #ifndef SOL_NETLINK

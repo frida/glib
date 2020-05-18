@@ -3398,7 +3398,7 @@ g_get_monotonic_time_ns (void)
 
   return val;
 }
-#else
+#elif defined(CLOCK_MONOTONIC)
 uint64_t
 g_get_monotonic_time_ns (void)
 {
@@ -3411,6 +3411,40 @@ g_get_monotonic_time_ns (void)
     g_error ("GLib requires working CLOCK_MONOTONIC");
 
   return (((uint64_t) ts.tv_sec) * G_NSEC_PER_SEC) + ts.tv_nsec;
+}
+#else
+/* This isn't a great fallback, but if we're targeting a system this old it's
+ * unlikely that our monotonic clock emulation is relied on for a use-case
+ * where it needs to be perfect.
+ */
+G_LOCK_DEFINE_STATIC (g_monotonic);
+static uint64_t g_monotonic_elapsed_time;
+static uint64_t g_monotonic_last_time;
+
+uint64_t
+g_get_monotonic_time_ns (void)
+{
+  uint64_t result, now;
+
+  G_LOCK (g_monotonic);
+
+  now = g_get_real_time () * 1000;
+
+  if (G_UNLIKELY (g_monotonic_elapsed_time == 0))
+    {
+      g_monotonic_elapsed_time = now;
+      g_monotonic_last_time = now;
+    }
+
+  if (now > g_monotonic_last_time)
+    g_monotonic_elapsed_time += now - g_monotonic_last_time;
+  result = g_monotonic_elapsed_time;
+
+  g_monotonic_last_time = now;
+
+  G_UNLOCK (g_monotonic);
+
+  return result;
 }
 #endif
 

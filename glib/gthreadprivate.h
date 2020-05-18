@@ -49,6 +49,7 @@ struct  _GRealThread
 #if defined(HAVE_FUTEX) || defined(HAVE_FUTEX_TIME64)
 #include <errno.h>
 #include <linux/futex.h>
+#include <linux/types.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 
