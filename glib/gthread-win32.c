@@ -301,7 +301,7 @@ struct _GPrivateDestructor
   GPrivateDestructor *next;
 };
 
-static GPrivateDestructor * volatile g_private_destructors;
+static GPrivateDestructor *g_private_destructors;  /* (atomic) */
 static CRITICAL_SECTION g_private_lock;
 
 static DWORD
@@ -632,6 +632,8 @@ g_thread_win32_thread_detach (void)
        * TLS variables got set by code called in that destructor.
        *
        * Loop until nothing is left.
+       *
+       * TODO: Should this access @g_private_destructors atomically?
        */
       dtors_called = FALSE;
 

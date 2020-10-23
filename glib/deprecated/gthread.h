@@ -255,7 +255,7 @@ GLIB_DEPRECATED_IN_2_32
 void     g_static_private_free           (GStaticPrivate *private_key);
 
 GLIB_DEPRECATED_IN_2_32
-gboolean g_once_init_enter_impl          (volatile gsize *location);
+gboolean g_once_init_enter_impl          (gsize *location);
 
 GLIB_DEPRECATED_IN_2_32
 void     g_thread_init                   (gpointer vtable);

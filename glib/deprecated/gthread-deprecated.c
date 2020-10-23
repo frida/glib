@@ -387,7 +387,7 @@ g_thread_create_full (GThreadFunc       func,
 
 /* GOnce {{{1 ------------------------------------------------------------- */
 gboolean
-g_once_init_enter_impl (volatile gsize *location)
+g_once_init_enter_impl (gsize *location)
 {
   return (g_once_init_enter) (location);
 }

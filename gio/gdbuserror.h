@@ -81,7 +81,7 @@ gboolean g_dbus_error_unregister_error      (GQuark                 error_domain
                                              const gchar           *dbus_error_name);
 GLIB_AVAILABLE_IN_ALL
 void     g_dbus_error_register_error_domain (const gchar           *error_domain_quark_name,
-                                             volatile gsize        *quark_volatile,
+                                             gsize                 *quark,
                                              const GDBusErrorEntry *entries,
                                              guint                  num_entries);
 

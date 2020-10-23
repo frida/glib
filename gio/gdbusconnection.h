@@ -155,14 +155,14 @@ GLIB_AVAILABLE_IN_ALL
 gboolean         g_dbus_connection_send_message                   (GDBusConnection     *connection,
                                                                    GDBusMessage        *message,
                                                                    GDBusSendMessageFlags flags,
-                                                                   volatile guint32    *out_serial,
+                                                                   guint32             *out_serial,
                                                                    GError             **error);
 GLIB_AVAILABLE_IN_ALL
 void             g_dbus_connection_send_message_with_reply        (GDBusConnection     *connection,
                                                                    GDBusMessage        *message,
                                                                    GDBusSendMessageFlags flags,
                                                                    gint                 timeout_msec,
-                                                                   volatile guint32    *out_serial,
+                                                                   guint32             *out_serial,
                                                                    GCancellable        *cancellable,
                                                                    GAsyncReadyCallback  callback,
                                                                    gpointer             user_data);
@@ -175,7 +175,7 @@ GDBusMessage    *g_dbus_connection_send_message_with_reply_sync   (GDBusConnecti
                                                                    GDBusMessage        *message,
                                                                    GDBusSendMessageFlags flags,
                                                                    gint                 timeout_msec,
-                                                                   volatile guint32    *out_serial,
+                                                                   guint32             *out_serial,
                                                                    GCancellable        *cancellable,
                                                                    GError             **error);
 

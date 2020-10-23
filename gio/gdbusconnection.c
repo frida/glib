@@ -393,7 +393,7 @@ struct _GDBusConnection
    * FLAG_CLOSED is the closed property. It may be read at any time, but
    * may only be written while holding @lock.
    */
-  volatile gint atomic_flags;
+  gint atomic_flags;  /* (atomic) */
 
   /* If the connection could not be established during initable_init(),
    * this GError will be set.
@@ -1596,7 +1596,7 @@ static gboolean
 g_dbus_connection_send_message_unlocked (GDBusConnection   *connection,
                                          GDBusMessage      *message,
                                          GDBusSendMessageFlags flags,
-                                         volatile guint32  *out_serial,
+                                         guint32           *out_serial,
                                          GError           **error)
 {
   guchar *blob;
@@ -1730,7 +1730,7 @@ gboolean
 g_dbus_connection_send_message (GDBusConnection        *connection,
                                 GDBusMessage           *message,
                                 GDBusSendMessageFlags   flags,
-                                volatile guint32       *out_serial,
+                                guint32                *out_serial,
                                 GError                **error)
 {
   gboolean ret;
@@ -1901,7 +1901,7 @@ g_dbus_connection_send_message_with_reply_unlocked (GDBusConnection     *connect
                                                     GDBusMessage        *message,
                                                     GDBusSendMessageFlags flags,
                                                     gint                 timeout_msec,
-                                                    volatile guint32    *out_serial,
+                                                    guint32             *out_serial,
                                                     GCancellable        *cancellable,
                                                     GAsyncReadyCallback  callback,
                                                     gpointer             user_data)
@@ -1909,7 +1909,7 @@ g_dbus_connection_send_message_with_reply_unlocked (GDBusConnection     *connect
   GTask *task;
   SendMessageData *data;
   GError *error = NULL;
-  volatile guint32 serial;
+  guint32 serial;
 
   if (out_serial == NULL)
     out_serial = &serial;
@@ -2007,7 +2007,7 @@ g_dbus_connection_send_message_with_reply (GDBusConnection       *connection,
                                            GDBusMessage          *message,
                                            GDBusSendMessageFlags  flags,
                                            gint                   timeout_msec,
-                                           volatile guint32      *out_serial,
+                                           guint32               *out_serial,
                                            GCancellable          *cancellable,
                                            GAsyncReadyCallback    callback,
                                            gpointer               user_data)
@@ -2134,7 +2134,7 @@ g_dbus_connection_send_message_with_reply_sync (GDBusConnection        *connecti
                                                 GDBusMessage           *message,
                                                 GDBusSendMessageFlags   flags,
                                                 gint                    timeout_msec,
-                                                volatile guint32       *out_serial,
+                                                guint32                *out_serial,
                                                 GCancellable           *cancellable,
                                                 GError                **error)
 {
@@ -3082,7 +3082,7 @@ g_dbus_connection_get_peer_credentials (GDBusConnection *connection)
 
 /* ---------------------------------------------------------------------------------------------------- */
 
-static volatile guint _global_filter_id = 1;
+static guint _global_filter_id = 1;  /* (atomic) */
 
 /**
  * g_dbus_connection_add_filter:
@@ -3327,9 +3327,9 @@ args_to_rule (const gchar      *sender,
   return g_string_free (rule, FALSE);
 }
 
-static volatile guint _global_subscriber_id = 1;
-static volatile guint _global_registration_id = 1;
-static volatile guint _global_subtree_registration_id = 1;
+static guint _global_subscriber_id = 1;  /* (atomic) */
+static guint _global_registration_id = 1;  /* (atomic) */
+static guint _global_subtree_registration_id = 1;  /* (atomic) */
 
 /* ---------------------------------------------------------------------------------------------------- */
 
@@ -5992,7 +5992,7 @@ g_dbus_connection_call_sync_internal (GDBusConnection         *connection,
                                                           message,
                                                           send_flags,
                                                           timeout_msec,
-                                                          NULL, /* volatile guint32 *out_serial */
+                                                          NULL, /* guint32 *out_serial */
                                                           cancellable,
                                                           &local_error);
 

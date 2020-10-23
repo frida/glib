@@ -102,8 +102,8 @@ typedef enum
 #define G_ONCE_INIT { G_ONCE_STATUS_NOTCALLED, NULL }
 struct _GOnce
 {
-  volatile GOnceStatus status;
-  volatile gpointer retval;
+  GOnceStatus status;  /* (atomic) */
+  gpointer retval;  /* (atomic) */
 };
 
 #define G_LOCK_NAME(name)             g__ ## name ## _lock
@@ -229,9 +229,9 @@ gpointer        g_once_impl                     (GOnce          *once,
                                                  GThreadFunc     func,
                                                  gpointer        arg);
 GLIB_AVAILABLE_IN_ALL
-gboolean        g_once_init_enter               (volatile void  *location);
+gboolean        g_once_init_enter               (void           *location);
 GLIB_AVAILABLE_IN_ALL
-void            g_once_init_leave               (volatile void  *location,
+void            g_once_init_leave               (void           *location,
                                                  gsize           result);
 
 /* Use C11-style atomic extensions to check the fast path for status=ready. If
