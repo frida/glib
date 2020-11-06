@@ -109,7 +109,8 @@ G_END_DECLS
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));               \
     glib_typeof (*(atomic)) gapg_temp_newval;                              \
     glib_typeof ((atomic)) gapg_temp_atomic = (atomic);                    \
-    __atomic_load (gapg_temp_atomic, &gapg_temp_newval, __ATOMIC_SEQ_CST); \
+    __atomic_load (gapg_temp_atomic, (gpointer) &gapg_temp_newval,         \
+                   __ATOMIC_SEQ_CST);                                      \
     gapg_temp_newval;                                                      \
   }))
 #define g_atomic_pointer_set(atomic, newval)                                \
@@ -190,7 +191,9 @@ G_END_DECLS
     glib_typeof ((oldval)) gapcae_oldval = (oldval);                         \
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
-    __atomic_compare_exchange_n ((atomic), &gapcae_oldval, (newval), FALSE, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST) ? TRUE : FALSE; \
+    __atomic_compare_exchange_n ((atomic), (gpointer) &gapcae_oldval,        \
+                                 (newval), FALSE, __ATOMIC_SEQ_CST,          \
+                                 __ATOMIC_SEQ_CST) ? TRUE : FALSE;           \
   }))
 #else /* if !defined(glib_typeof) */
 #define g_atomic_pointer_compare_and_exchange(atomic, oldval, newval) \
