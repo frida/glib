@@ -31,6 +31,13 @@
 #include "glibintl.h"
 #include "gnetworkingprivate.h"
 
+#ifdef G_OS_WIN32
+/* Ensure Windows XP runtime compatibility, while using
+ * inet_pton() and inet_ntop() if available
+ */
+#include "gwin32networking.h"
+#endif
+
 struct _GInetAddressPrivate
 {
   GSocketFamily family;
