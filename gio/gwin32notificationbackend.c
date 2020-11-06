@@ -29,6 +29,11 @@
 
 #include <windows.h>
 
+#if _WIN32_WINNT < 0x0600
+#define NIF_SHOWTIP 0x00000080
+#define NOTIFYICON_VERSION_4 4
+#endif
+
 #include "gapplication.h"
 #include "gnotificationbackend.h"
 

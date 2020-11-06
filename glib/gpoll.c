@@ -300,6 +300,7 @@ poll_single_thread (GWin32PollThreadData *data)
   return data->retval;
 }
 
+#if _WIN32_WINNT >= 0x0600
 static VOID CALLBACK
 poll_single_worker_wrapper (PTP_CALLBACK_INSTANCE instance,
                             PVOID                 context,
@@ -320,6 +321,25 @@ poll_single_worker_wrapper (PTP_CALLBACK_INSTANCE instance,
       g_free (emsg);
     }
 }
+#else
+static guint __stdcall
+poll_thread_run (gpointer user_data)
+{
+  GWin32PollThreadData *data = user_data;
+
+  poll_single_thread (data);
+
+  /* Signal the stop in case any of the threads did not stop yet */
+  if (!SetEvent ((HANDLE) data->stop_fd->fd))
+    {
+      gchar *emsg = g_win32_error_message (GetLastError ());
+      g_error ("gpoll: failed to signal the stop event: %s", emsg);
+      g_free (emsg);
+    }
+
+  return 0;
+}
+#endif
 
 static void
 fill_poll_thread_data (GPollFD              *fds,
@@ -371,6 +391,7 @@ fill_poll_thread_data (GPollFD              *fds,
     }
 }
 
+#if _WIN32_WINNT >= 0x0600
 static void
 cleanup_workers (guint     nworkers,
                  PTP_WORK *work_handles)
@@ -381,6 +402,18 @@ cleanup_workers (guint     nworkers,
         CloseThreadpoolWork (work_handles[i]);
     }
 }
+#else
+static void
+cleanup_workers (guint   nworkers,
+                 HANDLE *work_handles)
+{
+  for (guint i = 0; i < nworkers; i++)
+    {
+      if (work_handles[i] != NULL)
+        CloseHandle (work_handles[i]);
+    }
+}
+#endif
 
 /* One slot for a possible msg object or the stop event */
 #define MAXIMUM_WAIT_OBJECTS_PER_THREAD (MAXIMUM_WAIT_OBJECTS - 1)
@@ -400,7 +433,11 @@ g_poll (GPollFD *fds,
   DWORD thread_retval;
   int retval;
   GPollFD *msg_fd = NULL;
+#if _WIN32_WINNT >= 0x0600
   PTP_WORK work_handles[MAXIMUM_WAIT_OBJECTS] = { NULL, };
+#else
+  HANDLE work_handles[MAXIMUM_WAIT_OBJECTS] = { NULL, };
+#endif
 
   if (timeout == -1)
     timeout = INFINITE;
@@ -469,6 +506,7 @@ g_poll (GPollFD *fds,
           threads_data[i].msg_fd = NULL;
         }
 
+#if _WIN32_WINNT >= 0x0600
       work_handles[i] = CreateThreadpoolWork (poll_single_worker_wrapper, &threads_data[i],
                                               NULL);
       if (work_handles[i] == NULL)
@@ -481,6 +519,15 @@ g_poll (GPollFD *fds,
         }
 
       SubmitThreadpoolWork (work_handles[i]);
+#else
+      work_handles[i] = (HANDLE) _beginthreadex (NULL, 0, poll_thread_run, &threads_data[i], 0, NULL);
+      if (work_handles[i] == NULL)
+        {
+          g_error ("_beginthreadex failed: %s", g_strerror (errno));
+          retval = -1;
+          goto cleanup;
+        }
+#endif
     }
 
   /* Wait for at least one worker to return */
@@ -503,8 +550,12 @@ g_poll (GPollFD *fds,
   /* Wait for the all workers to finish individually, since we're not using a cleanup group.
     We disable fCancelPendingCallbacks since we share the default process threadpool.
     */
+#if _WIN32_WINNT >= 0x0600
   for (i = 0; i < nthreads; i++)
     WaitForThreadpoolWorkCallbacks (work_handles[i], FALSE);
+#else
+  WaitForMultipleObjects (nthreads, work_handles, TRUE, INFINITE);
+#endif
 
   /* The return value of all the threads give us all the fds that changed state */
   retval = 0;

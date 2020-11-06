@@ -47,11 +47,17 @@ set_process_wide_settings (void)
   /* https://web.archive.org/web/20080825034220/https://blogs.msdn.com/sdl/archive/2008/06/06/corrupted-heap-termination-redux.aspx */
   HeapSetInformation (NULL, HeapEnableTerminationOnCorruption, NULL, 0);
 
+#if _WIN32_WINNT >= 0x0600
   /* https://learn.microsoft.com/en-us/archive/blogs/michael_howard/new-nx-apis-added-to-windows-vista-sp1-windows-xp-sp3-and-windows-server-2008 */
   SetProcessDEPPolicy (PROCESS_DEP_ENABLE | PROCESS_DEP_DISABLE_ATL_THUNK_EMULATION);
 #endif
+#endif
 
+#if _WIN32_WINNT >= 0x0600
   SetErrorMode (GetErrorMode () | SEM_FAILCRITICALERRORS);
+#else
+  SetErrorMode (SetErrorMode (0) | SEM_FAILCRITICALERRORS);
+#endif
 }
 
 static void

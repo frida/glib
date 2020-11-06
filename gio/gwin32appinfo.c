@@ -55,6 +55,8 @@
 #include "giowin32-priv.h"
 #include "glib-private.h"
 
+#if _WIN32_WINNT >= 0x0600
+
 /* We need to watch 8 places:
  * 0) HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations
  *    (anything below that key)
@@ -6062,3 +6064,63 @@ g_app_info_reset_type_associations_impl (const char *content_type)
 {
   /* nothing to do */
 }
+
+#else
+
+void
+gio_win32_appinfo_init (gboolean do_wait)
+{
+}
+
+GAppInfo *
+g_app_info_create_from_commandline_impl (const char           *commandline,
+                                    const char           *application_name,
+                                    GAppInfoCreateFlags   flags,
+                                    GError              **error)
+{
+  return NULL;
+}
+
+GAppInfo *
+g_app_info_get_default_for_uri_scheme_impl (const char *uri_scheme)
+{
+  return NULL;
+}
+
+GAppInfo *
+g_app_info_get_default_for_type_impl (const char *content_type,
+                                 gboolean    must_support_uris)
+{
+  return NULL;
+}
+
+GList *
+g_app_info_get_all_impl (void)
+{
+  return NULL;
+}
+
+GList *
+g_app_info_get_all_for_type_impl (const char *content_type)
+{
+  return NULL;
+}
+
+GList *
+g_app_info_get_fallback_for_type_impl (const gchar *content_type)
+{
+  return NULL;
+}
+
+GList *
+g_app_info_get_recommended_for_type_impl (const gchar *content_type)
+{
+  return NULL;
+}
+
+void
+g_app_info_reset_type_associations_impl (const char *content_type)
+{
+}
+
+#endif
