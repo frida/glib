@@ -39,7 +39,7 @@
 #include <sys/cygwin.h>
 #endif
 
-static void
+static void G_GNUC_PRINTF (1, 2)
 set_error (const gchar *format,
 	   ...)
 {
@@ -70,10 +70,8 @@ _g_module_open (const gchar *file_name,
 {
   HINSTANCE handle;
   wchar_t *wfilename;
-#if _WIN32_WINNT >= 0x0601
   DWORD old_mode;
   BOOL success;
-#endif
 #ifdef G_WITH_CYGWIN
   gchar tmp[MAX_PATH];
 
@@ -82,12 +80,10 @@ _g_module_open (const gchar *file_name,
 #endif
   wfilename = g_utf8_to_utf16 (file_name, -1, NULL, NULL, NULL);
 
-#if _WIN32_WINNT >= 0x0601
   /* suppress error dialog */
   success = SetThreadErrorMode (SEM_NOOPENFILEERRORBOX | SEM_FAILCRITICALERRORS, &old_mode);
   if (!success)
     set_error ("");
-#endif
 
   /* When building for UWP, load app asset DLLs instead of filesystem DLLs.
    * Needs MSVC, Windows 8 and newer, and is only usable from apps. */
@@ -97,10 +93,8 @@ _g_module_open (const gchar *file_name,
   handle = LoadLibraryW (wfilename);
 #endif
 
-#if _WIN32_WINNT >= 0x0601
   if (success)
     SetThreadErrorMode (old_mode, NULL);
-#endif
   g_free (wfilename);
       
   if (!handle)
@@ -137,7 +131,20 @@ find_in_any_module_using_toolhelp (const gchar *symbol_name)
   /* Under UWP, Module32Next and Module32First are not available since we're
    * not allowed to search in the address space of arbitrary loaded DLLs */
 #if !defined(G_WINAPI_ONLY_APP)
-  if ((snapshot = CreateToolhelp32Snapshot (TH32CS_SNAPMODULE, 0)) == (HANDLE) -1)
+  /* https://docs.microsoft.com/en-us/windows/win32/api/tlhelp32/nf-tlhelp32-createtoolhelp32snapshot#remarks
+   * If the function fails with ERROR_BAD_LENGTH, retry the function until it succeeds. */
+  while (TRUE)
+    {
+      snapshot = CreateToolhelp32Snapshot (TH32CS_SNAPMODULE, 0);
+      if (snapshot == INVALID_HANDLE_VALUE && GetLastError () == ERROR_BAD_LENGTH)
+        {
+          g_thread_yield ();
+          continue;
+        }
+      break;
+    }
+
+  if (snapshot == INVALID_HANDLE_VALUE)
     return NULL;
 
   me32.dwSize = sizeof (me32);

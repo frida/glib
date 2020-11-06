@@ -712,6 +712,7 @@ test_fetch_all (gconstpointer d)
   l_exp = data->expected;
   for (i = 0; l_exp != NULL; i++, l_exp = g_slist_next (l_exp))
     {
+      g_assert_nonnull (matches);
       g_assert_cmpstr (l_exp->data, ==, matches[i]);
     }
 
@@ -800,6 +801,7 @@ test_split_simple (gconstpointer d)
   l_exp = data->expected;
   for (i = 0; l_exp != NULL; i++, l_exp = g_slist_next (l_exp))
     {
+      g_assert_nonnull (tokens);
       g_assert_cmpstr (l_exp->data, ==, tokens[i]);
     }
 
@@ -883,6 +885,7 @@ test_split_full (gconstpointer d)
   l_exp = data->expected;
   for (i = 0; l_exp != NULL; i++, l_exp = g_slist_next (l_exp))
     {
+      g_assert_nonnull (tokens);
       g_assert_cmpstr (l_exp->data, ==, tokens[i]);
     }
 
@@ -915,6 +918,7 @@ test_split (gconstpointer d)
   l_exp = data->expected;
   for (i = 0; l_exp != NULL; i++, l_exp = g_slist_next (l_exp))
     {
+      g_assert_nonnull (tokens);
       g_assert_cmpstr (l_exp->data, ==, tokens[i]);
     }
 
@@ -2321,7 +2325,7 @@ main (int argc, char *argv[])
   TEST_NEW_FAIL ("(*:0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEFG)XX", 0, G_REGEX_ERROR_NAME_TOO_LONG);
   TEST_NEW_FAIL ("\\u0100", G_REGEX_RAW | G_REGEX_JAVASCRIPT_COMPAT, G_REGEX_ERROR_CHARACTER_VALUE_TOO_LARGE);
 
-  /* These errors can't really be tested sanely:
+  /* These errors can't really be tested easily:
    * G_REGEX_ERROR_EXPRESSION_TOO_LARGE
    * G_REGEX_ERROR_MEMORY_ERROR
    * G_REGEX_ERROR_SUBPATTERN_NAME_TOO_LONG

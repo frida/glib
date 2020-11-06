@@ -64,10 +64,10 @@
 #endif
 
 #include "gunixmounts.h"
-#include "glocalfileprivate.h"
 #include "gfile.h"
 #include "gfilemonitor.h"
 #include "glibintl.h"
+#include "glocalfile.h"
 #include "gthemedicon.h"
 #include "gcontextspecificgroup.h"
 
@@ -421,7 +421,7 @@ guess_system_internal (const char *mountpoint,
    * to not mengle those mounts with the "regular" mounts (i.e. which points to
    * the root). But because those mounts usually just duplicate other mounts and
    * are completely ignored with mntend-based implementation, let's mark them as
-   * system internal. Given the different approches it doesn't mean that all
+   * system internal. Given the different approaches it doesn't mean that all
    * mounts which were ignored will be system internal now, but this should work
    * in most cases. For more info, see g_unix_mount_get_root_path() annotation,
    * comment in mntent-based _g_get_unix_mounts() implementation and the
@@ -956,21 +956,6 @@ _g_get_unix_mounts (void)
   return return_list;
 }
 
-/* QNX {{{2 */
-#elif defined(HAVE_QNX)
-
-static char *
-get_mtab_monitor_file (void)
-{
-  return NULL;
-}
-
-static GList *
-_g_get_unix_mounts (void)
-{
-  return NULL;
-}
-
 /* Common code {{{2 */
 #else
 #error No _g_get_unix_mounts() implementation for system
@@ -1494,14 +1479,6 @@ _g_get_unix_mount_points (void)
   return _g_get_unix_mounts ();
 }
 
-/* QNX {{{2 */
-#elif defined(HAVE_QNX)
-static GList *
-_g_get_unix_mount_points (void)
-{
-  return _g_get_unix_mounts ();
-}
-
 /* Common code {{{2 */
 #else
 #error No g_get_mount_table() implementation for system
@@ -1681,6 +1658,52 @@ g_unix_mount_points_get (guint64 *time_read)
     *time_read = get_mount_points_timestamp ();
 
   return _g_get_unix_mount_points ();
+}
+
+/**
+ * g_unix_mount_point_at:
+ * @mount_path: (type filename): path for a possible unix mount point.
+ * @time_read: (out) (optional): guint64 to contain a timestamp.
+ *
+ * Gets a #GUnixMountPoint for a given mount path. If @time_read is set, it
+ * will be filled with a unix timestamp for checking if the mount points have
+ * changed since with g_unix_mount_points_changed_since().
+ *
+ * If more mount points have the same mount path, the last matching mount point
+ * is returned.
+ *
+ * Returns: (transfer full) (nullable): a #GUnixMountPoint, or %NULL if no match
+ * is found.
+ *
+ * Since: 2.66
+ **/
+GUnixMountPoint *
+g_unix_mount_point_at (const char *mount_path,
+                       guint64    *time_read)
+{
+  GList *mount_points, *l;
+  GUnixMountPoint *mount_point, *found;
+
+  mount_points = g_unix_mount_points_get (time_read);
+
+  found = NULL;
+  for (l = mount_points; l != NULL; l = l->next)
+    {
+      mount_point = l->data;
+
+      if (strcmp (mount_path, mount_point->mount_path) == 0)
+        {
+          if (found != NULL)
+            g_unix_mount_point_free (found);
+
+          found = mount_point;
+        }
+      else
+        g_unix_mount_point_free (mount_point);
+    }
+  g_list_free (mount_points);
+
+  return found;
 }
 
 /**

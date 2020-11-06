@@ -199,6 +199,7 @@ g_file_replace_contents
 g_file_replace_contents_async
 g_file_replace_contents_bytes_async
 g_file_replace_contents_finish
+g_file_build_attribute_list_for_copy
 g_file_copy_attributes
 g_file_create_readwrite
 g_file_create_readwrite_async
@@ -1572,6 +1573,7 @@ g_unix_mount_point_guess_symbolic_icon
 g_unix_mount_point_guess_name
 g_unix_mount_point_guess_can_eject
 g_unix_mount_points_get
+g_unix_mount_point_at
 g_unix_mounts_get
 g_unix_mount_at
 g_unix_mount_for
@@ -3025,6 +3027,8 @@ g_dbus_method_invocation_return_gerror
 g_dbus_method_invocation_return_dbus_error
 g_dbus_method_invocation_take_error
 g_dbus_method_invocation_return_value_with_unix_fd_list
+G_DBUS_METHOD_INVOCATION_HANDLED
+G_DBUS_METHOD_INVOCATION_UNHANDLED
 <SUBSECTION Standard>
 G_DBUS_METHOD_INVOCATION
 G_IS_DBUS_METHOD_INVOCATION
@@ -3651,15 +3655,20 @@ g_pollable_return_get_type
 <FILE>gtls</FILE>
 G_TLS_ERROR
 GTlsError
+G_TLS_CHANNEL_BINDING_ERROR
+GTlsChannelBindingError
 <SUBSECTION>
 GTlsAuthenticationMode
 GTlsCertificateFlags
 <SUBSECTION Standard>
 G_TYPE_TLS_AUTHENTICATION_MODE
 G_TYPE_TLS_CERTIFICATE_FLAGS
+G_TYPE_TLS_CHANNEL_BINDING_ERROR
 G_TYPE_TLS_ERROR
 g_tls_authentication_mode_get_type
 g_tls_certificate_flags_get_type
+g_tls_channel_binding_error_get_type
+g_tls_channel_binding_error_quark
 g_tls_error_get_type
 </SECTION>
 
@@ -3697,6 +3706,7 @@ GTlsCertificate
 g_tls_certificate_new_from_pem
 g_tls_certificate_new_from_file
 g_tls_certificate_new_from_files
+g_tls_certificate_new_from_pkcs11_uris
 g_tls_certificate_list_new_from_file
 g_tls_certificate_get_issuer
 g_tls_certificate_verify
@@ -3718,10 +3728,12 @@ g_tls_certificate_get_type
 <FILE>gtlsconnection</FILE>
 <TITLE>GTlsConnection</TITLE>
 GTlsConnection
+GTlsChannelBindingType
 g_tls_connection_set_certificate
 g_tls_connection_get_certificate
 g_tls_connection_get_peer_certificate
 g_tls_connection_get_peer_certificate_errors
+g_tls_connection_get_channel_binding_data
 g_tls_connection_set_require_close_notify
 g_tls_connection_get_require_close_notify
 GTlsRehandshakeMode
@@ -3749,9 +3761,11 @@ G_IS_TLS_CONNECTION_CLASS
 G_TLS_CONNECTION
 G_TLS_CONNECTION_CLASS
 G_TLS_CONNECTION_GET_CLASS
+G_TYPE_TLS_CHANNEL_BINDING_TYPE
 G_TYPE_TLS_CONNECTION
 G_TYPE_TLS_REHANDSHAKE_MODE
 <SUBSECTION Private>
+g_tls_channel_binding_type_get_type
 g_tls_connection_get_type
 g_tls_rehandshake_mode_get_type
 </SECTION>
@@ -3916,6 +3930,7 @@ g_dtls_connection_set_certificate
 g_dtls_connection_get_certificate
 g_dtls_connection_get_peer_certificate
 g_dtls_connection_get_peer_certificate_errors
+g_dtls_connection_get_channel_binding_data
 g_dtls_connection_set_require_close_notify
 g_dtls_connection_get_require_close_notify
 g_dtls_connection_set_rehandshake_mode
@@ -4515,7 +4530,6 @@ CMSG_LEN
 CMSG_SPACE
 GLIB_ALIGN_TO_SIZEOF
 T_SRV
-ws2funcs
 </SECTION>
 
 <SECTION>
@@ -4603,6 +4617,7 @@ g_subprocess_launcher_take_stdout_fd
 g_subprocess_launcher_set_stderr_file_path
 g_subprocess_launcher_take_stderr_fd
 g_subprocess_launcher_take_fd
+g_subprocess_launcher_close
 g_subprocess_launcher_set_child_setup
 <SUBSECTION Standard>
 G_IS_SUBPROCESS_LAUNCHER

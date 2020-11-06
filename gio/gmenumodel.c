@@ -309,7 +309,7 @@ g_menu_model_real_iterate_item_attributes (GMenuModel *model,
   else
     {
       g_critical ("GMenuModel implementation '%s' doesn't override iterate_item_attributes() "
-                  "and fails to return sane values from get_item_attributes()",
+                  "and fails to return valid values from get_item_attributes()",
                   G_OBJECT_TYPE_NAME (model));
       result = NULL;
     }
@@ -373,7 +373,7 @@ g_menu_model_real_iterate_item_links (GMenuModel *model,
   else
     {
       g_critical ("GMenuModel implementation '%s' doesn't override iterate_item_links() "
-                  "and fails to return sane values from get_item_links()",
+                  "and fails to return valid values from get_item_links()",
                   G_OBJECT_TYPE_NAME (model));
       result = NULL;
     }
@@ -429,7 +429,7 @@ g_menu_model_class_init (GMenuModelClass *class)
    * @removed: the number of items removed
    * @added: the number of items added
    *
-   * Emitted when a change has occured to the menu.
+   * Emitted when a change has occurred to the menu.
    *
    * The only changes that can occur to a menu is that items are removed
    * or added.  Items may not change (except by being removed and added

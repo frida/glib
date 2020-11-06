@@ -376,7 +376,7 @@ g_value_set_instance (GValue  *value,
       g_free (error_msg);
       
       /* we purposely leak the value here, it might not be
-       * in a sane state if an error condition occurred
+       * in a correct state if an error condition occurred
        */
       value_meminit (value, g_type);
       value_table->value_init (value);
@@ -440,12 +440,21 @@ g_value_init_from_instance (GValue  *value,
           g_free (error_msg);
 
           /* we purposely leak the value here, it might not be
-           * in a sane state if an error condition occurred
+           * in a correct state if an error condition occurred
            */
           value_meminit (value, g_type);
           value_table->value_init (value);
         }
     }
+}
+
+static GType
+transform_lookup_get_parent_type (GType type)
+{
+  if (g_type_fundamental (type) == G_TYPE_INTERFACE)
+    return g_type_interface_instantiatable_prerequisite (type);
+
+  return g_type_parent (type);
 }
 
 static GValueTransform
@@ -470,11 +479,11 @@ transform_func_lookup (GType src_type,
 		  g_type_value_table_peek (entry.src_type) == g_type_value_table_peek (src_type))
 		return e->func;
 	    }
-	  entry.dest_type = g_type_parent (entry.dest_type);
+	  entry.dest_type = transform_lookup_get_parent_type (entry.dest_type);
 	}
       while (entry.dest_type);
       
-      entry.src_type = g_type_parent (entry.src_type);
+      entry.src_type = transform_lookup_get_parent_type (entry.src_type);
     }
   while (entry.src_type);
 

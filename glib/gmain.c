@@ -88,6 +88,7 @@
 #include "gstrfuncs.h"
 #include "gtestutils.h"
 #include "gthreadprivate.h"
+#include "gtrace-private.h"
 
 #ifdef G_OS_WIN32
 #include "gwin32.h"
@@ -100,7 +101,6 @@
 #include "gwakeup.h"
 #include "gmain-internal.h"
 #include "glib-init.h"
-#include "glib-fork.h"
 #include "glib-private.h"
 
 /**
@@ -442,28 +442,33 @@ static gboolean g_idle_dispatch    (GSource     *source,
 
 static void block_source (GSource *source);
 
-static void glib_worker_start (void);
-static gboolean glib_worker_try_stop (void);
-static void glib_worker_deinit (void);
-
-static GMainContext *default_main_context;
-
-static GThread *glib_worker_thread;
 static GMainContext *glib_worker_context;
-static gboolean glib_worker_running = FALSE;
 
 #ifndef G_OS_WIN32
 
 
 /* UNIX signals work by marking one of these variables then waking the
  * worker context to check on them and dispatch accordingly.
+ *
+ * Both variables must be accessed using atomic primitives, unless those atomic
+ * primitives are implemented using fallback mutexes (as those aren’t safe in
+ * an interrupt context).
+ *
+ * If using atomic primitives, the variables must be of type `int` (so they’re
+ * the right size for the atomic primitives). Otherwise, use `sig_atomic_t` if
+ * it’s available, which is guaranteed to be async-signal-safe (but it’s *not*
+ * guaranteed to be thread-safe, which is why we use atomic primitives if
+ * possible).
+ *
+ * Typically, `sig_atomic_t` is a typedef to `int`, but that’s not the case on
+ * FreeBSD, so we can’t use it unconditionally if it’s defined.
  */
-#ifdef HAVE_SIG_ATOMIC_T
-static volatile sig_atomic_t unix_signal_pending[NSIG];
-static volatile sig_atomic_t any_unix_signal_pending;
-#else
+#if (defined(G_ATOMIC_LOCK_FREE) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)) || !defined(HAVE_SIG_ATOMIC_T)
 static volatile int unix_signal_pending[NSIG];
 static volatile int any_unix_signal_pending;
+#else
+static volatile sig_atomic_t unix_signal_pending[NSIG];
+static volatile sig_atomic_t any_unix_signal_pending;
 #endif
 
 /* Guards all the data below */
@@ -508,56 +513,6 @@ GSourceFuncs g_idle_funcs =
   g_idle_dispatch,
   NULL, NULL, NULL
 };
-
-void
-_g_main_shutdown (void)
-{
-  glib_worker_try_stop ();
-}
-
-void
-_g_main_deinit (void)
-{
-  glib_worker_deinit ();
-
-  g_clear_pointer (&default_main_context, g_main_context_unref);
-}
-
-static gboolean glib_worker_was_running;
-
-void
-_g_main_prepare_to_fork (void)
-{
-  glib_worker_was_running = glib_worker_try_stop ();
-}
-
-void
-_g_main_recover_from_fork_in_parent (void)
-{
-  if (glib_worker_was_running)
-    glib_worker_start ();
-}
-
-void
-_g_main_recover_from_fork_in_child (void)
-{
-  GSList *l;
-
-  for (l = main_context_list; l; l = l->next)
-    {
-      GMainContext *context = l->data;
-
-      g_wakeup_free (context->wakeup);
-      context->wakeup = g_wakeup_new ();
-
-      g_main_context_remove_poll_unlocked (context, &context->wake_up_rec);
-      g_wakeup_get_pollfd (context->wakeup, &context->wake_up_rec);
-      g_main_context_add_poll_unlocked (context, 0, &context->wake_up_rec);
-    }
-
-  if (glib_worker_was_running)
-    glib_worker_start ();
-}
 
 /**
  * g_main_context_ref:
@@ -708,7 +663,7 @@ g_main_context_new (void)
   if (g_once_init_enter (&initialised))
     {
 #ifdef G_MAIN_POLL_DEBUG
-      if (getenv ("G_MAIN_POLL_DEBUG") != NULL)
+      if (g_getenv ("G_MAIN_POLL_DEBUG") != NULL)
         _g_main_poll_debug = TRUE;
 #endif
 
@@ -771,6 +726,8 @@ g_main_context_new (void)
 GMainContext *
 g_main_context_default (void)
 {
+  static GMainContext *default_main_context = NULL;
+
   if (g_once_init_enter (&default_main_context))
     {
       GMainContext *context;
@@ -927,7 +884,7 @@ g_main_context_pop_thread_default (GMainContext *context)
  * If you need to hold a reference on the context, use
  * g_main_context_ref_thread_default() instead.
  *
- * Returns: (transfer none): the thread-default #GMainContext, or
+ * Returns: (transfer none) (nullable): the thread-default #GMainContext, or
  * %NULL if the thread-default context is the global default context.
  *
  * Since: 2.22
@@ -1291,6 +1248,12 @@ g_source_attach_unlocked (GSource      *source,
    */
   if (do_wakeup && context->owner && context->owner != G_THREAD_SELF)
     g_wakeup_signal (context->wakeup);
+
+  g_trace_mark (G_TRACE_CURRENT_TIME, 0,
+                "GLib", "g_source_attach",
+                "%s to context %p",
+                (g_source_get_name (source) != NULL) ? g_source_get_name (source) : "(unnamed)",
+                context);
 
   return source->source_id;
 }
@@ -2149,7 +2112,7 @@ g_source_set_name (GSource    *source,
  * Gets a name for the source, used in debugging and profiling.  The
  * name may be #NULL if it has never been set with g_source_set_name().
  *
- * Returns: the name of the source
+ * Returns: (nullable): the name of the source
  *
  * Since: 2.26
  **/
@@ -2330,7 +2293,7 @@ g_source_unref_internal (GSource      *source,
             g_slist_remove (source->priv->child_sources, child_source);
           child_source->priv->parent_source = NULL;
 
-          g_source_unref_internal (child_source, context, have_lock);
+          g_source_unref_internal (child_source, context, TRUE);
         }
 
       g_slice_free (GSourcePrivate, source->priv);
@@ -2909,7 +2872,7 @@ g_get_real_time (void)
 static gdouble g_monotonic_usec_per_tick = 0;
 
 void
-_g_clock_win32_init (void)
+g_clock_win32_init (void)
 {
   LARGE_INTEGER freq;
 
@@ -2943,47 +2906,40 @@ g_get_monotonic_time (void)
 gint64
 g_get_monotonic_time (void)
 {
-  static mach_timebase_info_data_t timebase_info;
+  mach_timebase_info_data_t timebase_info;
+  guint64 val;
 
-  if (timebase_info.denom == 0)
+  /* we get nanoseconds from mach_absolute_time() using timebase_info */
+  mach_timebase_info (&timebase_info);
+  val = mach_absolute_time ();
+
+  if (timebase_info.numer != timebase_info.denom)
     {
-      /* This is a fraction that we must use to scale
-       * mach_absolute_time() by in order to reach nanoseconds.
-       *
-       * We've only ever observed this to be 1/1, but maybe it could be
-       * 1000/1 if mach time is microseconds already, or 1/1000 if
-       * picoseconds.  Try to deal nicely with that.
-       */
-      mach_timebase_info (&timebase_info);
+#ifdef HAVE_UINT128_T
+      val = ((__uint128_t) val * (__uint128_t) timebase_info.numer) / timebase_info.denom / 1000;
+#else
+      guint64 t_high, t_low;
+      guint64 result_high, result_low;
 
-      /* We actually want microseconds... */
-      if (timebase_info.numer % 1000 == 0)
-        timebase_info.numer /= 1000;
-      else
-        timebase_info.denom *= 1000;
-
-      /* We want to make the numer 1 to avoid having to multiply... */
-      if (timebase_info.denom % timebase_info.numer == 0)
-        {
-          timebase_info.denom /= timebase_info.numer;
-          timebase_info.numer = 1;
-        }
-      else
-        {
-          /* We could just multiply by timebase_info.numer below, but why
-           * bother for a case that may never actually exist...
-           *
-           * Plus -- performing the multiplication would risk integer
-           * overflow.  If we ever actually end up in this situation, we
-           * should more carefully evaluate the correct course of action.
-           */
-          mach_timebase_info (&timebase_info); /* Get a fresh copy for a better message */
-          g_error ("Got weird mach timebase info of %d/%d.  Please file a bug against GLib.",
-                   timebase_info.numer, timebase_info.denom);
-        }
+      /* 64 bit x 32 bit / 32 bit with 96-bit intermediate 
+       * algorithm lifted from qemu */
+      t_low = (val & 0xffffffffLL) * (guint64) timebase_info.numer;
+      t_high = (val >> 32) * (guint64) timebase_info.numer;
+      t_high += (t_low >> 32);
+      result_high = t_high / (guint64) timebase_info.denom;
+      result_low = (((t_high % (guint64) timebase_info.denom) << 32) +
+                    (t_low & 0xffffffff)) /
+                   (guint64) timebase_info.denom;
+      val = ((result_high << 32) | result_low) / 1000;
+#endif
+    }
+  else
+    {
+      /* nanoseconds to microseconds */
+      val = val / 1000;
     }
 
-  return mach_absolute_time () / timebase_info.denom;
+  return val;
 }
 #else
 gint64
@@ -3142,7 +3098,7 @@ g_main_depth (void)
  *
  * Returns the currently firing source for this thread.
  * 
- * Returns: (transfer none): The currently firing source or %NULL.
+ * Returns: (transfer none) (nullable): The currently firing source or %NULL.
  *
  * Since: 2.12
  */
@@ -3335,6 +3291,7 @@ g_main_dispatch (GMainContext *context)
 				GSourceFunc,
 				gpointer);
           GSource *prev_source;
+          gint64 begin_time_nsec G_GNUC_UNUSED;
 
 	  dispatch = source->source_funcs->dispatch;
 	  cb_funcs = source->callback_funcs;
@@ -3361,11 +3318,19 @@ g_main_dispatch (GMainContext *context)
           current->source = source;
           current->depth++;
 
+          begin_time_nsec = G_TRACE_CURRENT_TIME;
+
           TRACE (GLIB_MAIN_BEFORE_DISPATCH (g_source_get_name (source), source,
                                             dispatch, callback, user_data));
           need_destroy = !(* dispatch) (source, callback, user_data);
           TRACE (GLIB_MAIN_AFTER_DISPATCH (g_source_get_name (source), source,
                                            dispatch, need_destroy));
+
+          g_trace_mark (begin_time_nsec, G_TRACE_CURRENT_TIME - begin_time_nsec,
+                        "GLib", "GSource.dispatch",
+                        "%s ⇒ %s",
+                        (g_source_get_name (source) != NULL) ? g_source_get_name (source) : "(unnamed)",
+                        need_destroy ? "destroy" : "keep");
 
           current->source = prev_source;
           current->depth--;
@@ -3670,11 +3635,21 @@ g_main_context_prepare (GMainContext *context,
 
           if (prepare)
             {
+              gint64 begin_time_nsec G_GNUC_UNUSED;
+
               context->in_check_or_prepare++;
               UNLOCK_CONTEXT (context);
 
+              begin_time_nsec = G_TRACE_CURRENT_TIME;
+
               result = (* prepare) (source, &source_timeout);
               TRACE (GLIB_MAIN_AFTER_PREPARE (source, prepare, source_timeout));
+
+              g_trace_mark (begin_time_nsec, G_TRACE_CURRENT_TIME - begin_time_nsec,
+                            "GLib", "GSource.prepare",
+                            "%s ⇒ %s",
+                            (g_source_get_name (source) != NULL) ? g_source_get_name (source) : "(unnamed)",
+                            result ? "ready" : "unready");
 
               LOCK_CONTEXT (context);
               context->in_check_or_prepare--;
@@ -3758,7 +3733,10 @@ g_main_context_prepare (GMainContext *context,
  *       store #GPollFD records that need to be polled.
  * @n_fds: (in): length of @fds.
  *
- * Determines information necessary to poll this main loop.
+ * Determines information necessary to poll this main loop. You should
+ * be careful to pass the resulting @fds array and its length @n_fds
+ * as is when calling g_main_context_check(), as this function relies
+ * on assumptions made when the array is filled.
  *
  * You must have successfully acquired the context with
  * g_main_context_acquire() before you may call this function.
@@ -3782,6 +3760,10 @@ g_main_context_query (GMainContext *context,
 
   TRACE (GLIB_MAIN_CONTEXT_BEFORE_QUERY (context, max_priority));
 
+  /* fds is filled sequentially from poll_records. Since poll_records
+   * are incrementally sorted by file descriptor identifier, fds will
+   * also be incrementally sorted.
+   */
   n_poll = 0;
   lastpollrec = NULL;
   for (pollrec = context->poll_records; pollrec; pollrec = pollrec->next)
@@ -3796,6 +3778,10 @@ g_main_context_query (GMainContext *context,
        */
       events = pollrec->fd->events & ~(G_IO_ERR|G_IO_HUP|G_IO_NVAL);
 
+      /* This optimization --using the same GPollFD to poll for more
+       * than one poll record-- relies on the poll records being
+       * incrementally sorted.
+       */
       if (lastpollrec && pollrec->fd->fd == lastpollrec->fd->fd)
         {
           if (n_poll - 1 < n_fds)
@@ -3841,7 +3827,10 @@ g_main_context_query (GMainContext *context,
  *       the last call to g_main_context_query()
  * @n_fds: return value of g_main_context_query()
  *
- * Passes the results of polling back to the main loop.
+ * Passes the results of polling back to the main loop. You should be
+ * careful to pass @fds and its length @n_fds as received from
+ * g_main_context_query(), as this functions relies on assumptions
+ * on how @fds is filled.
  *
  * You must have successfully acquired the context with
  * g_main_context_acquire() before you may call this function.
@@ -3896,10 +3885,22 @@ g_main_context_check (GMainContext *context,
       return FALSE;
     }
 
+  /* The linear iteration below relies on the assumption that both
+   * poll records and the fds array are incrementally sorted by file
+   * descriptor identifier.
+   */
   pollrec = context->poll_records;
   i = 0;
   while (pollrec && i < n_fds)
     {
+      /* Make sure that fds is sorted by file descriptor identifier. */
+      g_assert (i <= 0 || fds[i - 1].fd < fds[i].fd);
+
+      /* Skip until finding the first GPollRec matching the current GPollFD. */
+      while (pollrec && pollrec->fd->fd != fds[i].fd)
+        pollrec = pollrec->next;
+
+      /* Update all consecutive GPollRecs that match. */
       while (pollrec && pollrec->fd->fd == fds[i].fd)
         {
           if (pollrec->priority <= max_priority)
@@ -3910,6 +3911,7 @@ g_main_context_check (GMainContext *context,
           pollrec = pollrec->next;
         }
 
+      /* Iterate to next GPollFD. */
       i++;
     }
 
@@ -3930,13 +3932,23 @@ g_main_context_check (GMainContext *context,
 
           if (check)
             {
+              gint64 begin_time_nsec G_GNUC_UNUSED;
+
               /* If the check function is set, call it. */
               context->in_check_or_prepare++;
               UNLOCK_CONTEXT (context);
 
+              begin_time_nsec = G_TRACE_CURRENT_TIME;
+
               result = (* check) (source);
 
               TRACE (GLIB_MAIN_AFTER_CHECK (source, check, result));
+
+              g_trace_mark (begin_time_nsec, G_TRACE_CURRENT_TIME - begin_time_nsec,
+                            "GLib", "GSource.check",
+                            "%s ⇒ %s",
+                            (g_source_get_name (source) != NULL) ? g_source_get_name (source) : "(unnamed)",
+                            result ? "dispatch" : "ignore");
 
               LOCK_CONTEXT (context);
               context->in_check_or_prepare--;
@@ -4048,8 +4060,11 @@ g_main_context_iterate (GMainContext *context,
   gboolean some_ready;
   gint nfds, allocated_nfds;
   GPollFD *fds = NULL;
+  gint64 begin_time_nsec G_GNUC_UNUSED;
 
   UNLOCK_CONTEXT (context);
+
+  begin_time_nsec = G_TRACE_CURRENT_TIME;
 
   if (!g_main_context_acquire (context))
     {
@@ -4104,6 +4119,10 @@ g_main_context_iterate (GMainContext *context,
     g_main_context_dispatch (context);
   
   g_main_context_release (context);
+
+  g_trace_mark (begin_time_nsec, G_TRACE_CURRENT_TIME - begin_time_nsec,
+                "GLib", "g_main_context_iterate",
+                "Context %p, %s ⇒ %s", context, block ? "blocking" : "non-blocking", some_ready ? "dispatched" : "nothing");
 
   LOCK_CONTEXT (context);
 
@@ -4503,6 +4522,7 @@ g_main_context_add_poll_unlocked (GMainContext *context,
   newrec->fd = fd;
   newrec->priority = priority;
 
+  /* Poll records are incrementally sorted by file descriptor identifier. */
   prevrec = NULL;
   nextrec = context->poll_records;
   while (nextrec)
@@ -5256,7 +5276,7 @@ dispatch_unix_signals_unlocked (void)
   gint i;
 
   /* clear this first in case another one arrives while we're processing */
-  any_unix_signal_pending = FALSE;
+  g_atomic_int_set (&any_unix_signal_pending, 0);
 
   /* We atomically test/clear the bit from the global array in case
    * other signals arrive while we are dispatching.
@@ -5275,9 +5295,7 @@ dispatch_unix_signals_unlocked (void)
        *
        * Note specifically: we must check _our_ array.
        */
-      pending[i] = unix_signal_pending[i];
-      if (pending[i])
-        unix_signal_pending[i] = FALSE;
+      pending[i] = g_atomic_int_compare_and_exchange (&unix_signal_pending[i], 1, 0);
     }
 
   /* handle GChildWatchSource instances */
@@ -5583,8 +5601,14 @@ g_unix_signal_handler (int signum)
 {
   gint saved_errno = errno;
 
-  unix_signal_pending[signum] = TRUE;
-  any_unix_signal_pending = TRUE;
+#if defined(G_ATOMIC_LOCK_FREE) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4)
+  g_atomic_int_set (&unix_signal_pending[signum], 1);
+  g_atomic_int_set (&any_unix_signal_pending, 1);
+#else
+#warning "Can't use atomics in g_unix_signal_handler(): Unix signal handling will be racy"
+  unix_signal_pending[signum] = 1;
+  any_unix_signal_pending = 1;
+#endif
 
   g_wakeup_signal (glib_worker_context->wakeup);
 
@@ -5622,7 +5646,7 @@ g_unix_signal_handler (int signum)
  * * the application must not wait for @pid to exit by any other
  *   mechanism, including `waitpid(pid, ...)` or a second child-watch
  *   source for the same @pid
- * * the application must not ignore SIGCHILD
+ * * the application must not ignore `SIGCHLD`
  *
  * If any of those conditions are not met, this and related APIs will
  * not work correctly. This can often be diagnosed via a GLib warning
@@ -6048,80 +6072,17 @@ g_main_context_invoke_full (GMainContext   *context,
 static gpointer
 glib_worker_main (gpointer data)
 {
-  while (glib_worker_running)
+  while (TRUE)
     {
       g_main_context_iteration (glib_worker_context, TRUE);
 
 #ifdef G_OS_UNIX
-      if (any_unix_signal_pending)
+      if (g_atomic_int_get (&any_unix_signal_pending))
         dispatch_unix_signals ();
 #endif
     }
 
   return NULL; /* worst GCC warning message ever... */
-}
-
-static gboolean
-glib_worker_do_stop (gpointer data)
-{
-  glib_worker_running = FALSE;
-
-  return FALSE;
-}
-
-static void
-glib_worker_start (void)
-{
-  /* mask all signals in the worker thread */
-#ifdef G_OS_UNIX
-  sigset_t prev_mask;
-  sigset_t all;
-
-  sigfillset (&all);
-  pthread_sigmask (SIG_SETMASK, &all, &prev_mask);
-#endif
-
-  if (glib_worker_context == NULL)
-    glib_worker_context = g_main_context_new ();
-
-  glib_worker_running = TRUE;
-
-  glib_worker_thread = g_thread_new ("gmain", glib_worker_main, NULL);
-
-#ifdef G_OS_UNIX
-  pthread_sigmask (SIG_SETMASK, &prev_mask, NULL);
-#endif
-}
-
-static gboolean
-glib_worker_try_stop (void)
-{
-  GSource *source;
-
-  if (glib_worker_thread == NULL)
-    return FALSE;
-
-  source = g_idle_source_new ();
-  g_source_set_callback (source, glib_worker_do_stop, NULL, NULL);
-  g_source_attach (source, glib_worker_context);
-  g_source_unref (source);
-
-  g_thread_join (glib_worker_thread);
-  glib_worker_thread = NULL;
-
-  return TRUE;
-}
-
-static void
-glib_worker_deinit (void)
-{
-  if (glib_worker_context != NULL)
-    {
-      g_assert (glib_worker_thread == NULL);
-
-      g_main_context_unref (glib_worker_context);
-      glib_worker_context = NULL;
-    }
 }
 
 GMainContext *
@@ -6131,8 +6092,19 @@ g_get_worker_context (void)
 
   if (g_once_init_enter (&initialised))
     {
-      glib_worker_start ();
+      /* mask all signals in the worker thread */
+#ifdef G_OS_UNIX
+      sigset_t prev_mask;
+      sigset_t all;
 
+      sigfillset (&all);
+      pthread_sigmask (SIG_SETMASK, &all, &prev_mask);
+#endif
+      glib_worker_context = g_main_context_new ();
+      g_thread_new ("gmain", glib_worker_main, NULL);
+#ifdef G_OS_UNIX
+      pthread_sigmask (SIG_SETMASK, &prev_mask, NULL);
+#endif
       g_once_init_leave (&initialised, TRUE);
     }
 

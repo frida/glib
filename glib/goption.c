@@ -241,7 +241,7 @@ struct _GOptionContext
 {
   GList           *groups;
 
-  gchar           *parameter_string;
+  gchar           *parameter_string;  /* (nullable) */
   gchar           *summary;
   gchar           *description;
 
@@ -363,6 +363,11 @@ g_option_context_new (const gchar *parameter_string)
   GOptionContext *context;
 
   context = g_new0 (GOptionContext, 1);
+
+  /* Clear the empty string to NULL, otherwise we end up calling gettext(""),
+   * which returns the translation header. */
+  if (parameter_string != NULL && *parameter_string == '\0')
+    parameter_string = NULL;
 
   context->parameter_string = g_strdup (parameter_string);
   context->strict_posix = FALSE;
@@ -2416,6 +2421,8 @@ g_option_group_add_entries (GOptionGroup       *group,
   g_return_if_fail (entries != NULL);
 
   for (n_entries = 0; entries[n_entries].long_name != NULL; n_entries++) ;
+
+  g_return_if_fail (n_entries <= G_MAXSIZE - group->n_entries);
 
   group->entries = g_renew (GOptionEntry, group->entries, group->n_entries + n_entries);
 

@@ -228,9 +228,8 @@ g_tls_connection_class_init (GTlsConnectionClass *klass)
    * GTlsConnection:peer-certificate: (nullable)
    *
    * The connection's peer's certificate, after the TLS handshake has
-   * completed and the certificate has been accepted. Note in
-   * particular that this is not yet set during the emission of
-   * #GTlsConnection::accept-certificate.
+   * completed or failed. Note in particular that this is not yet set
+   * during the emission of #GTlsConnection::accept-certificate.
    *
    * (You can watch for a #GObject::notify signal on this property to
    * detect when a handshake has occurred.)
@@ -247,7 +246,7 @@ g_tls_connection_class_init (GTlsConnectionClass *klass)
   /**
    * GTlsConnection:peer-certificate-errors:
    *
-   * The errors noticed-and-ignored while verifying
+   * The errors noticed while verifying
    * #GTlsConnection:peer-certificate. Normally this should be 0, but
    * it may not be if #GTlsClientConnection:validation-flags is not
    * %G_TLS_CERTIFICATE_VALIDATE_ALL, or if
@@ -611,8 +610,8 @@ g_tls_connection_get_interaction (GTlsConnection       *conn)
  * g_tls_connection_get_peer_certificate:
  * @conn: a #GTlsConnection
  *
- * Gets @conn's peer's certificate after the handshake has completed.
- * (It is not set during the emission of
+ * Gets @conn's peer's certificate after the handshake has completed
+ * or failed. (It is not set during the emission of
  * #GTlsConnection::accept-certificate.)
  *
  * Returns: (transfer none) (nullable): @conn's peer's certificate, or %NULL
@@ -638,8 +637,8 @@ g_tls_connection_get_peer_certificate (GTlsConnection *conn)
  * @conn: a #GTlsConnection
  *
  * Gets the errors associated with validating @conn's peer's
- * certificate, after the handshake has completed. (It is not set
- * during the emission of #GTlsConnection::accept-certificate.)
+ * certificate, after the handshake has completed or failed. (It is
+ * not set during the emission of #GTlsConnection::accept-certificate.)
  *
  * Returns: @conn's peer's certificate errors
  *
@@ -864,6 +863,66 @@ g_tls_connection_get_negotiated_protocol (GTlsConnection *conn)
     }
 
   return priv->negotiated_protocol;
+}
+
+/**
+ * g_tls_channel_binding_error_quark:
+ *
+ * Gets the TLS channel binding error quark.
+ *
+ * Returns: a #GQuark.
+ *
+ * Since: 2.66
+ */
+G_DEFINE_QUARK (g-tls-channel-binding-error-quark, g_tls_channel_binding_error)
+
+/**
+ * g_tls_connection_get_channel_binding_data:
+ * @conn: a #GTlsConnection
+ * @type: #GTlsChannelBindingType type of data to fetch
+ * @data: (out callee-allocates)(optional)(transfer none): #GByteArray is
+ *        filled with the binding data, or %NULL
+ * @error: a #GError pointer, or %NULL
+ *
+ * Query the TLS backend for TLS channel binding data of @type for @conn.
+ *
+ * This call retrieves TLS channel binding data as specified in RFC
+ * [5056](https://tools.ietf.org/html/rfc5056), RFC
+ * [5929](https://tools.ietf.org/html/rfc5929), and related RFCs.  The
+ * binding data is returned in @data.  The @data is resized by the callee
+ * using #GByteArray buffer management and will be freed when the @data
+ * is destroyed by g_byte_array_unref(). If @data is %NULL, it will only
+ * check whether TLS backend is able to fetch the data (e.g. whether @type
+ * is supported by the TLS backend). It does not guarantee that the data
+ * will be available though.  That could happen if TLS connection does not
+ * support @type or the binding data is not available yet due to additional
+ * negotiation or input required.
+ *
+ * Returns: %TRUE on success, %FALSE otherwise
+ *
+ * Since: 2.66
+ */
+gboolean
+g_tls_connection_get_channel_binding_data (GTlsConnection          *conn,
+                                           GTlsChannelBindingType   type,
+                                           GByteArray              *data,
+                                           GError                 **error)
+{
+  GTlsConnectionClass *class;
+
+  g_return_val_if_fail (G_IS_TLS_CONNECTION (conn), FALSE);
+  g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
+
+  class = G_TLS_CONNECTION_GET_CLASS (conn);
+  if (class->get_binding_data == NULL)
+    {
+      g_set_error_literal (error, G_TLS_CHANNEL_BINDING_ERROR,
+          G_TLS_CHANNEL_BINDING_ERROR_NOT_IMPLEMENTED,
+          _("TLS backend does not implement TLS binding retrieval"));
+      return FALSE;
+    }
+
+  return class->get_binding_data (conn, type, data, error);
 }
 
 /**

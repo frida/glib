@@ -2,16 +2,26 @@ configure_file(input : 'glibconfig.h.in', output : 'glibconfig.h',
   install_dir : join_paths(get_option('libdir'), 'glib-2.0/include'),
   configuration : glibconfig_conf)
 
-if get_option('default_library') == 'static'
-  intl_objects = [intl_lib.extract_all_objects()]
-else
-  intl_objects = []
-endif
-
 subdir('libcharset')
 if not use_system_pcre
   subdir('pcre')
 endif
+
+# libsysprof-capture support
+libsysprof_capture_dep = dependency('sysprof-capture-4',
+  required: get_option('sysprof'),
+  default_options: [
+    'enable_examples=false',
+    'enable_gtk=false',
+    'enable_tests=false',
+    'enable_tools=false',
+    'libsysprof=false',
+    'with_sysprofd=none',
+    'help=false',
+  ],
+  fallback: ['sysprof', 'libsysprof_capture_dep'],
+)
+glib_conf.set('HAVE_SYSPROF', libsysprof_capture_dep.found())
 
 # TODO: gnulib_objects, pcre_objects and pcre_deps are a workaround for
 # <https://github.com/mesonbuild/meson/issues/3934> and
@@ -105,7 +115,7 @@ else
     glib_conf.set('NEED_PRINTF_INFINITE_DOUBLE', 1)
   endif
 
-  if gl_cv_func_printf_long_double and gl_cv_func_printf_infinite_long_double != 'false'
+  if gl_cv_func_printf_long_double and gl_cv_func_printf_infinite_long_double
     glib_conf.set('NEED_PRINTF_INFINITE_LONG_DOUBLE', 1)
   endif
 
@@ -170,7 +180,6 @@ glib_sub_headers = files(
   'gnode.h',
   'goption.h',
   'gpattern.h',
-  'gplatformaudit.h',
   'gpoll.h',
   'gprimes.h',
   'gqsort.h',
@@ -189,6 +198,7 @@ glib_sub_headers = files(
   'gspawn.h',
   'gstdio.h',
   'gstrfuncs.h',
+  'gstrvbuilder.h',
   'gtestutils.h',
   'gstring.h',
   'gstringchunk.h',
@@ -201,7 +211,7 @@ glib_sub_headers = files(
   'gtypes.h',
   'guuid.h',
   'gunicode.h',
-  'gurifuncs.h',
+  'guri.h',
   'gutils.h',
   'gvarianttype.h',
   'gvariant.h',
@@ -248,7 +258,6 @@ glib_sources = files(
   'giochannel.c',
   'gkeyfile.c',
   'glib-init.c',
-  'glib-fork.c',
   'glib-private.c',
   'glist.c',
   'gmain.c',
@@ -259,7 +268,6 @@ glib_sources = files(
   'gnode.c',
   'goption.c',
   'gpattern.c',
-  'gplatformaudit.c',
   'gpoll.c',
   'gprimes.c',
   'gqsort.c',
@@ -279,12 +287,14 @@ glib_sources = files(
   'gstrfuncs.c',
   'gstring.c',
   'gstringchunk.c',
+  'gstrvbuilder.c',
   'gtestutils.c',
   'gthread.c',
   'gthreadpool.c',
   'gtimer.c',
   'gtimezone.c',
-  'gtinylist.c',
+  'gtrace.c',
+  'gtrace-private.h',
   'gtranslit.c',
   'gtrashstack.c',
   'gtree.c',
@@ -293,7 +303,8 @@ glib_sources = files(
   'gunibreak.c',
   'gunicollate.c',
   'gunidecomp.c',
-  'gurifuncs.c',
+  'guri.c',
+  'guriprivate.h',
   'gutils.c',
   'gutilsprivate.h',
   'guuid.c',
@@ -309,15 +320,13 @@ glib_sources = files(
 )
 
 if host_system == 'windows'
-  if get_option('default_library') != 'static'
-    glib_win_rc = configure_file(
-      input: 'glib.rc.in',
-      output: 'glib.rc',
-      configuration: glibconfig_conf,
-    )
-    glib_win_res = windows.compile_resources(glib_win_rc)
-    glib_sources += [glib_win_res]
-  endif
+  glib_win_rc = configure_file(
+    input: 'glib.rc.in',
+    output: 'glib.rc',
+    configuration: glibconfig_conf,
+  )
+  glib_win_res = windows.compile_resources(glib_win_rc)
+  glib_sources += [glib_win_res]
   glib_sources += files('gwin32.c', 'gspawn-win32.c', 'giowin32.c')
   platform_deps = [winsock2, cc.find_library('winmm')]
   if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
@@ -360,7 +369,7 @@ glib_c_args = ['-DG_LOG_DOMAIN="GLib"', '-DGLIB_COMPILATION'] + pcre_static_args
 libglib = library('glib-2.0',
   glib_dtrace_obj, glib_dtrace_hdr,
   sources : [deprecated_sources, glib_sources],
-  objects : intl_objects + [charset_lib.extract_all_objects()] + gnulib_objects + pcre_objects,
+  objects : [charset_lib.extract_all_objects()] + gnulib_objects + pcre_objects,
   version : library_version,
   soversion : soversion,
   darwin_versions : darwin_versions,
@@ -368,21 +377,19 @@ libglib = library('glib-2.0',
   # intl.lib is not compatible with SAFESEH
   link_args : [noseh_link_args, glib_link_flags, win32_ldflags],
   include_directories : configinc,
-  dependencies : pcre_deps + [thread_dep, libintl, librt] + libiconv + platform_deps + gnulib_libm_dependency,
+  dependencies : pcre_deps + [thread_dep, librt] + libintl_deps + libiconv + platform_deps + gnulib_libm_dependency + [libsysprof_capture_dep],
   c_args : glib_c_args,
   objc_args : glib_c_args,
 )
 
 libglib_dep = declare_dependency(
   link_with : libglib,
-  # thread_dep doesn't get pulled in from libglib atm,
-  # see https://github.com/mesonbuild/meson/issues/1426
-  dependencies : [thread_dep, libintl],
+  dependencies : libintl_deps,
   # We sadly need to export configinc here because everyone includes <glib/*.h>
   include_directories : [configinc, glibinc])
 
 pkg.generate(libglib,
-  libraries : [libintl],
+  libraries : [libintl_deps],
   libraries_private : [osx_ldflags, win32_ldflags],
   subdirs : ['glib-2.0'],
   extra_cflags : ['-I${libdir}/glib-2.0/include'] + win32_cflags,

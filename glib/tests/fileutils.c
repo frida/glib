@@ -24,7 +24,9 @@
 #include <errno.h>
 
 /* We are testing some deprecated APIs here */
+#ifndef GLIB_DISABLE_DEPRECATION_WARNINGS
 #define GLIB_DISABLE_DEPRECATION_WARNINGS
+#endif
 
 #include <glib.h>
 
@@ -522,10 +524,10 @@ test_mkdir_with_parents (void)
   g_assert_cmpint (errno, ==, EINVAL);
 }
 
-#ifdef G_OS_UNIX
 /*
  * check_cap_dac_override:
- * @tmpdir: A temporary directory in which we can create and delete files
+ * @tmpdir: (nullable): A temporary directory in which we can create
+ *  and delete files. If %NULL, use the g_get_tmp_dir(), safely.
  *
  * Check whether the current process can bypass DAC permissions.
  *
@@ -548,20 +550,39 @@ test_mkdir_with_parents (void)
 static gboolean
 check_cap_dac_override (const char *tmpdir)
 {
+#ifdef G_OS_UNIX
+  gchar *safe_tmpdir = NULL;
   gchar *dac_denies_write;
   gchar *inside;
   gboolean have_cap;
 
+  if (tmpdir == NULL)
+    {
+      /* It's unsafe to write predictable filenames into g_get_tmp_dir(),
+       * because it's usually a shared directory that can be subject to
+       * symlink attacks, so use a subdirectory for this check. */
+      GError *error = NULL;
+
+      safe_tmpdir = g_dir_make_tmp (NULL, &error);
+      g_assert_no_error (error);
+      g_clear_error (&error);
+
+      if (safe_tmpdir == NULL)
+        return FALSE;
+
+      tmpdir = safe_tmpdir;
+    }
+
   dac_denies_write = g_build_filename (tmpdir, "dac-denies-write", NULL);
   inside = g_build_filename (dac_denies_write, "inside", NULL);
 
-  g_assert_cmpint (mkdir (dac_denies_write, S_IRWXU) == 0 ? 0 : errno, ==, 0);
-  g_assert_cmpint (chmod (dac_denies_write, 0) == 0 ? 0 : errno, ==, 0);
+  g_assert_no_errno (mkdir (dac_denies_write, S_IRWXU));
+  g_assert_no_errno (chmod (dac_denies_write, 0));
 
   if (mkdir (inside, S_IRWXU) == 0)
     {
       g_test_message ("Looks like we have CAP_DAC_OVERRIDE or equivalent");
-      g_assert_cmpint (rmdir (inside) == 0 ? 0 : errno, ==, 0);
+      g_assert_no_errno (rmdir (inside));
       have_cap = TRUE;
     }
   else
@@ -573,13 +594,20 @@ check_cap_dac_override (const char *tmpdir)
       have_cap = FALSE;
     }
 
-  g_assert_cmpint (chmod (dac_denies_write, S_IRWXU) == 0 ? 0 : errno, ==, 0);
-  g_assert_cmpint (rmdir (dac_denies_write) == 0 ? 0 : errno, ==, 0);
+  g_assert_no_errno (chmod (dac_denies_write, S_IRWXU));
+  g_assert_no_errno (rmdir (dac_denies_write));
+
+  if (safe_tmpdir != NULL)
+    g_assert_no_errno (rmdir (safe_tmpdir));
+
   g_free (dac_denies_write);
   g_free (inside);
+  g_free (safe_tmpdir);
   return have_cap;
-}
+#else
+  return FALSE;
 #endif
+}
 
 /* Reproducer for https://gitlab.gnome.org/GNOME/glib/issues/1852 */
 static void
@@ -604,8 +632,8 @@ test_mkdir_with_parents_permission (void)
   subdir = g_build_filename (tmpdir, "sub", NULL);
   subdir2 = g_build_filename (subdir, "sub2", NULL);
   subdir3 = g_build_filename (subdir2, "sub3", NULL);
-  g_assert_cmpint (g_mkdir (subdir, 0700) == 0 ? 0 : errno, ==, 0);
-  g_assert_cmpint (g_chmod (subdir, 0) == 0 ? 0 : errno, ==, 0);
+  g_assert_no_errno (g_mkdir (subdir, 0700));
+  g_assert_no_errno (g_chmod (subdir, 0));
 
   if (have_cap_dac_override)
     {
@@ -623,11 +651,11 @@ test_mkdir_with_parents_permission (void)
       g_assert_cmpint (result, ==, -1);
       g_assert_cmpint (saved_errno, ==, EACCES);
 
-      g_assert_cmpint (g_chmod (subdir, 0700) == 0 ? 0 : errno, ==, 0);
+      g_assert_no_errno (g_chmod (subdir, 0700));
     }
 
-  g_assert_cmpint (g_remove (subdir) == 0 ? 0 : errno, ==, 0);
-  g_assert_cmpint (g_remove (tmpdir) == 0 ? 0 : errno, ==, 0);
+  g_assert_no_errno (g_remove (subdir));
+  g_assert_no_errno (g_remove (tmpdir));
   g_free (subdir3);
   g_free (subdir2);
   g_free (subdir);
@@ -951,6 +979,279 @@ test_set_contents (void)
 }
 
 static void
+test_set_contents_full (void)
+{
+  GFileSetContentsFlags flags_mask =
+      G_FILE_SET_CONTENTS_ONLY_EXISTING |
+      G_FILE_SET_CONTENTS_DURABLE |
+      G_FILE_SET_CONTENTS_CONSISTENT;
+  gint flags;
+  const struct
+    {
+      enum
+        {
+          EXISTING_FILE_NONE,
+          EXISTING_FILE_REGULAR,
+#ifndef G_OS_WIN32
+          EXISTING_FILE_SYMLINK,
+#endif
+          EXISTING_FILE_DIRECTORY,
+        }
+      existing_file;
+      int new_mode;  /* only relevant if @existing_file is %EXISTING_FILE_NONE */
+      gboolean use_strlen;
+
+      gboolean expected_success;
+      gint expected_error;
+    }
+  tests[] =
+    {
+      { EXISTING_FILE_NONE, 0644, FALSE, TRUE, 0 },
+      { EXISTING_FILE_NONE, 0644, TRUE, TRUE, 0 },
+      { EXISTING_FILE_NONE, 0600, FALSE, TRUE, 0 },
+      { EXISTING_FILE_REGULAR, 0644, FALSE, TRUE, 0 },
+#ifndef G_OS_WIN32
+      { EXISTING_FILE_SYMLINK, 0644, FALSE, TRUE, 0 },
+#endif
+      { EXISTING_FILE_DIRECTORY, 0644, FALSE, FALSE, G_FILE_ERROR_ISDIR },
+    };
+  gsize i;
+
+  g_test_summary ("Test g_file_set_contents_full() with various flags");
+
+  for (flags = 0; flags < (gint) flags_mask; flags++)
+    {
+      for (i = 0; i < G_N_ELEMENTS (tests); i++)
+        {
+          GError *error = NULL;
+          gchar *file_name = NULL, *link_name = NULL, *dir_name = NULL;
+          const gchar *set_contents_name;
+          gchar *buf = NULL;
+          gsize len;
+          gboolean ret;
+          GStatBuf statbuf;
+
+          g_test_message ("Flags %d and test %" G_GSIZE_FORMAT, flags, i);
+
+          switch (tests[i].existing_file)
+            {
+            case EXISTING_FILE_REGULAR:
+#ifndef G_OS_WIN32
+            case EXISTING_FILE_SYMLINK:
+#endif
+              {
+                gint fd;
+
+                fd = g_file_open_tmp (NULL, &file_name, &error);
+                g_assert_no_error (error);
+                write (fd, "a", 1);
+                g_assert_no_errno (g_fsync (fd));
+                close (fd);
+
+#ifndef G_OS_WIN32
+                /* Pass an existing symlink to g_file_set_contents_full() to see
+                 * what it does. */
+                if (tests[i].existing_file == EXISTING_FILE_SYMLINK)
+                  {
+                    link_name = g_strconcat (file_name, ".link", NULL);
+                    g_assert_no_errno (symlink (file_name, link_name));
+
+                    set_contents_name = link_name;
+                  }
+                else
+#endif  /* !G_OS_WIN32 */
+                  {
+                    set_contents_name = file_name;
+                  }
+                break;
+              }
+            case EXISTING_FILE_DIRECTORY:
+              {
+                dir_name = g_dir_make_tmp ("glib-fileutils-set-contents-full-XXXXXX", &error);
+                g_assert_no_error (error);
+
+                set_contents_name = dir_name;
+                break;
+              }
+            case EXISTING_FILE_NONE:
+              {
+                file_name = g_build_filename (g_get_tmp_dir (), "glib-file-set-contents-full-test", NULL);
+                g_remove (file_name);
+                g_assert_false (g_file_test (file_name, G_FILE_TEST_EXISTS));
+
+                set_contents_name = file_name;
+                break;
+              }
+            default:
+              {
+                g_assert_not_reached ();
+              }
+            }
+
+          /* Set the file contents */
+          ret = g_file_set_contents_full (set_contents_name, "b",
+                                          tests[i].use_strlen ? -1 : 1,
+                                          flags, tests[i].new_mode, &error);
+
+          if (!tests[i].expected_success)
+            {
+              g_assert_error (error, G_FILE_ERROR, tests[i].expected_error);
+              g_assert_false (ret);
+              g_clear_error (&error);
+            }
+          else
+            {
+              g_assert_no_error (error);
+              g_assert_true (ret);
+
+              /* Check the contents and mode were set correctly. The mode isn’t
+               * changed on existing files. */
+              ret = g_file_get_contents (set_contents_name, &buf, &len, &error);
+              g_assert_no_error (error);
+              g_assert_true (ret);
+              g_assert_cmpstr (buf, ==, "b");
+              g_assert_cmpuint (len, ==, 1);
+              g_free (buf);
+
+              g_assert_no_errno (g_lstat (set_contents_name, &statbuf));
+
+              if (tests[i].existing_file == EXISTING_FILE_NONE)
+                g_assert_cmpint (statbuf.st_mode & ~S_IFMT, ==, tests[i].new_mode);
+
+#ifndef G_OS_WIN32
+              if (tests[i].existing_file == EXISTING_FILE_SYMLINK)
+                {
+                  gchar *target_contents = NULL;
+
+                  /* If the @set_contents_name was a symlink, it should now be a
+                   * regular file, and the file it pointed to should not have
+                   * changed. */
+                  g_assert_cmpint (statbuf.st_mode & S_IFMT, ==, S_IFREG);
+
+                  g_file_get_contents (file_name, &target_contents, NULL, &error);
+                  g_assert_no_error (error);
+                  g_assert_cmpstr (target_contents, ==, "a");
+
+                  g_free (target_contents);
+                }
+#endif  /* !G_OS_WIN32 */
+            }
+
+          if (dir_name != NULL)
+            g_rmdir (dir_name);
+          if (link_name != NULL)
+            g_remove (link_name);
+          if (file_name != NULL)
+            g_remove (file_name);
+
+          g_free (dir_name);
+          g_free (link_name);
+          g_free (file_name);
+        }
+    }
+}
+
+static void
+test_set_contents_full_read_only_file (void)
+{
+  gint fd;
+  GError *error = NULL;
+  gchar *file_name = NULL;
+  gboolean ret;
+  gboolean can_override_dac = check_cap_dac_override (NULL);
+
+  g_test_summary ("Test g_file_set_contents_full() on a read-only file");
+
+  /* Can’t test this with different #GFileSetContentsFlags as they all have
+   * different behaviours wrt replacing the file while noticing/ignoring the
+   * existing file permissions. */
+  fd = g_file_open_tmp (NULL, &file_name, &error);
+  g_assert_no_error (error);
+  write (fd, "a", 1);
+  g_assert_no_errno (g_fsync (fd));
+  close (fd);
+  g_assert_no_errno (chmod (file_name, 0200));
+
+  /* Set the file contents */
+  ret = g_file_set_contents_full (file_name, "b", 1, G_FILE_SET_CONTENTS_NONE, 0644, &error);
+
+  if (can_override_dac)
+    {
+      g_assert_no_error (error);
+      g_assert_true (ret);
+    }
+  else
+    {
+      g_assert_error (error, G_FILE_ERROR, G_FILE_ERROR_ACCES);
+      g_assert_false (ret);
+    }
+
+  g_clear_error (&error);
+
+  g_remove (file_name);
+
+  g_free (file_name);
+}
+
+static void
+test_set_contents_full_read_only_directory (void)
+{
+  GFileSetContentsFlags flags_mask =
+      G_FILE_SET_CONTENTS_ONLY_EXISTING |
+      G_FILE_SET_CONTENTS_DURABLE |
+      G_FILE_SET_CONTENTS_CONSISTENT;
+  gint flags;
+
+  g_test_summary ("Test g_file_set_contents_full() on a file in a read-only directory");
+
+  for (flags = 0; flags < (gint) flags_mask; flags++)
+    {
+      gint fd;
+      GError *error = NULL;
+      gchar *dir_name = NULL;
+      gchar *file_name = NULL;
+      gboolean ret;
+      gboolean can_override_dac;
+
+      g_test_message ("Flags %d", flags);
+
+      dir_name = g_dir_make_tmp ("glib-file-set-contents-full-rodir-XXXXXX", &error);
+      g_assert_no_error (error);
+      can_override_dac = check_cap_dac_override (dir_name);
+
+      file_name = g_build_filename (dir_name, "file", NULL);
+      fd = g_open (file_name, O_CREAT | O_RDWR, 0644);
+      g_assert_cmpint (fd, >=, 0);
+      write (fd, "a", 1);
+      g_assert_no_errno (g_fsync (fd));
+      close (fd);
+
+      g_assert_no_errno (chmod (dir_name, 0));
+
+      /* Set the file contents */
+      ret = g_file_set_contents_full (file_name, "b", 1, flags, 0644, &error);
+
+      if (can_override_dac)
+        {
+          g_assert_no_error (error);
+          g_assert_true (ret);
+        }
+      else
+        {
+          g_assert_error (error, G_FILE_ERROR, G_FILE_ERROR_ACCES);
+          g_assert_false (ret);
+        }
+
+      g_clear_error (&error);
+      g_remove (file_name);
+      g_unlink (dir_name);
+
+      g_free (file_name);
+      g_free (dir_name);
+    }
+}
+
+static void
 test_read_link (void)
 {
 #ifdef HAVE_READLINK
@@ -1110,7 +1411,7 @@ test_stdio_wrappers (void)
 
 /* Win32 does not support "wb+", but g_fopen() should automatically
  * translate this mode to its alias "w+b".
- * Also check various other file open modes for correct support accross
+ * Also check various other file open modes for correct support across
  * platforms.
  * See: https://gitlab.gnome.org/GNOME/glib/merge_requests/119
  */
@@ -1523,7 +1824,7 @@ main (int   argc,
       char *argv[])
 {
   g_setenv ("LC_ALL", "C", TRUE);
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   g_test_bug_base ("https://gitlab.gnome.org/GNOME/glib/merge_requests/");
 
@@ -1545,6 +1846,9 @@ main (int   argc,
   g_test_add_func ("/fileutils/mkstemp", test_mkstemp);
   g_test_add_func ("/fileutils/mkdtemp", test_mkdtemp);
   g_test_add_func ("/fileutils/set-contents", test_set_contents);
+  g_test_add_func ("/fileutils/set-contents-full", test_set_contents_full);
+  g_test_add_func ("/fileutils/set-contents-full/read-only-file", test_set_contents_full_read_only_file);
+  g_test_add_func ("/fileutils/set-contents-full/read-only-directory", test_set_contents_full_read_only_directory);
   g_test_add_func ("/fileutils/read-link", test_read_link);
   g_test_add_func ("/fileutils/stdio-wrappers", test_stdio_wrappers);
   g_test_add_func ("/fileutils/fopen-modes", test_fopen_modes);

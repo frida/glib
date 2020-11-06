@@ -20,7 +20,9 @@
 #include <string.h>
 
 /* for GValueArray */
+#ifndef GLIB_DISABLE_DEPRECATION_WARNINGS
 #define GLIB_DISABLE_DEPRECATION_WARNINGS
+#endif
 
 #include "gboxed.h"
 #include "gclosure.h"
@@ -143,6 +145,7 @@ G_DEFINE_BOXED_TYPE (GArray, g_array, g_array_ref, g_array_unref)
 G_DEFINE_BOXED_TYPE (GPtrArray, g_ptr_array,g_ptr_array_ref, g_ptr_array_unref)
 G_DEFINE_BOXED_TYPE (GByteArray, g_byte_array, g_byte_array_ref, g_byte_array_unref)
 G_DEFINE_BOXED_TYPE (GBytes, g_bytes, g_bytes_ref, g_bytes_unref)
+G_DEFINE_BOXED_TYPE (GTree, g_tree, g_tree_ref, g_tree_unref)
 
 G_DEFINE_BOXED_TYPE (GRegex, g_regex, g_regex_ref, g_regex_unref)
 G_DEFINE_BOXED_TYPE (GMatchInfo, g_match_info, g_match_info_ref, g_match_info_unref)
@@ -169,6 +172,7 @@ G_DEFINE_BOXED_TYPE (GMarkupParseContext, g_markup_parse_context, g_markup_parse
 
 G_DEFINE_BOXED_TYPE (GThread, g_thread, g_thread_ref, g_thread_unref)
 G_DEFINE_BOXED_TYPE (GChecksum, g_checksum, g_checksum_copy, g_checksum_free)
+G_DEFINE_BOXED_TYPE (GUri, g_uri, g_uri_ref, g_uri_unref)
 
 G_DEFINE_BOXED_TYPE (GOptionGroup, g_option_group, g_option_group_ref, g_option_group_unref)
 
@@ -256,8 +260,7 @@ boxed_proxy_lcopy_value (const GValue *value,
 {
   gpointer *boxed_p = collect_values[0].v_pointer;
 
-  if (!boxed_p)
-    return g_strdup_printf ("value location for '%s' passed as NULL", G_VALUE_TYPE_NAME (value));
+  g_return_val_if_fail (boxed_p != NULL, g_strdup_printf ("value location for '%s' passed as NULL", G_VALUE_TYPE_NAME (value)));
 
   if (!value->data[0].v_pointer)
     *boxed_p = NULL;

@@ -49,7 +49,7 @@
  * its type nor its content can be modified further.
  *
  * GVariant is useful whenever data needs to be serialized, for example when
- * sending method parameters in DBus, or when saving settings using GSettings.
+ * sending method parameters in D-Bus, or when saving settings using GSettings.
  *
  * When creating a new #GVariant, you pass the data you want to store in it
  * along with a string representing the type of data you wish to pass to it.
@@ -1440,11 +1440,15 @@ g_variant_is_signature (const gchar *string)
  * type.  This includes the types %G_VARIANT_TYPE_STRING,
  * %G_VARIANT_TYPE_OBJECT_PATH and %G_VARIANT_TYPE_SIGNATURE.
  *
- * The string will always be UTF-8 encoded, and will never be %NULL.
+ * The string will always be UTF-8 encoded, will never be %NULL, and will never
+ * contain nul bytes.
  *
  * If @length is non-%NULL then the length of the string (in bytes) is
  * returned there.  For trusted values, this information is already
- * known.  For untrusted values, a strlen() will be performed.
+ * known.  Untrusted values will be validated and, if valid, a strlen() will be
+ * performed. If invalid, a default value will be returned — for
+ * %G_VARIANT_TYPE_OBJECT_PATH, this is `"/"`, and for other types it is the
+ * empty string.
  *
  * It is an error to call this function with a @value of any type
  * other than those three.
@@ -3004,7 +3008,7 @@ g_variant_iter_init (GVariantIter *iter,
  * need it.
  *
  * A reference is taken to the container that @iter is iterating over
- * and will be releated only when g_variant_iter_free() is called.
+ * and will be related only when g_variant_iter_free() is called.
  *
  * Returns: (transfer full): a new heap-allocated #GVariantIter
  *
@@ -4926,7 +4930,7 @@ g_variant_valist_get_nnp (const gchar **str,
 
     case '@':
       g_variant_type_string_scan (*str, NULL, str);
-      /* fall through */
+      G_GNUC_FALLTHROUGH;
 
     case '*':
     case '?':
@@ -5948,6 +5952,7 @@ g_variant_byteswap (GVariant *value)
       serialised.type_info = g_variant_get_type_info (trusted);
       serialised.size = g_variant_get_size (trusted);
       serialised.data = g_malloc (serialised.size);
+      serialised.depth = g_variant_get_depth (trusted);
       g_variant_store (trusted, serialised.data);
       g_variant_unref (trusted);
 

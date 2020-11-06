@@ -264,7 +264,7 @@ g_memory_buffer_write (GMemoryBuffer  *mbuf,
 
   if (mbuf->pos + count > mbuf->len)
     {
-      /* At least enought to fit the write, rounded up
+      /* At least enough to fit the write, rounded up
 	     for greater than linear growth.
          TODO: This wastes a lot of memory at large buffer sizes.
                Figure out a more rational allocation strategy. */
@@ -877,7 +877,7 @@ g_dbus_message_set_message_type (GDBusMessage      *message,
                                  GDBusMessageType   type)
 {
   g_return_if_fail (G_IS_DBUS_MESSAGE (message));
-  g_return_if_fail ((guint) type >= 0 && (guint) type < 256);
+  g_return_if_fail ((guint) type < 256);
 
   if (message->locked)
     {
@@ -924,7 +924,7 @@ g_dbus_message_set_flags (GDBusMessage       *message,
                           GDBusMessageFlags   flags)
 {
   g_return_if_fail (G_IS_DBUS_MESSAGE (message));
-  g_return_if_fail ((guint) flags >= 0 && (guint) flags < 256);
+  g_return_if_fail ((guint) flags < 256);
 
   if (message->locked)
     {
@@ -1002,7 +1002,7 @@ g_dbus_message_get_header (GDBusMessage             *message,
                            GDBusMessageHeaderField   header_field)
 {
   g_return_val_if_fail (G_IS_DBUS_MESSAGE (message), NULL);
-  g_return_val_if_fail ((guint) header_field >= 0 && (guint) header_field < 256, NULL);
+  g_return_val_if_fail ((guint) header_field < 256, NULL);
   return g_hash_table_lookup (message->headers, GUINT_TO_POINTER (header_field));
 }
 
@@ -1024,7 +1024,7 @@ g_dbus_message_set_header (GDBusMessage             *message,
                            GVariant                 *value)
 {
   g_return_if_fail (G_IS_DBUS_MESSAGE (message));
-  g_return_if_fail ((guint) header_field >= 0 && (guint) header_field < 256);
+  g_return_if_fail ((guint) header_field < 256);
 
   if (message->locked)
     {
@@ -1158,6 +1158,12 @@ g_dbus_message_set_body (GDBusMessage  *message,
  *
  * This method is only available on UNIX.
  *
+ * The file descriptors normally correspond to %G_VARIANT_TYPE_HANDLE
+ * values in the body of the message. For example,
+ * if g_variant_get_handle() returns 5, that is intended to be a reference
+ * to the file descriptor that can be accessed by
+ * `g_unix_fd_list_get (list, 5, ...)`.
+ *
  * Returns: (transfer none):A #GUnixFDList or %NULL if no file descriptors are
  * associated. Do not free, this object is owned by @message.
  *
@@ -1181,6 +1187,11 @@ g_dbus_message_get_unix_fd_list (GDBusMessage  *message)
  * @fd_list is %NULL).
  *
  * This method is only available on UNIX.
+ *
+ * When designing D-Bus APIs that are intended to be interoperable,
+ * please note that non-GDBus implementations of D-Bus can usually only
+ * access file descriptors if they are referenced by a value of type
+ * %G_VARIANT_TYPE_HANDLE in the body of the message.
  *
  * Since: 2.26
  */
@@ -3378,7 +3389,7 @@ g_dbus_message_to_gerror (GDBusMessage   *message,
     }
   else
     {
-      /* TOOD: this shouldn't happen - should check this at message serialization
+      /* TODO: this shouldn't happen - should check this at message serialization
        * time and disconnect the peer.
        */
       g_set_error (error,

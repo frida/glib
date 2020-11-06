@@ -227,7 +227,7 @@ g_environ_unsetenv (gchar       **envp,
   return g_environ_unsetenv_internal (envp, variable, TRUE);
 }
 
-/* UNIX implemention {{{1 */
+/* UNIX implementation {{{1 */
 #ifndef G_OS_WIN32
 
 /**
@@ -324,8 +324,6 @@ g_setenv (const gchar *variable,
 }
 
 #ifdef HAVE__NSGETENVIRON
-/* HACK: this one is missing from the iOS SDK */
-extern char *** _NSGetEnviron (void);
 #define environ (*_NSGetEnviron())
 #else
 /* According to the Single Unix Specification, environ is not

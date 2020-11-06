@@ -40,7 +40,12 @@
  * @short_description: linked lists that can be iterated over in both directions
  *
  * The #GList structure and its associated functions provide a standard
- * doubly-linked list data structure.
+ * doubly-linked list data structure. The benefit of this data-structure
+ * is to provide insertion/deletion operations in O(1) complexity where
+ * access/search operations are in O(n). The benefit of #GList over
+ * #GSList (singly linked list) is that the worst case on access/search
+ * operations is divided by two which comes at a cost in space as we need
+ * to retain two pointers in place of one.
  *
  * Each element in the list contains a piece of data, together with
  * pointers which link to the previous and next elements in the list.
@@ -168,7 +173,7 @@ g_list_alloc (void)
 
 /**
  * g_list_free: 
- * @list: a #GList
+ * @list: the first link of a #GList
  *
  * Frees all of the memory used by a #GList.
  * The freed elements are returned to the slice allocator.
@@ -212,7 +217,7 @@ g_list_free_1 (GList *list)
 
 /**
  * g_list_free_full:
- * @list: a pointer to a #GList
+ * @list: the first link of a #GList
  * @free_func: the function to be called to free each element's data
  *
  * Convenience method, which frees all the memory used by a #GList,

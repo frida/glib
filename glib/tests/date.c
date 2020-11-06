@@ -2,7 +2,9 @@
 #undef G_LOG_DOMAIN
 
 /* We are testing some deprecated APIs here */
+#ifndef GLIB_DISABLE_DEPRECATION_WARNINGS
 #define GLIB_DISABLE_DEPRECATION_WARNINGS
+#endif
 
 #include "config.h"
 
@@ -735,7 +737,7 @@ int
 main (int argc, char** argv)
 {
   gchar *path;
-  gint i;
+  gsize i;
 
   /* Try to get all the leap year cases. */
   int check_years[] = {
@@ -784,5 +786,3 @@ main (int argc, char** argv)
 
   return g_test_run ();
 }
-
-

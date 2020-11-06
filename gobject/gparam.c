@@ -707,7 +707,7 @@ g_param_value_validate (GParamSpec *pspec,
 /**
  * g_param_value_convert:
  * @pspec: a valid #GParamSpec
- * @src_value: souce #GValue
+ * @src_value: source #GValue
  * @dest_value: destination #GValue of correct type for @pspec
  * @strict_validation: %TRUE requires @dest_value to conform to @pspec
  * without modifications
@@ -871,8 +871,7 @@ value_param_lcopy_value (const GValue *value,
 {
   GParamSpec **param_p = collect_values[0].v_pointer;
 
-  if (!param_p)
-    return g_strdup_printf ("value location for '%s' passed as NULL", G_VALUE_TYPE_NAME (value));
+  g_return_val_if_fail (param_p != NULL, g_strdup_printf ("value location for '%s' passed as NULL", G_VALUE_TYPE_NAME (value)));
 
   if (!value->data[0].v_pointer)
     *param_p = NULL;

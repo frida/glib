@@ -186,6 +186,7 @@ g_tls_database_real_verify_chain_async (GTlsDatabase           *self,
 
   task = g_task_new (self, cancellable, callback, user_data);
   g_task_set_source_tag (task, g_tls_database_real_verify_chain_async);
+  g_task_set_name (task, "[gio] verify TLS chain");
   g_task_set_task_data (task, args, async_verify_chain_free);
   g_task_run_in_thread (task, async_verify_chain_thread);
   g_object_unref (task);
@@ -264,6 +265,7 @@ g_tls_database_real_lookup_certificate_for_handle_async (GTlsDatabase           
   task = g_task_new (self, cancellable, callback, user_data);
   g_task_set_source_tag (task,
                          g_tls_database_real_lookup_certificate_for_handle_async);
+  g_task_set_name (task, "[gio] lookup TLS certificate");
   g_task_set_task_data (task, args, async_lookup_certificate_for_handle_free);
   g_task_run_in_thread (task, async_lookup_certificate_for_handle_thread);
   g_object_unref (task);
@@ -338,6 +340,7 @@ g_tls_database_real_lookup_certificate_issuer_async (GTlsDatabase           *sel
   task = g_task_new (self, cancellable, callback, user_data);
   g_task_set_source_tag (task,
                          g_tls_database_real_lookup_certificate_issuer_async);
+  g_task_set_name (task, "[gio] lookup certificate issuer");
   g_task_set_task_data (task, args, async_lookup_certificate_issuer_free);
   g_task_run_in_thread (task, async_lookup_certificate_issuer_thread);
   g_object_unref (task);
@@ -419,6 +422,7 @@ g_tls_database_real_lookup_certificates_issued_by_async (GTlsDatabase           
   task = g_task_new (self, cancellable, callback, user_data);
   g_task_set_source_tag (task,
                          g_tls_database_real_lookup_certificates_issued_by_async);
+  g_task_set_name (task, "[gio] lookup certificates issued by");
   g_task_set_task_data (task, args, async_lookup_certificates_issued_by_free);
   g_task_run_in_thread (task, async_lookup_certificates_issued_by_thread);
   g_object_unref (task);
@@ -473,9 +477,13 @@ g_tls_database_class_init (GTlsDatabaseClass *klass)
  * which means that the certificate is being used to authenticate a server
  * (and we are acting as the client).
  *
- * The @identity is used to check for pinned certificates (trust exceptions)
- * in the database. These will override the normal verification process on a
- * host by host basis.
+ * The @identity is used to ensure the server certificate is valid for
+ * the expected peer identity. If the identity does not match the
+ * certificate, %G_TLS_CERTIFICATE_BAD_IDENTITY will be set in the
+ * return value. If @identity is %NULL, that bit will never be set in
+ * the return value. The peer identity may also be used to check for
+ * pinned certificates (trust exceptions) in the database. These may
+ * override the normal verification process on a host-by-host basis.
  *
  * Currently there are no @flags, and %G_TLS_DATABASE_VERIFY_NONE should be
  * used.

@@ -10,9 +10,10 @@ cache:
     - _ccache/
 
 variables:
-  FEDORA_IMAGE: "registry.gitlab.gnome.org/gnome/glib/fedora:v8"
+  FEDORA_IMAGE: "registry.gitlab.gnome.org/gnome/glib/fedora:v9"
+  COVERITY_IMAGE: "registry.gitlab.gnome.org/gnome/glib/coverity:v1"
   DEBIAN_IMAGE: "registry.gitlab.gnome.org/gnome/glib/debian-stable:v6"
-  ANDROID_IMAGE: "registry.gitlab.gnome.org/gnome/glib/android-ndk:v2"
+  ANDROID_IMAGE: "registry.gitlab.gnome.org/gnome/glib/android-ndk:v3"
   MINGW_IMAGE: "registry.gitlab.gnome.org/gnome/glib/mingw:v2"
   MESON_TEST_TIMEOUT_MULTIPLIER: 2
   G_MESSAGES_DEBUG: all
@@ -30,6 +31,14 @@ variables:
   before_script:
     - bash .gitlab-ci/show-execution-environment.sh
     - cp -r $HOME/subprojects/* subprojects/
+
+# Some jobs take a long time and are unlikely to find failures (or will find
+# failures which are not merge-blockers to fix), so they’re executed on a weekly
+# schedule in order to save CI resources and speed up branch pipelines.
+.build-only-schedules:
+  extends: .build
+  only:
+    - schedules
 
 style-check-diff:
   extends: .only-default
@@ -51,6 +60,7 @@ fedora-x86_64:
   extends: .build
   image: $FEDORA_IMAGE
   stage: build
+  needs: []
   variables:
     CFLAGS: "-coverage -ftest-coverage -fprofile-arcs"
   script:
@@ -98,6 +108,7 @@ debian-stable-x86_64:
   extends: .build
   image: $DEBIAN_IMAGE
   stage: build
+  needs: []
   script:
     - meson ${MESON_COMMON_OPTIONS}
             --werror
@@ -123,9 +134,10 @@ debian-stable-x86_64:
       - "_build/${CI_JOB_NAME}-report.xml"
 
 installed-tests:
-  extends: .build
+  extends: .build-only-schedules
   image: $FEDORA_IMAGE
   stage: build
+  needs: []
   script:
     # dtrace is disabled because it breaks the static-link.py test
     - meson ${MESON_COMMON_OPTIONS}
@@ -138,13 +150,14 @@ installed-tests:
             _build
     - ninja -C _build
     - sudo ninja -C _build install
+    # Remove old headers, possibly present in current installation
+    - sudo rm -f /usr/include/glib-2.0/glib/gurifuncs.h
     - sudo chown -R `id -un`:`id -gn` _build/
     # FIXME Install newer xdg-desktop-portal with
     # GMemoryMonitor support, see:
     # https://github.com/flatpak/xdg-desktop-portal/pull/365
-    - git clone --single-branch https://github.com/flatpak/xdg-desktop-portal.git
+    - git clone --branch 1.6.0 --depth 1 --no-tags https://github.com/flatpak/xdg-desktop-portal.git
     - cd xdg-desktop-portal
-    - git reset --hard 1.6.0
     - ./autogen.sh --prefix=/usr --libdir=/usr/lib64 --disable-libportal --disable-dependency-tracking
     - make
     - sudo make install
@@ -152,7 +165,7 @@ installed-tests:
     # FIXME install newer gobject-introspection
     # with GMemoryMonitor support, see:
     # https://gitlab.gnome.org/GNOME/gobject-introspection/merge_requests/193
-    - git clone --single-branch https://gitlab.gnome.org/GNOME/gobject-introspection.git
+    - git clone --branch master --depth 1 --no-tags https://gitlab.gnome.org/GNOME/gobject-introspection.git
     - cd gobject-introspection
     - /usr/bin/meson _build --prefix=/usr --libdir=/usr/lib64
     - ninja -C _build
@@ -175,9 +188,10 @@ installed-tests:
       - "_build/installed-tests-report/"
 
 G_DISABLE_ASSERT:
-  extends: .build
+  extends: .build-only-schedules
   image: $FEDORA_IMAGE
   stage: build
+  needs: []
   script:
     - meson ${MESON_COMMON_OPTIONS}
             --werror
@@ -201,9 +215,10 @@ G_DISABLE_ASSERT:
       - "_build/${CI_JOB_NAME}-report.xml"
 
 valgrind:
-  extends: .build
+  extends: .build-only-schedules
   image: $FEDORA_IMAGE
   stage: analysis
+  needs: []
   variables:
     MESON_TEST_TIMEOUT_MULTIPLIER: 10
   script:
@@ -236,6 +251,7 @@ valgrind:
 .cross-template: &cross-template
   extends: .build
   stage: build
+  needs: []
   artifacts:
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
@@ -272,7 +288,8 @@ msys2-mingw32:
   extends: .only-default
   stage: build
   tags:
-    - win32
+    - win32-ps
+  needs: []
   variables:
     MSYSTEM: "MINGW32"
     CHERE_INVOKING: "yes"
@@ -282,29 +299,30 @@ msys2-mingw32:
     - C:\msys64\usr\bin\bash -lc "bash -x ./.gitlab-ci/test-msys2.sh"
   artifacts:
     reports:
-      junit: "_build/%CI_JOB_NAME%-report.xml"
-    name: "glib-%CI_JOB_NAME%-%CI_COMMIT_REF_NAME%"
+      junit: "_build/${env:CI_JOB_NAME}-report.xml"
+    name: "glib-${env:CI_JOB_NAME}-${env:CI_COMMIT_REF_NAME}"
     when: always
     paths:
       - _build/meson-logs
-      - "_build/%CI_JOB_NAME%-report.xml"
+      - "_build/${env:CI_JOB_NAME}-report.xml"
       - _coverage/
 
 vs2017-x64:
   extends: .only-default
   stage: build
   tags:
-    - win32
+    - win32-ps
+  needs: []
   script:
     - .gitlab-ci/test-msvc.bat
   artifacts:
     reports:
-      junit: "_build/%CI_JOB_NAME%-report.xml"
-    name: "glib-%CI_JOB_NAME%-%CI_COMMIT_REF_NAME%"
+      junit: "_build/${env:CI_JOB_NAME}-report.xml"
+    name: "glib-${env:CI_JOB_NAME}-${env:CI_COMMIT_REF_NAME}"
     when: always
     paths:
       - _build/meson-logs
-      - "_build/%CI_JOB_NAME%-report.xml"
+      - "_build/${env:CI_JOB_NAME}-report.xml"
 
 freebsd-11-x86_64:
   stage: build
@@ -316,6 +334,7 @@ freebsd-11-x86_64:
     # To compile GLib, you still have to install the following packages:
     # desktop-file-utils gettext libiconv meson pkgconf python3 shared-mime-info
     - freebsd-11
+  needs: []
   variables:
     # CPPFLAGS is required because libintl doesn't use pkg-config.
     CPPFLAGS: -I/usr/local/include
@@ -353,6 +372,7 @@ freebsd-12-x86_64:
     - branches@GNOME/glib
   tags:
     - freebsd-12
+  needs: []
   variables:
     CPPFLAGS: -I/usr/local/include
     LDFLAGS: -L/usr/local/lib -Wl,--disable-new-dtags
@@ -383,6 +403,7 @@ macos:
     - branches@GNOME/glib
   tags:
     - macos
+  needs: []
   before_script:
     - bash .gitlab-ci/show-execution-environment.sh
     - pip3 install --user meson==0.49.2
@@ -416,6 +437,7 @@ coverage:
   extends: .only-default
   image: $FEDORA_IMAGE
   stage: coverage
+  needs: ['fedora-x86_64', 'msys2-mingw32']
   artifacts:
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     paths:
@@ -427,9 +449,10 @@ coverage:
   coverage: '/^\s+lines\.+:\s+([\d.]+\%)\s+/'
 
 scan-build:
-  extends: .build
+  extends: .build-only-schedules
   image: $FEDORA_IMAGE
   stage: analysis
+  needs: []
   script:
     - meson ${MESON_COMMON_OPTIONS}
             --werror
@@ -448,10 +471,42 @@ scan-build:
     paths:
       - "_scan_build/meson-logs/scanbuild"
 
+coverity:
+  extends: .build-only-schedules
+  image: $COVERITY_IMAGE
+  stage: analysis
+  needs: []
+  variables:
+    # cov-build doesn’t like GLIB_DEPRECATED_ENUMERATOR
+    CFLAGS: '-DGLIB_DISABLE_DEPRECATION_WARNINGS'
+  script:
+    - meson ${MESON_COMMON_OPTIONS}
+            --werror
+            --default-library=both
+            --prefix=$HOME/glib-installed
+            --libdir=lib
+            -Dsystemtap=true
+            -Ddtrace=true
+            -Dfam=true
+            -Dinstalled_tests=true
+            _coverity_build
+    - $HOME/cov-analysis-linux64-*/bin/cov-build --dir cov-int ninja -C _coverity_build
+    - tar cfz cov-int.tar.gz cov-int
+    - curl https://scan.coverity.com/builds?project=$COVERITY_SCAN_PROJECT_NAME
+           --form token=$COVERITY_SCAN_TOKEN --form email=$GITLAB_USER_EMAIL
+           --form file=@cov-int.tar.gz --form version="$CI_COMMIT_SHA"
+           --form description="$CI_COMMIT_SHA / $CI_COMMIT_TITLE / $CI_COMMIT_REF_NAME:$CI_PIPELINE_ID"
+  artifacts:
+    name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
+    when: always
+    paths:
+      - "cov-int/build-log.txt"
+
 pages:
   stage: deploy
   only:
     - master
+  needs: ['coverage', 'style-check-diff']
   script:
     - mv _coverage/ public/
   artifacts:
@@ -470,12 +525,12 @@ dist-job:
     - cd _build
     - ninja dist
     - ninja glib-doc gobject-doc gio-doc
-    - tar -c -f "glib-docs-$CI_COMMIT_TAG.tar.xz" -C docs/reference/glib html
-    - tar -c -f "gobject-docs-$CI_COMMIT_TAG.tar.xz" -C docs/reference/gobject html
-    - tar -c -f "gio-docs-$CI_COMMIT_TAG.tar.xz" -C docs/reference/gio html
+    - tar -c -J -f "glib-docs-$CI_COMMIT_TAG.tar.xz" -C docs/reference/glib html
+    - tar -c -J -f "gobject-docs-$CI_COMMIT_TAG.tar.xz" -C docs/reference/gobject html
+    - tar -c -J -f "gio-docs-$CI_COMMIT_TAG.tar.xz" -C docs/reference/gio html
   artifacts:
     paths:
-      - "${CI_PROJECT_DIR}/_build/glib-docs.tar.xz"
-      - "${CI_PROJECT_DIR}/_build/gobject-docs.tar.xz"
-      - "${CI_PROJECT_DIR}/_build/gio-docs.tar.xz"
+      - "${CI_PROJECT_DIR}/_build/glib-docs-$CI_COMMIT_TAG.tar.xz"
+      - "${CI_PROJECT_DIR}/_build/gobject-docs-$CI_COMMIT_TAG.tar.xz"
+      - "${CI_PROJECT_DIR}/_build/gio-docs-$CI_COMMIT_TAG.tar.xz"
       - "${CI_PROJECT_DIR}/_build/meson-dist/glib-*.tar.xz"

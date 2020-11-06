@@ -19,7 +19,6 @@
 
 #include "config.h"
 
-#include "glib.h"
 #include "glib-init.h"
 #include "gmacros.h"
 #include "gtypes.h"
@@ -31,6 +30,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
+
+/* Deliberately not checking HAVE_STDINT_H here: we officially require a
+ * C99 toolchain, which implies <stdint.h>, int8_t and so on. If your
+ * toolchain does not have this, now would be a good time to upgrade. */
+#include <stdint.h>
 
 /* This seems as good a place as any to make static assertions about platform
  * assumptions we make throughout GLib. */
@@ -67,6 +71,71 @@ G_STATIC_ASSERT (sizeof (TestInt) == sizeof (int));
 G_STATIC_ASSERT (G_ALIGNOF (TestChar) == G_ALIGNOF (int));
 G_STATIC_ASSERT (G_ALIGNOF (TestShort) == G_ALIGNOF (int));
 G_STATIC_ASSERT (G_ALIGNOF (TestInt) == G_ALIGNOF (int));
+
+G_STATIC_ASSERT (sizeof (gchar) == 1);
+G_STATIC_ASSERT (sizeof (guchar) == 1);
+G_STATIC_ASSERT (sizeof (gint8) * CHAR_BIT == 8);
+G_STATIC_ASSERT (sizeof (guint8) * CHAR_BIT == 8);
+G_STATIC_ASSERT (sizeof (gint16) * CHAR_BIT == 16);
+G_STATIC_ASSERT (sizeof (guint16) * CHAR_BIT == 16);
+G_STATIC_ASSERT (sizeof (gint32) * CHAR_BIT == 32);
+G_STATIC_ASSERT (sizeof (guint32) * CHAR_BIT == 32);
+G_STATIC_ASSERT (sizeof (gint64) * CHAR_BIT == 64);
+G_STATIC_ASSERT (sizeof (guint64) * CHAR_BIT == 64);
+
+G_STATIC_ASSERT (sizeof (void *) == GLIB_SIZEOF_VOID_P);
+G_STATIC_ASSERT (sizeof (gintptr) == sizeof (void *));
+G_STATIC_ASSERT (sizeof (guintptr) == sizeof (void *));
+
+G_STATIC_ASSERT (sizeof (long) == GLIB_SIZEOF_LONG);
+
+G_STATIC_ASSERT (G_HAVE_GINT64 == 1);
+
+G_STATIC_ASSERT (sizeof (size_t) == GLIB_SIZEOF_SIZE_T);
+/* Not a typo: ssize_t is POSIX, not Standard C, but if it exists then
+ * it's the same size as size_t. */
+G_STATIC_ASSERT (sizeof (size_t) == GLIB_SIZEOF_SSIZE_T);
+G_STATIC_ASSERT (sizeof (gsize) == GLIB_SIZEOF_SSIZE_T);
+G_STATIC_ASSERT (sizeof (gsize) == sizeof (size_t));
+/* Again this is size_t not ssize_t, because ssize_t is POSIX, not C99 */
+G_STATIC_ASSERT (sizeof (gssize) == sizeof (size_t));
+G_STATIC_ASSERT (G_ALIGNOF (gsize) == G_ALIGNOF (size_t));
+G_STATIC_ASSERT (G_ALIGNOF (gssize) == G_ALIGNOF (size_t));
+
+/* goffset is always 64-bit, even if off_t is only 32-bit
+ * (compiling without large-file-support on 32-bit) */
+G_STATIC_ASSERT (sizeof (goffset) == sizeof (gint64));
+G_STATIC_ASSERT (G_ALIGNOF (goffset) == G_ALIGNOF (gint64));
+
+G_STATIC_ASSERT (sizeof (gfloat) == sizeof (float));
+G_STATIC_ASSERT (G_ALIGNOF (gfloat) == G_ALIGNOF (float));
+G_STATIC_ASSERT (sizeof (gdouble) == sizeof (double));
+G_STATIC_ASSERT (G_ALIGNOF (gdouble) == G_ALIGNOF (double));
+
+G_STATIC_ASSERT (sizeof (gintptr) == sizeof (intptr_t));
+G_STATIC_ASSERT (sizeof (guintptr) == sizeof (uintptr_t));
+G_STATIC_ASSERT (G_ALIGNOF (gintptr) == G_ALIGNOF (intptr_t));
+G_STATIC_ASSERT (G_ALIGNOF (guintptr) == G_ALIGNOF (uintptr_t));
+
+G_STATIC_ASSERT (sizeof (gint8) == sizeof (int8_t));
+G_STATIC_ASSERT (sizeof (guint8) == sizeof (uint8_t));
+G_STATIC_ASSERT (G_ALIGNOF (gint8) == G_ALIGNOF (int8_t));
+G_STATIC_ASSERT (G_ALIGNOF (guint8) == G_ALIGNOF (uint8_t));
+
+G_STATIC_ASSERT (sizeof (gint16) == sizeof (int16_t));
+G_STATIC_ASSERT (sizeof (guint16) == sizeof (uint16_t));
+G_STATIC_ASSERT (G_ALIGNOF (gint16) == G_ALIGNOF (int16_t));
+G_STATIC_ASSERT (G_ALIGNOF (guint16) == G_ALIGNOF (uint16_t));
+
+G_STATIC_ASSERT (sizeof (gint32) == sizeof (int32_t));
+G_STATIC_ASSERT (sizeof (guint32) == sizeof (uint32_t));
+G_STATIC_ASSERT (G_ALIGNOF (gint32) == G_ALIGNOF (int32_t));
+G_STATIC_ASSERT (G_ALIGNOF (guint32) == G_ALIGNOF (uint32_t));
+
+G_STATIC_ASSERT (sizeof (gint64) == sizeof (int64_t));
+G_STATIC_ASSERT (sizeof (guint64) == sizeof (uint64_t));
+G_STATIC_ASSERT (G_ALIGNOF (gint64) == G_ALIGNOF (int64_t));
+G_STATIC_ASSERT (G_ALIGNOF (guint64) == G_ALIGNOF (uint64_t));
 
 /**
  * g_mem_gc_friendly:
@@ -255,167 +324,28 @@ g_debug_init (void)
   g_mem_gc_friendly = flags & 1;
 }
 
-static void
-glib_perform_init (void)
+void
+glib_init (void)
 {
-#ifdef G_OS_WIN32
-  _g_clock_win32_init ();
-#endif
-  _g_thread_init ();
+  static gboolean glib_inited;
+
+  if (glib_inited)
+    return;
+
+  glib_inited = TRUE;
+
   g_messages_prefixed_init ();
   g_debug_init ();
   g_quark_init ();
-#ifdef G_OS_WIN32
-  _g_console_win32_init ();
-#endif
 }
 
-#ifdef G_OS_WIN32
+#if defined (G_OS_WIN32)
+
+BOOL WINAPI DllMain (HINSTANCE hinstDLL,
+                     DWORD     fdwReason,
+                     LPVOID    lpvReserved);
+
 HMODULE glib_dll;
-#endif
-
-#ifdef GLIB_STATIC_COMPILATION
-
-#define G_MAX_N_XTORS 16
-
-extern void _proxy_libintl_deinit (void);
-
-static gboolean glib_initialized = FALSE;
-
-static GXtorFunc constructors[G_MAX_N_XTORS];
-static gint num_constructors = 0;
-
-static GXtorFunc destructors[G_MAX_N_XTORS];
-static gint num_destructors = 0;
-
-#define G_XTORS_CLEAR(x)                         \
-  G_STMT_START{                                  \
-  num_ ## x = 0;                                 \
-  }G_STMT_END
-#define G_XTORS_APPEND(x, f)                     \
-  G_STMT_START{                                  \
-  g_assert_cmpint (num_ ## x, <, G_MAX_N_XTORS); \
-  x[(num_ ## x)++] = f;                          \
-  }G_STMT_END
-
-void
-glib_init (void)
-{
-  gint i;
-
-  if (glib_initialized)
-    return;
-  glib_initialized = TRUE;
-
-  glib_perform_init ();
-
-  for (i = 0; i != num_constructors; i++)
-    constructors[i] ();
-  G_XTORS_CLEAR (constructors);
-}
-
-void
-glib_shutdown (void)
-{
-  _g_thread_pool_shutdown ();
-  _g_main_shutdown ();
-}
-
-void
-glib_deinit (void)
-{
-  gint i;
-
-  if (!glib_initialized)
-    return;
-
-  glib_shutdown ();
-
-  for (i = num_destructors - 1; i >= 0; i--)
-    destructors[i] ();
-  G_XTORS_CLEAR (destructors);
-
-  _g_main_deinit ();
-  _g_strfuncs_deinit ();
-
-  glib_initialized = FALSE;
-
-# if defined (G_OS_WIN32) && defined (THREADS_WIN32)
-  _g_thread_win32_process_detach ();
-#endif
-
-  _g_thread_deinit ();
-  _g_slice_deinit ();
-  _g_messages_deinit ();
-  _proxy_libintl_deinit ();
-}
-
-void
-_glib_register_constructor (GXtorFunc constructor)
-{
-  if (glib_initialized)
-    constructor ();
-  else
-    G_XTORS_APPEND (constructors, constructor);
-}
-
-void
-_glib_register_destructor (GXtorFunc destructor)
-{
-  G_XTORS_APPEND (destructors, destructor);
-}
-
-# if defined (G_OS_WIN32) && defined (THREADS_WIN32)
-
-static void WINAPI
-glib_tls_callback (HINSTANCE hinstDLL,
-                   DWORD     fdwReason,
-                   LPVOID    lpvReserved)
-{
-  if (fdwReason == DLL_THREAD_DETACH && glib_initialized)
-    _g_thread_win32_thread_detach ();
-}
-
-#  if GLIB_SIZEOF_VOID_P == 8
-#   pragma comment (linker, "/INCLUDE:_tls_used")
-#   pragma comment (linker, "/INCLUDE:_xl_b")
-#   pragma const_seg(".CRT$XLB")
-    EXTERN_C const
-#  else
-#   pragma comment (linker, "/INCLUDE:__tls_used")
-#   pragma comment (linker, "/INCLUDE:__xl_b")
-#   pragma data_seg(".CRT$XLB")
-    EXTERN_C
-#  endif
-
-PIMAGE_TLS_CALLBACK _xl_b = glib_tls_callback;
-
-#if GLIB_SIZEOF_VOID_P == 8
-#   pragma const_seg()
-#  else
-#   pragma data_seg()
-#  endif
-
-# endif
-
-#else /* !GLIB_STATIC_COMPILATION */
-
-void
-glib_init (void)
-{
-}
-
-void
-glib_shutdown (void)
-{
-}
-
-void
-glib_deinit (void)
-{
-}
-
-# if defined (G_OS_WIN32)
 
 BOOL WINAPI
 DllMain (HINSTANCE hinstDLL,
@@ -426,22 +356,28 @@ DllMain (HINSTANCE hinstDLL,
     {
     case DLL_PROCESS_ATTACH:
       glib_dll = hinstDLL;
-      _g_crash_handler_win32_init ();
-      glib_perform_init ();
+      g_crash_handler_win32_init ();
+      g_clock_win32_init ();
+#ifdef THREADS_WIN32
+      g_thread_win32_init ();
+#endif
+      glib_init ();
+      /* must go after glib_init */
+      g_console_win32_init ();
       break;
 
     case DLL_THREAD_DETACH:
 #ifdef THREADS_WIN32
-      _g_thread_win32_thread_detach ();
+      g_thread_win32_thread_detach ();
 #endif
       break;
 
     case DLL_PROCESS_DETACH:
 #ifdef THREADS_WIN32
       if (lpvReserved == NULL)
-        _g_thread_win32_process_detach ();
+        g_thread_win32_process_detach ();
 #endif
-      _g_crash_handler_win32_deinit ();
+      g_crash_handler_win32_deinit ();
       break;
 
     default:
@@ -452,53 +388,19 @@ DllMain (HINSTANCE hinstDLL,
   return TRUE;
 }
 
-# elif defined (G_HAS_CONSTRUCTORS)
+#elif defined (G_HAS_CONSTRUCTORS)
 
-# ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
-# pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(glib_init_ctor)
-# endif
+#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
+#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(glib_init_ctor)
+#endif
 G_DEFINE_CONSTRUCTOR(glib_init_ctor)
 
 static void
 glib_init_ctor (void)
 {
-  glib_perform_init ();
+  glib_init ();
 }
 
-# else
-#  error Your platform/compiler is missing constructor support
-# endif
-
-#endif
-
-#if defined (__BIONIC__) && __ANDROID_API__ < __ANDROID_API_L__
-
-#include <dlfcn.h>
-
-typedef sighandler_t (* BsdSignalImpl) (int signum, sighandler_t handler);
-
-sighandler_t
-bsd_signal (int signum,
-            sighandler_t handler)
-{
-  static BsdSignalImpl signal_impl = NULL;
-
-  if (signal_impl == NULL)
-    {
-      void * libc;
-
-      libc = dlopen ("libc.so", RTLD_LAZY | RTLD_GLOBAL);
-      g_assert (libc != NULL);
-
-      signal_impl = dlsym (libc, "signal");
-      if (signal_impl == NULL)
-        signal_impl = dlsym (libc, "bsd_signal");
-      g_assert (signal_impl != NULL);
-
-      dlclose (libc);
-    }
-
-  return signal_impl (signum, handler);
-}
-
+#else
+# error Your platform/compiler is missing constructor support
 #endif

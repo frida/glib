@@ -89,7 +89,7 @@
  * in a compatible way before this feature was supported in all
  * compilers.  These days, GLib requires inlining support from the
  * compiler, so your GLib-using programs can safely assume that the
- * "inline" keywork works properly.
+ * "inline" keyword works properly.
  *
  * Never use this macro anymore.  Just say "static inline".
  *
@@ -231,9 +231,11 @@
  *
  * This symbol is private.
  */
-#undef g_has_typeof
-#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)) && !defined(__cplusplus)
-#define g_has_typeof
+#undef glib_typeof
+#if !defined(__cplusplus) && \
+     ((defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))) || \
+      defined(__clang__))
+#define glib_typeof(t) __typeof__ (t)
 #endif
 
 /*
@@ -978,10 +980,12 @@
 #define GLIB_DEPRECATED _GLIB_EXTERN
 #define GLIB_DEPRECATED_FOR(f) _GLIB_EXTERN
 #define GLIB_UNAVAILABLE(maj,min) _GLIB_EXTERN
+#define GLIB_UNAVAILABLE_STATIC_INLINE(maj,min)
 #else
 #define GLIB_DEPRECATED G_DEPRECATED _GLIB_EXTERN
 #define GLIB_DEPRECATED_FOR(f) G_DEPRECATED_FOR(f) _GLIB_EXTERN
 #define GLIB_UNAVAILABLE(maj,min) G_UNAVAILABLE(maj,min) _GLIB_EXTERN
+#define GLIB_UNAVAILABLE_STATIC_INLINE(maj,min) G_UNAVAILABLE(maj,min)
 #endif
 
 #if !defined(GLIB_DISABLE_DEPRECATION_WARNINGS) && \

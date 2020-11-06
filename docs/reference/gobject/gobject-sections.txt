@@ -65,6 +65,7 @@ g_type_default_interface_unref
 g_type_children
 g_type_interfaces
 g_type_interface_prerequisites
+g_type_interface_instantiatable_prerequisite
 g_type_set_qdata
 g_type_get_qdata
 g_type_query
@@ -408,6 +409,8 @@ G_TYPE_SOURCE
 G_TYPE_POLLFD
 G_TYPE_THREAD
 G_TYPE_OPTION_GROUP
+G_TYPE_URI
+G_TYPE_TREE
 
 <SUBSECTION Standard>
 G_TYPE_IS_BOXED
@@ -441,6 +444,8 @@ g_mapped_file_get_type
 g_markup_parse_context_get_type
 g_thread_get_type
 g_option_group_get_type
+g_uri_get_type
+g_tree_get_type
 </SECTION>
 
 <SECTION>
@@ -684,6 +689,8 @@ G_IS_PARAM_SPEC_STRING
 G_PARAM_SPEC_STRING
 G_VALUE_HOLDS_STRING
 G_TYPE_PARAM_STRING
+G_VALUE_IS_INTERNED_STRING
+G_VALUE_INTERNED_STRING
 GParamSpecString
 gchararray
 g_param_spec_string
@@ -693,6 +700,7 @@ g_value_take_string
 g_value_set_string_take_ownership
 g_value_get_string
 g_value_dup_string
+g_value_set_interned_string
 
 <SUBSECTION GParamSpec>
 G_IS_PARAM_SPEC_PARAM

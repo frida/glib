@@ -45,9 +45,7 @@ typedef enum
 } GThreadError;
 
 typedef gpointer (*GThreadFunc) (gpointer data);
-typedef void (*GThreadGarbageHandler) (gpointer data);
 
-typedef struct _GThreadCallbacks GThreadCallbacks;
 typedef struct _GThread         GThread;
 
 typedef union  _GMutex          GMutex;
@@ -56,20 +54,6 @@ typedef struct _GRWLock         GRWLock;
 typedef struct _GCond           GCond;
 typedef struct _GPrivate        GPrivate;
 typedef struct _GOnce           GOnce;
-
-typedef enum
-{
-  G_PRIVATE_DESTROY_LATE = 1 << 0,
-  G_PRIVATE_DESTROY_LAST = 1 << 1,
-} GPrivateFlags;
-
-struct _GThreadCallbacks
-{
-  void (*on_thread_init)      (void);
-  void (*on_thread_realize)   (void);
-  void (*on_thread_dispose)   (void);
-  void (*on_thread_finalize)  (void);
-};
 
 union _GMutex
 {
@@ -99,17 +83,13 @@ struct _GRecMutex
   guint i[2];
 };
 
-#define G_PRIVATE_INIT(notify) \
-    { NULL, (notify), 0, { NULL } }
-#define G_PRIVATE_INIT_WITH_FLAGS(notify, flags) \
-    { NULL, (notify), (flags), { NULL } }
+#define G_PRIVATE_INIT(notify) { NULL, (notify), { NULL, NULL } }
 struct _GPrivate
 {
   /*< private >*/
   gpointer       p;
   GDestroyNotify notify;
-  GPrivateFlags  flags;
-  gpointer future[1];
+  gpointer future[2];
 };
 
 typedef enum
@@ -156,15 +136,6 @@ struct _GOnce
 #  define G_UNLOCK(name) g_mutex_unlock   (&G_LOCK_NAME (name))
 #  define G_TRYLOCK(name) g_mutex_trylock (&G_LOCK_NAME (name))
 #endif /* !G_DEBUG_LOCKS */
-
-GLIB_VAR GThreadCallbacks *glib_thread_callbacks;
-GLIB_AVAILABLE_IN_2_62
-void            g_thread_set_callbacks          (GThreadCallbacks *callbacks);
-GLIB_AVAILABLE_IN_2_62
-void            g_thread_set_garbage_handler    (GThreadGarbageHandler handler,
-                                                 gpointer user_data);
-GLIB_AVAILABLE_IN_2_62
-gboolean        g_thread_garbage_collect        (void);
 
 GLIB_AVAILABLE_IN_2_32
 GThread *       g_thread_ref                    (GThread        *thread);
@@ -263,14 +234,23 @@ GLIB_AVAILABLE_IN_ALL
 void            g_once_init_leave               (volatile void  *location,
                                                  gsize           result);
 
-#ifdef G_ATOMIC_OP_MEMORY_BARRIER_NEEDED
-# define g_once(once, func, arg) g_once_impl ((once), (func), (arg))
-#else /* !G_ATOMIC_OP_MEMORY_BARRIER_NEEDED*/
+/* Use C11-style atomic extensions to check the fast path for status=ready. If
+ * they are not available, fall back to using a mutex and condition variable in
+ * g_once_impl().
+ *
+ * On the C11-style codepath, only the load of once->status needs to be atomic,
+ * as the writes to it and once->retval in g_once_impl() are related by a
+ * happens-before relation. Release-acquire semantics are defined such that any
+ * atomic/non-atomic write which happens-before a store/release is guaranteed to
+ * be seen by the load/acquire of the same atomic variable. */
+#if defined(G_ATOMIC_LOCK_FREE) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4) && defined(__ATOMIC_SEQ_CST)
 # define g_once(once, func, arg) \
-  (((once)->status == G_ONCE_STATUS_READY) ? \
+  ((__atomic_load_n (&(once)->status, __ATOMIC_ACQUIRE) == G_ONCE_STATUS_READY) ? \
    (once)->retval : \
    g_once_impl ((once), (func), (arg)))
-#endif /* G_ATOMIC_OP_MEMORY_BARRIER_NEEDED */
+#else
+# define g_once(once, func, arg) g_once_impl ((once), (func), (arg))
+#endif
 
 #ifdef __GNUC__
 # define g_once_init_enter(location) \
@@ -346,6 +326,7 @@ typedef void GMutexLocker;
  * Returns: a #GMutexLocker
  * Since: 2.44
  */
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_44
 static inline GMutexLocker *
 g_mutex_locker_new (GMutex *mutex)
 {
@@ -363,6 +344,7 @@ g_mutex_locker_new (GMutex *mutex)
  *
  * Since: 2.44
  */
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_44
 static inline void
 g_mutex_locker_free (GMutexLocker *locker)
 {
@@ -419,12 +401,15 @@ typedef void GRecMutexLocker;
  * Returns: a #GRecMutexLocker
  * Since: 2.60
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_60
 static inline GRecMutexLocker *
 g_rec_mutex_locker_new (GRecMutex *rec_mutex)
 {
   g_rec_mutex_lock (rec_mutex);
   return (GRecMutexLocker *) rec_mutex;
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_rec_mutex_locker_free:
@@ -436,11 +421,14 @@ g_rec_mutex_locker_new (GRecMutex *rec_mutex)
  *
  * Since: 2.60
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_60
 static inline void
 g_rec_mutex_locker_free (GRecMutexLocker *locker)
 {
   g_rec_mutex_unlock ((GRecMutex *) locker);
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * GRWLockWriterLocker:
@@ -523,12 +511,15 @@ typedef void GRWLockWriterLocker;
  * Returns: a #GRWLockWriterLocker
  * Since: 2.62
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_62
 static inline GRWLockWriterLocker *
 g_rw_lock_writer_locker_new (GRWLock *rw_lock)
 {
   g_rw_lock_writer_lock (rw_lock);
   return (GRWLockWriterLocker *) rw_lock;
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_rw_lock_writer_locker_free:
@@ -541,11 +532,14 @@ g_rw_lock_writer_locker_new (GRWLock *rw_lock)
  *
  * Since: 2.62
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_62
 static inline void
 g_rw_lock_writer_locker_free (GRWLockWriterLocker *locker)
 {
   g_rw_lock_writer_unlock ((GRWLock *) locker);
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * GRWLockReaderLocker:
@@ -572,12 +566,15 @@ typedef void GRWLockReaderLocker;
  * Returns: a #GRWLockReaderLocker
  * Since: 2.62
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_62
 static inline GRWLockReaderLocker *
 g_rw_lock_reader_locker_new (GRWLock *rw_lock)
 {
   g_rw_lock_reader_lock (rw_lock);
   return (GRWLockReaderLocker *) rw_lock;
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 /**
  * g_rw_lock_reader_locker_free:
@@ -590,11 +587,14 @@ g_rw_lock_reader_locker_new (GRWLock *rw_lock)
  *
  * Since: 2.62
  */
+G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_62
 static inline void
 g_rw_lock_reader_locker_free (GRWLockReaderLocker *locker)
 {
   g_rw_lock_reader_unlock ((GRWLock *) locker);
 }
+G_GNUC_END_IGNORE_DEPRECATIONS
 
 G_END_DECLS
 

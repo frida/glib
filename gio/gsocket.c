@@ -76,11 +76,6 @@
 #include "glibintl.h"
 #include "gioprivate.h"
 
-#ifdef G_OS_WIN32
-/* For Windows XP runtime compatibility, but use the system's if_nametoindex() if available */
-#include "gwin32networking.h"
-#endif
-
 /**
  * SECTION:gsocket
  * @short_description: Low-level socket object
@@ -465,9 +460,6 @@ g_socket_details_from_fd (GSocket *socket)
   int errsv;
 
   fd = socket->priv->fd;
-
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-
   if (!g_socket_get_option (socket, SOL_SOCKET, SO_TYPE, &value, NULL))
     {
       errsv = get_socket_errno ();
@@ -600,10 +592,7 @@ g_socket (gint     domain,
   fd = socket (domain, type | SOCK_CLOEXEC, protocol);
   errsv = errno;
   if (fd != -1)
-    {
-      glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-      return fd;
-    }
+    return fd;
 
   /* It's possible that libc has SOCK_CLOEXEC but the kernel does not */
   if (fd < 0 && (errsv == EINVAL || errsv == EPROTOTYPE))
@@ -620,8 +609,6 @@ g_socket (gint     domain,
       return -1;
     }
 
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-
 #ifndef G_OS_WIN32
   {
     int flags;
@@ -636,16 +623,6 @@ g_socket (gint     domain,
 	flags |= FD_CLOEXEC;
 	fcntl (fd, F_SETFD, flags);
       }
-  }
-#else
-  if (type == SOCK_DGRAM)
-  {
-    DWORD bytes_returned = 0;
-    BOOL new_behavior = FALSE;
-
-    /* Disable connection reset error on ICMP port unreachable. */
-    WSAIoctl (fd, SIO_UDP_CONNRESET, &new_behavior, sizeof (new_behavior),
-        NULL, 0, &bytes_returned, NULL, NULL);
   }
 #endif
 
@@ -927,6 +904,19 @@ static void
 g_socket_class_init (GSocketClass *klass)
 {
   GObjectClass *gobject_class G_GNUC_UNUSED = G_OBJECT_CLASS (klass);
+
+#ifdef SIGPIPE
+  /* There is no portable, thread-safe way to avoid having the process
+   * be killed by SIGPIPE when calling send() or sendmsg(), so we are
+   * forced to simply ignore the signal process-wide.
+   *
+   * Even if we ignore it though, gdb will still stop if the app
+   * receives a SIGPIPE, which can be confusing and annoying. So when
+   * possible, we also use MSG_NOSIGNAL / SO_NOSIGPIPE elsewhere to
+   * prevent the signal from occurring at all.
+   */
+  signal (SIGPIPE, SIG_IGN);
+#endif
 
   gobject_class->finalize = g_socket_finalize;
   gobject_class->constructed = g_socket_constructed;
@@ -2216,63 +2206,6 @@ g_socket_bind (GSocket         *socket,
 }
 
 #ifdef G_OS_WIN32
-
-#ifndef HAVE_IF_NAMETOINDEX
-static guint
-if_nametoindex (const gchar *iface)
-{
-  PIP_ADAPTER_ADDRESSES addresses = NULL, p;
-  gulong addresses_len = 0;
-  guint idx = 0;
-  DWORD res;
-
-  if (ws2funcs.pIfNameToIndex != NULL)
-    return ws2funcs.pIfNameToIndex (iface);
-
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, NULL, &addresses_len);
-  if (res != NO_ERROR && res != ERROR_BUFFER_OVERFLOW)
-    {
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
-    }
-
-  addresses = g_malloc (addresses_len);
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, addresses, &addresses_len);
-
-  if (res != NO_ERROR)
-    {
-      g_free (addresses);
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
-    }
-
-  p = addresses;
-  while (p)
-    {
-      if (strcmp (p->AdapterName, iface) == 0)
-        {
-          idx = p->IfIndex;
-          break;
-        }
-      p = p->Next;
-    }
-
-  if (p == NULL)
-    errno = ENXIO;
-
-  g_free (addresses);
-
-  return idx;
-}
-#define HAVE_IF_NAMETOINDEX 1
-#endif
-
 static gulong
 g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
 {
@@ -2311,7 +2244,7 @@ g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
    */
   if_index = if_nametoindex (name_or_ip);
 
-  /* Step 3: Prepare wchar string for friendly name comparision */
+  /* Step 3: Prepare wchar string for friendly name comparison */
   if (if_index == 0)
     {
       size_t if_name_len = strlen (name_or_ip);
@@ -2321,7 +2254,7 @@ g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
       wchar_name_or_ip = (wchar_t *) g_try_malloc ((if_name_len + 1) * sizeof(wchar_t));
       if (wchar_name_or_ip)
         mbstowcs (wchar_name_or_ip, name_or_ip, if_name_len + 1);
-      /* NOTE: Even if malloc fails here, some comparisions can still be done later... so no exit here! */
+      /* NOTE: Even if malloc fails here, some comparisons can still be done later... so no exit here! */
     }
 
   /*
@@ -2982,7 +2915,6 @@ g_socket_accept (GSocket       *socket,
 #else
       close (ret);
 #endif
-      glib_fd_callbacks->on_fd_closed (ret, "GSocket");
     }
   else
     new_socket->priv->protocol = socket->priv->protocol;
@@ -3180,6 +3112,9 @@ g_socket_get_available_bytes (GSocket *socket)
 
   g_return_val_if_fail (G_IS_SOCKET (socket), -1);
 
+  if (!check_socket (socket, NULL))
+    return -1;
+
 #ifdef SO_NREAD
   if (!g_socket_get_option (socket, SOL_SOCKET, SO_NREAD, &avail, NULL))
       return -1;
@@ -3322,8 +3257,8 @@ g_socket_receive_with_timeout (GSocket       *socket,
 /**
  * g_socket_receive:
  * @socket: a #GSocket
- * @buffer: (array length=size) (element-type guint8): a buffer to
- *     read data into (which should be at least @size bytes long).
+ * @buffer: (array length=size) (element-type guint8) (out caller-allocates):
+ *     a buffer to read data into (which should be at least @size bytes long).
  * @size: the number of bytes you want to read from the socket
  * @cancellable: (nullable): a %GCancellable or %NULL
  * @error: #GError for error reporting, or %NULL to ignore.
@@ -3372,8 +3307,8 @@ g_socket_receive (GSocket       *socket,
 /**
  * g_socket_receive_with_blocking:
  * @socket: a #GSocket
- * @buffer: (array length=size) (element-type guint8): a buffer to
- *     read data into (which should be at least @size bytes long).
+ * @buffer: (array length=size) (element-type guint8) (out caller-allocates):
+ *     a buffer to read data into (which should be at least @size bytes long).
  * @size: the number of bytes you want to read from the socket
  * @blocking: whether to do blocking or non-blocking I/O
  * @cancellable: (nullable): a %GCancellable or %NULL
@@ -3405,8 +3340,8 @@ g_socket_receive_with_blocking (GSocket       *socket,
  * @socket: a #GSocket
  * @address: (out) (optional): a pointer to a #GSocketAddress
  *     pointer, or %NULL
- * @buffer: (array length=size) (element-type guint8): a buffer to
- *     read data into (which should be at least @size bytes long).
+ * @buffer: (array length=size) (element-type guint8) (out caller-allocates):
+ *     a buffer to read data into (which should be at least @size bytes long).
  * @size: the number of bytes you want to read from the socket
  * @cancellable: (nullable): a %GCancellable or %NULL
  * @error: #GError for error reporting, or %NULL to ignore.
@@ -3776,9 +3711,6 @@ g_socket_close (GSocket  *socket,
 		       socket_strerror (errsv));
 	  return FALSE;
 	}
-
-      glib_fd_callbacks->on_fd_closed (socket->priv->fd, "GSocket");
-
       break;
     }
 
@@ -3811,7 +3743,6 @@ g_socket_is_closed (GSocket *socket)
   return socket->priv->closed;
 }
 
-#ifdef G_OS_WIN32
 /* Broken source, used on errors */
 static gboolean
 broken_dispatch (GSource     *source,
@@ -3829,6 +3760,7 @@ static GSourceFuncs broken_funcs =
   NULL
 };
 
+#ifdef G_OS_WIN32
 static gint
 network_events_for_condition (GIOCondition condition)
 {
@@ -3857,9 +3789,6 @@ update_select_events (GSocket *socket)
   GIOCondition *ptr;
   GList *l;
   WSAEVENT event;
-
-  if (socket->priv->closed)
-    return;
 
   ensure_event (socket);
 
@@ -3919,8 +3848,7 @@ update_condition_unlocked (GSocket *socket)
   WSANETWORKEVENTS events;
   GIOCondition condition;
 
-  if (!socket->priv->closed &&
-      WSAEnumNetworkEvents (socket->priv->fd,
+  if (WSAEnumNetworkEvents (socket->priv->fd,
 			    socket->priv->event,
 			    &events) == 0)
     {
@@ -4159,6 +4087,12 @@ socket_source_new (GSocket      *socket,
       return g_source_new (&broken_funcs, sizeof (GSource));
     }
 #endif
+
+  if (!check_socket (socket, NULL))
+    {
+      g_warning ("Socket check failed");
+      return g_source_new (&broken_funcs, sizeof (GSource));
+    }
 
   condition |= G_IO_HUP | G_IO_ERR | G_IO_NVAL;
 
@@ -4681,7 +4615,7 @@ G_STMT_START { \
     } \
   else \
     { \
-      _msg->msg_controllen = 2016; /* upper limit on QNX */ \
+      _msg->msg_controllen = 2048; \
       _msg->msg_control = g_alloca (_msg->msg_controllen); \
     } \
  \
@@ -5980,6 +5914,7 @@ g_socket_receive_message (GSocket                 *socket,
  * - OpenBSD since GLib 2.30
  * - Solaris, Illumos and OpenSolaris since GLib 2.40
  * - NetBSD since GLib 2.42
+ * - macOS, tvOS, iOS since GLib 2.66
  *
  * Other ways to obtain credentials from a foreign peer includes the
  * #GUnixCredentialsMessage type and
@@ -6000,6 +5935,9 @@ g_socket_get_credentials (GSocket   *socket,
   g_return_val_if_fail (G_IS_SOCKET (socket), NULL);
   g_return_val_if_fail (error == NULL || *error == NULL, NULL);
 
+  if (!check_socket (socket, error))
+    return NULL;
+
   ret = NULL;
 
 #if G_CREDENTIALS_SOCKET_GET_CREDENTIALS_SUPPORTED
@@ -6019,6 +5957,41 @@ g_socket_get_credentials (GSocket   *socket,
         g_credentials_set_native (ret,
                                   G_CREDENTIALS_NATIVE_TYPE,
                                   native_creds_buf);
+      }
+  }
+#elif G_CREDENTIALS_USE_APPLE_XUCRED
+  {
+    struct xucred cred;
+    socklen_t optlen = sizeof (cred);
+
+    if (getsockopt (socket->priv->fd,
+                    0,
+                    LOCAL_PEERCRED,
+                    &cred,
+                    &optlen) == 0)
+      {
+        if (cred.cr_version == XUCRED_VERSION)
+          {
+            ret = g_credentials_new ();
+            g_credentials_set_native (ret,
+                                      G_CREDENTIALS_NATIVE_TYPE,
+                                      &cred);
+          }
+        else
+          {
+            g_set_error (error,
+                         G_IO_ERROR,
+                         G_IO_ERROR_NOT_SUPPORTED,
+                         /* No point in translating this! */
+                         "struct xucred cr_version %u != %u",
+                         cred.cr_version, XUCRED_VERSION);
+            /* Reuse a translatable string we already have */
+            g_prefix_error (error,
+                            _("Unable to read socket credentials: %s"),
+                            "");
+
+            return NULL;
+          }
       }
   }
 #elif G_CREDENTIALS_USE_NETBSD_UNPCBID
@@ -6116,6 +6089,11 @@ g_socket_get_option (GSocket  *socket,
 
   g_return_val_if_fail (G_IS_SOCKET (socket), FALSE);
 
+  /* g_socket_get_option() is called during socket init, so skip the init checks
+   * in check_socket() */
+  if (socket->priv->inited && !check_socket (socket, error))
+    return FALSE;
+
   *value = 0;
   size = sizeof (gint);
   if (getsockopt (socket->priv->fd, level, optname, value, &size) != 0)
@@ -6179,6 +6157,9 @@ g_socket_set_option (GSocket  *socket,
 
   g_return_val_if_fail (G_IS_SOCKET (socket), FALSE);
 
+  if (!check_socket (socket, error))
+    return FALSE;
+
   if (setsockopt (socket->priv->fd, level, optname, &value, sizeof (gint)) == 0)
     return TRUE;
 
@@ -6207,4 +6188,3 @@ g_socket_set_option (GSocket  *socket,
 #endif
   return FALSE;
 }
-

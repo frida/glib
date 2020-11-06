@@ -10,15 +10,9 @@ gio_c_args += glib_hidden_visibility_args
 
 gnetworking_h_conf = configuration_data()
 
-gnetworking_h_wspiapi_include = ''
 gnetworking_h_nameser_compat_include = ''
 
-if host_system == 'windows'
-  # <wspiapi.h> in the Windows SDK and in mingw-w64 has wrappers for
-  # inline workarounds for getaddrinfo, getnameinfo and freeaddrinfo if
-  # they aren't present at run-time (on Windows 2000).
-  gnetworking_h_wspiapi_include = '#include <wspiapi.h>'
-elif not host_system.contains('android')
+if host_system != 'windows' and not host_system.contains('android')
   # Don't check for C_IN on Android since it does not define it in public
   # headers, we define it ourselves wherever necessary
   if not cc.compiles('''#include <sys/types.h>
@@ -56,9 +50,6 @@ if host_system != 'windows'
     elif cc.links(res_query_test, args : '-lbind', name : 'res_query() in -lbind')
       network_libs += [ cc.find_library('bind') ]
       network_args += [ '-lbind' ]
-    elif cc.links(res_query_test, args : '-lsocket', name : 'res_query() in -lsocket')
-      network_libs += [ cc.find_library('socket') ]
-      network_args += [ '-lsocket' ]
     else
       error('Could not find res_query()')
     endif
@@ -171,7 +162,6 @@ if host_system.contains('android')
   endif
 endif
 
-gnetworking_h_conf.set('WSPIAPI_INCLUDE', gnetworking_h_wspiapi_include)
 gnetworking_h_conf.set('NAMESER_COMPAT_INCLUDE', gnetworking_h_nameser_compat_include)
 
 gnetworking_h = configure_file(input : 'gnetworking.h.in',
@@ -451,15 +441,13 @@ else
     'gwin32notificationbackend.c',
   )
 
-  if get_option('default_library') != 'static'
-    gio_win_rc = configure_file(
-      input: 'gio.rc.in',
-      output: 'gio.rc',
-      configuration: glibconfig_conf,
-    )
-    gio_win_res = windows.compile_resources(gio_win_rc)
-    win32_sources += [gio_win_res]
-  endif
+  gio_win_rc = configure_file(
+    input: 'gio.rc.in',
+    output: 'gio.rc',
+    configuration: glibconfig_conf,
+  )
+  gio_win_res = windows.compile_resources(gio_win_rc)
+  win32_sources += [gio_win_res]
 
   gio_win32_include_headers = files(
     'gwin32inputstream.h',
@@ -469,8 +457,6 @@ else
 endif
 
 gio_sources = files(
-  'gio-init.c',
-  'gio-fork.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',
@@ -755,7 +741,7 @@ gioenumtypes_c = custom_target('gioenumtypes_c',
 gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_h])
 
 # inotify
-if host_system == 'linux'
+if glib_conf.has('HAVE_SYS_INOTIFY_H') and have_func_inotify_init1
   subdir('inotify')
   internal_deps += [ inotify_lib ]
   internal_objects += [inotify_lib.extract_all_objects()]
@@ -792,11 +778,6 @@ else
   gio_dtrace_obj = []
   gio_dtrace_hdr = []
 endif
-
-internal_objects = []
-foreach dep : internal_deps
-  internal_objects += dep.extract_all_objects()
-endforeach
 
 libgio = library('gio-2.0',
   gioenumtypes_h, gioenumtypes_c, gnetworking_h, gio_sources,
@@ -893,14 +874,14 @@ endif
 
 # Dependencies used by executables below
 have_libelf = false
-libelf = dependency('libelf', version : '>= 0.8.12', required : false)
+libelf = dependency('libelf', version : '>= 0.8.12', required : get_option ('libelf'))
 if libelf.found()
   have_libelf = true
 else
   # This fallback is necessary on *BSD. elfutils isn't the only libelf
   # implementation, and *BSD usually includes their own libelf as a system
   # library which doesn't have a corresponding .pc file.
-  libelf = cc.find_library('elf', required : false)
+  libelf = cc.find_library('elf', required : get_option ('libelf'))
   have_libelf = libelf.found()
   have_libelf = have_libelf and cc.has_function('elf_begin', dependencies : libelf)
   have_libelf = have_libelf and cc.has_function('elf_getshdrstrndx', dependencies : libelf)

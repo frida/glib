@@ -39,7 +39,12 @@
  * @short_description: linked lists that can be iterated in one direction
  *
  * The #GSList structure and its associated functions provide a
- * standard singly-linked list data structure.
+ * standard singly-linked list data structure. The benefit of this
+ * data-structure is to provide insertion/deletion operations in O(1)
+ * complexity where access/search operations are in O(n). The benefit
+ * of #GSList over #GList (doubly linked list) is that they are lighter
+ * in space as they only need to retain one pointer but it double the
+ * cost of the worst case access/search operations.
  *
  * Each element in the list contains a piece of data, together with a
  * pointer which links to the next element in the list. Using this
@@ -122,7 +127,7 @@ g_slist_alloc (void)
 
 /**
  * g_slist_free:
- * @list: a #GSList
+ * @list: the first link of a #GSList
  *
  * Frees all of the memory used by a #GSList.
  * The freed elements are returned to the slice allocator.
@@ -166,7 +171,7 @@ g_slist_free_1 (GSList *list)
 
 /**
  * g_slist_free_full:
- * @list: a pointer to a #GSList
+ * @list: the first link of a #GSList
  * @free_func: the function to be called to free each element's data
  *
  * Convenience method, which frees all the memory used by a #GSList, and

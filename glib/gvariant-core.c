@@ -543,36 +543,32 @@ g_variant_new_from_bytes (const GVariantType *type,
 
   if (!g_variant_serialised_check (serialised))
     {
-      if (glib_mem_table->memalign != NULL)
-        {
-          gpointer aligned_data;
-          gsize aligned_size = g_bytes_get_size (bytes);
+#ifdef HAVE_POSIX_MEMALIGN
+      gpointer aligned_data = NULL;
+      gsize aligned_size = g_bytes_get_size (bytes);
 
-          /* memalign() requires the alignment to be a multiple of
-           * sizeof(void*), and a power of 2. See g_variant_type_info_query()
-           * for details on the alignment format. */
-          aligned_data =
-              glib_mem_table->memalign (MAX (sizeof (void *), alignment + 1),
-                                        aligned_size);
-          if (aligned_data == NULL)
-            g_error ("posix_memalign failed");
+      /* posix_memalign() requires the alignment to be a multiple of
+       * sizeof(void*), and a power of 2. See g_variant_type_info_query() for
+       * details on the alignment format. */
+      if (posix_memalign (&aligned_data, MAX (sizeof (void *), alignment + 1),
+                          aligned_size) != 0)
+        g_error ("posix_memalign failed");
 
-          if (aligned_size != 0)
-            memcpy (aligned_data, g_bytes_get_data (bytes, NULL), aligned_size);
+      if (aligned_size != 0)
+        memcpy (aligned_data, g_bytes_get_data (bytes, NULL), aligned_size);
 
-          bytes = owned_bytes =
-              g_bytes_new_with_free_func (aligned_data, aligned_size,
-                                          glib_mem_table->free, aligned_data);
-        }
-      else
-        {
-          /* NOTE: there may be platforms that lack posix_memalign() and also
-           * have malloc() that returns non-8-aligned.  if so, we need to try
-           * harder here.
-           */
-          bytes = owned_bytes = g_bytes_new (g_bytes_get_data (bytes, NULL),
-                                             g_bytes_get_size (bytes));
-        }
+      bytes = owned_bytes = g_bytes_new_with_free_func (aligned_data,
+                                                        aligned_size,
+                                                        free, aligned_data);
+      aligned_data = NULL;
+#else
+      /* NOTE: there may be platforms that lack posix_memalign() and also
+       * have malloc() that returns non-8-aligned.  if so, we need to try
+       * harder here.
+       */
+      bytes = owned_bytes = g_bytes_new (g_bytes_get_data (bytes, NULL),
+                                         g_bytes_get_size (bytes));
+#endif
     }
 
   value->contents.serialised.bytes = g_bytes_ref (bytes);
@@ -668,6 +664,21 @@ gboolean
 g_variant_is_trusted (GVariant *value)
 {
   return (value->state & STATE_TRUSTED) != 0;
+}
+
+/* < internal >
+ * g_variant_get_depth:
+ * @value: a #GVariant
+ *
+ * Gets the nesting depth of a #GVariant. This is 0 for a #GVariant with no
+ * children.
+ *
+ * Returns: nesting depth of @value
+ */
+gsize
+g_variant_get_depth (GVariant *value)
+{
+  return value->depth;
 }
 
 /* -- public -- */
@@ -799,7 +810,7 @@ g_variant_ref_sink (GVariant *value)
  *
  * Using this function on the return value of the user's callback allows
  * the user to do whichever is more convenient for them.  The caller
- * will alway receives exactly one full reference to the value: either
+ * will always receives exactly one full reference to the value: either
  * the one that was returned in the first place, or a floating reference
  * that has been converted to a full reference.
  *
@@ -1029,6 +1040,12 @@ g_variant_n_children (GVariant *value)
  *
  * The returned value is never floating.  You should free it with
  * g_variant_unref() when you're done with it.
+ *
+ * Note that values borrowed from the returned child are not guaranteed to
+ * still be valid after the child is freed even if you still hold a reference
+ * to @value, if @value has not been serialised at the time this function is
+ * called. To avoid this, you can serialize @value by calling
+ * g_variant_get_data() and optionally ignoring the return value.
  *
  * There may be implementation specific restrictions on deeply nested values,
  * which would result in the unit tuple being returned as the child value,

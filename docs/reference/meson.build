@@ -7,7 +7,7 @@
 stable_2_series_versions = [
   '26', '28', '30', '32', '34', '36', '38',
   '40', '42', '44', '46', '48', '50', '52', '54', '56', '58',
-  '60', '62', '64', '66',
+  '60', '62', '64', '66', '68',
 ]
 
 ignore_decorators = [
@@ -25,6 +25,8 @@ foreach version : stable_2_series_versions
     'GLIB_AVAILABLE_IN_2_' + version,
     'GLIB_DEPRECATED_IN_2_' + version + '_FOR()',
     'GLIB_DEPRECATED_IN_2_' + version,
+
+    'GLIB_AVAILABLE_STATIC_INLINE_IN_2_' + version,
 
     'GLIB_AVAILABLE_ENUMERATOR_IN_2_' + version,
     'GLIB_DEPRECATED_ENUMERATOR_IN_2_' + version + '_FOR()',
@@ -50,7 +52,7 @@ if get_option('gtk_doc')
   endif
   # Check we have the minimum gtk-doc version required. Older versions won't
   # generate correct documentation.
-  dependency('gtk-doc', version : '>=1.32',
+  dependency('gtk-doc', version : '>=1.32.1',
     fallback : ['gtk-doc', 'dummy_dep'],
     default_options : ['tests=false'])
 endif

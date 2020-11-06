@@ -1027,7 +1027,7 @@ check_add_interface_L (GType instance_type,
   if (entry && entry->vtable == NULL && !type_iface_peek_holder_L (iface, NODE_TYPE (node)))
     {
       /* ok, we do conform to this interface already, but the interface vtable was not
-       * yet intialized, and we just conform to the interface because it got added to
+       * yet initialized, and we just conform to the interface because it got added to
        * one of our parents. so we allow overriding of holder info here.
        */
       return TRUE;
@@ -1477,7 +1477,7 @@ type_add_interface_Wm (TypeNode             *node,
   type_node_add_iface_entry_W (node, NODE_TYPE (iface), NULL);
   
   /* if the class is already (partly) initialized, we may need to base
-   * initalize and/or initialize the new interface.
+   * initialize and/or initialize the new interface.
    */
   if (node->data)
     {
@@ -1689,6 +1689,54 @@ g_type_interface_prerequisites (GType  interface_type,
     }
 }
 
+/**
+ * g_type_interface_instantiatable_prerequisite:
+ * @interface_type: an interface type
+ *
+ * Returns the most specific instantiatable prerequisite of an
+ * interface type. If the interface type has no instantiatable
+ * prerequisite, %G_TYPE_INVALID is returned.
+ *
+ * See g_type_interface_add_prerequisite() for more information
+ * about prerequisites.
+ *
+ * Returns: the instantiatable prerequisite type or %G_TYPE_INVALID if none
+ *
+ * Since: 2.68
+ **/
+GType
+g_type_interface_instantiatable_prerequisite (GType interface_type)
+{
+  TypeNode *inode = NULL;
+  TypeNode *iface;
+  guint i;
+
+  g_return_val_if_fail (G_TYPE_IS_INTERFACE (interface_type), G_TYPE_INVALID);
+
+  iface = lookup_type_node_I (interface_type);
+  if (iface == NULL)
+    return G_TYPE_INVALID;
+
+  G_READ_LOCK (&type_rw_lock);
+
+  for (i = 0; i < IFACE_NODE_N_PREREQUISITES (iface); i++)
+    {
+      GType prerequisite = IFACE_NODE_PREREQUISITES (iface)[i];
+      TypeNode *node = lookup_type_node_I (prerequisite);
+      if (node->is_instantiatable)
+        {
+          if (!inode || type_node_is_a_L (node, inode))
+            inode = node;
+        }
+    }
+
+  G_READ_UNLOCK (&type_rw_lock);
+
+  if (inode)
+    return NODE_TYPE (inode);
+  else
+    return G_TYPE_INVALID;
+}
 
 static IFaceHolder*
 type_iface_peek_holder_L (TypeNode *iface,
@@ -1769,7 +1817,7 @@ type_iface_blow_holder_info_Wm (TypeNode *iface,
  * and structure setups for instances: actual instance creation should
  * happen through functions supplied by the type's fundamental type
  * implementation.  So use of g_type_create_instance() is reserved for
- * implementators of fundamental types only. E.g. instances of the
+ * implementers of fundamental types only. E.g. instances of the
  * #GObject hierarchy should be created via g_object_new() and never
  * directly through g_type_create_instance() which doesn't handle things
  * like singleton objects or object construction.
@@ -3189,7 +3237,7 @@ g_type_interface_peek_parent (gpointer g_iface)
  * and returns the default interface vtable for the type.
  *
  * If the type is not currently in use, then the default vtable
- * for the type will be created and initalized by calling
+ * for the type will be created and initialized by calling
  * the base interface init and default vtable init functions for
  * the type (the @base_init and @class_init members of #GTypeInfo).
  * Calling g_type_default_interface_ref() is useful when you
@@ -3407,7 +3455,7 @@ g_type_depth (GType type)
  * @root_type: immediate parent of the returned type
  *
  * Given a @leaf_type and a @root_type which is contained in its
- * anchestry, return the type that @root_type is the immediate parent
+ * ancestry, return the type that @root_type is the immediate parent
  * of. In other words, this function determines the type that is
  * derived directly from @root_type which is also a base class of
  * @leaf_type.  Given a root type and a leaf type, this function can
@@ -4362,17 +4410,12 @@ g_type_init (void)
 }
 
 static void
-gobject_perform_init (void)
+gobject_init (void)
 {
-  static gboolean initialized = FALSE;
   const gchar *env_string;
   GTypeInfo info;
   TypeNode *node;
   GType type G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
-
-  if (initialized)
-    return;
-  initialized = TRUE;
 
   /* Ensure GLib is initialized first, see
    * https://bugzilla.gnome.org/show_bug.cgi?id=756139
@@ -4461,15 +4504,7 @@ gobject_perform_init (void)
   _g_signal_init ();
 }
 
-void
-gobject_init (void)
-{
-#ifdef GLIB_STATIC_COMPILATION
-  gobject_perform_init ();
-#endif
-}
-
-#if defined (G_OS_WIN32) && !defined (GLIB_STATIC_COMPILATION)
+#if defined (G_OS_WIN32)
 
 BOOL WINAPI DllMain (HINSTANCE hinstDLL,
                      DWORD     fdwReason,
@@ -4483,7 +4518,7 @@ DllMain (HINSTANCE hinstDLL,
   switch (fdwReason)
     {
     case DLL_PROCESS_ATTACH:
-      gobject_perform_init ();
+      gobject_init ();
       break;
 
     default:
@@ -4503,7 +4538,7 @@ G_DEFINE_CONSTRUCTOR(gobject_init_ctor)
 static void
 gobject_init_ctor (void)
 {
-  gobject_perform_init ();
+  gobject_init ();
 }
 
 #else
@@ -4920,4 +4955,3 @@ g_type_ensure (GType type)
   if (G_UNLIKELY (type == (GType)-1))
     g_error ("can't happen");
 }
-

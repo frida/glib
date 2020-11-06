@@ -22,7 +22,9 @@
 
 /* For the #GDesktopAppInfoLookup macros; since macro deprecation is implemented
  * in the preprocessor, we need to define this before including glib.h*/
+#ifndef GLIB_DISABLE_DEPRECATION_WARNINGS
 #define GLIB_DISABLE_DEPRECATION_WARNINGS
+#endif
 
 #include <string.h>
 
@@ -444,7 +446,7 @@ is_valid_module_name (const gchar        *basename,
  *
  * This may not actually load and initialize all the types in each
  * module, some modules may be lazily loaded and initialized when
- * an extension point it implementes is used with e.g.
+ * an extension point it implements is used with e.g.
  * g_io_extension_point_get_extensions() or
  * g_io_extension_point_get_extension_by_name().
  *
@@ -462,7 +464,7 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
   GDir *dir;
   GStatBuf statbuf;
   char *data;
-  time_t cache_mtime;
+  time_t cache_time;
   GHashTable *cache;
 
   if (!g_module_supported ())
@@ -477,21 +479,24 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
   cache = g_hash_table_new_full (g_str_hash, g_str_equal,
 				 g_free, (GDestroyNotify)g_strfreev);
 
-  cache_mtime = 0;
+  cache_time = 0;
   if (g_stat (filename, &statbuf) == 0 &&
       g_file_get_contents (filename, &data, NULL, NULL))
     {
       char **lines;
       int i;
 
-      /* Cache mtime is the time the cache file was created, any file
-       * that has a ctime before this was created then and not modified
-       * since then (userspace can't change ctime). Its possible to change
-       * the ctime forward without changing the file content, by e.g.
-       * chmoding the file, but this is uncommon and will only cause us
-       * to not use the cache so will not cause bugs.
+      /* cache_time is the time the cache file was created; we also take
+       * into account the change time because in ostree based systems, all
+       * system file have mtime equal to epoch 0.
+       *
+       * Any file that has a ctime before this was created then and not modified
+       * since then (userspace can't change ctime). Its possible to change the
+       * ctime forward without changing the file content, by e.g.  chmoding the
+       * file, but this is uncommon and will only cause us to not use the cache
+       * so will not cause bugs.
        */
-      cache_mtime = statbuf.st_mtime;
+      cache_time = MAX(statbuf.st_mtime, statbuf.st_ctime);
 
       lines = g_strsplit (data, "\n", -1);
       g_free (data);
@@ -539,7 +544,7 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
 	  extension_points = g_hash_table_lookup (cache, name);
 	  if (extension_points != NULL &&
 	      g_stat (path, &statbuf) == 0 &&
-	      statbuf.st_ctime <= cache_mtime)
+	      statbuf.st_ctime <= cache_time)
 	    {
 	      /* Lazy load/init the library when first required */
 	      for (i = 0; extension_points[i] != NULL; i++)
@@ -586,7 +591,7 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
  *
  * This may not actually load and initialize all the types in each
  * module, some modules may be lazily loaded and initialized when
- * an extension point it implementes is used with e.g.
+ * an extension point it implements is used with e.g.
  * g_io_extension_point_get_extensions() or
  * g_io_extension_point_get_extension_by_name().
  *
@@ -859,6 +864,11 @@ try_implementation (const char           *extension_point,
       if (impl)
         return impl;
 
+      g_debug ("Failed to initialize %s (%s) for %s: %s",
+               g_io_extension_get_name (extension),
+               g_type_name (type),
+               extension_point,
+               error ? error->message : "");
       g_clear_error (&error);
       return NULL;
     }
@@ -938,6 +948,9 @@ _g_io_module_get_default (const gchar         *extension_point,
 
   if (!ep)
     {
+      g_debug ("%s: Failed to find extension point ‘%s’",
+               G_STRFUNC, extension_point);
+      g_warn_if_reached ();
       g_rec_mutex_unlock (&default_modules_lock);
       return NULL;
     }
@@ -987,7 +1000,13 @@ _g_io_module_get_default (const gchar         *extension_point,
   if (impl != NULL)
     {
       g_assert (extension != NULL);
+      g_debug ("%s: Found default implementation %s (%s) for ‘%s’",
+               G_STRFUNC, g_io_extension_get_name (extension),
+               G_OBJECT_TYPE_NAME (impl), extension_point);
     }
+  else
+    g_debug ("%s: Failed to find default implementation for ‘%s’",
+             G_STRFUNC, extension_point);
 
   return impl;
 }
@@ -1127,8 +1146,6 @@ _g_io_modules_ensure_extension_points_registered (void)
   G_UNLOCK (registered_extensions);
 }
 
-#ifndef GLIB_STATIC_COMPILATION
-
 static gchar *
 get_gio_module_dir (void)
 {
@@ -1153,17 +1170,12 @@ get_gio_module_dir (void)
   return module_dir;
 }
 
-#endif /* !GLIB_STATIC_COMPILATION */
-
 void
 _g_io_modules_ensure_loaded (void)
 {
   static gboolean loaded_dirs = FALSE;
-#ifndef GLIB_STATIC_COMPILATION
   const char *module_path;
-  gchar *module_dir;
   GIOModuleScope *scope;
-#endif
 
   _g_io_modules_ensure_extension_points_registered ();
   
@@ -1171,9 +1183,9 @@ _g_io_modules_ensure_loaded (void)
 
   if (!loaded_dirs)
     {
-      loaded_dirs = TRUE;
+      gchar *module_dir;
 
-#ifndef GLIB_STATIC_COMPILATION
+      loaded_dirs = TRUE;
       scope = g_io_module_scope_new (G_IO_MODULE_SCOPE_BLOCK_DUPLICATES);
 
       /* First load any overrides, extras */
@@ -1200,13 +1212,12 @@ _g_io_modules_ensure_loaded (void)
       g_free (module_dir);
 
       g_io_module_scope_free (scope);
-#endif
 
       /* Initialize types from built-in "modules" */
       g_type_ensure (g_null_settings_backend_get_type ());
       g_type_ensure (g_memory_settings_backend_get_type ());
       g_type_ensure (g_keyfile_settings_backend_get_type ());
-#if defined(__linux__)
+#if defined(HAVE_INOTIFY_INIT1)
       g_type_ensure (g_inotify_file_monitor_get_type ());
 #endif
 #if defined(HAVE_KQUEUE)
@@ -1254,7 +1265,7 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (_g_network_monitor_netlink_get_type ());
       g_type_ensure (_g_network_monitor_nm_get_type ());
 #endif
-#if defined(G_OS_WIN32) && _WIN32_WINNT >= 0x0600
+#ifdef G_OS_WIN32
       g_type_ensure (_g_win32_network_monitor_get_type ());
 #endif
     }

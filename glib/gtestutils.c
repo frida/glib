@@ -660,6 +660,24 @@
  */
 
 /**
+ * g_assert_no_errno:
+ * @expr: the expression to check
+ *
+ * Debugging macro to check that an expression has a non-negative return value,
+ * as used by traditional POSIX functions (such as `rmdir()`) to indicate
+ * success.
+ *
+ * If the assertion fails (i.e. the @expr returns a negative value), an error
+ * message is logged and the testcase is marked as failed. The error message
+ * will contain the value of `errno` and its human-readable message from
+ * g_strerror().
+ *
+ * This macro will clear the value of `errno` before executing @expr.
+ *
+ * Since: 2.66
+ */
+
+/**
  * g_assert_cmpmem:
  * @m1: (nullable): pointer to a buffer
  * @l1: length of @m1
@@ -794,12 +812,7 @@ static void     gtest_default_log_handler       (const gchar    *log_domain,
                                                  GLogLevelFlags  log_level,
                                                  const gchar    *message,
                                                  gpointer        unused_data);
-static void     g_default_assertion_handler     (const char     *domain,
-                                                 const char     *file,
-                                                 int             line,
-                                                 const char     *func,
-                                                 const char     *message,
-                                                 gpointer       user_data);
+
 
 static const char * const g_test_result_names[] = {
   "OK",
@@ -860,8 +873,6 @@ static GTestConfig mutable_test_config_vars = {
 };
 const GTestConfig * const g_test_config_vars = &mutable_test_config_vars;
 static gboolean  no_g_set_prgname = FALSE;
-static GAssertionFunc assertion_handler = g_default_assertion_handler;
-static gpointer assertion_handler_data = NULL;
 
 /* --- functions --- */
 const char*
@@ -1519,7 +1530,10 @@ void
 
           test_prgname = g_path_get_basename (g_get_prgname ());
           if (*test_prgname == '\0')
-            test_prgname = g_strdup ("unknown");
+            {
+              g_free (test_prgname);
+              test_prgname = g_strdup ("unknown");
+            }
           tmpl = g_strdup_printf ("test_%s_XXXXXX", test_prgname);
           g_free (test_prgname);
 
@@ -2078,8 +2092,11 @@ g_test_run (void)
  * @data_test:     (scope async): the actual test function
  * @data_teardown: (scope async): the function to teardown the fixture data
  *
- * Create a new #GTestCase, named @test_name, this API is fairly
- * low level, calling g_test_add() or g_test_add_func() is preferable.
+ * Create a new #GTestCase, named @test_name.
+ *
+ * This API is fairly low level, and calling g_test_add() or g_test_add_func()
+ * is preferable.
+ *
  * When this test is executed, a fixture structure of size @data_size
  * will be automatically allocated and filled with zeros. Then @data_setup is
  * called to initialize the fixture. After fixture setup, the actual test
@@ -2088,10 +2105,10 @@ g_test_run (void)
  * after that the memory is automatically released by the test framework.
  *
  * Splitting up a test run into fixture setup, test function and
- * fixture teardown is most useful if the same fixture is used for
+ * fixture teardown is most useful if the same fixture type is used for
  * multiple tests. In this cases, g_test_create_case() will be
- * called with the same fixture, but varying @test_name and
- * @data_test arguments.
+ * called with the same type of fixture (the @data_size argument), but varying
+ * @test_name and @data_test arguments.
  *
  * Returns: a newly allocated #GTestCase.
  *
@@ -2316,16 +2333,14 @@ g_test_failed (void)
 /**
  * g_test_set_nonfatal_assertions:
  *
- * Changes the behaviour of g_assert_cmpstr(), g_assert_cmpint(),
- * g_assert_cmpuint(), g_assert_cmphex(), g_assert_cmpfloat(),
- * g_assert_true(), g_assert_false(), g_assert_null(), g_assert_no_error(),
- * g_assert_error(), g_test_assert_expected_messages() and the various
- * g_test_trap_assert_*() macros to not abort to program, but instead
+ * Changes the behaviour of the various `g_assert_*()` macros,
+ * g_test_assert_expected_messages() and the various
+ * `g_test_trap_assert_*()` macros to not abort to program, but instead
  * call g_test_fail() and continue. (This also changes the behavior of
  * g_test_fail() so that it will not cause the test program to abort
  * after completing the failed test.)
  *
- * Note that the g_assert_not_reached() and g_assert() are not
+ * Note that the g_assert_not_reached() and g_assert() macros are not
  * affected by this.
  *
  * This function can only be called after g_test_init().
@@ -2867,20 +2882,11 @@ gtest_default_log_handler (const gchar    *log_domain,
 }
 
 void
-g_assertion_set_handler (GAssertionFunc handler,
-                         gpointer user_data)
-{
-  assertion_handler_data = user_data;
-  assertion_handler = handler;
-}
-
-static void
-g_default_assertion_handler (const char     *domain,
-                             const char     *file,
-                             int             line,
-                             const char     *func,
-                             const char     *message,
-                             gpointer       user_data)
+g_assertion_message (const char     *domain,
+                     const char     *file,
+                     int             line,
+                     const char     *func,
+                     const char     *message)
 {
   char lstr[32];
   char *s;
@@ -2910,8 +2916,13 @@ g_default_assertion_handler (const char     *domain,
 
   /* store assertion message in global variable, so that it can be found in a
    * core dump */
-  g_free (__glib_assert_msg);
-  __glib_assert_msg = s;
+  if (__glib_assert_msg != NULL)
+    /* free the old one */
+    free (__glib_assert_msg);
+  __glib_assert_msg = (char*) malloc (strlen (s) + 1);
+  strcpy (__glib_assert_msg, s);
+
+  g_free (s);
 
   if (test_in_subprocess)
     {
@@ -2936,16 +2947,6 @@ g_default_assertion_handler (const char     *domain,
  * Internal function used to print messages from the public g_assert() and
  * g_assert_not_reached() macros.
  */
-void
-g_assertion_message (const char     *domain,
-                     const char     *file,
-                     int             line,
-                     const char     *func,
-                     const char     *message)
-{
-  assertion_handler (domain, file, line, func, message, assertion_handler_data);
-}
-
 void
 g_assertion_message_expr (const char     *domain,
                           const char     *file,
@@ -3088,7 +3089,7 @@ test_trap_clear (void)
 #ifdef G_OS_UNIX
 
 static int
-sane_dup2 (int fd1,
+safe_dup2 (int fd1,
            int fd2)
 {
   int ret;
@@ -3340,7 +3341,7 @@ g_test_trap_fork (guint64        usec_timeout,
           if (fd0 < 0)
             g_error ("failed to open /dev/null for stdin redirection");
         }
-      if (sane_dup2 (stdout_pipe[1], 1) < 0 || sane_dup2 (stderr_pipe[1], 2) < 0 || (fd0 >= 0 && sane_dup2 (fd0, 0) < 0))
+      if (safe_dup2 (stdout_pipe[1], 1) < 0 || safe_dup2 (stderr_pipe[1], 2) < 0 || (fd0 >= 0 && safe_dup2 (fd0, 0) < 0))
         {
           errsv = errno;
           g_error ("failed to dup2() in forked test program: %s", g_strerror (errsv));

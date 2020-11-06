@@ -54,11 +54,11 @@
 #include <windows.h>
 #endif /* G_OS_WIN32 */
 
-#include "gqueue.h"
 #include "gslice.h"
 #include "gstrfuncs.h"
 #include "gtestutils.h"
 #include "glib_trace.h"
+#include "gtrace-private.h"
 
 /**
  * SECTION:threads
@@ -631,13 +631,25 @@ g_once_impl (GOnce       *once,
 
   if (once->status != G_ONCE_STATUS_READY)
     {
+      gpointer retval;
+
       once->status = G_ONCE_STATUS_PROGRESS;
       g_mutex_unlock (&g_once_mutex);
 
-      once->retval = func (arg);
+      retval = func (arg);
 
       g_mutex_lock (&g_once_mutex);
+/* We prefer the new C11-style atomic extension of GCC if available. If not,
+ * fall back to always locking. */
+#if defined(G_ATOMIC_LOCK_FREE) && defined(__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4) && defined(__ATOMIC_SEQ_CST)
+      /* Only the second store needs to be atomic, as the two writes are related
+       * by a happens-before relationship here. */
+      once->retval = retval;
+      __atomic_store_n (&once->status, G_ONCE_STATUS_READY, __ATOMIC_RELEASE);
+#else
+      once->retval = retval;
       once->status = G_ONCE_STATUS_READY;
+#endif
       g_cond_broadcast (&g_once_cond);
     }
 
@@ -732,217 +744,7 @@ void
   g_mutex_unlock (&g_once_mutex);
 }
 
-/* GThreadCallbacks {{{1 -------------------------------------------------------- */
-
-static void
-g_thread_on_thread_init (void)
-{
-}
-
-static void
-g_thread_on_thread_realize (void)
-{
-}
-
-static void
-g_thread_on_thread_dispose (void)
-{
-}
-
-static void
-g_thread_on_thread_finalize (void)
-{
-}
-
-static gboolean callbacks_set = FALSE;
-static GThreadCallbacks callbacks_storage = {
-  g_thread_on_thread_init,
-  g_thread_on_thread_realize,
-  g_thread_on_thread_dispose,
-  g_thread_on_thread_finalize,
-};
-GThreadCallbacks *glib_thread_callbacks = &callbacks_storage;
-
-/**
- * g_thread_set_callbacks:
- * @callbacks: callbacks for keeping track of threads.
- *
- * Sets the #GThreadCallbacks to use for getting notified of GLib thread
- * lifetime events. You can use this to instrument your application's threading.
- *
- * Note that this function must be called before using any other GLib
- * functions.
- */
-void
-g_thread_set_callbacks (GThreadCallbacks *callbacks)
-{
-  if (!callbacks_set)
-    {
-      if (callbacks->on_thread_init &&
-          callbacks->on_thread_realize &&
-          callbacks->on_thread_dispose &&
-          callbacks->on_thread_finalize)
-        {
-          callbacks_storage.on_thread_init = callbacks->on_thread_init;
-          callbacks_storage.on_thread_realize = callbacks->on_thread_realize;
-          callbacks_storage.on_thread_dispose = callbacks->on_thread_dispose;
-          callbacks_storage.on_thread_finalize = callbacks->on_thread_finalize;
-          callbacks_set = TRUE;
-        }
-      else
-        g_warning (G_STRLOC ": thread callbacks are incomplete");
-    }
-  else
-    g_warning (G_STRLOC ": thread callbacks can only be set once at startup");
-}
-
 /* GThread {{{1 -------------------------------------------------------- */
-
-typedef struct _GThreadCleanupItem GThreadCleanupItem;
-
-struct _GThreadCleanupItem
-{
-  GDestroyNotify notify;
-  gpointer       data;
-  GPrivateFlags  flags;
-};
-
-G_LOCK_DEFINE_STATIC (g_thread_gc);
-static GThreadGarbageHandler g_thread_gc_handler = NULL;
-static gpointer              g_thread_gc_user_data = NULL;
-static GQueue                g_thread_gc_pending = G_QUEUE_INIT;
-
-void
-g_thread_set_garbage_handler (GThreadGarbageHandler handler,
-                              gpointer user_data)
-{
-  g_thread_gc_handler = handler;
-  g_thread_gc_user_data = user_data;
-}
-
-gboolean
-g_thread_garbage_collect (void)
-{
-  gboolean collected_everything = TRUE;
-  GList *l;
-
-  G_LOCK (g_thread_gc);
-
-  l = g_thread_gc_pending.head;
-  while (l != NULL)
-    {
-      GRealThread *thread = l->data;
-
-      if (g_thread_lifetime_beacon_check (thread->lifetime_beacon))
-        {
-          g_queue_delete_link (&g_thread_gc_pending, l);
-          G_UNLOCK (g_thread_gc);
-
-          g_thread_perform_cleanup (thread);
-
-          G_LOCK (g_thread_gc);
-          l = g_thread_gc_pending.head;
-        }
-      else
-        {
-          collected_everything = FALSE;
-          l = l->next;
-        }
-    }
-
-  G_UNLOCK (g_thread_gc);
-
-  return collected_everything;
-}
-
-void
-g_thread_perform_cleanup (gpointer data)
-{
-  GRealThread *thread = data;
-  GThreadCleanupItem *items;
-  guint num_items, i;
-
-  {
-    GHashTableIter iter;
-    GPrivate *key;
-    gpointer value;
-
-    num_items = g_hash_table_size (thread->pending_garbage);
-    items = glib_mem_table->malloc (num_items * sizeof (GThreadCleanupItem));
-
-    g_hash_table_iter_init (&iter, thread->pending_garbage);
-    i = 0;
-    while (g_hash_table_iter_next (&iter, (gpointer *) &key, &value))
-      {
-        GThreadCleanupItem *item = &items[i];
-        item->notify = key->notify;
-        item->data = value;
-        item->flags = key->flags;
-        i++;
-      }
-
-    g_hash_table_remove_all (thread->pending_garbage);
-  }
-
-  for (i = 0; i != num_items; i++)
-    {
-      GThreadCleanupItem *item = &items[i];
-      if (!(item->flags & (G_PRIVATE_DESTROY_LATE | G_PRIVATE_DESTROY_LAST)))
-        item->notify (item->data);
-    }
-
-  for (i = 0; i != num_items; i++)
-    {
-      GThreadCleanupItem *item = &items[i];
-      if (item->flags & G_PRIVATE_DESTROY_LATE)
-        item->notify (item->data);
-    }
-
-  for (i = 0; i != num_items; i++)
-    {
-      GThreadCleanupItem *item = &items[i];
-      if (item->flags & G_PRIVATE_DESTROY_LAST)
-        item->notify (item->data);
-    }
-
-  glib_mem_table->free (items);
-}
-
-void
-g_thread_schedule_cleanup (gpointer data)
-{
-  GRealThread *thread = data;
-
-  glib_thread_callbacks->on_thread_dispose ();
-
-  thread->lifetime_beacon = g_thread_lifetime_beacon_new ();
-
-  G_LOCK (g_thread_gc);
-  g_queue_push_tail (&g_thread_gc_pending, thread);
-  G_UNLOCK (g_thread_gc);
-
-  if (g_thread_gc_handler != NULL)
-    g_thread_gc_handler (g_thread_gc_user_data);
-
-  glib_thread_callbacks->on_thread_finalize ();
-}
-
-void
-g_thread_private_destroy_later (GPrivate *key,
-                                gpointer  value)
-{
-  GRealThread *thread;
-
-  if (key->notify == NULL)
-    return;
-
-  thread = (GRealThread *) g_thread_self ();
-
-  if (value != NULL)
-    g_hash_table_insert (thread->pending_garbage, key, value);
-  else
-    g_hash_table_remove (thread->pending_garbage, key);
-}
 
 /**
  * g_thread_ref:
@@ -950,7 +752,7 @@ g_thread_private_destroy_later (GPrivate *key,
  *
  * Increase the reference count on @thread.
  *
- * Returns: a new reference to @thread
+ * Returns: (transfer full): a new reference to @thread
  *
  * Since: 2.32
  */
@@ -966,7 +768,7 @@ g_thread_ref (GThread *thread)
 
 /**
  * g_thread_unref:
- * @thread: a #GThread
+ * @thread: (transfer full): a #GThread
  *
  * Decrease the reference count on @thread, possibly freeing all
  * resources associated with it.
@@ -984,9 +786,6 @@ g_thread_unref (GThread *thread)
 
   if (g_atomic_int_dec_and_test (&real->ref_count))
     {
-      g_hash_table_unref (real->pending_garbage);
-      g_clear_pointer (&real->lifetime_beacon, g_thread_lifetime_beacon_free);
-
       if (real->ours)
         g_system_thread_free (real);
       else
@@ -1006,10 +805,6 @@ g_thread_proxy (gpointer data)
   GRealThread* thread = data;
 
   g_assert (data);
-
-  glib_thread_callbacks->on_thread_init ();
-
-  /* This has to happen before G_LOCK, as that might call g_thread_self */
   g_private_set (&g_thread_specific_private, data);
 
   TRACE (GLIB_THREAD_SPAWNED (thread->thread.func, thread->thread.data,
@@ -1021,8 +816,6 @@ g_thread_proxy (gpointer data)
       g_free (thread->name);
       thread->name = NULL;
     }
-
-  glib_thread_callbacks->on_thread_realize ();
 
   thread->retval = thread->thread.func (thread->thread.data);
 
@@ -1038,8 +831,8 @@ g_thread_n_created (void)
 /**
  * g_thread_new:
  * @name: (nullable): an (optional) name for the new thread
- * @func: a function to execute in the new thread
- * @data: an argument to supply to the new thread
+ * @func: (closure data) (scope async): a function to execute in the new thread
+ * @data: (nullable): an argument to supply to the new thread
  *
  * This function creates a new thread. The new thread starts by invoking
  * @func with the argument data. The thread will run until @func returns
@@ -1069,7 +862,7 @@ g_thread_n_created (void)
  * Starting with GLib 2.64 the behaviour is now consistent between Windows and
  * POSIX and all threads inherit their parent thread's priority.
  *
- * Returns: the new #GThread
+ * Returns: (transfer full): the new #GThread
  *
  * Since: 2.32
  */
@@ -1092,8 +885,8 @@ g_thread_new (const gchar *name,
 /**
  * g_thread_try_new:
  * @name: (nullable): an (optional) name for the new thread
- * @func: a function to execute in the new thread
- * @data: an argument to supply to the new thread
+ * @func: (closure data) (scope async): a function to execute in the new thread
+ * @data: (nullable): an argument to supply to the new thread
  * @error: return location for error, or %NULL
  *
  * This function is the same as g_thread_new() except that
@@ -1102,7 +895,7 @@ g_thread_new (const gchar *name,
  * If a thread can not be created (due to resource limits),
  * @error is set and %NULL is returned.
  *
- * Returns: the new #GThread, or %NULL if an error occurred
+ * Returns: (transfer full): the new #GThread, or %NULL if an error occurred
  *
  * Since: 2.32
  */
@@ -1124,20 +917,13 @@ g_thread_new_internal (const gchar *name,
                        const GThreadSchedulerSettings *scheduler_settings,
                        GError **error)
 {
-  GThread *thread;
-
   g_return_val_if_fail (func != NULL, NULL);
 
   g_atomic_int_inc (&g_thread_n_created_counter);
 
-  thread = (GThread *) g_system_thread_new (proxy, stack_size,
-                                            scheduler_settings, name, func,
-                                            data, error);
-
-  if (g_thread_gc_handler == NULL)
-    g_thread_garbage_collect ();
-
-  return thread;
+  g_trace_mark (G_TRACE_CURRENT_TIME, 0, "GLib", "GThread created", "%s", name ? name : "(unnamed)");
+  return (GThread *) g_system_thread_new (proxy, stack_size, scheduler_settings,
+                                          name, func, data, error);
 }
 
 gboolean
@@ -1181,7 +967,7 @@ g_thread_exit (gpointer retval)
 
 /**
  * g_thread_join:
- * @thread: a #GThread
+ * @thread: (transfer full): a #GThread
  *
  * Waits until @thread finishes, i.e. the function @func, as
  * given to g_thread_new(), returns or g_thread_exit() is called.
@@ -1200,7 +986,7 @@ g_thread_exit (gpointer retval)
  * to be freed. Use g_thread_ref() to obtain an extra reference if you
  * want to keep the GThread alive beyond the g_thread_join() call.
  *
- * Returns: the return value of the thread
+ * Returns: (transfer full): the return value of the thread
  */
 gpointer
 g_thread_join (GThread *thread)
@@ -1236,7 +1022,7 @@ g_thread_join (GThread *thread)
  * (i.e. comparisons) but you must not use GLib functions (such
  * as g_thread_join()) on these threads.
  *
- * Returns: the #GThread representing the current thread
+ * Returns: (transfer none): the #GThread representing the current thread
  */
 GThread*
 g_thread_self (void)
@@ -1251,12 +1037,8 @@ g_thread_self (void)
        */
       thread = g_slice_new0 (GRealThread);
       thread->ref_count = 1;
-      thread->pending_garbage = g_hash_table_new (NULL, NULL);
 
       g_private_set (&g_thread_specific_private, thread);
-
-      if (g_thread_gc_handler == NULL)
-        g_thread_garbage_collect ();
     }
 
   return (GThread*) thread;

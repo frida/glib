@@ -659,7 +659,7 @@ g_closure_unref (GClosure *closure)
  * g_source_set_closure (source, g_cclosure_new (cb_func, cb_data));
  * ]|
  *
- * Generally, this function is used together with g_closure_ref(). Ane example
+ * Generally, this function is used together with g_closure_ref(). An example
  * of storing a closure for later notification looks like:
  * |[<!-- language="C" --> 
  * static GClosure *notify_closure = NULL;
@@ -690,7 +690,7 @@ g_closure_sink (GClosure *closure)
   /* floating is basically a kludge to avoid creating closures
    * with a ref_count of 0. so the initial ref_count a closure has
    * is unowned. with invoking g_closure_sink() code may
-   * indicate that it takes over that intiial ref_count.
+   * indicate that it takes over that initial ref_count.
    */
   if (closure->floating)
     {
@@ -1258,8 +1258,12 @@ static void
 value_from_ffi_type (GValue *gvalue, gpointer *value)
 {
   ffi_arg *int_val = (ffi_arg*) value;
+  GType type;
 
-  switch (g_type_fundamental (G_VALUE_TYPE (gvalue)))
+  type = G_VALUE_TYPE (gvalue);
+
+restart:
+  switch (g_type_fundamental (type))
     {
     case G_TYPE_INT:
       g_value_set_int (gvalue, (gint) *int_val);
@@ -1318,9 +1322,15 @@ value_from_ffi_type (GValue *gvalue, gpointer *value)
     case G_TYPE_VARIANT:
       g_value_take_variant (gvalue, *(gpointer*)value);
       break;
+    case G_TYPE_INTERFACE:
+      type = g_type_interface_instantiatable_prerequisite (type);
+      if (type)
+        goto restart;
+      G_GNUC_FALLTHROUGH;
     default:
-      g_warning ("value_from_ffi_type: Unsupported fundamental type: %s",
-                g_type_name (g_type_fundamental (G_VALUE_TYPE (gvalue))));
+      g_warning ("value_from_ffi_type: Unsupported fundamental type %s for type %s",
+                 g_type_name (g_type_fundamental (G_VALUE_TYPE (gvalue))),
+                 g_type_name (G_VALUE_TYPE (gvalue)));
     }
 }
 

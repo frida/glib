@@ -45,6 +45,8 @@ G_BEGIN_DECLS
  * A set of functions used to perform memory allocation. The same #GMemVTable must
  * be used for all allocations in the same program; a call to g_mem_set_vtable(),
  * if it exists, should be prior to any use of GLib.
+ *
+ * This functions related to this has been deprecated in 2.46, and no longer work.
  */
 typedef struct _GMemVTable GMemVTable;
 
@@ -108,16 +110,18 @@ gpointer g_try_realloc_n  (gpointer	 mem,
 			   gsize	 n_blocks,
 			   gsize	 n_block_bytes) G_GNUC_WARN_UNUSED_RESULT;
 
-#if defined(g_has_typeof) && GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_58
-#define g_clear_pointer(pp, destroy)                                           \
-  G_STMT_START {                                                               \
-    G_STATIC_ASSERT (sizeof *(pp) == sizeof (gpointer));                       \
-    __typeof__((pp)) _pp = (pp);                                               \
-    __typeof__(*(pp)) _ptr = *_pp;                                             \
-    *_pp = NULL;                                                               \
-    if (_ptr)                                                                  \
-      (destroy) (_ptr);                                                        \
-  } G_STMT_END                                                                 \
+#if defined(glib_typeof) && GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_58
+#define g_clear_pointer(pp, destroy)                     \
+  G_STMT_START                                           \
+  {                                                      \
+    G_STATIC_ASSERT (sizeof *(pp) == sizeof (gpointer)); \
+    glib_typeof ((pp)) _pp = (pp);                       \
+    glib_typeof (*(pp)) _ptr = *_pp;                     \
+    *_pp = NULL;                                         \
+    if (_ptr)                                            \
+      (destroy) (_ptr);                                  \
+  }                                                      \
+  G_STMT_END                                             \
   GLIB_AVAILABLE_MACRO_IN_2_34
 #else /* __GNUC__ */
 #define g_clear_pointer(pp, destroy) \
@@ -195,6 +199,7 @@ gpointer g_try_realloc_n  (gpointer	 mem,
  *
  * Since: 2.44
  */
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_44
 static inline gpointer
 g_steal_pointer (gpointer pp)
 {
@@ -208,8 +213,8 @@ g_steal_pointer (gpointer pp)
 }
 
 /* type safety */
-#if defined(__GNUC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)) && !defined(__cplusplus) && GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_58
-#define g_steal_pointer(pp) ((__typeof__(*pp)) (g_steal_pointer) (pp))
+#if defined(glib_typeof) && GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_58
+#define g_steal_pointer(pp) ((glib_typeof (*pp)) (g_steal_pointer) (pp))
 #else  /* __GNUC__ */
 /* This version does not depend on gcc extensions, but gcc does not warn
  * about incompatible-pointer-types: */
@@ -364,9 +369,6 @@ struct _GMemVTable {
   gpointer (*malloc)      (gsize    n_bytes);
   gpointer (*realloc)     (gpointer mem,
 			   gsize    n_bytes);
-  /* optional; set to NULL if not supported */
-  gpointer (*memalign)    (gsize    alignment,
-			   gsize    size);
   void     (*free)        (gpointer mem);
   /* optional; set to NULL if not used ! */
   gpointer (*calloc)      (gsize    n_blocks,
@@ -375,10 +377,9 @@ struct _GMemVTable {
   gpointer (*try_realloc) (gpointer mem,
 			   gsize    n_bytes);
 };
-GLIB_VAR GMemVTable	*glib_mem_table;
-GLIB_AVAILABLE_IN_ALL
+GLIB_DEPRECATED_IN_2_46
 void	 g_mem_set_vtable (GMemVTable	*vtable);
-GLIB_AVAILABLE_IN_ALL
+GLIB_DEPRECATED_IN_2_46
 gboolean g_mem_is_system_malloc (void);
 
 GLIB_VAR gboolean g_mem_gc_friendly;

@@ -187,6 +187,7 @@ lookup_by_name (GResolver     *resolver,
   data = lookup_data_new (hostname, AF_UNSPEC);
   task = g_task_new (resolver, cancellable, NULL, NULL);
   g_task_set_source_tag (task, lookup_by_name);
+  g_task_set_name (task, "[gio] resolver lookup");
   g_task_set_task_data (task, data, (GDestroyNotify)lookup_data_free);
   g_task_set_return_on_cancel (task, TRUE);
   g_task_run_in_thread_sync (task, do_lookup_by_name);
@@ -228,6 +229,7 @@ lookup_by_name_with_flags (GResolver                 *resolver,
   data = lookup_data_new (hostname, AF_UNSPEC);
   task = g_task_new (resolver, cancellable, NULL, NULL);
   g_task_set_source_tag (task, lookup_by_name_with_flags);
+  g_task_set_name (task, "[gio] resolver lookup");
   g_task_set_task_data (task, data, (GDestroyNotify)lookup_data_free);
   g_task_set_return_on_cancel (task, TRUE);
   g_task_run_in_thread_sync (task, do_lookup_by_name);
@@ -251,6 +253,7 @@ lookup_by_name_with_flags_async (GResolver                *resolver,
   data = lookup_data_new (hostname, flags_to_family (flags));
   task = g_task_new (resolver, cancellable, callback, user_data);
   g_task_set_source_tag (task, lookup_by_name_with_flags_async);
+  g_task_set_name (task, "[gio] resolver lookup");
   g_task_set_task_data (task, data, (GDestroyNotify)lookup_data_free);
   g_task_set_return_on_cancel (task, TRUE);
   g_task_run_in_thread (task, do_lookup_by_name);
@@ -350,6 +353,7 @@ lookup_by_address (GResolver        *resolver,
 
   task = g_task_new (resolver, cancellable, NULL, NULL);
   g_task_set_source_tag (task, lookup_by_address);
+  g_task_set_name (task, "[gio] resolver lookup");
   g_task_set_task_data (task, g_object_ref (address), g_object_unref);
   g_task_set_return_on_cancel (task, TRUE);
   g_task_run_in_thread_sync (task, do_lookup_by_address);
@@ -370,6 +374,7 @@ lookup_by_address_async (GResolver           *resolver,
 
   task = g_task_new (resolver, cancellable, callback, user_data);
   g_task_set_source_tag (task, lookup_by_address_async);
+  g_task_set_name (task, "[gio] resolver lookup");
   g_task_set_task_data (task, g_object_ref (address), g_object_unref);
   g_task_set_return_on_cancel (task, TRUE);
   g_task_run_in_thread (task, do_lookup_by_address);
@@ -398,7 +403,7 @@ typedef struct {
 			/* fields in third byte */
 	unsigned	qr: 1;		/* response flag */
 	unsigned	opcode: 4;	/* purpose of message */
-	unsigned	aa: 1;		/* authoritive answer */
+	unsigned	aa: 1;		/* authoritative answer */
 	unsigned	tc: 1;		/* truncated message */
 	unsigned	rd: 1;		/* recursion desired */
 			/* fields in fourth byte */
@@ -412,7 +417,7 @@ typedef struct {
 			/* fields in third byte */
 	unsigned	rd :1;		/* recursion desired */
 	unsigned	tc :1;		/* truncated message */
-	unsigned	aa :1;		/* authoritive answer */
+	unsigned	aa :1;		/* authoritative answer */
 	unsigned	opcode :4;	/* purpose of message */
 	unsigned	qr :1;		/* response flag */
 			/* fields in fourth byte */
@@ -508,7 +513,7 @@ typedef enum __ns_type {
 	ns_t_cert = 37,		/* Certification record */
 	ns_t_a6 = 38,		/* IPv6 address (deprecates AAAA) */
 	ns_t_dname = 39,	/* Non-terminal DNAME (for IPv6) */
-	ns_t_sink = 40,		/* Kitchen sink (experimentatl) */
+	ns_t_sink = 40,		/* Kitchen sink (experimental) */
 	ns_t_opt = 41,		/* EDNS0 option (meta-RR) */
 	ns_t_apl = 42,		/* Address prefix list (RFC 3123) */
 	ns_t_tkey = 249,	/* Transaction key */
@@ -615,7 +620,7 @@ parse_res_txt (guchar  *answer,
   while (at < end)
     {
       len = *(at++);
-      if (len > at - end)
+      if (len > (gsize) (end - at))
         break;
       g_ptr_array_add (array, g_strndup ((gchar *)at, len));
       at += len;
@@ -1040,6 +1045,7 @@ lookup_records (GResolver              *resolver,
 
   task = g_task_new (resolver, cancellable, NULL, NULL);
   g_task_set_source_tag (task, lookup_records);
+  g_task_set_name (task, "[gio] resolver lookup records");
 
   lrd = g_slice_new (LookupRecordsData);
   lrd->rrname = g_strdup (rrname);
@@ -1067,6 +1073,7 @@ lookup_records_async (GResolver           *resolver,
 
   task = g_task_new (resolver, cancellable, callback, user_data);
   g_task_set_source_tag (task, lookup_records_async);
+  g_task_set_name (task, "[gio] resolver lookup records");
 
   lrd = g_slice_new (LookupRecordsData);
   lrd->rrname = g_strdup (rrname);

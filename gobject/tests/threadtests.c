@@ -19,7 +19,11 @@
  * otherwise) arising in any way out of the use of this software, even
  * if advised of the possibility of such damage.
  */
+
+#ifndef GLIB_DISABLE_DEPRECATION_WARNINGS
 #define GLIB_DISABLE_DEPRECATION_WARNINGS
+#endif
+
 #include <glib.h>
 #include <glib-object.h>
 
@@ -94,7 +98,7 @@ tester_init_thread (gpointer data)
 {
   const GInterfaceInfo face2_interface_info = { (GInterfaceInitFunc) interface_per_class_init, NULL, NULL };
   gpointer klass;
-  /* first, syncronize with other threads,
+  /* first, synchronize with other threads,
    * then run interface and class initializers,
    * using unsafe_call_counter concurrently
    */
@@ -155,7 +159,7 @@ static void
 prop_tester_init (PropTester* t)
 {
   if (t->name == NULL)
-    ; /* neds unit test framework initialization: g_test_bug ("race initializing properties"); */
+    { } /* needs unit test framework initialization: g_test_bug ("race initializing properties"); */
 }
 static void
 prop_tester_set_property (GObject        *object,

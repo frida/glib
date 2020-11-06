@@ -62,7 +62,7 @@
  *
  * Just as in D-Bus, GVariant types are described with strings ("type
  * strings").  Subject to the differences mentioned above, these strings
- * are of the same form as those found in DBus.  Note, however: D-Bus
+ * are of the same form as those found in D-Bus.  Note, however: D-Bus
  * always works in terms of messages and therefore individual type
  * strings appear nowhere in its interface.  Instead, "signatures"
  * are a concatenation of the strings of the type of each argument in a
@@ -1120,7 +1120,7 @@ g_variant_type_new_tuple_slow (const GVariantType * const *items,
 {
   /* the "slow" version is needed in case the static buffer of 1024
    * bytes is exceeded when running the normal version.  this will
-   * happen only in truly insane code, so it can be slow.
+   * happen only with very unusually large types, so it can be slow.
    */
   GString *string;
   gint i;

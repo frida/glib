@@ -366,7 +366,7 @@ array_remove_index (gconstpointer test_data)
 {
   const ArrayTestData *config = test_data;
   GArray *garray;
-  gint i;
+  guint i;
   gint prev, cur;
 
   garray = g_array_new (config->zero_terminated, config->clear_, sizeof (gint));
@@ -403,7 +403,7 @@ array_remove_index_fast (gconstpointer test_data)
 {
   const ArrayTestData *config = test_data;
   GArray *garray;
-  gint i;
+  guint i;
   gint prev, cur;
 
   garray = g_array_new (config->zero_terminated, config->clear_, sizeof (gint));
@@ -443,7 +443,7 @@ array_remove_range (gconstpointer test_data)
 {
   const ArrayTestData *config = test_data;
   GArray *garray;
-  gint i;
+  guint i;
   gint prev, cur;
 
   garray = g_array_new (config->zero_terminated, config->clear_, sizeof (gint));
@@ -586,7 +586,7 @@ array_sort (gconstpointer test_data)
 {
   const ArrayTestData *config = test_data;
   GArray *garray;
-  gint i;
+  guint i;
   gint prev, cur;
 
   garray = g_array_new (config->zero_terminated, config->clear_, sizeof (gint));
@@ -618,7 +618,7 @@ array_sort_with_data (gconstpointer test_data)
 {
   const ArrayTestData *config = test_data;
   GArray *garray;
-  gint i;
+  guint i;
   gint prev, cur;
 
   garray = g_array_new (config->zero_terminated, config->clear_, sizeof (gint));
@@ -1298,6 +1298,8 @@ pointer_array_extend_and_steal (void)
   g_assert_cmpuint (ptr_array3->len, ==, 0);
   g_assert_null (ptr_array3->pdata);
 
+  g_ptr_array_add (ptr_array2, NULL);
+
   g_ptr_array_free (ptr_array, TRUE);
   g_ptr_array_free (ptr_array3, TRUE);
 
@@ -1857,7 +1859,7 @@ static void
 byte_array_sort (void)
 {
   GByteArray *gbarray;
-  gint i;
+  guint i;
   guint8 val;
   guint8 prev, cur;
 
@@ -1885,7 +1887,7 @@ static void
 byte_array_sort_with_data (void)
 {
   GByteArray *gbarray;
-  gint i;
+  guint i;
   guint8 val;
   guint8 prev, cur;
 
@@ -2031,4 +2033,3 @@ main (int argc, char *argv[])
 
   return g_test_run ();
 }
-

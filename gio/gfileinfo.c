@@ -830,7 +830,7 @@ _g_file_info_get_attribute_value (GFileInfo  *info,
  * @info: a #GFileInfo.
  * @attribute: a file attribute key.
  *
- * Gets the value of a attribute, formated as a string.
+ * Gets the value of a attribute, formatted as a string.
  * This escapes things as needed to make the string valid
  * UTF-8.
  *
@@ -858,8 +858,8 @@ g_file_info_get_attribute_as_string (GFileInfo  *info,
  * Gets the value of a #GObject attribute. If the attribute does
  * not contain a #GObject, %NULL will be returned.
  *
- * Returns: (transfer none): a #GObject associated with the given @attribute, or
- * %NULL otherwise.
+ * Returns: (transfer none) (nullable): a #GObject associated with the given @attribute,
+ * or %NULL otherwise.
  **/
 GObject *
 g_file_info_get_attribute_object (GFileInfo  *info,
@@ -882,8 +882,8 @@ g_file_info_get_attribute_object (GFileInfo  *info,
  * Gets the value of a string attribute. If the attribute does
  * not contain a string, %NULL will be returned.
  *
- * Returns: the contents of the @attribute value as a UTF-8 string, or
- * %NULL otherwise.
+ * Returns: (nullable): the contents of the @attribute value as a UTF-8 string,
+ * or %NULL otherwise.
  **/
 const char *
 g_file_info_get_attribute_string (GFileInfo  *info,
@@ -906,7 +906,7 @@ g_file_info_get_attribute_string (GFileInfo  *info,
  * Gets the value of a byte string attribute. If the attribute does
  * not contain a byte string, %NULL will be returned.
  *
- * Returns: the contents of the @attribute value as a byte string, or
+ * Returns: (nullable): the contents of the @attribute value as a byte string, or
  * %NULL otherwise.
  **/
 const char *
@@ -930,8 +930,8 @@ g_file_info_get_attribute_byte_string (GFileInfo  *info,
  * Gets the value of a stringv attribute. If the attribute does
  * not contain a stringv, %NULL will be returned.
  *
- * Returns: (transfer none): the contents of the @attribute value as a stringv, or
- * %NULL otherwise. Do not free. These returned strings are UTF-8.
+ * Returns: (transfer none) (nullable): the contents of the @attribute value as a stringv,
+ * or %NULL otherwise. Do not free. These returned strings are UTF-8.
  *
  * Since: 2.22
  **/
@@ -1454,7 +1454,7 @@ g_file_info_set_attribute_int64  (GFileInfo  *info,
  * available in G_FILE_ATTRIBUTE_TRASH_DELETION_DATE. If the
  * G_FILE_ATTRIBUTE_TRASH_DELETION_DATE attribute is unset, %NULL is returned.
  *
- * Returns: a #GDateTime, or %NULL.
+ * Returns: (nullable): a #GDateTime, or %NULL.
  *
  * Since: 2.36
  **/
@@ -1581,9 +1581,9 @@ g_file_info_get_is_symlink (GFileInfo *info)
  * g_file_info_get_name:
  * @info: a #GFileInfo.
  *
- * Gets the name for a file.
+ * Gets the name for a file. This is guaranteed to always be set.
  *
- * Returns: (type filename): a string containing the file name.
+ * Returns: (type filename) (not nullable): a string containing the file name.
  **/
 const char *
 g_file_info_get_name (GFileInfo *info)
@@ -1604,9 +1604,9 @@ g_file_info_get_name (GFileInfo *info)
  * g_file_info_get_display_name:
  * @info: a #GFileInfo.
  *
- * Gets a display name for a file.
+ * Gets a display name for a file. This is guaranteed to always be set.
  *
- * Returns: a string containing the display name.
+ * Returns: (not nullable): a string containing the display name.
  **/
 const char *
 g_file_info_get_display_name (GFileInfo *info)
@@ -1708,7 +1708,8 @@ g_file_info_get_symbolic_icon (GFileInfo *info)
  *
  * Gets the file's content type.
  *
- * Returns: a string containing the file's content type.
+ * Returns: (nullable): a string containing the file's content type,
+ * or %NULL if unknown.
  **/
 const char *
 g_file_info_get_content_type (GFileInfo *info)
@@ -2294,7 +2295,7 @@ struct _GFileAttributeMatcher {
 
   GArray *sub_matchers;
 
-  /* Interator */
+  /* Iterator */
   guint32 iterator_ns;
   gint iterator_pos;
 };
@@ -2728,7 +2729,7 @@ g_file_attribute_matcher_enumerate_namespace (GFileAttributeMatcher *matcher,
  *
  * Gets the next matched attribute from a #GFileAttributeMatcher.
  *
- * Returns: a string containing the next attribute or %NULL if
+ * Returns: (nullable): a string containing the next attribute or, %NULL if
  * no more attribute exist.
  **/
 const char *

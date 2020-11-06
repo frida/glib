@@ -620,7 +620,7 @@ validate_and_install_class_property (GObjectClass *class,
         class->construct_properties = g_slist_append (class->construct_properties, pspec);
 
       /* for property overrides of construct properties, we have to get rid
-       * of the overidden inherited construct property
+       * of the overridden inherited construct property
        */
       pspec = g_param_spec_pool_lookup (pspec_pool, pspec->name, parent_type, TRUE);
       if (pspec && pspec->flags & (G_PARAM_CONSTRUCT | G_PARAM_CONSTRUCT_ONLY))
@@ -1617,7 +1617,7 @@ object_interface_check_properties (gpointer check_data,
 
       /* We do a number of checks on the properties of an interface to
        * make sure that all classes implementing the interface are
-       * overriding the properties in a sane way.
+       * overriding the properties correctly.
        *
        * We do the checks in order of importance so that we can give
        * more useful error messages first.
@@ -1745,7 +1745,9 @@ g_object_get_type (void)
  * Creates a new instance of a #GObject subtype and sets its properties.
  *
  * Construction parameters (see #G_PARAM_CONSTRUCT, #G_PARAM_CONSTRUCT_ONLY)
- * which are not explicitly specified are set to their default values.
+ * which are not explicitly specified are set to their default values. Any
+ * private data for the object is guaranteed to be initialized with zeros, as
+ * per g_type_create_instance().
  *
  * Note that in C, small integer types in variable argument lists are promoted
  * up to #gint or #guint as appropriate, and read back accordingly. #gint is 32
@@ -3570,7 +3572,7 @@ g_object_get_qdata (GObject *object,
  * @data: (nullable): An opaque user data pointer
  *
  * This sets an opaque, named pointer on an object.
- * The name is specified through a #GQuark (retrived e.g. via
+ * The name is specified through a #GQuark (retrieved e.g. via
  * g_quark_from_static_string()), and the pointer
  * can be gotten back from the @object with g_object_get_qdata()
  * until the @object is finalized.
@@ -3719,7 +3721,7 @@ g_object_set_qdata_full (GObject       *object,
  * {
  *   // the quark, naming the object data
  *   GQuark quark_string_list = g_quark_from_static_string ("my-string-list");
- *   // retrive the old string list
+ *   // retrieve the old string list
  *   GList *list = g_object_steal_qdata (object, quark_string_list);
  *
  *   // prepend new string
@@ -4021,9 +4023,8 @@ g_value_object_lcopy_value (const GValue *value,
 			    guint        collect_flags)
 {
   GObject **object_p = collect_values[0].v_pointer;
-  
-  if (!object_p)
-    return g_strdup_printf ("value location for '%s' passed as NULL", G_VALUE_TYPE_NAME (value));
+
+  g_return_val_if_fail (object_p != NULL, g_strdup_printf ("value location for '%s' passed as NULL", G_VALUE_TYPE_NAME (value)));
 
   if (!value->data[0].v_pointer)
     *object_p = NULL;

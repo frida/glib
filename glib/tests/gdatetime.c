@@ -152,7 +152,7 @@ test_GDateTime_new_from_unix (void)
   g_date_time_unref (dt);
 }
 
-/* Check that trying to create a #GDateTime too far in the future reliably
+/* Check that trying to create a #GDateTime too far in the future (or past) reliably
  * fails. Previously, the checks for this overflowed and it silently returned
  * an incorrect #GDateTime. */
 static void
@@ -160,12 +160,18 @@ test_GDateTime_new_from_unix_overflow (void)
 {
   GDateTime *dt;
 
-  g_test_bug ("782089");
+  g_test_bug ("http://bugzilla.gnome.org/782089");
 
   dt = g_date_time_new_from_unix_utc (G_MAXINT64);
   g_assert_null (dt);
 
   dt = g_date_time_new_from_unix_local (G_MAXINT64);
+  g_assert_null (dt);
+
+  dt = g_date_time_new_from_unix_utc (G_MININT64);
+  g_assert_null (dt);
+
+  dt = g_date_time_new_from_unix_local (G_MININT64);
   g_assert_null (dt);
 }
 
@@ -174,7 +180,7 @@ test_GDateTime_invalid (void)
 {
   GDateTime *dt;
 
-  g_test_bug ("702674");
+  g_test_bug ("http://bugzilla.gnome.org/702674");
 
   dt = g_date_time_new_utc (2013, -2147483647, 31, 17, 15, 48);
   g_assert (dt == NULL);
@@ -435,7 +441,7 @@ test_GDateTime_new_from_timeval_overflow (void)
   GDateTime *dt;
   GTimeVal tv;
 
-  g_test_bug ("782089");
+  g_test_bug ("http://bugzilla.gnome.org/782089");
 
   tv.tv_sec = find_maximum_supported_tv_sec ();
   tv.tv_usec = G_USEC_PER_SEC - 1;
@@ -1530,6 +1536,7 @@ GDateTime *__dt = g_date_time_new_local (2009, 10, 24, 0, 0, 0);\
   TEST_PRINTF ("%d", "24");
   TEST_PRINTF_DATE (2009, 1, 1, "%d", "01");
   TEST_PRINTF ("%e", "24"); // fixme
+  TEST_PRINTF_TIME (10, 10, 1.001, "%f", "001000");
   TEST_PRINTF ("%h", "Oct");
   TEST_PRINTF ("%H", "00");
   TEST_PRINTF_TIME (15, 0, 0, "%H", "15");
@@ -1772,7 +1779,7 @@ test_month_names (void)
 {
   gchar *oldlocale;
 
-  g_test_bug ("749206");
+  g_test_bug ("http://bugzilla.gnome.org/749206");
 
   /* If running uninstalled (G_TEST_BUILDDIR is set), skip this test, since we
    * need the translations to be installed. We can’t mess around with
@@ -2114,7 +2121,7 @@ test_z (void)
   GDateTime *dt;
   gchar *p;
 
-  g_test_bug ("642935");
+  g_test_bug ("http://bugzilla.gnome.org/642935");
 
   tz = g_time_zone_new ("-08:00");
   dt = g_date_time_new (tz, 1, 1, 1, 0, 0, 0);
@@ -2186,6 +2193,43 @@ test_z (void)
 }
 
 static void
+test_6_days_until_end_of_the_month (void)
+{
+  GTimeZone *tz;
+  GDateTime *dt;
+  gchar *p;
+
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2215");
+
+#ifdef G_OS_UNIX
+  /* This is the footertz string from `Europe/Paris` from tzdata 2020b. It’s
+   * used by GLib when the tzdata file was compiled with `zic -b slim`, which is
+   * the default in tzcode ≥2020b.
+   *
+   * The `M10.5.0` part indicates that the summer time end transition happens on
+   * the Sunday (`0`) in the last week (`5`) of October (`10`). That’s 6 days
+   * before the end of the month, and hence was triggering issue #2215.
+   *
+   * References:
+   *  - https://tools.ietf.org/id/draft-murchison-tzdist-tzif-15.html#rfc.section.3.3
+   *  - https://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_03
+   */
+  tz = g_time_zone_new ("CET-1CEST,M3.5.0,M10.5.0/3");
+#elif defined (G_OS_WIN32)
+  tz = g_time_zone_new ("Romance Standard Time");
+#endif
+  dt = g_date_time_new (tz, 2020, 10, 5, 1, 1, 1);
+
+  p = g_date_time_format (dt, "%Y-%m-%d %H:%M:%S%z");
+  /* Incorrect output is  "2020-10-05 01:01:01+0100" */
+  g_assert_cmpstr (p, ==, "2020-10-05 01:01:01+0200");
+  g_free (p);
+
+  g_date_time_unref (dt);
+  g_time_zone_unref (tz);
+}
+
+static void
 test_format_iso8601 (void)
 {
   GTimeZone *tz = NULL;
@@ -2204,6 +2248,14 @@ test_format_iso8601 (void)
   dt = g_date_time_new (tz, 2019, 6, 26, 15, 1, 5);
   p = g_date_time_format_iso8601 (dt);
   g_assert_cmpstr (p, ==, "2019-06-26T15:01:05-01");
+  g_free (p);
+  g_date_time_unref (dt);
+  g_time_zone_unref (tz);
+
+  tz = g_time_zone_new_utc ();
+  dt = g_date_time_new (tz, 2020, 8, 5, 12, 30, 55.000001);
+  p = g_date_time_format_iso8601 (dt);
+  g_assert_cmpstr (p, ==, "2020-08-05T12:30:55.000001Z");
   g_free (p);
   g_date_time_unref (dt);
   g_time_zone_unref (tz);
@@ -2583,7 +2635,7 @@ test_GDateTime_floating_point (void)
   GDateTime *dt;
   GTimeZone *tz;
 
-  g_test_bug ("697715");
+  g_test_bug ("http://bugzilla.gnome.org/697715");
 
   tz = g_time_zone_new ("-03:00");
   g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, "-03:00");
@@ -2692,6 +2744,89 @@ test_new_offset (void)
     }
 }
 
+static void
+test_time_zone_parse_rfc8536 (void)
+{
+  const gchar *test_files[] =
+    {
+      /* Generated with `zic -b slim`; see
+       * https://gitlab.gnome.org/GNOME/glib/-/merge_requests/1533#note_842235 */
+      "Amsterdam-slim",
+      /* Generated with `zic -b fat` */
+      "Amsterdam-fat",
+    };
+  gsize i;
+
+  g_test_summary ("Test parsing time zone files in RFC 8536 version 3 format");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2129");
+
+  for (i = 0; i < G_N_ELEMENTS (test_files); i++)
+    {
+      gchar *path = NULL;
+      GTimeZone *tz = NULL;
+
+      path = g_test_build_filename (G_TEST_DIST, "time-zones", test_files[i], NULL);
+      g_assert_true (g_path_is_absolute (path));
+      tz = g_time_zone_new (path);
+      g_assert_nonnull (tz);
+      /* UTC will be loaded as a fallback if parsing fails */
+      g_assert_cmpstr (g_time_zone_get_identifier (tz), !=, "UTC");
+      g_time_zone_unref (tz);
+      g_free (path);
+    }
+}
+
+/* Check GTimeZone instances are cached. */
+static void
+test_time_zone_caching (void)
+{
+  GTimeZone *tz1 = NULL, *tz2 = NULL;
+
+  g_test_summary ("GTimeZone instances are cached");
+
+  /* Check a specific (arbitrary) timezone. These are only cached while third
+   * party code holds a ref to at least one instance. */
+#ifdef G_OS_UNIX
+  tz1 = g_time_zone_new ("Europe/London");
+  tz2 = g_time_zone_new ("Europe/London");
+  g_time_zone_unref (tz1);
+  g_time_zone_unref (tz2);
+#elif defined G_OS_WIN32
+  tz1 = g_time_zone_new ("GMT Standard Time");
+  tz2 = g_time_zone_new ("GMT Standard Time");
+  g_time_zone_unref (tz1);
+  g_time_zone_unref (tz2);
+#endif
+
+  /* Only compare pointers */
+  g_assert_true (tz1 == tz2);
+
+  /* Check the default timezone, local and UTC. These are cached internally in
+   * GLib, so should persist even after the last third party reference is
+   * dropped. */
+  tz1 = g_time_zone_new (NULL);
+  g_time_zone_unref (tz1);
+  tz2 = g_time_zone_new (NULL);
+  g_time_zone_unref (tz2);
+
+  g_assert_true (tz1 == tz2);
+
+  tz1 = g_time_zone_new_utc ();
+  g_time_zone_unref (tz1);
+  tz2 = g_time_zone_new_utc ();
+  g_time_zone_unref (tz2);
+
+  g_assert_true (tz1 == tz2);
+
+  tz1 = g_time_zone_new_local ();
+  g_time_zone_unref (tz1);
+  tz2 = g_time_zone_new_local ();
+  g_time_zone_unref (tz2);
+
+  g_assert_true (tz1 == tz2);
+}
+
+
 gint
 main (gint   argc,
       gchar *argv[])
@@ -2701,7 +2836,6 @@ main (gint   argc,
   g_unsetenv ("LANGUAGE");
 
   g_test_init (&argc, &argv, NULL);
-  g_test_bug_base ("http://bugzilla.gnome.org/");
 
   /* GDateTime Tests */
   bind_textdomain_codeset ("glib20", "UTF-8");
@@ -2739,6 +2873,7 @@ main (gint   argc,
   g_test_add_func ("/GDateTime/new_from_iso8601/2", test_GDateTime_new_from_iso8601_2);
   g_test_add_func ("/GDateTime/new_full", test_GDateTime_new_full);
   g_test_add_func ("/GDateTime/now", test_GDateTime_now);
+  g_test_add_func ("/GDateTime/test-6-days-until-end-of-the-month", test_6_days_until_end_of_the_month);
   g_test_add_func ("/GDateTime/printf", test_GDateTime_printf);
   g_test_add_func ("/GDateTime/non_utf8_printf", test_non_utf8_printf);
   g_test_add_func ("/GDateTime/format_unrepresentable", test_format_unrepresentable);
@@ -2762,6 +2897,8 @@ main (gint   argc,
   g_test_add_func ("/GTimeZone/floating-point", test_GDateTime_floating_point);
   g_test_add_func ("/GTimeZone/identifier", test_identifier);
   g_test_add_func ("/GTimeZone/new-offset", test_new_offset);
+  g_test_add_func ("/GTimeZone/parse-rfc8536", test_time_zone_parse_rfc8536);
+  g_test_add_func ("/GTimeZone/caching", test_time_zone_caching);
 
   return g_test_run ();
 }

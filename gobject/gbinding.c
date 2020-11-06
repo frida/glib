@@ -540,7 +540,7 @@ g_binding_get_property (GObject    *gobject,
 
     case PROP_SOURCE_PROPERTY:
       /* @source_property is interned, so we don’t need to take a copy */
-      g_value_set_static_string (value, binding->source_property);
+      g_value_set_interned_string (value, binding->source_property);
       break;
 
     case PROP_TARGET:
@@ -549,7 +549,7 @@ g_binding_get_property (GObject    *gobject,
 
     case PROP_TARGET_PROPERTY:
       /* @target_property is interned, so we don’t need to take a copy */
-      g_value_set_static_string (value, binding->target_property);
+      g_value_set_interned_string (value, binding->target_property);
       break;
 
     case PROP_FLAGS:
@@ -754,7 +754,12 @@ g_binding_get_flags (GBinding *binding)
  *
  * Retrieves the #GObject instance used as the source of the binding.
  *
- * Returns: (transfer none): the source #GObject
+ * A #GBinding can outlive the source #GObject as the binding does not hold a
+ * strong reference to the source. If the source is destroyed before the
+ * binding then this function will return %NULL.
+ *
+ * Returns: (transfer none) (nullable): the source #GObject, or %NULL if the
+ *     source does not exist any more.
  *
  * Since: 2.26
  */
@@ -772,7 +777,12 @@ g_binding_get_source (GBinding *binding)
  *
  * Retrieves the #GObject instance used as the target of the binding.
  *
- * Returns: (transfer none): the target #GObject
+ * A #GBinding can outlive the target #GObject as the binding does not hold a
+ * strong reference to the target. If the target is destroyed before the
+ * binding then this function will return %NULL.
+ *
+ * Returns: (transfer none) (nullable): the target #GObject, or %NULL if the
+ *     target does not exist any more.
  *
  * Since: 2.26
  */

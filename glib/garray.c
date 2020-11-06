@@ -58,16 +58,20 @@
  *
  * To create a new array use g_array_new().
  *
- * To add elements to an array, use g_array_append_val(),
- * g_array_append_vals(), g_array_prepend_val(), g_array_prepend_vals(),
- * g_array_insert_val() and g_array_insert_vals().
+ * To add elements to an array with a cost of O(n) at worst, use
+ * g_array_append_val(), g_array_append_vals(), g_array_prepend_val(),
+ * g_array_prepend_vals(), g_array_insert_val() and g_array_insert_vals().
  *
- * To access an element of an array (to read it or write it),
+ * To access an element of an array in O(1) (to read it or to write it),
  * use g_array_index().
  *
  * To set the size of an array, use g_array_set_size().
  *
  * To free an array, use g_array_unref() or g_array_free().
+ *
+ * All the sort functions are internally calling a quick-sort (or similar)
+ * function with an average cost of O(n log(n)) and a worst case
+ * cost of O(n^2).
  *
  * Here is an example that stores integers in a #GArray:
  * |[<!-- language="C" -->
@@ -1071,6 +1075,27 @@ struct _GRealPtrArray
 static void g_ptr_array_maybe_expand (GRealPtrArray *array,
                                       guint          len);
 
+static GPtrArray *
+ptr_array_new (guint reserved_size,
+               GDestroyNotify element_free_func)
+{
+  GRealPtrArray *array;
+
+  array = g_slice_new (GRealPtrArray);
+
+  array->pdata = NULL;
+  array->len = 0;
+  array->alloc = 0;
+  array->element_free_func = element_free_func;
+
+  g_atomic_ref_count_init (&array->ref_count);
+
+  if (reserved_size != 0)
+    g_ptr_array_maybe_expand (array, reserved_size);
+
+  return (GPtrArray *) array;
+}
+
 /**
  * g_ptr_array_new:
  *
@@ -1081,7 +1106,7 @@ static void g_ptr_array_maybe_expand (GRealPtrArray *array,
 GPtrArray*
 g_ptr_array_new (void)
 {
-  return g_ptr_array_sized_new (0);
+  return ptr_array_new (0, NULL);
 }
 
 /**
@@ -1186,16 +1211,17 @@ g_ptr_array_copy (GPtrArray *array,
                   GCopyFunc  func,
                   gpointer   user_data)
 {
-  gsize i;
   GPtrArray *new_array;
 
   g_return_val_if_fail (array != NULL, NULL);
 
-  new_array = g_ptr_array_sized_new (array->len);
-  g_ptr_array_set_free_func (new_array, ((GRealPtrArray *) array)->element_free_func);
+  new_array = ptr_array_new (array->len,
+                             ((GRealPtrArray *) array)->element_free_func);
 
   if (func != NULL)
     {
+      guint i;
+
       for (i = 0; i < array->len; i++)
         new_array->pdata[i] = func (array->pdata[i], user_data);
     }
@@ -1221,24 +1247,10 @@ g_ptr_array_copy (GPtrArray *array,
  *
  * Returns: the new #GPtrArray
  */
-GPtrArray*  
+GPtrArray*
 g_ptr_array_sized_new (guint reserved_size)
 {
-  GRealPtrArray *array;
-
-  array = g_slice_new (GRealPtrArray);
-
-  array->pdata = NULL;
-  array->len = 0;
-  array->alloc = 0;
-  array->element_free_func = NULL;
-
-  g_atomic_ref_count_init (&array->ref_count);
-
-  if (reserved_size != 0)
-    g_ptr_array_maybe_expand (array, reserved_size);
-
-  return (GPtrArray*) array;  
+  return ptr_array_new (reserved_size, NULL);
 }
 
 /**
@@ -1289,12 +1301,7 @@ g_array_copy (GArray *array)
 GPtrArray*
 g_ptr_array_new_with_free_func (GDestroyNotify element_free_func)
 {
-  GPtrArray *array;
-
-  array = g_ptr_array_new ();
-  g_ptr_array_set_free_func (array, element_free_func);
-
-  return array;
+  return ptr_array_new (0, element_free_func);
 }
 
 /**
@@ -1319,12 +1326,7 @@ GPtrArray*
 g_ptr_array_new_full (guint          reserved_size,
                       GDestroyNotify element_free_func)
 {
-  GPtrArray *array;
-
-  array = g_ptr_array_sized_new (reserved_size);
-  g_ptr_array_set_free_func (array, element_free_func);
-
-  return array;
+  return ptr_array_new (reserved_size, element_free_func);
 }
 
 /**
@@ -1458,7 +1460,8 @@ ptr_array_free (GPtrArray      *array,
       gpointer *stolen_pdata = g_steal_pointer (&rarray->pdata);
       if (rarray->element_free_func != NULL)
         {
-          gsize i;
+          guint i;
+
           for (i = 0; i < rarray->len; ++i)
             rarray->element_free_func (stolen_pdata[i]);
         }
@@ -1683,7 +1686,7 @@ g_ptr_array_remove_range (GPtrArray *array,
                           guint      length)
 {
   GRealPtrArray *rarray = (GRealPtrArray *)array;
-  guint n;
+  guint i;
 
   g_return_val_if_fail (rarray != NULL, NULL);
   g_return_val_if_fail (rarray->len == 0 || (rarray->len != 0 && rarray->pdata != NULL), NULL);
@@ -1692,8 +1695,8 @@ g_ptr_array_remove_range (GPtrArray *array,
 
   if (rarray->element_free_func != NULL)
     {
-      for (n = index_; n < index_ + length; n++)
-        rarray->element_free_func (rarray->pdata[n]);
+      for (i = index_; i < index_ + length; i++)
+        rarray->element_free_func (rarray->pdata[i]);
     }
 
   if (index_ + length != rarray->len)
@@ -1706,7 +1709,6 @@ g_ptr_array_remove_range (GPtrArray *array,
   rarray->len -= length;
   if (G_UNLIKELY (g_mem_gc_friendly))
     {
-      guint i;
       for (i = 0; i < length; i++)
         rarray->pdata[rarray->len + i] = NULL;
     }
@@ -1840,7 +1842,6 @@ g_ptr_array_extend (GPtrArray  *array_to_extend,
                     gpointer    user_data)
 {
   GRealPtrArray *rarray_to_extend = (GRealPtrArray *) array_to_extend;
-  gsize i;
 
   g_return_if_fail (array_to_extend != NULL);
   g_return_if_fail (array != NULL);
@@ -1849,6 +1850,8 @@ g_ptr_array_extend (GPtrArray  *array_to_extend,
 
   if (func != NULL)
     {
+      guint i;
+
       for (i = 0; i < array->len; i++)
         rarray_to_extend->pdata[i + rarray_to_extend->len] =
           func (array->pdata[i], user_data);
@@ -1890,6 +1893,7 @@ g_ptr_array_extend_and_steal (GPtrArray  *array_to_extend,
    * to the elements moved from @array to @array_to_extend. */
   pdata = g_steal_pointer (&array->pdata);
   array->len = 0;
+  ((GRealPtrArray *) array)->alloc = 0;
   g_ptr_array_unref (array);
   g_free (pdata);
 }
