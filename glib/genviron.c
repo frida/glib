@@ -324,8 +324,6 @@ g_setenv (const gchar *variable,
 }
 
 #ifdef HAVE__NSGETENVIRON
-/* HACK: this one is missing from the iOS SDK */
-extern char *** _NSGetEnviron (void);
 #define environ (*_NSGetEnviron())
 #else
 /* According to the Single Unix Specification, environ is not

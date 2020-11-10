@@ -24,20 +24,10 @@
 /* Specification.  */
 #include "localcharset.h"
 
-#include "glib/glib.h"
-
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-
-/* Use GLib memory allocation */
-#undef malloc
-#undef realloc
-#undef free
-#define malloc  g_malloc
-#define realloc g_realloc
-#define free    g_free
 
 #if defined _WIN32 || defined __WIN32__
 # define WIN32_NATIVE

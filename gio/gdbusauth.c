@@ -1326,6 +1326,7 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
             }
           else
             {
+              g_debug ("Unexpected line '%s' while in WaitingForBegin state", line);
               g_free (line);
               s = "ERROR \"Unknown Command\"\r\n";
               debug_print ("SERVER: writing '%s'", s);
