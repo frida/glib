@@ -756,7 +756,7 @@ gioenumtypes_c = custom_target('gioenumtypes_c',
 gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_h])
 
 # inotify
-if host_system == 'linux'
+if host_system in ['linux', 'android']
   subdir('inotify')
   internal_deps += [ inotify_lib ]
   internal_objects += [inotify_lib.extract_all_objects()]
