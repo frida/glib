@@ -1247,6 +1247,9 @@ if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
   ssizet_size = cc.sizeof('SSIZE_T', prefix : '#include <BaseTsd.h>')
 else
   ssizet_size = cc.sizeof('ssize_t')
+  if ssizet_size == -1
+    ssizet_size = cc.sizeof('ssize_t', prefix : '#include <unistd.h>')
+  endif
 endif
 
 # Some platforms (Apple) hard-code int64_t to long long instead of
