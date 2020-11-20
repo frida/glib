@@ -158,8 +158,8 @@ g_log (const gchar   *log_domain,
 
 /* Treat it as a memory sink to hide one-time allocation leaks. */
 void
-(g_once_init_leave) (void  *location,
-                     gsize  result)
+(g_once_init_leave) (volatile void *location,
+                     gsize          result)
 {
   __coverity_escape__ (result);
 }

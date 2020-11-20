@@ -23,8 +23,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "gio-fork.h"
-#include "gio-init.h"
 #include "giotypes.h"
 #include "gioenumtypes.h"
 #include "gsocket.h"
@@ -228,9 +226,6 @@ ensure_type (GType gtype)
 static void
 release_required_types (void)
 {
-  if (ensured_classes == NULL)
-    return;
-
   g_ptr_array_foreach (ensured_classes, (GFunc) g_type_class_unref, NULL);
   g_ptr_array_unref (ensured_classes);
   ensured_classes = NULL;
@@ -276,9 +271,6 @@ typedef struct
   GMainLoop *loop;
 } SharedThreadData;
 
-static SharedThreadData * gdbus_shared_thread_data = NULL;
-G_LOCK_DEFINE_STATIC (gdbus_shared_thread_data);
-
 static gpointer
 gdbus_shared_thread_func (gpointer user_data)
 {
@@ -288,45 +280,9 @@ gdbus_shared_thread_func (gpointer user_data)
   g_main_loop_run (data->loop);
   g_main_context_pop_thread_default (data->context);
 
+  release_required_types ();
+
   return NULL;
-}
-
-static gboolean
-quit_main_loop (gpointer user_data)
-{
-  GMainLoop *loop = user_data;
-  g_main_loop_quit (loop);
-  return FALSE;
-}
-
-static void
-gdbus_shared_thread_start (SharedThreadData *data)
-{
-  g_assert (data->thread == NULL);
-
-  data->thread = g_thread_new ("gdbus",
-                               gdbus_shared_thread_func,
-                               data);
-}
-
-static void
-gdbus_shared_thread_stop (SharedThreadData *data)
-{
-  GSource *idle_source;
-
-  g_assert (data->thread != NULL);
-
-  idle_source = g_idle_source_new ();
-  g_source_set_priority (idle_source, G_PRIORITY_LOW);
-  g_source_set_callback (idle_source,
-                         quit_main_loop,
-                         data->loop,
-                         NULL);
-  g_source_attach (idle_source, data->context);
-  g_source_unref (idle_source);
-
-  g_thread_join (data->thread);
-  data->thread = NULL;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -334,58 +290,47 @@ gdbus_shared_thread_stop (SharedThreadData *data)
 static SharedThreadData *
 _g_dbus_shared_thread_ref (void)
 {
+  static gsize shared_thread_data = 0;
   SharedThreadData *ret;
 
-  G_LOCK (gdbus_shared_thread_data);
-
-  if (gdbus_shared_thread_data == NULL)
+  if (g_once_init_enter (&shared_thread_data))
     {
       SharedThreadData *data;
 
       data = g_new0 (SharedThreadData, 1);
-      data->refcount = 1; /* Keep it around until deinit */
+      data->refcount = 0;
       
       data->context = g_main_context_new ();
       data->loop = g_main_loop_new (data->context, FALSE);
-      gdbus_shared_thread_start (data);
-
-      gdbus_shared_thread_data = data;
+      data->thread = g_thread_new ("gdbus",
+                                   gdbus_shared_thread_func,
+                                   data);
+      /* We can cast between gsize and gpointer safely */
+      g_once_init_leave (&shared_thread_data, (gsize) data);
     }
 
-  ret = gdbus_shared_thread_data;
-  ret->refcount++;
-
-  G_UNLOCK (gdbus_shared_thread_data);
-
+  ret = (SharedThreadData*) shared_thread_data;
+  g_atomic_int_inc (&ret->refcount);
   return ret;
 }
 
 static void
 _g_dbus_shared_thread_unref (SharedThreadData *data)
 {
-  G_LOCK (gdbus_shared_thread_data);
-
-  if (--data->refcount == 0)
+  /* TODO: actually destroy the shared thread here */
+#if 0
+  g_assert (data != NULL);
+  if (g_atomic_int_dec_and_test (&data->refcount))
     {
-      gdbus_shared_thread_stop (data);
-
+      g_main_loop_quit (data->loop);
+      //g_thread_join (data->thread);
       g_main_loop_unref (data->loop);
       g_main_context_unref (data->context);
-      g_free (data);
-      gdbus_shared_thread_data = NULL;
-  }
-
-  G_UNLOCK (gdbus_shared_thread_data);
+    }
+#endif
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
-
-typedef enum {
-  READ_STOPPED,
-  READ_STARTED,
-  READ_PAUSING,
-  READ_PAUSED
-} ReadState;
 
 typedef enum {
     PENDING_NONE = 0,
@@ -412,8 +357,7 @@ struct GDBusWorker
   GQueue                             *received_messages_while_frozen;
 
   GIOStream                          *stream;
-  GCancellable                       *rx_cancellable;
-  GCancellable                       *tx_cancellable;
+  GCancellable                       *cancellable;
   GDBusWorkerMessageReceivedCallback  message_received_callback;
   GDBusWorkerMessageAboutToBeSentCallback message_about_to_be_sent_callback;
   GDBusWorkerDisconnectedCallback     disconnected_callback;
@@ -424,8 +368,6 @@ struct GDBusWorker
 
   /* used for reading */
   GMutex                              read_lock;
-  GCond                               read_cond;
-  ReadState                           read_state;
   gchar                              *read_buffer;
   gsize                               read_buffer_allocated_size;
   gsize                               read_buffer_cur_size;
@@ -459,10 +401,6 @@ struct GDBusWorker
 };
 
 static void _g_dbus_worker_unref (GDBusWorker *worker);
-
-static GSList * gdbus_workers = NULL;
-G_LOCK_DEFINE_STATIC (gdbus_workers);
-static GCond gdbus_workers_cond;
 
 /* ---------------------------------------------------------------------------------------------------- */
 
@@ -520,9 +458,7 @@ _g_dbus_worker_unref (GDBusWorker *worker)
       g_object_unref (worker->stream);
 
       g_mutex_clear (&worker->read_lock);
-      g_cond_clear (&worker->read_cond);
-      g_object_unref (worker->rx_cancellable);
-      g_object_unref (worker->tx_cancellable);
+      g_object_unref (worker->cancellable);
       if (worker->read_fd_list != NULL)
         g_object_unref (worker->read_fd_list);
 
@@ -532,20 +468,7 @@ _g_dbus_worker_unref (GDBusWorker *worker)
       g_free (worker->read_buffer);
 
       g_free (worker);
-
-      G_LOCK (gdbus_workers);
-      gdbus_workers = g_slist_remove (gdbus_workers, worker);
-      g_cond_signal (&gdbus_workers_cond);
-      G_UNLOCK (gdbus_workers);
     }
-}
-
-static void
-_g_dbus_worker_update_read_state (GDBusWorker *worker,
-                                  ReadState    read_state)
-{
-  worker->read_state = read_state;
-  g_cond_signal (&worker->read_cond);
 }
 
 static void
@@ -654,10 +577,7 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
 
   /* If already stopped, don't even process the reply */
   if (g_atomic_int_get (&worker->stopped))
-    {
-      _g_dbus_worker_update_read_state (worker, READ_STOPPED);
-      goto out;
-    }
+    goto out;
 
   error = NULL;
   if (worker->socket == NULL)
@@ -717,7 +637,6 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
                                G_IO_ERROR_FAILED,
                                "Unexpected ancillary message of type %s received from peer",
                                g_type_name (G_TYPE_FROM_INSTANCE (control_message)));
-                  _g_dbus_worker_update_read_state (worker, READ_STOPPED);
                   _g_dbus_worker_emit_disconnected (worker, TRUE, error);
                   g_error_free (error);
                   g_object_unref (control_message);
@@ -748,8 +667,8 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
           _g_dbus_debug_print_unlock ();
         }
 
-      /* Every async read that uses this callback uses worker->rx_cancellable
-       * as its GCancellable. worker->rx_cancellable gets cancelled if and only
+      /* Every async read that uses this callback uses worker->cancellable
+       * as its GCancellable. worker->cancellable gets cancelled if and only
        * if the GDBusConnection tells us to close (either via
        * _g_dbus_worker_stop, which is called on last-unref, or directly),
        * so a cancelled read must mean our connection was closed locally.
@@ -760,22 +679,9 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
        * closing as an expected thing that doesn't trip exit-on-close.
        *
        * Because close_expected can't be set until we get into the worker
-       * thread, but the rx_cancellable is signalled sooner (from another
+       * thread, but the cancellable is signalled sooner (from another
        * thread), we do still need to check the error.
-       *
-       * The one exception here is during a fork, where we temporarily stop
-       * reading.
        */
-      if (worker->read_state == READ_PAUSING &&
-          g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
-        {
-          _g_dbus_worker_update_read_state (worker, READ_PAUSED);
-          g_error_free (error);
-          goto out;
-        }
-
-      _g_dbus_worker_update_read_state (worker, READ_STOPPED);
-
       if (worker->close_expected ||
           g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED))
         _g_dbus_worker_emit_disconnected (worker, FALSE, NULL);
@@ -804,7 +710,6 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
                    G_IO_ERROR,
                    G_IO_ERROR_FAILED,
                    "Underlying GIOStream returned 0 bytes on an async read");
-      _g_dbus_worker_update_read_state (worker, READ_STOPPED);
       _g_dbus_worker_emit_disconnected (worker, TRUE, error);
       g_error_free (error);
       goto out;
@@ -827,7 +732,6 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
           if (message_len == -1)
             {
               g_warning ("_g_dbus_worker_do_read_cb: error determining bytes needed: %s", error->message);
-              _g_dbus_worker_update_read_state (worker, READ_STOPPED);
               _g_dbus_worker_emit_disconnected (worker, FALSE, error);
               g_error_free (error);
               goto out;
@@ -859,7 +763,6 @@ _g_dbus_worker_do_read_cb (GInputStream  *input_stream,
                          error->message,
                          s);
               g_free (s);
-              _g_dbus_worker_update_read_state (worker, READ_STOPPED);
               _g_dbus_worker_emit_disconnected (worker, FALSE, error);
               g_error_free (error);
               goto out;
@@ -947,7 +850,7 @@ _g_dbus_worker_do_read_unlocked (GDBusWorker *worker)
                                worker->read_buffer + worker->read_buffer_cur_size,
                                worker->read_buffer_bytes_wanted - worker->read_buffer_cur_size,
                                G_PRIORITY_DEFAULT,
-                               worker->rx_cancellable,
+                               worker->cancellable,
                                (GAsyncReadyCallback) _g_dbus_worker_do_read_cb,
                                _g_dbus_worker_ref (worker));
   else
@@ -960,7 +863,7 @@ _g_dbus_worker_do_read_unlocked (GDBusWorker *worker)
                                             &worker->read_ancillary_messages,
                                             &worker->read_num_ancillary_messages,
                                             G_PRIORITY_DEFAULT,
-                                            worker->rx_cancellable,
+                                            worker->cancellable,
                                             (GAsyncReadyCallback) _g_dbus_worker_do_read_cb,
                                             _g_dbus_worker_ref (worker));
     }
@@ -975,22 +878,6 @@ _g_dbus_worker_do_initial_read (gpointer data)
   _g_dbus_worker_do_read_unlocked (worker);
   g_mutex_unlock (&worker->read_lock);
   return FALSE;
-}
-
-static void
-_g_dbus_worker_begin_reading (GDBusWorker *worker)
-{
-  GSource *idle_source;
-
-  idle_source = g_idle_source_new ();
-  g_source_set_priority (idle_source, G_PRIORITY_DEFAULT);
-  g_source_set_callback (idle_source,
-                         _g_dbus_worker_do_initial_read,
-                         _g_dbus_worker_ref (worker),
-                         (GDestroyNotify) _g_dbus_worker_unref);
-  g_source_set_name (idle_source, "[gio] _g_dbus_worker_do_initial_read");
-  g_source_attach (idle_source, worker->shared_thread_data->context);
-  g_source_unref (idle_source);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1152,7 +1039,7 @@ write_message_continue_writing (MessageToWriteData *data)
                                              control_message != NULL ? &control_message : NULL,
                                              control_message != NULL ? 1 : 0,
                                              G_SOCKET_MSG_NONE,
-                                             data->worker->tx_cancellable,
+                                             data->worker->cancellable,
                                              &error);
       if (control_message != NULL)
         g_object_unref (control_message);
@@ -1165,7 +1052,7 @@ write_message_continue_writing (MessageToWriteData *data)
               GSource *source;
               source = g_socket_create_source (data->worker->socket,
                                                G_IO_OUT | G_IO_HUP | G_IO_ERR,
-                                               data->worker->tx_cancellable);
+                                               data->worker->cancellable);
               g_source_set_callback (source,
                                      (GSourceFunc) on_socket_ready,
                                      data,
@@ -1217,7 +1104,7 @@ write_message_continue_writing (MessageToWriteData *data)
                                    (const gchar *) data->blob + data->total_written,
                                    data->blob_size - data->total_written,
                                    G_PRIORITY_DEFAULT,
-                                   data->worker->tx_cancellable,
+                                   data->worker->cancellable,
                                    write_message_async_cb,
                                    data);
     }
@@ -1345,7 +1232,7 @@ start_flush (FlushAsyncData *data)
 {
   g_output_stream_flush_async (g_io_stream_get_output_stream (data->worker->stream),
                                G_PRIORITY_DEFAULT,
-                               data->worker->tx_cancellable,
+                               data->worker->cancellable,
                                ostream_flush_cb,
                                data);
 }
@@ -1771,6 +1658,7 @@ _g_dbus_worker_new (GIOStream                              *stream,
                     gpointer                                user_data)
 {
   GDBusWorker *worker;
+  GSource *idle_source;
 
   g_return_val_if_fail (G_IS_IO_STREAM (stream), NULL);
   g_return_val_if_fail (message_received_callback != NULL, NULL);
@@ -1781,16 +1669,13 @@ _g_dbus_worker_new (GIOStream                              *stream,
   worker->ref_count = 1;
 
   g_mutex_init (&worker->read_lock);
-  g_cond_init (&worker->read_cond);
-  worker->read_state = READ_STARTED;
   worker->message_received_callback = message_received_callback;
   worker->message_about_to_be_sent_callback = message_about_to_be_sent_callback;
   worker->disconnected_callback = disconnected_callback;
   worker->user_data = user_data;
   worker->stream = g_object_ref (stream);
   worker->capabilities = capabilities;
-  worker->rx_cancellable = g_cancellable_new ();
-  worker->tx_cancellable = g_cancellable_new ();
+  worker->cancellable = g_cancellable_new ();
   worker->output_pending = PENDING_NONE;
 
   worker->frozen = initially_frozen;
@@ -1804,12 +1689,16 @@ _g_dbus_worker_new (GIOStream                              *stream,
 
   worker->shared_thread_data = _g_dbus_shared_thread_ref ();
 
-  _g_dbus_worker_begin_reading (worker);
-
-  G_LOCK (gdbus_workers);
-  gdbus_workers = g_slist_prepend (gdbus_workers, worker);
-  g_cond_signal (&gdbus_workers_cond);
-  G_UNLOCK (gdbus_workers);
+  /* begin reading */
+  idle_source = g_idle_source_new ();
+  g_source_set_priority (idle_source, G_PRIORITY_DEFAULT);
+  g_source_set_callback (idle_source,
+                         _g_dbus_worker_do_initial_read,
+                         _g_dbus_worker_ref (worker),
+                         (GDestroyNotify) _g_dbus_worker_unref);
+  g_source_set_name (idle_source, "[gio] _g_dbus_worker_do_initial_read");
+  g_source_attach (idle_source, worker->shared_thread_data->context);
+  g_source_unref (idle_source);
 
   return worker;
 }
@@ -1834,8 +1723,7 @@ _g_dbus_worker_close (GDBusWorker         *worker,
   /* Don't set worker->close_expected here - we're in the wrong thread.
    * It'll be set before the actual close happens.
    */
-  g_cancellable_cancel (worker->rx_cancellable);
-  g_cancellable_cancel (worker->tx_cancellable);
+  g_cancellable_cancel (worker->cancellable);
   g_mutex_lock (&worker->write_lock);
   schedule_writing_unlocked (worker, NULL, NULL, close_data);
   g_mutex_unlock (&worker->write_lock);
@@ -2057,11 +1945,10 @@ _g_dbus_initialize (void)
 
   if (g_once_init_enter (&initialized))
     {
-      GQuark g_dbus_error_domain;
       const gchar *debug;
 
-      g_dbus_error_domain = G_DBUS_ERROR;
-      (g_dbus_error_domain); /* To avoid -Wunused-but-set-variable */
+      /* Ensure the domain is registered. */
+      g_dbus_error_quark ();
 
       debug = g_getenv ("G_DBUS_DEBUG");
       if (debug != NULL)
@@ -2090,137 +1977,6 @@ _g_dbus_initialize (void)
 
       g_once_init_leave (&initialized, 1);
     }
-}
-
-void
-_g_dbus_shutdown (void)
-{
-  G_LOCK (gdbus_workers);
-  while (gdbus_workers != NULL)
-    g_cond_wait (&gdbus_workers_cond, &G_LOCK_NAME (gdbus_workers));
-  G_UNLOCK (gdbus_workers);
-
-  if (gdbus_shared_thread_data)
-    {
-      g_assert_cmpint (gdbus_shared_thread_data->refcount, ==, 1); /* if not, there's a leak */
-      _g_dbus_shared_thread_unref (gdbus_shared_thread_data);
-    }
-}
-
-void
-_g_dbus_deinit (void)
-{
-  release_required_types ();
-}
-
-void
-_g_dbus_prepare_to_fork (void)
-{
-  GSList *workers, *l;
-
-  G_LOCK (gdbus_workers);
-  workers = g_slist_copy_deep (gdbus_workers,
-                               (GCopyFunc) _g_dbus_worker_ref,
-                               NULL);
-  G_UNLOCK (gdbus_workers);
-
-  for (l = workers; l; l = l->next)
-    {
-      GDBusWorker *worker = l->data;
-      gboolean started;
-
-      g_mutex_lock (&worker->read_lock);
-      started = worker->read_state == READ_STARTED;
-      if (started)
-        worker->read_state = READ_PAUSING;
-      g_mutex_unlock (&worker->read_lock);
-
-      if (started)
-        g_cancellable_cancel (worker->rx_cancellable);
-    }
-
-  for (l = workers; l; l = l->next)
-    {
-      GDBusWorker *worker = l->data;
-
-      g_mutex_lock (&worker->read_lock);
-      while (worker->read_state == READ_PAUSING)
-        g_cond_wait (&worker->read_cond, &worker->read_lock);
-      g_mutex_unlock (&worker->read_lock);
-    }
-
-  for (l = workers; l; l = l->next)
-    {
-      GDBusWorker *worker = l->data;
-
-      _g_dbus_worker_flush_sync (worker, NULL, NULL);
-    }
-
-  g_slist_free_full (workers, (GDestroyNotify) _g_dbus_worker_unref);
-
-  G_LOCK (gdbus_shared_thread_data);
-  if (gdbus_shared_thread_data != NULL)
-    gdbus_shared_thread_stop (gdbus_shared_thread_data);
-  G_UNLOCK (gdbus_shared_thread_data);
-}
-
-void
-_g_dbus_recover_from_fork_in_parent (void)
-{
-  GSList *workers, *l;
-
-  G_LOCK (gdbus_shared_thread_data);
-  if (gdbus_shared_thread_data != NULL)
-    gdbus_shared_thread_start (gdbus_shared_thread_data);
-  G_UNLOCK (gdbus_shared_thread_data);
-
-  G_LOCK (gdbus_workers);
-  workers = g_slist_copy_deep (gdbus_workers,
-                               (GCopyFunc) _g_dbus_worker_ref,
-                               NULL);
-  G_UNLOCK (gdbus_workers);
-
-  for (l = workers; l; l = l->next)
-    {
-      GDBusWorker *worker = l->data;
-
-      g_mutex_lock (&worker->read_lock);
-      if (worker->read_state == READ_PAUSED)
-        {
-          worker->read_state = READ_STARTED;
-          g_cancellable_reset (worker->rx_cancellable);
-          _g_dbus_worker_begin_reading (worker);
-        }
-      g_mutex_unlock (&worker->read_lock);
-    }
-
-  g_slist_free_full (workers, (GDestroyNotify) _g_dbus_worker_unref);
-}
-
-void
-_g_dbus_recover_from_fork_in_child (void)
-{
-  GSList *workers, *l;
-
-  G_LOCK (gdbus_workers);
-  workers = g_slist_copy_deep (gdbus_workers,
-                               (GCopyFunc) _g_dbus_worker_ref,
-                               NULL);
-  G_UNLOCK (gdbus_workers);
-
-  for (l = workers; l; l = l->next)
-    {
-      GDBusWorker *worker = l->data;
-
-      _g_dbus_worker_close (worker, NULL);
-    }
-
-  g_slist_free_full (workers, (GDestroyNotify) _g_dbus_worker_unref);
-
-  G_LOCK (gdbus_shared_thread_data);
-  if (gdbus_shared_thread_data != NULL)
-    gdbus_shared_thread_start (gdbus_shared_thread_data);
-  G_UNLOCK (gdbus_shared_thread_data);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */

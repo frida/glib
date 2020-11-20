@@ -800,7 +800,9 @@ g_resource_lookup_data (GResource             *resource,
   if (!do_lookup (resource, path, lookup_flags, &size, &flags, &data, &data_size, error))
     return NULL;
 
-  if (flags & G_RESOURCE_FLAGS_COMPRESSED)
+  if (size == 0)
+    return g_bytes_new_with_free_func ("", 0, (GDestroyNotify) g_resource_unref, g_resource_ref (resource));
+  else if (flags & G_RESOURCE_FLAGS_COMPRESSED)
     {
       char *uncompressed, *d;
       const char *s;
@@ -1396,7 +1398,7 @@ register_lazy_static_resources (void)
 void
 g_static_resource_init (GStaticResource *static_resource)
 {
-  gpointer next;
+  GStaticResource *next;
 
   do
     {

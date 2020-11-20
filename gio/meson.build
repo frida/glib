@@ -10,15 +10,9 @@ gio_c_args += glib_hidden_visibility_args
 
 gnetworking_h_conf = configuration_data()
 
-gnetworking_h_wspiapi_include = ''
 gnetworking_h_nameser_compat_include = ''
 
-if host_system == 'windows'
-  # <wspiapi.h> in the Windows SDK and in mingw-w64 has wrappers for
-  # inline workarounds for getaddrinfo, getnameinfo and freeaddrinfo if
-  # they aren't present at run-time (on Windows 2000).
-  gnetworking_h_wspiapi_include = '#include <wspiapi.h>'
-elif not host_system.contains('android')
+if host_system != 'windows' and not host_system.contains('android')
   # Don't check for C_IN on Android since it does not define it in public
   # headers, we define it ourselves wherever necessary
   if not cc.compiles('''#include <sys/types.h>
@@ -56,9 +50,6 @@ if host_system != 'windows'
     elif cc.links(res_query_test, args : '-lbind', name : 'res_query() in -lbind')
       network_libs += [ cc.find_library('bind') ]
       network_args += [ '-lbind' ]
-    elif cc.links(res_query_test, args : '-lsocket', name : 'res_query() in -lsocket')
-      network_libs += [ cc.find_library('socket') ]
-      network_args += [ '-lsocket' ]
     else
       error('Could not find res_query()')
     endif
@@ -171,7 +162,6 @@ if host_system.contains('android')
   endif
 endif
 
-gnetworking_h_conf.set('WSPIAPI_INCLUDE', gnetworking_h_wspiapi_include)
 gnetworking_h_conf.set('NAMESER_COMPAT_INCLUDE', gnetworking_h_nameser_compat_include)
 
 gnetworking_h = configure_file(input : 'gnetworking.h.in',
@@ -451,15 +441,13 @@ else
     'gwin32notificationbackend.c',
   )
 
-  if get_option('default_library') != 'static'
-    gio_win_rc = configure_file(
-      input: 'gio.rc.in',
-      output: 'gio.rc',
-      configuration: glibconfig_conf,
-    )
-    gio_win_res = windows.compile_resources(gio_win_rc)
-    win32_sources += [gio_win_res]
-  endif
+  gio_win_rc = configure_file(
+    input: 'gio.rc.in',
+    output: 'gio.rc',
+    configuration: glibconfig_conf,
+  )
+  gio_win_res = windows.compile_resources(gio_win_rc)
+  win32_sources += [gio_win_res]
 
   gio_win32_include_headers = files(
     'gwin32inputstream.h',
@@ -469,8 +457,6 @@ else
 endif
 
 gio_sources = files(
-  'gio-init.c',
-  'gio-fork.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',
@@ -591,6 +577,7 @@ gio_sources = files(
   'gzlibdecompressor.c',
   'glistmodel.c',
   'gliststore.c',
+  '../glib/gtrace.c',
 )
 
 gio_sources += appinfo_sources
@@ -755,7 +742,7 @@ gioenumtypes_c = custom_target('gioenumtypes_c',
 gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_h])
 
 # inotify
-if host_system in ['linux', 'android']
+if glib_conf.has('HAVE_SYS_INOTIFY_H') and have_func_inotify_init1
   subdir('inotify')
   internal_deps += [ inotify_lib ]
   internal_objects += [inotify_lib.extract_all_objects()]
@@ -793,11 +780,6 @@ else
   gio_dtrace_hdr = []
 endif
 
-internal_objects = []
-foreach dep : internal_deps
-  internal_objects += dep.extract_all_objects()
-endforeach
-
 libgio = library('gio-2.0',
   gioenumtypes_h, gioenumtypes_c, gnetworking_h, gio_sources,
   gio_dtrace_hdr, gio_dtrace_obj,
@@ -810,7 +792,7 @@ libgio = library('gio-2.0',
   #  '$(gio_win32_res_ldflag)',
   dependencies : [libz_dep, libdl_dep, libmount_dep, libglib_dep,
                   libgobject_dep, libgmodule_dep, selinux_dep, xattr_dep,
-                  platform_deps, network_libs],
+                  platform_deps, network_libs, libsysprof_capture_dep],
   c_args : gio_c_args,
   objc_args : gio_c_args,
   # intl.lib is not compatible with SAFESEH

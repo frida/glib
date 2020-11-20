@@ -612,7 +612,7 @@ g_get_user_database_entry (void)
         gint error;
         gchar *logname;
 
-#  if defined (HAVE_GETPWUID_R) && !defined (__BIONIC__)
+#  if defined (HAVE_GETPWUID_R)
         struct passwd pwd;
 #    ifdef _SC_GETPW_R_SIZE_MAX
         /* This reurns the maximum length */
@@ -1597,6 +1597,8 @@ set_str_if_different (gchar       **global_str,
   if (*global_str == NULL ||
       !g_str_equal (new_value, *global_str))
     {
+      g_debug ("g_set_user_dirs: Setting %s to %s", type, new_value);
+
       /* We have to leak the old value, as user code could be retaining pointers
        * to it. */
       *global_str = g_strdup (new_value);
@@ -1612,6 +1614,7 @@ set_strv_if_different (gchar                ***global_strv,
       !g_strv_equal (new_value, (const gchar * const *) *global_strv))
     {
       gchar *new_value_str = g_strjoinv (":", (gchar **) new_value);
+      g_debug ("g_set_user_dirs: Setting %s to %s", type, new_value_str);
       g_free (new_value_str);
 
       /* We have to leak the old value, as user code could be retaining pointers
@@ -1961,7 +1964,7 @@ load_user_special_dirs (void)
 
   wchar_t *wcp;
 
-  p_SHGetKnownFolderPath = (t_SHGetKnownFolderPath) GetProcAddress (GetModuleHandleW (L"shell32.dll"),
+  p_SHGetKnownFolderPath = (t_SHGetKnownFolderPath) GetProcAddress (GetModuleHandle ("shell32.dll"),
 								    "SHGetKnownFolderPath");
 
   g_user_special_dirs[G_USER_DIRECTORY_DESKTOP] = get_special_folder (CSIDL_DESKTOPDIRECTORY);
@@ -2292,14 +2295,26 @@ get_module_for_address (gconstpointer address)
 {
   /* Holds the g_utils_global lock */
 
+  static gboolean beenhere = FALSE;
+  typedef BOOL (WINAPI *t_GetModuleHandleExA) (DWORD, LPCTSTR, HMODULE *);
+  static t_GetModuleHandleExA p_GetModuleHandleExA = NULL;
   HMODULE hmodule = NULL;
 
   if (!address)
     return NULL;
 
-  if (!GetModuleHandleExW (GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT |
-			   GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-			   address, &hmodule))
+  if (!beenhere)
+    {
+      p_GetModuleHandleExA =
+	(t_GetModuleHandleExA) GetProcAddress (GetModuleHandle ("kernel32.dll"),
+					       "GetModuleHandleExA");
+      beenhere = TRUE;
+    }
+
+  if (p_GetModuleHandleExA == NULL ||
+      !(*p_GetModuleHandleExA) (GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT |
+				GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+				address, &hmodule))
     {
       MEMORY_BASIC_INFORMATION mbi;
       VirtualQuery (address, &mbi, sizeof (mbi));
@@ -3024,24 +3039,8 @@ g_check_setuid (void)
   errno = 0;
   value = getauxval (AT_SECURE);
   errsv = errno;
-
-  /* When running 32-bit user applications on a 64-bit kernel, reading of the
-   * auxilliary vector can be unreliable, likely as a result of the vector not
-   * being architecture agnostic.
-   *
-   * Whilst qemu-user appears to correct these structures depending on the
-   * target architecture, the glibc based loader for armhf (ld-2.27.so) used by
-   * the default toolchain included in the package respositories on Ubuntu
-   * 18.04 does not appear to do so (presumably as the same binary is used on
-   * both 32-bit and 64-bit kernels).
-   *
-   * Since an error results in everything stopping, we instead downgrade the
-   * message to a warning, but return TRUE (indicating that the application was
-   * setuid). Hence we assume the worst case scenario.
-   */
   if (errsv)
-    return TRUE;
-
+    g_error ("getauxval () failed: %s", g_strerror (errsv));
   return value;
 #elif defined(HAVE_ISSETUGID) && !defined(__BIONIC__)
   /* BSD: http://www.freebsd.org/cgi/man.cgi?query=issetugid&sektion=2 */

@@ -611,7 +611,7 @@ g_network_address_get_port (GNetworkAddress *addr)
  *
  * Gets @addr's scheme
  *
- * Returns: @addr's scheme (%NULL if not built from URI)
+ * Returns: (nullable): @addr's scheme (%NULL if not built from URI)
  *
  * Since: 2.26
  */
@@ -961,6 +961,8 @@ got_ipv6_addresses (GObject      *source_object,
   addresses = g_resolver_lookup_by_name_with_flags_finish (resolver, result, &error);
   if (!error)
     g_network_address_address_enumerator_add_addresses (addr_enum, g_steal_pointer (&addresses), resolver);
+  else
+    g_debug ("IPv6 DNS error: %s", error->message);
 
   /* If ipv4 was first and waiting on us it can stop waiting */
   if (addr_enum->wait_source)
@@ -1015,6 +1017,8 @@ got_ipv4_addresses (GObject      *source_object,
   addresses = g_resolver_lookup_by_name_with_flags_finish (resolver, result, &error);
   if (!error)
     g_network_address_address_enumerator_add_addresses (addr_enum, g_steal_pointer (&addresses), resolver);
+  else
+    g_debug ("IPv4 DNS error: %s", error->message);
 
   if (addr_enum->wait_source)
     {

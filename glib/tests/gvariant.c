@@ -194,8 +194,7 @@ append_tuple_type_string (GString  *string,
 {
   GVariantType *result, *other_result;
   GVariantType **types;
-  gint size;
-  gsize i;
+  gsize i, size;
 
   g_string_append_c (string, '(');
   g_string_append (description, "t of [");
@@ -376,8 +375,7 @@ describe_type (const GVariantType *type)
             {
               const GVariantType *sub;
               GString *string;
-              gint length;
-              gsize i;
+              gsize i, length;
 
               string = g_string_new ("t of [");
 
@@ -873,8 +871,7 @@ describe_info (GVariantTypeInfo *info)
       {
         const gchar *sep = "";
         GString *string;
-        gint length;
-        gsize i;
+        gsize i, length;
 
         string = g_string_new ("t of [");
         length = g_variant_type_info_n_members (info);
@@ -935,11 +932,10 @@ static void
 check_offsets (GVariantTypeInfo   *info,
                const GVariantType *type)
 {
-  gsize flavour;
-  gint length;
+  gsize flavour, length;
 
   length = g_variant_type_info_n_members (info);
-  g_assert_cmpint (length, ==, g_variant_type_n_items (type));
+  g_assert_cmpuint (length, ==, g_variant_type_n_items (type));
 
   /* the 'flavour' is the low order bits of the ending point of
    * variable-size items in the tuple.  this lets us test that the type
@@ -2637,7 +2633,7 @@ tree_instance_check_gvariant (TreeInstance *tree,
       break;
 
     case 'b':
-      return g_variant_get_boolean (value) == tree->data.integer;
+      return g_variant_get_boolean (value) == (gboolean) tree->data.integer;
 
     case 'y':
       return g_variant_get_byte (value) == (guchar) tree->data.integer;
@@ -2997,18 +2993,6 @@ test_varargs_empty_array (void)
 }
 
 static void
-assert_cmpstrv (const gchar **strv1, const gchar **strv2)
-{
-  gsize i;
-
-  for (i = 0; strv1[i] != NULL && strv2[i] != NULL; i++)
-    g_assert_cmpstr (strv1[i], ==, strv2[i]);
-
-  g_assert_null (strv1[i]);
-  g_assert_null (strv2[i]);
-}
-
-static void
 test_varargs (void)
 {
   {
@@ -3091,7 +3075,7 @@ test_varargs (void)
     i = 0;
     g_variant_iter_init (&iter, value);
     while (g_variant_iter_loop (&iter, "mi", NULL, &val))
-      g_assert_true (val == i++ || val == 0);
+      g_assert_true (val == (gint) i++ || val == 0);
     g_assert_cmpuint (i, ==, 100);
 
     i = 0;
@@ -3157,8 +3141,8 @@ test_varargs (void)
     g_variant_iter_next (&tuple, "^a&s", &strv);
     g_variant_iter_next (&tuple, "^as", &my_strv);
 
-    assert_cmpstrv (strv, strvector);
-    assert_cmpstrv ((const char **)my_strv, strvector);
+    g_assert_cmpstrv (strv, strvector);
+    g_assert_cmpstrv (my_strv, strvector);
 
     g_variant_unref (value);
     g_strfreev (my_strv);
@@ -3227,8 +3211,8 @@ test_varargs (void)
     g_variant_iter_next (&tuple, "^a&ay", &strv);
     g_variant_iter_next (&tuple, "^aay", &my_strv);
 
-    assert_cmpstrv (strv, strvector);
-    assert_cmpstrv ((const char **)my_strv, strvector);
+    g_assert_cmpstrv (strv, strvector);
+    g_assert_cmpstrv (my_strv, strvector);
 
     g_variant_unref (value);
     g_strfreev (my_strv);
@@ -3276,8 +3260,8 @@ test_varargs (void)
     g_variant_iter_next (&tuple, "^a&o", &strv);
     g_variant_iter_next (&tuple, "^ao", &my_strv);
 
-    assert_cmpstrv (strv, strvector);
-    assert_cmpstrv ((const char **)my_strv, strvector);
+    g_assert_cmpstrv (strv, strvector);
+    g_assert_cmpstrv (my_strv, strvector);
 
     g_variant_unref (value);
     g_strfreev (my_strv);
@@ -4355,12 +4339,12 @@ test_lookup_value (void)
     const gchar *dict, *key, *value;
   } cases[] = {
     { "@a{ss} {'x':  'y'}",   "x",  "'y'" },
-    { "@a{ss} {'x':  'y'}",   "y"         },
+    { "@a{ss} {'x':  'y'}",   "y",  NULL  },
     { "@a{os} {'/x': 'y'}",   "/x", "'y'" },
-    { "@a{os} {'/x': 'y'}",   "/y"        },
+    { "@a{os} {'/x': 'y'}",   "/y", NULL  },
     { "@a{sv} {'x':  <'y'>}", "x",  "'y'" },
     { "@a{sv} {'x':  <5>}",   "x",  "5"   },
-    { "@a{sv} {'x':  <'y'>}", "y"         }
+    { "@a{sv} {'x':  <'y'>}", "y",  NULL  }
   };
   gsize i;
 

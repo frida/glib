@@ -577,6 +577,30 @@
  */
 
 /**
+ * g_assert_cmpstrv:
+ * @strv1: (nullable): a string array (may be %NULL)
+ * @strv2: (nullable): another string array (may be %NULL)
+ *
+ * Debugging macro to check if two %NULL-terminated string arrays (i.e. 2
+ * #GStrv) are equal. If they are not equal, an error message is logged and the
+ * application is either terminated or the testcase marked as failed.
+ * If both arrays are %NULL, the check passes. If one array is %NULL but the
+ * other is not, an error message is logged.
+ *
+ * The effect of `g_assert_cmpstrv (strv1, strv2)` is the same as
+ * `g_assert_true (g_strv_equal (strv1, strv2))` (if both arrays are not
+ * %NULL). The advantage of this macro is that it can produce a message that
+ * includes how @strv1 and @strv2 are different.
+ *
+ * |[<!-- language="C" -->
+ *   const char *expected[] = { "one", "two", "three", NULL };
+ *   g_assert_cmpstrv (mystrv, expected);
+ * ]|
+ *
+ * Since: 2.68
+ */
+
+/**
  * g_assert_cmpint:
  * @n1: an integer
  * @cmp: The comparison operator to use.
@@ -812,12 +836,7 @@ static void     gtest_default_log_handler       (const gchar    *log_domain,
                                                  GLogLevelFlags  log_level,
                                                  const gchar    *message,
                                                  gpointer        unused_data);
-static void     g_default_assertion_handler     (const char     *domain,
-                                                 const char     *file,
-                                                 int             line,
-                                                 const char     *func,
-                                                 const char     *message,
-                                                 gpointer       user_data);
+
 
 static const char * const g_test_result_names[] = {
   "OK",
@@ -878,8 +897,6 @@ static GTestConfig mutable_test_config_vars = {
 };
 const GTestConfig * const g_test_config_vars = &mutable_test_config_vars;
 static gboolean  no_g_set_prgname = FALSE;
-static GAssertionFunc assertion_handler = g_default_assertion_handler;
-static gpointer assertion_handler_data = NULL;
 
 /* --- functions --- */
 const char*
@@ -1304,8 +1321,8 @@ rm_rf (const gchar *path)
   dir = g_dir_open (path, 0, NULL);
   if (dir == NULL)
     {
-      /* Assume it’s a file. */
-      g_remove (path);
+      /* Assume it’s a file. Ignore failure. */
+      (void) g_remove (path);
       return;
     }
 
@@ -2889,20 +2906,11 @@ gtest_default_log_handler (const gchar    *log_domain,
 }
 
 void
-g_assertion_set_handler (GAssertionFunc handler,
-                         gpointer user_data)
-{
-  assertion_handler_data = user_data;
-  assertion_handler = handler;
-}
-
-static void
-g_default_assertion_handler (const char     *domain,
-                             const char     *file,
-                             int             line,
-                             const char     *func,
-                             const char     *message,
-                             gpointer       user_data)
+g_assertion_message (const char     *domain,
+                     const char     *file,
+                     int             line,
+                     const char     *func,
+                     const char     *message)
 {
   char lstr[32];
   char *s;
@@ -2932,8 +2940,13 @@ g_default_assertion_handler (const char     *domain,
 
   /* store assertion message in global variable, so that it can be found in a
    * core dump */
-  g_free (__glib_assert_msg);
-  __glib_assert_msg = s;
+  if (__glib_assert_msg != NULL)
+    /* free the old one */
+    free (__glib_assert_msg);
+  __glib_assert_msg = (char*) malloc (strlen (s) + 1);
+  strcpy (__glib_assert_msg, s);
+
+  g_free (s);
 
   if (test_in_subprocess)
     {
@@ -2958,16 +2971,6 @@ g_default_assertion_handler (const char     *domain,
  * Internal function used to print messages from the public g_assert() and
  * g_assert_not_reached() macros.
  */
-void
-g_assertion_message (const char     *domain,
-                     const char     *file,
-                     int             line,
-                     const char     *func,
-                     const char     *message)
-{
-  assertion_handler (domain, file, line, func, message, assertion_handler_data);
-}
-
 void
 g_assertion_message_expr (const char     *domain,
                           const char     *file,
@@ -3033,6 +3036,31 @@ g_assertion_message_cmpstr (const char     *domain,
   g_free (t1);
   g_free (t2);
   s = g_strdup_printf ("assertion failed (%s): (%s %s %s)", expr, a1, cmp, a2);
+  g_free (a1);
+  g_free (a2);
+  g_assertion_message (domain, file, line, func, s);
+  g_free (s);
+}
+
+void
+g_assertion_message_cmpstrv (const char         *domain,
+                             const char         *file,
+                             int                 line,
+                             const char         *func,
+                             const char         *expr,
+                             const char * const *arg1,
+                             const char * const *arg2,
+                             gsize               first_wrong_idx)
+{
+  const char *s1 = arg1[first_wrong_idx], *s2 = arg2[first_wrong_idx];
+  char *a1, *a2, *s, *t1 = NULL, *t2 = NULL;
+
+  a1 = g_strconcat ("\"", t1 = g_strescape (s1, NULL), "\"", NULL);
+  a2 = g_strconcat ("\"", t2 = g_strescape (s2, NULL), "\"", NULL);
+  g_free (t1);
+  g_free (t2);
+  s = g_strdup_printf ("assertion failed (%s): first differing element at index %" G_GSIZE_FORMAT ": %s does not equal %s",
+                       expr, first_wrong_idx, a1, a2);
   g_free (a1);
   g_free (a2);
   g_assertion_message (domain, file, line, func, s);

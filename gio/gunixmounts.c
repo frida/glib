@@ -956,21 +956,6 @@ _g_get_unix_mounts (void)
   return return_list;
 }
 
-/* QNX {{{2 */
-#elif defined(HAVE_QNX)
-
-static char *
-get_mtab_monitor_file (void)
-{
-  return NULL;
-}
-
-static GList *
-_g_get_unix_mounts (void)
-{
-  return NULL;
-}
-
 /* Common code {{{2 */
 #else
 #error No _g_get_unix_mounts() implementation for system
@@ -1488,14 +1473,6 @@ _g_get_unix_mount_points (void)
 }
 /* Interix {{{2 */
 #elif defined(__INTERIX)
-static GList *
-_g_get_unix_mount_points (void)
-{
-  return _g_get_unix_mounts ();
-}
-
-/* QNX {{{2 */
-#elif defined(HAVE_QNX)
 static GList *
 _g_get_unix_mount_points (void)
 {
@@ -2514,7 +2491,7 @@ g_unix_mount_point_get_fs_type (GUnixMountPoint *mount_point)
  * 
  * Gets the options for the mount point.
  * 
- * Returns: a string containing the options.
+ * Returns: (nullable): a string containing the options.
  *
  * Since: 2.32
  */

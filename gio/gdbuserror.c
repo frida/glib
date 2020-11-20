@@ -171,24 +171,33 @@ g_dbus_error_quark (void)
 /**
  * g_dbus_error_register_error_domain:
  * @error_domain_quark_name: The error domain name.
- * @quark: A pointer where to store the #GQuark.
+ * @quark_volatile: A pointer where to store the #GQuark.
  * @entries: (array length=num_entries): A pointer to @num_entries #GDBusErrorEntry struct items.
  * @num_entries: Number of items to register.
  *
  * Helper function for associating a #GError error domain with D-Bus error names.
  *
+ * While @quark_volatile has a `volatile` qualifier, this is a historical
+ * artifact and the argument passed to it should not be `volatile`.
+ *
  * Since: 2.26
  */
 void
 g_dbus_error_register_error_domain (const gchar           *error_domain_quark_name,
-                                    gsize                 *quark,
+                                    volatile gsize        *quark_volatile,
                                     const GDBusErrorEntry *entries,
                                     guint                  num_entries)
 {
+  gsize *quark;
+
   g_return_if_fail (error_domain_quark_name != NULL);
-  g_return_if_fail (quark != NULL);
+  g_return_if_fail (quark_volatile != NULL);
   g_return_if_fail (entries != NULL);
   g_return_if_fail (num_entries > 0);
+
+  /* Drop the volatile qualifier, which should never have been on the argument
+   * in the first place. */
+  quark = (gsize *) quark_volatile;
 
   if (g_once_init_enter (quark))
     {

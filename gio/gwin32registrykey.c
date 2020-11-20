@@ -2143,7 +2143,6 @@ MuiRegQueryValueExW (HKEY                     hKey,
                      LPDWORD                  lpcbData,
                      const gunichar2 * const *mui_dll_dirs)
 {
-#if _WIN32_WINNT >= 0x0600
   gsize dir_index;
   LSTATUS result = ERROR_PATH_NOT_FOUND;
   DWORD bufsize;
@@ -2212,9 +2211,6 @@ MuiRegQueryValueExW (HKEY                     hKey,
     *lpType = REG_SZ;
 
   return result;
-#else
-  return RegQueryValueExW (hKey, lpValueName, lpReserved, lpType, lpData, lpcbData);
-#endif
 }
 
 /**
@@ -2488,7 +2484,7 @@ g_win32_registry_key_watch (GWin32RegistryKey                   *key,
   if (g_once_init_enter (&nt_notify_change_multiple_keys))
   {
     NtNotifyChangeMultipleKeysFunc func;
-    HMODULE ntdll = GetModuleHandleW (L"ntdll.dll");
+    HMODULE ntdll = GetModuleHandle ("ntdll.dll");
 
     if (ntdll != NULL)
       func = (NtNotifyChangeMultipleKeysFunc) GetProcAddress (ntdll, "NtNotifyChangeMultipleKeys");

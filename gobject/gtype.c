@@ -322,7 +322,7 @@ struct _ClassData
   CommonData         common;
   guint16            class_size;
   guint16            class_private_size;
-  int                init_state; /* atomic - g_type_class_ref reads it unlocked TODO doesn't seem to be accessed atomically at all */
+  int                init_state;  /* (atomic) - g_type_class_ref reads it unlocked */
   GBaseInitFunc      class_init_base;
   GBaseFinalizeFunc  class_finalize_base;
   GClassInitFunc     class_init;
@@ -336,7 +336,7 @@ struct _InstanceData
   CommonData         common;
   guint16            class_size;
   guint16            class_private_size;
-  int                init_state; /* atomic - g_type_class_ref reads it unlocked TODO doesn't seem to be accessed atomically at all */
+  int                init_state;  /* (atomic) - g_type_class_ref reads it unlocked */
   GBaseInitFunc      class_init_base;
   GBaseFinalizeFunc  class_finalize_base;
   GClassInitFunc     class_init;
@@ -1415,7 +1415,7 @@ type_node_add_iface_entry_W (TypeNode   *node,
 
   if (parent_entry)
     {
-      if (node->data && node->data->class.init_state >= BASE_IFACE_INIT)
+      if (node->data && g_atomic_int_get (&node->data->class.init_state) >= BASE_IFACE_INIT)
         {
           entries->entry[i].init_state = INITIALIZED;
           entries->entry[i].vtable = parent_entry->vtable;
@@ -1481,7 +1481,7 @@ type_add_interface_Wm (TypeNode             *node,
    */
   if (node->data)
     {
-      InitState class_state = node->data->class.init_state;
+      InitState class_state = g_atomic_int_get (&node->data->class.init_state);
       
       if (class_state >= BASE_IFACE_INIT)
         type_iface_vtable_base_init_Wm (iface, node);
@@ -2169,13 +2169,13 @@ type_class_init_Wm (TypeNode   *node,
   TypeNode *bnode, *pnode;
   guint i;
   
-  /* Accessing data->class will work for instantiable types
+  /* Accessing data->class will work for instantiatable types
    * too because ClassData is a subset of InstanceData
    */
   g_assert (node->is_classed && node->data &&
 	    node->data->class.class_size &&
 	    !node->data->class.class &&
-	    node->data->class.init_state == UNINITIALIZED);
+	    g_atomic_int_get (&node->data->class.init_state) == UNINITIALIZED);
   if (node->data->class.class_private_size)
     class = g_malloc0 (ALIGN_STRUCT (node->data->class.class_size) + node->data->class.class_private_size);
   else
@@ -2290,7 +2290,7 @@ type_class_init_Wm (TypeNode   *node,
    * inherited interfaces are already init_state == INITIALIZED, because
    * they either got setup in the above base_init loop, or during
    * class_init from within type_add_interface_Wm() for this or
-   * an anchestor type.
+   * an ancestor type.
    */
   i = 0;
   while ((entries = CLASSED_NODE_IFACES_ENTRIES_LOCKED (node)) != NULL)
@@ -2868,12 +2868,12 @@ g_type_register_dynamic (GType        parent_type,
 
 /**
  * g_type_add_interface_static:
- * @instance_type: #GType value of an instantiable type
+ * @instance_type: #GType value of an instantiatable type
  * @interface_type: #GType value of an interface type
  * @info: #GInterfaceInfo structure for this
  *        (@instance_type, @interface_type) combination
  *
- * Adds @interface_type to the static @instantiable_type.
+ * Adds @interface_type to the static @instance_type.
  * The information contained in the #GInterfaceInfo structure
  * pointed to by @info is used to manage the relationship.
  */
@@ -2905,11 +2905,11 @@ g_type_add_interface_static (GType                 instance_type,
 
 /**
  * g_type_add_interface_dynamic:
- * @instance_type: #GType value of an instantiable type
+ * @instance_type: #GType value of an instantiatable type
  * @interface_type: #GType value of an interface type
  * @plugin: #GTypePlugin structure to retrieve the #GInterfaceInfo from
  *
- * Adds @interface_type to the dynamic @instantiable_type. The information
+ * Adds @interface_type to the dynamic @instance_type. The information
  * contained in the #GTypePlugin structure pointed to by @plugin
  * is used to manage the relationship.
  */
@@ -3462,7 +3462,7 @@ g_type_depth (GType type)
  * be used to determine the types and order in which the leaf type is
  * descended from the root type.
  *
- * Returns: immediate child of @root_type and anchestor of @leaf_type
+ * Returns: immediate child of @root_type and ancestor of @leaf_type
  */
 GType
 g_type_next_base (GType type,
@@ -3549,8 +3549,8 @@ type_node_conforms_to_U (TypeNode *node,
 
 /**
  * g_type_is_a:
- * @type: type to check anchestry for
- * @is_a_type: possible anchestor of @type or interface that @type
+ * @type: type to check ancestry for
+ * @is_a_type: possible ancestor of @type or interface that @type
  *     could conform to
  *
  * If @is_a_type is a derivable type, check whether @type is a
@@ -4410,17 +4410,12 @@ g_type_init (void)
 }
 
 static void
-gobject_perform_init (void)
+gobject_init (void)
 {
-  static gboolean initialized = FALSE;
   const gchar *env_string;
   GTypeInfo info;
   TypeNode *node;
   GType type G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
-
-  if (initialized)
-    return;
-  initialized = TRUE;
 
   /* Ensure GLib is initialized first, see
    * https://bugzilla.gnome.org/show_bug.cgi?id=756139
@@ -4509,15 +4504,7 @@ gobject_perform_init (void)
   _g_signal_init ();
 }
 
-void
-gobject_init (void)
-{
-#ifdef GLIB_STATIC_COMPILATION
-  gobject_perform_init ();
-#endif
-}
-
-#if defined (G_OS_WIN32) && !defined (GLIB_STATIC_COMPILATION)
+#if defined (G_OS_WIN32)
 
 BOOL WINAPI DllMain (HINSTANCE hinstDLL,
                      DWORD     fdwReason,
@@ -4531,7 +4518,7 @@ DllMain (HINSTANCE hinstDLL,
   switch (fdwReason)
     {
     case DLL_PROCESS_ATTACH:
-      gobject_perform_init ();
+      gobject_init ();
       break;
 
     default:
@@ -4551,7 +4538,7 @@ G_DEFINE_CONSTRUCTOR(gobject_init_ctor)
 static void
 gobject_init_ctor (void)
 {
-  gobject_perform_init ();
+  gobject_init ();
 }
 
 #else

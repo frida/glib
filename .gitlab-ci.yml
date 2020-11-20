@@ -12,7 +12,7 @@ cache:
 variables:
   FEDORA_IMAGE: "registry.gitlab.gnome.org/gnome/glib/fedora:v9"
   COVERITY_IMAGE: "registry.gitlab.gnome.org/gnome/glib/coverity:v1"
-  DEBIAN_IMAGE: "registry.gitlab.gnome.org/gnome/glib/debian-stable:v6"
+  DEBIAN_IMAGE: "registry.gitlab.gnome.org/gnome/glib/debian-stable:v7"
   ANDROID_IMAGE: "registry.gitlab.gnome.org/gnome/glib/android-ndk:v3"
   MINGW_IMAGE: "registry.gitlab.gnome.org/gnome/glib/mingw:v2"
   MESON_TEST_TIMEOUT_MULTIPLIER: 2
@@ -47,6 +47,9 @@ style-check-diff:
   allow_failure: true
   script:
     - .gitlab-ci/run-style-check-diff.sh
+    - .gitlab-ci/run-shellcheck.sh
+    - .gitlab-ci/run-black.sh
+    - .gitlab-ci/run-flake8.sh
 
 check-todos:
   extends: .only-default

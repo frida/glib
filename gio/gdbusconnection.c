@@ -1708,7 +1708,9 @@ g_dbus_connection_send_message_unlocked (GDBusConnection   *connection,
  * will be assigned by @connection and set on @message via
  * g_dbus_message_set_serial(). If @out_serial is not %NULL, then the
  * serial number used will be written to this location prior to
- * submitting the message to the underlying transport.
+ * submitting the message to the underlying transport. While it has a `volatile`
+ * qualifier, this is a historical artifact and the argument passed to it should
+ * not be `volatile`.
  *
  * If @connection is closed then the operation will fail with
  * %G_IO_ERROR_CLOSED. If @message is not well-formed,
@@ -1730,7 +1732,7 @@ gboolean
 g_dbus_connection_send_message (GDBusConnection        *connection,
                                 GDBusMessage           *message,
                                 GDBusSendMessageFlags   flags,
-                                guint32                *out_serial,
+                                volatile guint32       *out_serial,
                                 GError                **error)
 {
   gboolean ret;
@@ -1741,7 +1743,7 @@ g_dbus_connection_send_message (GDBusConnection        *connection,
   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
 
   CONNECTION_LOCK (connection);
-  ret = g_dbus_connection_send_message_unlocked (connection, message, flags, out_serial, error);
+  ret = g_dbus_connection_send_message_unlocked (connection, message, flags, (guint32 *) out_serial, error);
   CONNECTION_UNLOCK (connection);
   return ret;
 }
@@ -1979,7 +1981,9 @@ g_dbus_connection_send_message_with_reply_unlocked (GDBusConnection     *connect
  * will be assigned by @connection and set on @message via
  * g_dbus_message_set_serial(). If @out_serial is not %NULL, then the
  * serial number used will be written to this location prior to
- * submitting the message to the underlying transport.
+ * submitting the message to the underlying transport. While it has a `volatile`
+ * qualifier, this is a historical artifact and the argument passed to it should
+ * not be `volatile`.
  *
  * If @connection is closed then the operation will fail with
  * %G_IO_ERROR_CLOSED. If @cancellable is canceled, the operation will
@@ -2007,7 +2011,7 @@ g_dbus_connection_send_message_with_reply (GDBusConnection       *connection,
                                            GDBusMessage          *message,
                                            GDBusSendMessageFlags  flags,
                                            gint                   timeout_msec,
-                                           guint32               *out_serial,
+                                           volatile guint32      *out_serial,
                                            GCancellable          *cancellable,
                                            GAsyncReadyCallback    callback,
                                            gpointer               user_data)
@@ -2022,7 +2026,7 @@ g_dbus_connection_send_message_with_reply (GDBusConnection       *connection,
                                                       message,
                                                       flags,
                                                       timeout_msec,
-                                                      out_serial,
+                                                      (guint32 *) out_serial,
                                                       cancellable,
                                                       callback,
                                                       user_data);
@@ -2105,7 +2109,9 @@ send_message_with_reply_sync_cb (GDBusConnection *connection,
  * will be assigned by @connection and set on @message via
  * g_dbus_message_set_serial(). If @out_serial is not %NULL, then the
  * serial number used will be written to this location prior to
- * submitting the message to the underlying transport.
+ * submitting the message to the underlying transport. While it has a `volatile`
+ * qualifier, this is a historical artifact and the argument passed to it should
+ * not be `volatile`.
  *
  * If @connection is closed then the operation will fail with
  * %G_IO_ERROR_CLOSED. If @cancellable is canceled, the operation will
@@ -2134,7 +2140,7 @@ g_dbus_connection_send_message_with_reply_sync (GDBusConnection        *connecti
                                                 GDBusMessage           *message,
                                                 GDBusSendMessageFlags   flags,
                                                 gint                    timeout_msec,
-                                                guint32                *out_serial,
+                                                volatile guint32       *out_serial,
                                                 GCancellable           *cancellable,
                                                 GError                **error)
 {
