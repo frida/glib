@@ -286,7 +286,7 @@ struct _IFaceEntry
 };
 
 struct _IFaceEntries {
-  guint offset_index;
+  gsize offset_index;
   IFaceEntry entry[1];
 };
 
@@ -442,6 +442,10 @@ type_node_any_new_W (TypeNode             *pnode,
       node = G_STRUCT_MEMBER_P (node, SIZEOF_FUNDAMENTAL_INFO);
       static_fundamental_type_nodes[ftype >> G_TYPE_FUNDAMENTAL_SHIFT] = node;
       type = ftype;
+
+#if ENABLE_VALGRIND
+      VALGRIND_MALLOCLIKE_BLOCK (node, node_size - SIZEOF_FUNDAMENTAL_INFO, FALSE, TRUE);
+#endif
     }
   else
     type = (GType) node;
@@ -573,9 +577,9 @@ lookup_iface_entry_I (IFaceEntries *entries,
                       TypeNode     *iface_node)
 {
   guint8 *offsets;
-  guint offset_index;
+  gsize offset_index;
   IFaceEntry *check;
-  int index;
+  gsize index;
   IFaceEntry *entry;
 
   if (entries == NULL)
@@ -1276,7 +1280,7 @@ type_data_ref_U (TypeNode *node)
 
 static gboolean
 iface_node_has_available_offset_L (TypeNode *iface_node,
-				   int offset,
+				   gsize offset,
 				   int for_index)
 {
   guint8 *offsets;
@@ -1295,27 +1299,29 @@ iface_node_has_available_offset_L (TypeNode *iface_node,
   return FALSE;
 }
 
-static int
+static gsize
 find_free_iface_offset_L (IFaceEntries *entries)
 {
   IFaceEntry *entry;
   TypeNode *iface_node;
-  int offset;
+  gsize offset;
   int i;
   int n_entries;
 
   n_entries = IFACE_ENTRIES_N_ENTRIES (entries);
-  offset = -1;
+  offset = 0;
   do
     {
-      offset++;
       for (i = 0; i < n_entries; i++)
 	{
 	  entry = &entries->entry[i];
 	  iface_node = lookup_type_node_I (entry->iface_type);
 
 	  if (!iface_node_has_available_offset_L (iface_node, offset, i))
-	    break;
+            {
+              offset++;
+              break;
+            }
 	}
     }
   while (i != n_entries);
@@ -1325,12 +1331,12 @@ find_free_iface_offset_L (IFaceEntries *entries)
 
 static void
 iface_node_set_offset_L (TypeNode *iface_node,
-			 int offset,
+			 gsize offset,
 			 int index)
 {
   guint8 *offsets, *old_offsets;
-  int new_size, old_size;
-  int i;
+  gsize new_size, old_size;
+  gsize i;
 
   old_offsets = G_ATOMIC_ARRAY_GET_LOCKED (&iface_node->_prot.offsets, guint8);
   if (old_offsets == NULL)
@@ -1365,7 +1371,7 @@ type_node_add_iface_entry_W (TypeNode   *node,
   IFaceEntry *entry;
   TypeNode *iface_node;
   guint i, j;
-  int num_entries;
+  guint num_entries;
 
   g_assert (node->is_instantiatable);
 
@@ -1604,7 +1610,7 @@ g_type_interface_add_prerequisite (GType interface_type,
 	    }
 	}
       
-      for (i = 0; i < prerequisite_node->n_supers + 1; i++)
+      for (i = 0; i < prerequisite_node->n_supers + 1u; i++)
 	type_iface_add_prerequisite_W (iface, lookup_type_node_I (prerequisite_node->supers[i]));
       G_WRITE_UNLOCK (&type_rw_lock);
     }
@@ -4410,17 +4416,12 @@ g_type_init (void)
 }
 
 static void
-gobject_perform_init (void)
+gobject_init (void)
 {
-  static gboolean initialized = FALSE;
   const gchar *env_string;
   GTypeInfo info;
   TypeNode *node;
   GType type G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
-
-  if (initialized)
-    return;
-  initialized = TRUE;
 
   /* Ensure GLib is initialized first, see
    * https://bugzilla.gnome.org/show_bug.cgi?id=756139
@@ -4509,15 +4510,7 @@ gobject_perform_init (void)
   _g_signal_init ();
 }
 
-void
-gobject_init (void)
-{
-#ifdef GLIB_STATIC_COMPILATION
-  gobject_perform_init ();
-#endif
-}
-
-#if defined (G_OS_WIN32) && !defined (GLIB_STATIC_COMPILATION)
+#if defined (G_OS_WIN32)
 
 BOOL WINAPI DllMain (HINSTANCE hinstDLL,
                      DWORD     fdwReason,
@@ -4531,7 +4524,7 @@ DllMain (HINSTANCE hinstDLL,
   switch (fdwReason)
     {
     case DLL_PROCESS_ATTACH:
-      gobject_perform_init ();
+      gobject_init ();
       break;
 
     default:
@@ -4551,7 +4544,7 @@ G_DEFINE_CONSTRUCTOR(gobject_init_ctor)
 static void
 gobject_init_ctor (void)
 {
-  gobject_perform_init ();
+  gobject_init ();
 }
 
 #else

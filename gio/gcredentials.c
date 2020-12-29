@@ -196,7 +196,7 @@ g_credentials_init (GCredentials *credentials)
  * Creates a new #GCredentials object with credentials matching the
  * the current process.
  *
- * Returns: A #GCredentials. Free with g_object_unref().
+ * Returns: (transfer full): A #GCredentials. Free with g_object_unref().
  *
  * Since: 2.26
  */
@@ -216,7 +216,7 @@ g_credentials_new (void)
  * that can be used in logging and debug messages. The format of the
  * returned string may change in future GLib release.
  *
- * Returns: A string that should be freed with g_free().
+ * Returns: (transfer full): A string that should be freed with g_free().
  *
  * Since: 2.26
  */
@@ -233,18 +233,18 @@ g_credentials_to_string (GCredentials *credentials)
   ret = g_string_new ("GCredentials:");
 #if G_CREDENTIALS_USE_LINUX_UCRED
   g_string_append (ret, "linux-ucred:");
-  if (credentials->native.pid != -1)
+  if (credentials->native.pid != (pid_t) -1)
     g_string_append_printf (ret, "pid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.pid);
-  if (credentials->native.uid != -1)
+  if (credentials->native.uid != (uid_t) -1)
     g_string_append_printf (ret, "uid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.uid);
-  if (credentials->native.gid != -1)
+  if (credentials->native.gid != (gid_t) -1)
     g_string_append_printf (ret, "gid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.gid);
   if (ret->str[ret->len - 1] == ',')
     ret->str[ret->len - 1] = '\0';
 #elif G_CREDENTIALS_USE_APPLE_XUCRED
   g_string_append (ret, "apple-xucred:");
   g_string_append_printf (ret, "version=%u,", credentials->native.cr_version);
-  if (credentials->native.cr_uid != -1)
+  if (credentials->native.cr_uid != (uid_t) -1)
     g_string_append_printf (ret, "uid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.cr_uid);
   for (i = 0; i < credentials->native.cr_ngroups; i++)
     g_string_append_printf (ret, "gid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.cr_groups[i]);
@@ -252,28 +252,28 @@ g_credentials_to_string (GCredentials *credentials)
     ret->str[ret->len - 1] = '\0';
 #elif G_CREDENTIALS_USE_FREEBSD_CMSGCRED
   g_string_append (ret, "freebsd-cmsgcred:");
-  if (credentials->native.cmcred_pid != -1)
+  if (credentials->native.cmcred_pid != (pid_t) -1)
     g_string_append_printf (ret, "pid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.cmcred_pid);
-  if (credentials->native.cmcred_euid != -1)
+  if (credentials->native.cmcred_euid != (uid_t) -1)
     g_string_append_printf (ret, "uid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.cmcred_euid);
-  if (credentials->native.cmcred_gid != -1)
+  if (credentials->native.cmcred_gid != (gid_t) -1)
     g_string_append_printf (ret, "gid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.cmcred_gid);
 #elif G_CREDENTIALS_USE_NETBSD_UNPCBID
   g_string_append (ret, "netbsd-unpcbid:");
-  if (credentials->native.unp_pid != -1)
+  if (credentials->native.unp_pid != (pid_t) -1)
     g_string_append_printf (ret, "pid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.unp_pid);
-  if (credentials->native.unp_euid != -1)
+  if (credentials->native.unp_euid != (uid_t) -1)
     g_string_append_printf (ret, "uid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.unp_euid);
-  if (credentials->native.unp_egid != -1)
+  if (credentials->native.unp_egid != (gid_t) -1)
     g_string_append_printf (ret, "gid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.unp_egid);
   ret->str[ret->len - 1] = '\0';
 #elif G_CREDENTIALS_USE_OPENBSD_SOCKPEERCRED
   g_string_append (ret, "openbsd-sockpeercred:");
-  if (credentials->native.pid != -1)
+  if (credentials->native.pid != (pid_t) -1)
     g_string_append_printf (ret, "pid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.pid);
-  if (credentials->native.uid != -1)
+  if (credentials->native.uid != (uid_t) -1)
     g_string_append_printf (ret, "uid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.uid);
-  if (credentials->native.gid != -1)
+  if (credentials->native.gid != (gid_t) -1)
     g_string_append_printf (ret, "gid=%" G_GINT64_FORMAT ",", (gint64) credentials->native.gid);
   if (ret->str[ret->len - 1] == ',')
     ret->str[ret->len - 1] = '\0';
@@ -281,11 +281,11 @@ g_credentials_to_string (GCredentials *credentials)
   g_string_append (ret, "solaris-ucred:");
   {
     id_t id;
-    if ((id = ucred_getpid (credentials->native)) != -1)
+    if ((id = ucred_getpid (credentials->native)) != (id_t) -1)
       g_string_append_printf (ret, "pid=%" G_GINT64_FORMAT ",", (gint64) id);
-    if ((id = ucred_geteuid (credentials->native)) != -1)
+    if ((id = ucred_geteuid (credentials->native)) != (id_t) -1)
       g_string_append_printf (ret, "uid=%" G_GINT64_FORMAT ",", (gint64) id);
-    if ((id = ucred_getegid (credentials->native)) != -1)
+    if ((id = ucred_getegid (credentials->native)) != (id_t) -1)
       g_string_append_printf (ret, "gid=%" G_GINT64_FORMAT ",", (gint64) id);
     if (ret->str[ret->len - 1] == ',')
       ret->str[ret->len - 1] = '\0';
@@ -435,10 +435,10 @@ credentials_native_type_check (GCredentialsType  requested_type,
  * logged) to use this method if there is no #GCredentials support for
  * the OS or if @native_type isn't supported by the OS.
  *
- * Returns: The pointer to native credentials or %NULL if the
- * operation there is no #GCredentials support for the OS or if
- * @native_type isn't supported by the OS. Do not free the returned
- * data, it is owned by @credentials.
+ * Returns: (transfer none) (nullable): The pointer to native credentials or
+ *     %NULL if there is no #GCredentials support for the OS or if @native_type
+ *     isn't supported by the OS. Do not free the returned data, it is owned
+ *     by @credentials.
  *
  * Since: 2.26
  */
@@ -507,7 +507,7 @@ g_credentials_set_native (GCredentials     *credentials,
  * OS or if the native credentials type does not contain information
  * about the UNIX user.
  *
- * Returns: The UNIX user identifier or -1 if @error is set.
+ * Returns: The UNIX user identifier or `-1` if @error is set.
  *
  * Since: 2.26
  */
@@ -572,7 +572,7 @@ g_credentials_get_unix_user (GCredentials    *credentials,
  * about the UNIX process ID (for example this is the case for
  * %G_CREDENTIALS_TYPE_APPLE_XUCRED).
  *
- * Returns: The UNIX process ID, or -1 if @error is set.
+ * Returns: The UNIX process ID, or `-1` if @error is set.
  *
  * Since: 2.36
  */
