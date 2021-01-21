@@ -4416,17 +4416,12 @@ g_type_init (void)
 }
 
 static void
-gobject_perform_init (void)
+gobject_init (void)
 {
-  static gboolean initialized = FALSE;
   const gchar *env_string;
   GTypeInfo info;
   TypeNode *node;
   GType type G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
-
-  if (initialized)
-    return;
-  initialized = TRUE;
 
   /* Ensure GLib is initialized first, see
    * https://bugzilla.gnome.org/show_bug.cgi?id=756139
@@ -4515,15 +4510,7 @@ gobject_perform_init (void)
   _g_signal_init ();
 }
 
-void
-gobject_init (void)
-{
-#ifdef GLIB_STATIC_COMPILATION
-  gobject_perform_init ();
-#endif
-}
-
-#if defined (G_OS_WIN32) && !defined (GLIB_STATIC_COMPILATION)
+#if defined (G_OS_WIN32)
 
 BOOL WINAPI DllMain (HINSTANCE hinstDLL,
                      DWORD     fdwReason,
@@ -4537,7 +4524,7 @@ DllMain (HINSTANCE hinstDLL,
   switch (fdwReason)
     {
     case DLL_PROCESS_ATTACH:
-      gobject_perform_init ();
+      gobject_init ();
       break;
 
     default:
@@ -4557,7 +4544,7 @@ G_DEFINE_CONSTRUCTOR(gobject_init_ctor)
 static void
 gobject_init_ctor (void)
 {
-  gobject_perform_init ();
+  gobject_init ();
 }
 
 #else

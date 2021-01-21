@@ -957,17 +957,19 @@ _g_get_unix_mounts (void)
 }
 
 /* QNX {{{2 */
-#elif defined(HAVE_QNX)
+#elif defined (HAVE_QNX)
 
 static char *
 get_mtab_monitor_file (void)
 {
+  /* TODO: Not implemented */
   return NULL;
 }
 
 static GList *
 _g_get_unix_mounts (void)
 {
+  /* TODO: Not implemented */
   return NULL;
 }
 
@@ -1495,7 +1497,7 @@ _g_get_unix_mount_points (void)
 }
 
 /* QNX {{{2 */
-#elif defined(HAVE_QNX)
+#elif defined (HAVE_QNX)
 static GList *
 _g_get_unix_mount_points (void)
 {

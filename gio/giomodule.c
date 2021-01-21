@@ -30,6 +30,7 @@
 
 #include "giomodule.h"
 #include "giomodule-priv.h"
+#include "glib-private.h"
 #include "glocalfilemonitor.h"
 #include "gnativevolumemonitor.h"
 #include "gproxyresolver.h"
@@ -477,9 +478,7 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
 
   filename = g_build_filename (dirname, "giomodule.cache", NULL);
 
-  cache = g_hash_table_new_full (g_str_hash, g_str_equal,
-				 g_free, (GDestroyNotify)g_strfreev);
-
+  cache = NULL;
   cache_time = 0;
   if (g_stat (filename, &statbuf) == 0 &&
       g_file_get_contents (filename, &data, NULL, NULL))
@@ -523,6 +522,10 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
 	  while (g_ascii_isspace (*colon))
 	    colon++;
 
+          if (G_UNLIKELY (!cache))
+            cache = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                           g_free, (GDestroyNotify)g_strfreev);
+
 	  extension_points = g_strsplit (colon, ",", -1);
 	  g_hash_table_insert (cache, file, extension_points);
 	}
@@ -536,13 +539,15 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
 	  GIOExtensionPoint *extension_point;
 	  GIOModule *module;
 	  gchar *path;
-	  char **extension_points;
+	  char **extension_points = NULL;
 	  int i;
 
 	  path = g_build_filename (dirname, name, NULL);
 	  module = g_io_module_new (path);
 
-	  extension_points = g_hash_table_lookup (cache, name);
+          if (cache)
+            extension_points = g_hash_table_lookup (cache, name);
+
 	  if (extension_points != NULL &&
 	      g_stat (path, &statbuf) == 0 &&
 	      statbuf.st_ctime <= cache_time)
@@ -577,7 +582,8 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
 
   g_dir_close (dir);
 
-  g_hash_table_destroy (cache);
+  if (cache)
+    g_hash_table_destroy (cache);
 
   g_free (filename);
 }
@@ -807,6 +813,9 @@ _g_io_module_get_default_type (const gchar *extension_point,
       return G_TYPE_INVALID;
     }
 
+  /* It’s OK to query the environment here, even when running as setuid, because
+   * it only allows a choice between existing already-loaded modules. No new
+   * code is loaded based on the environment variable value. */
   use_this = envvar ? g_getenv (envvar) : NULL;
   if (g_strcmp0 (use_this, "help") == 0)
     {
@@ -865,6 +874,11 @@ try_implementation (const char           *extension_point,
       if (impl)
         return impl;
 
+      g_debug ("Failed to initialize %s (%s) for %s: %s",
+               g_io_extension_get_name (extension),
+               g_type_name (type),
+               extension_point,
+               error ? error->message : "");
       g_clear_error (&error);
       return NULL;
     }
@@ -877,6 +891,13 @@ try_implementation (const char           *extension_point,
       g_object_unref (impl);
       return NULL;
     }
+}
+
+static void
+weak_ref_free (GWeakRef *weak_ref)
+{
+  g_weak_ref_clear (weak_ref);
+  g_free (weak_ref);
 }
 
 /**
@@ -900,10 +921,11 @@ try_implementation (const char           *extension_point,
  * be called on each candidate implementation after construction, to
  * check if it is actually usable or not.
  *
- * The result is cached after it is generated the first time, and
+ * The result is cached after it is generated the first time (but the cache does
+ * not keep a strong reference to the object), and
  * the function is thread-safe.
  *
- * Returns: (transfer none): an object implementing
+ * Returns: (transfer full) (nullable): an object implementing
  *     @extension_point, or %NULL if there are no usable
  *     implementations.
  */
@@ -918,25 +940,33 @@ _g_io_module_get_default (const gchar         *extension_point,
   GList *l;
   GIOExtensionPoint *ep;
   GIOExtension *extension = NULL, *preferred;
-  gpointer impl;
+  gpointer impl, value;
+  GWeakRef *impl_weak_ref = NULL;
 
   g_rec_mutex_lock (&default_modules_lock);
   if (default_modules)
     {
-      gpointer key;
-
       if (g_hash_table_lookup_extended (default_modules, extension_point,
-					&key, &impl))
-	{
+                                        NULL, &value))
+        {
           /* Don’t debug here, since we’re returning a cached object which was
            * already printed earlier. */
-	  g_rec_mutex_unlock (&default_modules_lock);
-	  return impl;
-	}
+          impl_weak_ref = value;
+          impl = g_weak_ref_get (impl_weak_ref);
+
+          /* If the object has been finalised (impl == NULL), fall through and
+           * instantiate a new one. */
+          if (impl != NULL)
+            {
+              g_rec_mutex_unlock (&default_modules_lock);
+              return g_steal_pointer (&impl);
+            }
+        }
     }
   else
     {
-      default_modules = g_hash_table_new (g_str_hash, g_str_equal);
+      default_modules = g_hash_table_new_full (g_str_hash, g_str_equal,
+                                               g_free, (GDestroyNotify) weak_ref_free);
     }
 
   _g_io_modules_ensure_loaded ();
@@ -944,10 +974,16 @@ _g_io_module_get_default (const gchar         *extension_point,
 
   if (!ep)
     {
+      g_debug ("%s: Failed to find extension point ‘%s’",
+               G_STRFUNC, extension_point);
+      g_warn_if_reached ();
       g_rec_mutex_unlock (&default_modules_lock);
       return NULL;
     }
 
+  /* It’s OK to query the environment here, even when running as setuid, because
+   * it only allows a choice between existing already-loaded modules. No new
+   * code is loaded based on the environment variable value. */
   use_this = envvar ? g_getenv (envvar) : NULL;
   if (g_strcmp0 (use_this, "help") == 0)
     {
@@ -985,17 +1021,32 @@ _g_io_module_get_default (const gchar         *extension_point,
   impl = NULL;
 
  done:
-  g_hash_table_insert (default_modules,
-		       g_strdup (extension_point),
-		       impl ? g_object_ref (impl) : NULL);
+  if (impl_weak_ref == NULL)
+    {
+      impl_weak_ref = g_new0 (GWeakRef, 1);
+      g_weak_ref_init (impl_weak_ref, impl);
+      g_hash_table_insert (default_modules, g_strdup (extension_point),
+                           g_steal_pointer (&impl_weak_ref));
+    }
+  else
+    {
+      g_weak_ref_set (impl_weak_ref, impl);
+    }
+
   g_rec_mutex_unlock (&default_modules_lock);
 
   if (impl != NULL)
     {
       g_assert (extension != NULL);
+      g_debug ("%s: Found default implementation %s (%s) for ‘%s’",
+               G_STRFUNC, g_io_extension_get_name (extension),
+               G_OBJECT_TYPE_NAME (impl), extension_point);
     }
+  else
+    g_debug ("%s: Failed to find default implementation for ‘%s’",
+             G_STRFUNC, extension_point);
 
-  return impl;
+  return g_steal_pointer (&impl);
 }
 
 G_LOCK_DEFINE_STATIC (registered_extensions);
@@ -1136,14 +1187,20 @@ _g_io_modules_ensure_extension_points_registered (void)
   G_UNLOCK (registered_extensions);
 }
 
-#ifndef GLIB_STATIC_COMPILATION
-
 static gchar *
 get_gio_module_dir (void)
 {
   gchar *module_dir;
+  gboolean is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
 
-  module_dir = g_strdup (g_getenv ("GIO_MODULE_DIR"));
+  /* If running as setuid, loading modules from an arbitrary directory
+   * controlled by the unprivileged user who is running the program could allow
+   * for execution of arbitrary code (in constructors in modules).
+   * Don’t allow it.
+   *
+   * If a setuid program somehow needs to load additional GIO modules, it should
+   * explicitly call g_io_modules_scan_all_in_directory(). */
+  module_dir = !is_setuid ? g_strdup (g_getenv ("GIO_MODULE_DIR")) : NULL;
   if (module_dir == NULL)
     {
 #ifdef G_OS_WIN32
@@ -1162,17 +1219,12 @@ get_gio_module_dir (void)
   return module_dir;
 }
 
-#endif /* !GLIB_STATIC_COMPILATION */
-
 void
 _g_io_modules_ensure_loaded (void)
 {
   static gboolean loaded_dirs = FALSE;
-#ifndef GLIB_STATIC_COMPILATION
   const char *module_path;
-  gchar *module_dir;
   GIOModuleScope *scope;
-#endif
 
   _g_io_modules_ensure_extension_points_registered ();
   
@@ -1180,13 +1232,14 @@ _g_io_modules_ensure_loaded (void)
 
   if (!loaded_dirs)
     {
-      loaded_dirs = TRUE;
+      gboolean is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
+      gchar *module_dir;
 
-#ifndef GLIB_STATIC_COMPILATION
+      loaded_dirs = TRUE;
       scope = g_io_module_scope_new (G_IO_MODULE_SCOPE_BLOCK_DUPLICATES);
 
-      /* First load any overrides, extras */
-      module_path = g_getenv ("GIO_EXTRA_MODULES");
+      /* First load any overrides, extras (but not if running as setuid!) */
+      module_path = !is_setuid ? g_getenv ("GIO_EXTRA_MODULES") : NULL;
       if (module_path)
 	{
 	  gchar **paths;
@@ -1209,13 +1262,12 @@ _g_io_modules_ensure_loaded (void)
       g_free (module_dir);
 
       g_io_module_scope_free (scope);
-#endif
 
       /* Initialize types from built-in "modules" */
       g_type_ensure (g_null_settings_backend_get_type ());
       g_type_ensure (g_memory_settings_backend_get_type ());
       g_type_ensure (g_keyfile_settings_backend_get_type ());
-#if defined(__linux__)
+#if defined(HAVE_INOTIFY_INIT1)
       g_type_ensure (g_inotify_file_monitor_get_type ());
 #endif
 #if defined(HAVE_KQUEUE)
@@ -1263,7 +1315,7 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (_g_network_monitor_netlink_get_type ());
       g_type_ensure (_g_network_monitor_nm_get_type ());
 #endif
-#if defined(G_OS_WIN32) && _WIN32_WINNT >= 0x0600
+#ifdef G_OS_WIN32
       g_type_ensure (_g_win32_network_monitor_get_type ());
 #endif
     }

@@ -138,6 +138,8 @@ GLIB_VERSION_2_62
 GLIB_VERSION_2_64
 GLIB_VERSION_2_66
 GLIB_VERSION_2_68
+GLIB_VERSION_CUR_STABLE
+GLIB_VERSION_PREV_STABLE
 GLIB_VERSION_MIN_REQUIRED
 GLIB_VERSION_MAX_ALLOWED
 GLIB_DISABLE_DEPRECATION_WARNINGS
@@ -754,6 +756,13 @@ g_propagate_error
 g_clear_error
 g_prefix_error
 g_propagate_prefixed_error
+<SUBSECTION>
+GErrorInitFunc
+GErrorCopyFunc
+GErrorClearFunc
+G_DEFINE_EXTENDED_ERROR
+g_error_domain_register_static
+g_error_domain_register
 </SECTION>
 
 <SECTION>

@@ -76,11 +76,6 @@
 #include "glibintl.h"
 #include "gioprivate.h"
 
-#ifdef G_OS_WIN32
-/* For Windows XP runtime compatibility, but use the system's if_nametoindex() if available */
-#include "gwin32networking.h"
-#endif
-
 /**
  * SECTION:gsocket
  * @short_description: Low-level socket object
@@ -465,9 +460,6 @@ g_socket_details_from_fd (GSocket *socket)
   int errsv;
 
   fd = socket->priv->fd;
-
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-
   if (!g_socket_get_option (socket, SOL_SOCKET, SO_TYPE, &value, NULL))
     {
       errsv = get_socket_errno ();
@@ -600,10 +592,7 @@ g_socket (gint     domain,
   fd = socket (domain, type | SOCK_CLOEXEC, protocol);
   errsv = errno;
   if (fd != -1)
-    {
-      glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-      return fd;
-    }
+    return fd;
 
   /* It's possible that libc has SOCK_CLOEXEC but the kernel does not */
   if (fd < 0 && (errsv == EINVAL || errsv == EPROTOTYPE))
@@ -619,8 +608,6 @@ g_socket (gint     domain,
       errno = errsv;
       return -1;
     }
-
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
 
 #ifndef G_OS_WIN32
   {
@@ -638,15 +625,15 @@ g_socket (gint     domain,
       }
   }
 #else
-  if (type == SOCK_DGRAM)
-  {
-    DWORD bytes_returned = 0;
-    BOOL new_behavior = FALSE;
+  if ((domain == AF_INET || domain == AF_INET6) && type == SOCK_DGRAM)
+    {
+      BOOL new_behavior = FALSE;
+      DWORD bytes_returned = 0;
 
-    /* Disable connection reset error on ICMP port unreachable. */
-    WSAIoctl (fd, SIO_UDP_CONNRESET, &new_behavior, sizeof (new_behavior),
-        NULL, 0, &bytes_returned, NULL, NULL);
-  }
+      /* Disable connection reset error on ICMP port unreachable. */
+      WSAIoctl (fd, SIO_UDP_CONNRESET, &new_behavior, sizeof (new_behavior),
+                NULL, 0, &bytes_returned, NULL, NULL);
+    }
 #endif
 
   return fd;
@@ -927,6 +914,19 @@ static void
 g_socket_class_init (GSocketClass *klass)
 {
   GObjectClass *gobject_class G_GNUC_UNUSED = G_OBJECT_CLASS (klass);
+
+#ifdef SIGPIPE
+  /* There is no portable, thread-safe way to avoid having the process
+   * be killed by SIGPIPE when calling send() or sendmsg(), so we are
+   * forced to simply ignore the signal process-wide.
+   *
+   * Even if we ignore it though, gdb will still stop if the app
+   * receives a SIGPIPE, which can be confusing and annoying. So when
+   * possible, we also use MSG_NOSIGNAL / SO_NOSIGPIPE elsewhere to
+   * prevent the signal from occurring at all.
+   */
+  signal (SIGPIPE, SIG_IGN);
+#endif
 
   gobject_class->finalize = g_socket_finalize;
   gobject_class->constructed = g_socket_constructed;
@@ -2216,63 +2216,6 @@ g_socket_bind (GSocket         *socket,
 }
 
 #ifdef G_OS_WIN32
-
-#ifndef HAVE_IF_NAMETOINDEX
-static guint
-if_nametoindex (const gchar *iface)
-{
-  PIP_ADAPTER_ADDRESSES addresses = NULL, p;
-  gulong addresses_len = 0;
-  guint idx = 0;
-  DWORD res;
-
-  if (ws2funcs.pIfNameToIndex != NULL)
-    return ws2funcs.pIfNameToIndex (iface);
-
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, NULL, &addresses_len);
-  if (res != NO_ERROR && res != ERROR_BUFFER_OVERFLOW)
-    {
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
-    }
-
-  addresses = g_malloc (addresses_len);
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, addresses, &addresses_len);
-
-  if (res != NO_ERROR)
-    {
-      g_free (addresses);
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
-    }
-
-  p = addresses;
-  while (p)
-    {
-      if (strcmp (p->AdapterName, iface) == 0)
-        {
-          idx = p->IfIndex;
-          break;
-        }
-      p = p->Next;
-    }
-
-  if (p == NULL)
-    errno = ENXIO;
-
-  g_free (addresses);
-
-  return idx;
-}
-#define HAVE_IF_NAMETOINDEX 1
-#endif
-
 static gulong
 g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
 {
@@ -2982,7 +2925,6 @@ g_socket_accept (GSocket       *socket,
 #else
       close (ret);
 #endif
-      glib_fd_callbacks->on_fd_closed (ret, "GSocket");
     }
   else
     new_socket->priv->protocol = socket->priv->protocol;
@@ -3779,9 +3721,6 @@ g_socket_close (GSocket  *socket,
 		       socket_strerror (errsv));
 	  return FALSE;
 	}
-
-      glib_fd_callbacks->on_fd_closed (socket->priv->fd, "GSocket");
-
       break;
     }
 
@@ -3828,7 +3767,9 @@ static GSourceFuncs broken_funcs =
   NULL,
   NULL,
   broken_dispatch,
-  NULL
+  NULL,
+  NULL,
+  NULL,
 };
 
 #ifdef G_OS_WIN32
@@ -4143,6 +4084,7 @@ static GSourceFuncs socket_source_funcs =
   socket_source_dispatch,
   socket_source_finalize,
   (GSourceFunc)socket_source_closure_callback,
+  NULL,
 };
 
 static GSource *
@@ -4544,6 +4486,15 @@ g_socket_condition_timed_wait (GSocket       *socket,
 
 #ifndef G_OS_WIN32
 
+#ifdef HAVE_QNX
+/* QNX has this weird upper limit, or at least used to back in the 6.x days.
+ * This was discovered empirically and doesn't appear to be mentioned in any
+ * of the official documentation. */
+# define G_SOCKET_CONTROL_BUFFER_SIZE_BYTES 2016
+#else
+# define G_SOCKET_CONTROL_BUFFER_SIZE_BYTES 2048
+#endif
+
 /* Unfortunately these have to be macros rather than inline functions due to
  * using alloca(). */
 #define output_message_to_msghdr(message, prev_message, msg, prev_msg, error) \
@@ -4594,7 +4545,7 @@ G_STMT_START { \
     else \
       /* ABI is incompatible */ \
       { \
-        gint i; \
+        guint i; \
  \
         _msg->msg_iov = g_newa (struct iovec, _message->num_vectors); \
         for (i = 0; i < _message->num_vectors; i++) \
@@ -4609,7 +4560,7 @@ G_STMT_START { \
   /* control */ \
   { \
     struct cmsghdr *cmsg; \
-    gint i; \
+    guint i; \
  \
     _msg->msg_controllen = 0; \
     for (i = 0; i < _message->num_control_messages; i++) \
@@ -4690,7 +4641,7 @@ G_STMT_START { \
     } \
   else \
     { \
-      _msg->msg_controllen = 2016; /* upper limit on QNX */ \
+      _msg->msg_controllen = G_SOCKET_CONTROL_BUFFER_SIZE_BYTES; \
       _msg->msg_control = g_alloca (_msg->msg_controllen); \
     } \
  \
@@ -4815,6 +4766,11 @@ input_message_from_msghdr (const struct msghdr  *msg,
  * notified of a %G_IO_OUT condition. (On Windows in particular, this is
  * very common due to the way the underlying APIs work.)
  *
+ * The sum of the sizes of each #GOutputVector in vectors must not be
+ * greater than %G_MAXSSIZE. If the message can be larger than this,
+ * then it is mandatory to use the g_socket_send_message_with_timeout()
+ * function.
+ *
  * On error -1 is returned and @error is set accordingly.
  *
  * Returns: Number of bytes written (which may be less than @size), or -1
@@ -4835,6 +4791,49 @@ g_socket_send_message (GSocket                *socket,
 {
   GPollableReturn res;
   gsize bytes_written = 0;
+  gsize vectors_size = 0;
+
+  if (num_vectors != -1)
+    {
+      for (gint i = 0; i < num_vectors; i++)
+        {
+          /* No wrap-around for vectors_size */
+          if (vectors_size > vectors_size + vectors[i].size)
+            {
+              g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                           _("Unable to send message: %s"),
+                           _("Message vectors too large"));
+              return -1;
+            }
+
+          vectors_size += vectors[i].size;
+        }
+    }
+  else
+    {
+      for (gsize i = 0; vectors[i].buffer != NULL; i++)
+        {
+          /* No wrap-around for vectors_size */
+          if (vectors_size > vectors_size + vectors[i].size)
+            {
+              g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                           _("Unable to send message: %s"),
+                           _("Message vectors too large"));
+              return -1;
+            }
+
+          vectors_size += vectors[i].size;
+        }
+    }
+
+  /* Check if vector's buffers are too big for gssize */
+  if (vectors_size > G_MAXSSIZE)
+    {
+      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                   _("Unable to send message: %s"),
+                   _("Message vectors too large"));
+      return -1;
+    }
 
   res = g_socket_send_message_with_timeout (socket, address,
                                             vectors, num_vectors,
@@ -4842,6 +4841,8 @@ g_socket_send_message (GSocket                *socket,
                                             socket->priv->blocking ? -1 : 0,
                                             &bytes_written,
                                             cancellable, error);
+
+  g_assert (res != G_POLLABLE_RETURN_OK || bytes_written <= G_MAXSSIZE);
 
   if (res == G_POLLABLE_RETURN_WOULD_BLOCK)
     {
@@ -4852,7 +4853,7 @@ g_socket_send_message (GSocket                *socket,
 #endif
     }
 
-  return res == G_POLLABLE_RETURN_OK ? bytes_written : -1;
+  return res == G_POLLABLE_RETURN_OK ? (gssize) bytes_written : -1;
 }
 
 /**
@@ -5192,7 +5193,7 @@ g_socket_send_messages_with_timeout (GSocket        *socket,
 #if !defined (G_OS_WIN32) && defined (HAVE_SENDMMSG)
   {
     struct mmsghdr *msgvec;
-    gint i, num_sent;
+    guint i, num_sent;
 
     /* Clamp the number of vectors if more given than we can write in one go.
      * The caller has to handle short writes anyway.

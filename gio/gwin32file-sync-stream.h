@@ -1,6 +1,6 @@
 /* GIO - GLib Input, Output and Streaming Library
  *
- * Copyright (C) 2015 Chun-wei Fan
+ * Copyright (C) 2020 Руслан Ижбулатов <lrn1986@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -14,29 +14,31 @@
  *
  * You should have received a copy of the GNU Lesser General
  * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
+ *
  */
+#ifndef __G_WIN32_FILE_SYNC_STREAM_H__
+#define __G_WIN32_FILE_SYNC_STREAM_H__
 
-#ifndef __G_WIN32_NETWORKING_H__
-#define __G_WIN32_NETWORKING_H__
+#include <gio/gio.h>
 
-G_BEGIN_DECLS
+#ifdef G_PLATFORM_WIN32
 
-/* Check if more ANSI-compliant Winsock2 functions are provided */
-/* For run-time compatibility with Windows XP, remove when XP support dropped */
+typedef struct _GWin32FileSyncStream GWin32FileSyncStream;
 
-typedef INT (WSAAPI *PFN_InetPton) (INT, PWSTR, PVOID);
-typedef PCTSTR (WSAAPI *PFN_InetNtop) (INT, PVOID, PWSTR, size_t);
-typedef NET_IFINDEX (WINAPI *PFN_IfNameToIndex) (PCSTR);
-
-typedef struct _GWin32WinsockFuncs
+struct _GWin32FileSyncStream
 {
-  PFN_InetPton pInetPton;
-  PFN_InetNtop pInetNtop;
-  PFN_IfNameToIndex pIfNameToIndex;
-} GWin32WinsockFuncs;
+  IStream  self;
+  ULONG    ref_count;
+  HANDLE   file_handle;
+  gboolean owns_handle;
+  DWORD    stgm_mode;
+};
 
-extern GWin32WinsockFuncs ws2funcs;
+IStream *g_win32_file_sync_stream_new (HANDLE    file_handle,
+                                       gboolean  owns_handle,
+                                       DWORD     stgm_mode,
+                                       HRESULT  *output_hresult);
 
-G_END_DECLS /* __G_WIN32_NETWORKING_H__ */
+#endif /* G_PLATFORM_WIN32 */
 
-#endif
+#endif /* __G_WIN32_FILE_SYNC_STREAM_H__ */

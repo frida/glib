@@ -836,12 +836,7 @@ static void     gtest_default_log_handler       (const gchar    *log_domain,
                                                  GLogLevelFlags  log_level,
                                                  const gchar    *message,
                                                  gpointer        unused_data);
-static void     g_default_assertion_handler     (const char     *domain,
-                                                 const char     *file,
-                                                 int             line,
-                                                 const char     *func,
-                                                 const char     *message,
-                                                 gpointer       user_data);
+
 
 static const char * const g_test_result_names[] = {
   "OK",
@@ -906,8 +901,6 @@ static GTestConfig mutable_test_config_vars = {
 };
 const GTestConfig * const g_test_config_vars = &mutable_test_config_vars;
 static gboolean  no_g_set_prgname = FALSE;
-static GAssertionFunc assertion_handler = g_default_assertion_handler;
-static gpointer assertion_handler_data = NULL;
 
 /* --- functions --- */
 const char*
@@ -2997,20 +2990,11 @@ gtest_default_log_handler (const gchar    *log_domain,
 }
 
 void
-g_assertion_set_handler (GAssertionFunc handler,
-                         gpointer user_data)
-{
-  assertion_handler_data = user_data;
-  assertion_handler = handler;
-}
-
-static void
-g_default_assertion_handler (const char     *domain,
-                             const char     *file,
-                             int             line,
-                             const char     *func,
-                             const char     *message,
-                             gpointer       user_data)
+g_assertion_message (const char     *domain,
+                     const char     *file,
+                     int             line,
+                     const char     *func,
+                     const char     *message)
 {
   char lstr[32];
   char *s;
@@ -3040,8 +3024,13 @@ g_default_assertion_handler (const char     *domain,
 
   /* store assertion message in global variable, so that it can be found in a
    * core dump */
-  g_free (__glib_assert_msg);
-  __glib_assert_msg = s;
+  if (__glib_assert_msg != NULL)
+    /* free the old one */
+    free (__glib_assert_msg);
+  __glib_assert_msg = (char*) malloc (strlen (s) + 1);
+  strcpy (__glib_assert_msg, s);
+
+  g_free (s);
 
   if (test_in_subprocess)
     {
@@ -3066,16 +3055,6 @@ g_default_assertion_handler (const char     *domain,
  * Internal function used to print messages from the public g_assert() and
  * g_assert_not_reached() macros.
  */
-void
-g_assertion_message (const char     *domain,
-                     const char     *file,
-                     int             line,
-                     const char     *func,
-                     const char     *message)
-{
-  assertion_handler (domain, file, line, func, message, assertion_handler_data);
-}
-
 void
 g_assertion_message_expr (const char     *domain,
                           const char     *file,

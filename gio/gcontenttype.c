@@ -104,7 +104,7 @@ _g_unix_content_type_get_parents (const gchar *type)
   for (i = 0; parents && parents[i] != NULL; i++)
     g_ptr_array_add (array, g_strdup (parents[i]));
 
-  g_free (parents);
+  free (parents);
 
   G_UNLOCK (gio_xdgmime);
 
@@ -405,7 +405,9 @@ load_comment_for_mime_helper (const char *dir,
   GMarkupParser parser = {
     mime_info_start_element,
     mime_info_end_element,
-    mime_info_text
+    mime_info_text,
+    NULL,
+    NULL
   };
 
   filename = g_build_filename (dir, basename, NULL);
