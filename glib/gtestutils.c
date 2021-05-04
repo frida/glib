@@ -309,8 +309,12 @@
  * behaviour, to verify that appropriate warnings are given. It might, in some
  * cases, be useful to turn this off with if running tests under valgrind;
  * in tests that use g_test_init(), the option `-m no-undefined` disables
- * those tests, while `-m undefined` explicitly enables them (the default
- * behaviour).
+ * those tests, while `-m undefined` explicitly enables them (normally
+ * the default behaviour).
+ *
+ * Since GLib 2.68, if GLib was compiled with gcc or clang and
+ * [AddressSanitizer](https://github.com/google/sanitizers/wiki/AddressSanitizer)
+ * is enabled, the default changes to not exercising undefined behaviour.
  *
  * Returns: %TRUE if tests may provoke programming errors
  */
@@ -1068,7 +1072,20 @@ g_test_log (GTestLogType lbit,
       break;
     case G_TEST_LOG_MESSAGE:
       if (test_tap_log)
-        g_print ("# %s\n", string1);
+        {
+          if (strstr (string1, "\n") == NULL)
+            g_print ("# %s\n", string1);
+          else
+            {
+              char **lines = g_strsplit (string1, "\n", -1);
+              gsize i;
+
+              for (i = 0; lines[i] != NULL; i++)
+                g_print ("# %s\n", lines[i]);
+
+              g_strfreev (lines);
+            }
+        }
       else if (g_test_verbose ())
         g_print ("(MSG: %s)\n", string1);
       break;
@@ -1572,6 +1589,10 @@ void
   g_return_if_fail (argv != NULL);
   g_return_if_fail (g_test_config_vars->test_initialized == FALSE);
   mutable_test_config_vars.test_initialized = TRUE;
+
+#ifdef _GLIB_ADDRESS_SANITIZER
+  mutable_test_config_vars.test_undefined = FALSE;
+#endif
 
   va_start (args, argv);
   while ((option = va_arg (args, char *)))
@@ -3024,8 +3045,13 @@ g_assertion_message (const char     *domain,
 
   /* store assertion message in global variable, so that it can be found in a
    * core dump */
-  g_free (__glib_assert_msg);
-  __glib_assert_msg = s;
+  if (__glib_assert_msg != NULL)
+    /* free the old one */
+    free (__glib_assert_msg);
+  __glib_assert_msg = (char*) malloc (strlen (s) + 1);
+  strcpy (__glib_assert_msg, s);
+
+  g_free (s);
 
   if (test_in_subprocess)
     {
@@ -3953,7 +3979,7 @@ g_test_log_extract (GTestLogBuffer *tbuffer)
       if (p <= tbuffer->data->str + mlength)
         {
           g_string_erase (tbuffer->data, 0, mlength);
-          tbuffer->msgs = g_slist_prepend (tbuffer->msgs, g_memdup (&msg, sizeof (msg)));
+          tbuffer->msgs = g_slist_prepend (tbuffer->msgs, g_memdup2 (&msg, sizeof (msg)));
           return TRUE;
         }
 
@@ -4224,4 +4250,24 @@ g_test_get_filename (GTestFileType  file_type,
   while (!g_atomic_pointer_compare_and_exchange (test_filename_free_list, node->next, node));
 
   return result;
+}
+
+/**
+ * g_test_get_path:
+ *
+ * Gets the test path for the test currently being run.
+ *
+ * In essence, it will be the same string passed as the first argument to
+ * e.g. g_test_add() when the test was added.
+ *
+ * This function returns a valid string only within a test function.
+ *
+ * Returns: the test path for the test currently being run
+ *
+ * Since: 2.68
+ **/
+const char *
+g_test_get_path (void)
+{
+  return test_run_name;
 }

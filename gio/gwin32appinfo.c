@@ -49,8 +49,6 @@
 #include "giowin32-priv.h"
 #include "glib-private.h"
 
-#if _WIN32_WINNT >= 0x0600
-
 /* We need to watch 8 places:
  * 0) HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations
  *    (anything below that key)
@@ -3966,6 +3964,8 @@ gio_win32_appinfo_init (gboolean do_wait)
 
   if (g_once_init_enter (&initialized))
     {
+      HMODULE gio_dll_extra;
+
       url_associations_key =
           g_win32_registry_key_new_w (L"HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations",
                                        NULL);
@@ -4008,6 +4008,11 @@ gio_win32_appinfo_init (gboolean do_wait)
       g_atomic_int_set (&gio_win32_appinfo_update_counter, 1);
       /* Trigger initial tree build. Fake data pointer. */
       g_thread_pool_push (gio_win32_appinfo_threadpool, (gpointer) keys_updated, NULL);
+      /* Increment the DLL refcount */
+      GetModuleHandleExA (GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                          (const char *) gio_win32_appinfo_init,
+                          &gio_dll_extra);
+      /* gio DLL cannot be unloaded now */
 
       g_once_init_leave (&initialized, TRUE);
     }
@@ -5446,63 +5451,3 @@ g_app_info_reset_type_associations (const char *content_type)
 {
   /* nothing to do */
 }
-
-#else
-
-void
-gio_win32_appinfo_init (gboolean do_wait)
-{
-}
-
-GAppInfo *
-g_app_info_create_from_commandline (const char           *commandline,
-                                    const char           *application_name,
-                                    GAppInfoCreateFlags   flags,
-                                    GError              **error)
-{
-  return NULL;
-}
-
-GAppInfo *
-g_app_info_get_default_for_uri_scheme (const char *uri_scheme)
-{
-  return NULL;
-}
-
-GAppInfo *
-g_app_info_get_default_for_type (const char *content_type,
-                                 gboolean    must_support_uris)
-{
-  return NULL;
-}
-
-GList *
-g_app_info_get_all (void)
-{
-  return NULL;
-}
-
-GList *
-g_app_info_get_all_for_type (const char *content_type)
-{
-  return NULL;
-}
-
-GList *
-g_app_info_get_fallback_for_type (const gchar *content_type)
-{
-  return NULL;
-}
-
-GList *
-g_app_info_get_recommended_for_type (const gchar *content_type)
-{
-  return NULL;
-}
-
-void
-g_app_info_reset_type_associations (const char *content_type)
-{
-}
-
-#endif

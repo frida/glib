@@ -10,16 +10,15 @@ msgid ""
 msgstr ""
 "Project-Id-Version: glib\n"
 "Report-Msgid-Bugs-To: https://gitlab.gnome.org/GNOME/glib/issues\n"
-"POT-Creation-Date: 2021-01-12 18:10+0000\n"
-"PO-Revision-Date: 2021-01-12 22:41+0200\n"
+"POT-Creation-Date: 2021-03-09 12:50+0000\n"
+"PO-Revision-Date: 2021-03-09 18:49+0200\n"
 "Last-Translator: Yuri Chornoivan <yurchor@ukr.net>\n"
 "Language-Team: Ukrainian <trans-uk@lists.fedoraproject.org>\n"
 "Language: uk\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<"
-"=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+"Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 "X-Generator: Lokalize 20.11.70\n"
 
 #: gio/gapplication.c:500
@@ -61,94 +60,94 @@ msgstr "Вивести номер версії"
 msgid "Print version information and exit"
 msgstr "Вивести інформацію про версію і вийти"
 
-#: gio/gapplication-tool.c:52
+#: gio/gapplication-tool.c:53
 msgid "List applications"
 msgstr "Вивести список програм"
 
-#: gio/gapplication-tool.c:53
+#: gio/gapplication-tool.c:54
 msgid "List the installed D-Bus activatable applications (by .desktop files)"
 msgstr ""
 "Вивести перелік встановлених придатних до активації за D-Bus програм (за "
 "файлами desktop)"
 
-#: gio/gapplication-tool.c:55
+#: gio/gapplication-tool.c:57
 msgid "Launch an application"
 msgstr "Запустити програму"
 
-#: gio/gapplication-tool.c:56
+#: gio/gapplication-tool.c:58
 msgid "Launch the application (with optional files to open)"
 msgstr "Запустити програму (із необов'язковим відкриттям файлів)"
 
-#: gio/gapplication-tool.c:57
+#: gio/gapplication-tool.c:59
 msgid "APPID [FILE…]"
 msgstr "ІД_ПРОГРАМИ [ФАЙЛ…]"
 
-#: gio/gapplication-tool.c:59
+#: gio/gapplication-tool.c:61
 msgid "Activate an action"
 msgstr "Активувати дію"
 
-#: gio/gapplication-tool.c:60
+#: gio/gapplication-tool.c:62
 msgid "Invoke an action on the application"
 msgstr "Викликати дію програми"
 
-#: gio/gapplication-tool.c:61
+#: gio/gapplication-tool.c:63
 msgid "APPID ACTION [PARAMETER]"
 msgstr "ІД_ПРОГРАМИ ДІЯ [ПАРАМЕТР]"
 
-#: gio/gapplication-tool.c:63
+#: gio/gapplication-tool.c:65
 msgid "List available actions"
 msgstr "Вивести перелік доступних дій"
 
-#: gio/gapplication-tool.c:64
+#: gio/gapplication-tool.c:66
 msgid "List static actions for an application (from .desktop file)"
 msgstr "Вивести перелік статичних дій для програми (з desktop-файла)"
 
-#: gio/gapplication-tool.c:65 gio/gapplication-tool.c:71
+#: gio/gapplication-tool.c:67 gio/gapplication-tool.c:73
 msgid "APPID"
 msgstr "ІД_ПРОГРАМИ"
 
-#: gio/gapplication-tool.c:70 gio/gapplication-tool.c:133 gio/gdbus-tool.c:106
+#: gio/gapplication-tool.c:72 gio/gapplication-tool.c:135 gio/gdbus-tool.c:106
 #: gio/gio-tool.c:224
 msgid "COMMAND"
 msgstr "КОМАНДА"
 
-#: gio/gapplication-tool.c:70
+#: gio/gapplication-tool.c:72
 msgid "The command to print detailed help for"
 msgstr "Команда, за якою виводиться детальна довідка"
 
-#: gio/gapplication-tool.c:71
+#: gio/gapplication-tool.c:73
 msgid "Application identifier in D-Bus format (eg: org.example.viewer)"
 msgstr "Ідентифікатор програми у форматі D-Bus (напр.: org.example.viewer)"
 
-#: gio/gapplication-tool.c:72 gio/glib-compile-resources.c:738
+#: gio/gapplication-tool.c:74 gio/glib-compile-resources.c:738
 #: gio/glib-compile-resources.c:744 gio/glib-compile-resources.c:772
 #: gio/gresource-tool.c:500 gio/gresource-tool.c:566
 msgid "FILE"
 msgstr "ФАЙЛ"
 
-#: gio/gapplication-tool.c:72
+#: gio/gapplication-tool.c:74
 msgid "Optional relative or absolute filenames, or URIs to open"
 msgstr ""
 "Необов'язкові відносні або абсолютні назви файлів чи адреси URI для "
 "відкривання"
 
-#: gio/gapplication-tool.c:73
+#: gio/gapplication-tool.c:75
 msgid "ACTION"
 msgstr "ДІЯ"
 
-#: gio/gapplication-tool.c:73
+#: gio/gapplication-tool.c:75
 msgid "The action name to invoke"
 msgstr "Назва дії, яку слід викликати"
 
-#: gio/gapplication-tool.c:74
+#: gio/gapplication-tool.c:76
 msgid "PARAMETER"
 msgstr "ПАРАМЕТР"
 
-#: gio/gapplication-tool.c:74
+#: gio/gapplication-tool.c:76
 msgid "Optional parameter to the action invocation, in GVariant format"
 msgstr "Необов'язковий параметр для виклику дії у форматі GVariant"
 
-#: gio/gapplication-tool.c:96 gio/gresource-tool.c:531 gio/gsettings-tool.c:659
+#: gio/gapplication-tool.c:98 gio/gresource-tool.c:531 gio/gsettings-tool.c:659
 #, c-format
 msgid ""
 "Unknown command %s\n"
@@ -157,26 +156,26 @@ msgstr ""
 "Невідома команда %s\n"
 "\n"
 
-#: gio/gapplication-tool.c:101
+#: gio/gapplication-tool.c:103
 msgid "Usage:\n"
 msgstr "Використання:\n"
 
-#: gio/gapplication-tool.c:114 gio/gresource-tool.c:556
+#: gio/gapplication-tool.c:116 gio/gresource-tool.c:556
 #: gio/gsettings-tool.c:694
 msgid "Arguments:\n"
 msgstr "Аргументи:\n"
 
-#: gio/gapplication-tool.c:133 gio/gio-tool.c:224
+#: gio/gapplication-tool.c:135 gio/gio-tool.c:224
 msgid "[ARGS…]"
 msgstr "[ПАРАМЕТРИ…]"
 
-#: gio/gapplication-tool.c:134
+#: gio/gapplication-tool.c:136
 #, c-format
 msgid "Commands:\n"
 msgstr "Команди:\n"
 
 #. Translators: do not translate 'help', but please translate 'COMMAND'.
-#: gio/gapplication-tool.c:146
+#: gio/gapplication-tool.c:148
 #, c-format
 msgid ""
 "Use “%s help COMMAND” to get detailed help.\n"
@@ -185,7 +184,7 @@ msgstr ""
 "Скористайтеся командою «%s help КОМАНДА» для отримання детальної довідки.\n"
 "\n"
 
-#: gio/gapplication-tool.c:165
+#: gio/gapplication-tool.c:167
 #, c-format
 msgid ""
 "%s command requires an application id to directly follow\n"
@@ -194,13 +193,13 @@ msgstr ""
 "команді %s потрібен ідентифікатор програми\n"
 "\n"
 
-#: gio/gapplication-tool.c:171
+#: gio/gapplication-tool.c:173
 #, c-format
 msgid "invalid application id: “%s”\n"
 msgstr "некоректний ідентифікатор програми: «%s»\n"
 
 #. Translators: %s is replaced with a command name like 'list-actions'
-#: gio/gapplication-tool.c:182
+#: gio/gapplication-tool.c:184
 #, c-format
 msgid ""
 "“%s” takes no arguments\n"
@@ -209,21 +208,21 @@ msgstr ""
 "«%s» не приймає аргументів\n"
 "\n"
 
-#: gio/gapplication-tool.c:266
+#: gio/gapplication-tool.c:268
 #, c-format
 msgid "unable to connect to D-Bus: %s\n"
 msgstr "неможливо під'єднатися до D-Bus: %s\n"
 
-#: gio/gapplication-tool.c:286
+#: gio/gapplication-tool.c:288
 #, c-format
 msgid "error sending %s message to application: %s\n"
 msgstr "помилка надсилання повідомлення %s до програми %s\n"
 
-#: gio/gapplication-tool.c:317
+#: gio/gapplication-tool.c:319
 msgid "action name must be given after application id\n"
 msgstr "назву дії слід вказувати після ідентифікатора програми\n"
 
-#: gio/gapplication-tool.c:325
+#: gio/gapplication-tool.c:327
 #, c-format
 msgid ""
 "invalid action name: “%s”\n"
@@ -232,25 +231,25 @@ msgstr ""
 "некоректна назва дії: «%s»\n"
 "Назва дії може складатися лише з літер, цифр і символів «-» і «.»\n"
 
-#: gio/gapplication-tool.c:344
+#: gio/gapplication-tool.c:346
 #, c-format
 msgid "error parsing action parameter: %s\n"
 msgstr "помилка розбору параметра дії: %s\n"
 
-#: gio/gapplication-tool.c:356
+#: gio/gapplication-tool.c:358
 msgid "actions accept a maximum of one parameter\n"
 msgstr "дії приймають максимум один параметр\n"
 
-#: gio/gapplication-tool.c:411
+#: gio/gapplication-tool.c:413
 msgid "list-actions command takes only the application id"
 msgstr "команда list-actions приймає лише ідентифікатор програми"
 
-#: gio/gapplication-tool.c:421
+#: gio/gapplication-tool.c:423
 #, c-format
 msgid "unable to find desktop file for application %s\n"
 msgstr "не вдалося знайти desktop-файл для програми %s\n"
 
-#: gio/gapplication-tool.c:466
+#: gio/gapplication-tool.c:468
 #, c-format
 msgid ""
 "unrecognised command: %s\n"
@@ -260,8 +259,8 @@ msgstr ""
 "\n"
 
 #: gio/gbufferedinputstream.c:420 gio/gbufferedinputstream.c:498
-#: gio/ginputstream.c:179 gio/ginputstream.c:379 gio/ginputstream.c:617
-#: gio/ginputstream.c:1019 gio/goutputstream.c:223 gio/goutputstream.c:1049
+#: gio/ginputstream.c:179 gio/ginputstream.c:379 gio/ginputstream.c:646
+#: gio/ginputstream.c:1048 gio/goutputstream.c:223 gio/goutputstream.c:1049
 #: gio/gpollableinputstream.c:205 gio/gpollableoutputstream.c:277
 #, c-format
 msgid "Too large count value passed to %s"
@@ -272,11 +271,11 @@ msgstr "До %s передано надто велике значення ліч
 msgid "Seek not supported on base stream"
 msgstr "Перехід у базовому потоці не підтримується"
 
-#: gio/gbufferedinputstream.c:937
+#: gio/gbufferedinputstream.c:938
 msgid "Cannot truncate GBufferedInputStream"
 msgstr "Не вдалося урізати GMemoryInputStream"
 
-#: gio/gbufferedinputstream.c:982 gio/ginputstream.c:1208 gio/giostream.c:300
+#: gio/gbufferedinputstream.c:983 gio/ginputstream.c:1237 gio/giostream.c:300
 #: gio/goutputstream.c:2198
 msgid "Stream is already closed"
 msgstr "Потік вже закрито"
@@ -285,7 +284,7 @@ msgstr "Потік вже закрито"
 msgid "Truncate not supported on base stream"
 msgstr "Урізання не підтримується у базовому потоці"
 
-#: gio/gcancellable.c:319 gio/gdbusconnection.c:1864 gio/gdbusprivate.c:1416
+#: gio/gcancellable.c:319 gio/gdbusconnection.c:1872 gio/gdbusprivate.c:1416
 #: gio/gsimpleasyncresult.c:871 gio/gsimpleasyncresult.c:897
 #, c-format
 msgid "Operation was cancelled"
@@ -304,14 +303,14 @@ msgid "Not enough space in destination"
 msgstr "Бракує простору для результату"
 
 #: gio/gcharsetconverter.c:342 gio/gdatainputstream.c:848
-#: gio/gdatainputstream.c:1261 glib/gconvert.c:448 glib/gconvert.c:878
-#: glib/giochannel.c:1564 glib/giochannel.c:1606 glib/giochannel.c:2461
+#: gio/gdatainputstream.c:1266 glib/gconvert.c:448 glib/gconvert.c:878
+#: glib/giochannel.c:1573 glib/giochannel.c:1615 glib/giochannel.c:2470
 #: glib/gutf8.c:875 glib/gutf8.c:1328
 msgid "Invalid byte sequence in conversion input"
 msgstr "Неправильна послідовність байтів у перетворюваних вхідних даних"
 
 #: gio/gcharsetconverter.c:347 glib/gconvert.c:456 glib/gconvert.c:792
-#: glib/giochannel.c:1571 glib/giochannel.c:2473
+#: glib/giochannel.c:1580 glib/giochannel.c:2482
 #, c-format
 msgid "Error during conversion: %s"
 msgstr "Помилка під час перетворення: %s"
@@ -320,7 +319,7 @@ msgstr "Помилка під час перетворення: %s"
 msgid "Cancellable initialization not supported"
 msgstr "Ініціалізація з можливістю скасування не підтримується"
 
-#: gio/gcharsetconverter.c:456 glib/gconvert.c:321 glib/giochannel.c:1392
+#: gio/gcharsetconverter.c:456 glib/gconvert.c:321 glib/giochannel.c:1401
 #, c-format
 msgid "Conversion from character set “%s” to “%s” is not supported"
 msgstr "Підтримки перетворення з набору символів «%s» у «%s» не передбачено"
@@ -330,7 +329,7 @@ msgstr "Підтримки перетворення з набору символ
 msgid "Could not open converter from “%s” to “%s”"
 msgstr "Не вдалося відкрити модуль перетворення з «%s» у «%s»"
 
-#: gio/gcontenttype.c:452
+#: gio/gcontenttype.c:454
 #, c-format
 msgid "%s type"
 msgstr "тип %s"
@@ -519,7 +518,7 @@ msgid "Cannot determine session bus address (not implemented for this OS)"
 msgstr ""
 "Не вдалося визначити адресу сеансової шини (не реалізовано для цієї ОС)"
 
-#: gio/gdbusaddress.c:1367 gio/gdbusconnection.c:7224
+#: gio/gdbusaddress.c:1397 gio/gdbusconnection.c:7241
 #, c-format
 msgid ""
 "Cannot determine bus address from DBUS_STARTER_BUS_TYPE environment variable "
@@ -528,7 +527,7 @@ msgstr ""
 "Не вдалося визначити адресу шини зі значення змінної середовища "
 "DBUS_STARTER_BUS_TYPE — невідоме значення «%s»"
 
-#: gio/gdbusaddress.c:1376 gio/gdbusconnection.c:7233
+#: gio/gdbusaddress.c:1406 gio/gdbusconnection.c:7250
 msgid ""
 "Cannot determine bus address because the DBUS_STARTER_BUS_TYPE environment "
 "variable is not set"
@@ -536,7 +535,7 @@ msgstr ""
 "Не вдалося визначити адресу шини, оскільки значення змінної середовища "
 "DBUS_STARTER_BUS_TYPE не встановлено"
 
-#: gio/gdbusaddress.c:1386
+#: gio/gdbusaddress.c:1416
 #, c-format
 msgid "Unknown bus type %d"
 msgstr "Невідомий тип шини %d"
@@ -557,7 +556,11 @@ msgstr ""
 "Перепробувані усі доступні механізми автентифікації (проведено: %s) "
 "(доступно: %s)"
 
-#: gio/gdbusauth.c:1167
+#: gio/gdbusauth.c:1170
+msgid "User IDs must be the same for peer and server"
+msgstr "Ідентифікатори користувача для вузла і сервера мають бути однаковими"
+
+#: gio/gdbusauth.c:1182
 msgid "Cancelled via GDBusAuthObserver::authorize-authenticated-peer"
 msgstr "Скасовано через GDBusAuthObserver::authorize-authenticated-peer"
 
@@ -577,13 +580,13 @@ msgstr "Помилкові права на каталог «%s». Очікува
 msgid "Error creating directory “%s”: %s"
 msgstr "Сталася помилка при створенні каталогу «%s»: %s"
 
-#: gio/gdbusauthmechanismsha1.c:359 gio/gfile.c:1048 gio/gfile.c:1286
-#: gio/gfile.c:1424 gio/gfile.c:1662 gio/gfile.c:1717 gio/gfile.c:1775
-#: gio/gfile.c:1859 gio/gfile.c:1916 gio/gfile.c:1980 gio/gfile.c:2035
-#: gio/gfile.c:3749 gio/gfile.c:3804 gio/gfile.c:4097 gio/gfile.c:4567
-#: gio/gfile.c:4978 gio/gfile.c:5063 gio/gfile.c:5153 gio/gfile.c:5250
-#: gio/gfile.c:5337 gio/gfile.c:5438 gio/gfile.c:8148 gio/gfile.c:8238
-#: gio/gfile.c:8322 gio/win32/gwinhttpfile.c:453
+#: gio/gdbusauthmechanismsha1.c:359 gio/gfile.c:1062 gio/gfile.c:1300
+#: gio/gfile.c:1438 gio/gfile.c:1676 gio/gfile.c:1731 gio/gfile.c:1789
+#: gio/gfile.c:1873 gio/gfile.c:1930 gio/gfile.c:1994 gio/gfile.c:2049
+#: gio/gfile.c:3754 gio/gfile.c:3809 gio/gfile.c:4102 gio/gfile.c:4572
+#: gio/gfile.c:4983 gio/gfile.c:5068 gio/gfile.c:5158 gio/gfile.c:5255
+#: gio/gfile.c:5342 gio/gfile.c:5443 gio/gfile.c:8153 gio/gfile.c:8243
+#: gio/gfile.c:8327 gio/win32/gwinhttpfile.c:453
 msgid "Operation not supported"
 msgstr "Операція не підтримується"
 
@@ -650,95 +653,95 @@ msgstr "Сталася помилка при відкриванні зв'язк�
 msgid "(Additionally, releasing the lock for “%s” also failed: %s) "
 msgstr "(Також, не вдалося вивільнити блокування «%s»: %s) "
 
-#: gio/gdbusconnection.c:595 gio/gdbusconnection.c:2397
+#: gio/gdbusconnection.c:603 gio/gdbusconnection.c:2405
 msgid "The connection is closed"
 msgstr "З'єднання закрито"
 
-#: gio/gdbusconnection.c:1894
+#: gio/gdbusconnection.c:1902
 msgid "Timeout was reached"
 msgstr "Час очікування вичерпано"
 
-#: gio/gdbusconnection.c:2519
+#: gio/gdbusconnection.c:2528
 msgid ""
 "Unsupported flags encountered when constructing a client-side connection"
 msgstr "При створенні клієнтського з'єднання виявлено непідтримувані прапорці"
 
-#: gio/gdbusconnection.c:4170 gio/gdbusconnection.c:4517
+#: gio/gdbusconnection.c:4186 gio/gdbusconnection.c:4533
 #, c-format
 msgid ""
 "No such interface “org.freedesktop.DBus.Properties” on object at path %s"
 msgstr ""
 "Інтерфейс «org.freedesktop.DBus.Properties» для шляху об'єкта %s не знайдено"
 
-#: gio/gdbusconnection.c:4312
+#: gio/gdbusconnection.c:4328
 #, c-format
 msgid "No such property “%s”"
 msgstr "Немає властивості «%s»"
 
-#: gio/gdbusconnection.c:4324
+#: gio/gdbusconnection.c:4340
 #, c-format
 msgid "Property “%s” is not readable"
 msgstr "Властивість «%s» недоступна для читання"
 
-#: gio/gdbusconnection.c:4335
+#: gio/gdbusconnection.c:4351
 #, c-format
 msgid "Property “%s” is not writable"
 msgstr "Властивість «%s» недоступна для запису"
 
-#: gio/gdbusconnection.c:4355
+#: gio/gdbusconnection.c:4371
 #, c-format
 msgid "Error setting property “%s”: Expected type “%s” but got “%s”"
 msgstr ""
 "Помилка встановлення властивості «%s». Мало бути використано тип «%s», але "
 "отримано «%s»"
 
-#: gio/gdbusconnection.c:4460 gio/gdbusconnection.c:4668
-#: gio/gdbusconnection.c:6664
+#: gio/gdbusconnection.c:4476 gio/gdbusconnection.c:4684
+#: gio/gdbusconnection.c:6681
 #, c-format
 msgid "No such interface “%s”"
 msgstr "Немає інтерфейсу «%s»"
 
-#: gio/gdbusconnection.c:4886 gio/gdbusconnection.c:7173
+#: gio/gdbusconnection.c:4902 gio/gdbusconnection.c:7190
 #, c-format
 msgid "No such interface “%s” on object at path %s"
 msgstr "Немає інтерфейсу «%s» на об'єкті зі шляхом %s"
 
-#: gio/gdbusconnection.c:4984
+#: gio/gdbusconnection.c:5000
 #, c-format
 msgid "No such method “%s”"
 msgstr "Немає методу «%s»"
 
-#: gio/gdbusconnection.c:5015
+#: gio/gdbusconnection.c:5031
 #, c-format
 msgid "Type of message, “%s”, does not match expected type “%s”"
 msgstr "Тип повідомлення «%s» не збігається з очікуваним типом «%s»"
 
-#: gio/gdbusconnection.c:5213
+#: gio/gdbusconnection.c:5229
 #, c-format
 msgid "An object is already exported for the interface %s at %s"
 msgstr "Об'єкт інтерфейсу %s вже експортовано як %s"
 
-#: gio/gdbusconnection.c:5439
+#: gio/gdbusconnection.c:5455
 #, c-format
 msgid "Unable to retrieve property %s.%s"
 msgstr "Не вдалося отримати властивість %s.%s"
 
-#: gio/gdbusconnection.c:5495
+#: gio/gdbusconnection.c:5511
 #, c-format
 msgid "Unable to set property %s.%s"
 msgstr "Не вдалося встановити значення властивості %s.%s"
 
-#: gio/gdbusconnection.c:5673
+#: gio/gdbusconnection.c:5690
 #, c-format
 msgid "Method “%s” returned type “%s”, but expected “%s”"
 msgstr "Метод «%s» повернув тип «%s», але очікувалося «%s»"
 
-#: gio/gdbusconnection.c:6775
+#: gio/gdbusconnection.c:6792
 #, c-format
 msgid "Method “%s” on interface “%s” with signature “%s” does not exist"
 msgstr "Методу «%s» інтерфейсу «%s» з підписом «%s» не існує"
 
-#: gio/gdbusconnection.c:6896
+#: gio/gdbusconnection.c:6913
 #, c-format
 msgid "A subtree is already exported for %s"
 msgstr "Піддерево вже експортовано для %s"
@@ -965,9 +968,12 @@ msgstr "Сеанс dbus не запущений, і автозапуск не в
 msgid "Unable to get Hardware profile: %s"
 msgstr "Не вдалося отримати профіль апаратури: %s"
 
-#: gio/gdbusprivate.c:2488
-msgid "Unable to load /var/lib/dbus/machine-id or /etc/machine-id: "
-msgstr "Не вдалося завантажити /var/lib/dbus/machine-id або /etc/machine-id: "
+#. Translators: Both placeholders are file paths
+#: gio/gdbusprivate.c:2494
+#, c-format
+#| msgid "Unable to load ‘%s‘: %s"
+msgid "Unable to load %s or %s: "
+msgstr "Не вдалося завантажити %s або %s: "
 
 #: gio/gdbusproxy.c:1562
 #, c-format
@@ -989,25 +995,25 @@ msgstr ""
 "власника і проксі було побудовано із прапорцем "
 "G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START"
 
-#: gio/gdbusserver.c:755
+#: gio/gdbusserver.c:763
 msgid "Abstract namespace not supported"
 msgstr "Підтримки абстрактних просторів назв не передбачено"
 
-#: gio/gdbusserver.c:848
+#: gio/gdbusserver.c:856
 msgid "Cannot specify nonce file when creating a server"
 msgstr "Не вдалося вказати nonce-файл при створенні сервера"
 
-#: gio/gdbusserver.c:930
+#: gio/gdbusserver.c:938
 #, c-format
 msgid "Error writing nonce file at “%s”: %s"
 msgstr "Сталася помилка при запису до nonce-файла у «%s»: %s"
 
-#: gio/gdbusserver.c:1103
+#: gio/gdbusserver.c:1113
 #, c-format
 msgid "The string “%s” is not a valid D-Bus GUID"
 msgstr "Рядок «%s» не є припустимим GUID D-Bus"
 
-#: gio/gdbusserver.c:1143
+#: gio/gdbusserver.c:1153
 #, c-format
 msgid "Cannot listen on unsupported transport “%s”"
 msgstr "Неможливо очікувати на дані на каналі передавання «%s», якого не існує"
@@ -1035,14 +1041,14 @@ msgstr ""
 "\n"
 "Для отримання довідки за командою використовуйте «%s КОМАНДА --help».\n"
 
-#: gio/gdbus-tool.c:201 gio/gdbus-tool.c:268 gio/gdbus-tool.c:340
-#: gio/gdbus-tool.c:364 gio/gdbus-tool.c:854 gio/gdbus-tool.c:1231
-#: gio/gdbus-tool.c:1719
+#: gio/gdbus-tool.c:201 gio/gdbus-tool.c:273 gio/gdbus-tool.c:345
+#: gio/gdbus-tool.c:369 gio/gdbus-tool.c:859 gio/gdbus-tool.c:1236
+#: gio/gdbus-tool.c:1724
 #, c-format
 msgid "Error: %s\n"
 msgstr "Помилка: %s\n"
 
-#: gio/gdbus-tool.c:212 gio/gdbus-tool.c:281 gio/gdbus-tool.c:1735
+#: gio/gdbus-tool.c:212 gio/gdbus-tool.c:286 gio/gdbus-tool.c:1740
 #, c-format
 msgid "Error parsing introspection XML: %s\n"
 msgstr "Сталася помилка під час обробки інтроспекції XML: %s\n"
@@ -1052,43 +1058,49 @@ msgstr "Сталася помилка під час обробки інтрос�
 msgid "Error: %s is not a valid name\n"
 msgstr "Помилка: %s не є припустимою назвою\n"
 
-#: gio/gdbus-tool.c:398
+#: gio/gdbus-tool.c:255 gio/gdbus-tool.c:745 gio/gdbus-tool.c:1060
+#: gio/gdbus-tool.c:1890 gio/gdbus-tool.c:2130
+#, c-format
+msgid "Error: %s is not a valid object path\n"
+msgstr "Помилка: %s не є припустимим об'єктним шляхом\n"
+
+#: gio/gdbus-tool.c:403
 msgid "Connect to the system bus"
 msgstr "Під'єднатися до системної шини"
 
-#: gio/gdbus-tool.c:399
+#: gio/gdbus-tool.c:404
 msgid "Connect to the session bus"
 msgstr "Під'єднатися до користувацької шини"
 
-#: gio/gdbus-tool.c:400
+#: gio/gdbus-tool.c:405
 msgid "Connect to given D-Bus address"
 msgstr "Під'єднатися до вказаної адреси D-Bus"
 
-#: gio/gdbus-tool.c:410
+#: gio/gdbus-tool.c:415
 msgid "Connection Endpoint Options:"
 msgstr "Параметри кінцевої точки з'єднання:"
 
-#: gio/gdbus-tool.c:411
+#: gio/gdbus-tool.c:416
 msgid "Options specifying the connection endpoint"
 msgstr "Параметри, що визначають кінцеву точку з'єднання"
 
-#: gio/gdbus-tool.c:434
+#: gio/gdbus-tool.c:439
 #, c-format
 msgid "No connection endpoint specified"
 msgstr "Кінцева точка з'єднання не вказана"
 
-#: gio/gdbus-tool.c:444
+#: gio/gdbus-tool.c:449
 #, c-format
 msgid "Multiple connection endpoints specified"
 msgstr "Вказано декілька кінцевих точок з'єднання"
 
-#: gio/gdbus-tool.c:517
+#: gio/gdbus-tool.c:522
 #, c-format
 msgid ""
 "Warning: According to introspection data, interface “%s” does not exist\n"
 msgstr "Попередження: згідно з даними інтроспекції, інтерфейсу «%s» не існує\n"
 
-#: gio/gdbus-tool.c:526
+#: gio/gdbus-tool.c:531
 #, c-format
 msgid ""
 "Warning: According to introspection data, method “%s” does not exist on "
@@ -1097,169 +1109,163 @@ msgstr ""
 "Попередження: згідно з даними інтроспекції, методу «%s» в інтерфейсі «%s» не "
 "існує\n"
 
-#: gio/gdbus-tool.c:588
+#: gio/gdbus-tool.c:593
 msgid "Optional destination for signal (unique name)"
 msgstr "Необов'язковий отримувач сигналу (унікальна назва)"
 
-#: gio/gdbus-tool.c:589
+#: gio/gdbus-tool.c:594
 msgid "Object path to emit signal on"
 msgstr "Об'єктний шлях, для випуску сигналу"
 
-#: gio/gdbus-tool.c:590
+#: gio/gdbus-tool.c:595
 msgid "Signal and interface name"
 msgstr "Назва сигналу і інтерфейсу"
 
-#: gio/gdbus-tool.c:623
+#: gio/gdbus-tool.c:628
 msgid "Emit a signal."
 msgstr "Послати сигнал."
 
-#: gio/gdbus-tool.c:678 gio/gdbus-tool.c:992 gio/gdbus-tool.c:1822
-#: gio/gdbus-tool.c:2054 gio/gdbus-tool.c:2274
+#: gio/gdbus-tool.c:683 gio/gdbus-tool.c:997 gio/gdbus-tool.c:1827
+#: gio/gdbus-tool.c:2059 gio/gdbus-tool.c:2279
 #, c-format
 msgid "Error connecting: %s\n"
 msgstr "Сталася помилка при з'єднанні: %s\n"
 
-#: gio/gdbus-tool.c:698
+#: gio/gdbus-tool.c:703
 #, c-format
 msgid "Error: %s is not a valid unique bus name.\n"
 msgstr "Помилка: %s не є припустимою унікальною назвою шини.\n"
 
-#: gio/gdbus-tool.c:717 gio/gdbus-tool.c:1035 gio/gdbus-tool.c:1865
+#: gio/gdbus-tool.c:722 gio/gdbus-tool.c:1040 gio/gdbus-tool.c:1870
 msgid "Error: Object path is not specified\n"
 msgstr "Помилка: не вказано об'єктний шлях\n"
 
-#: gio/gdbus-tool.c:740 gio/gdbus-tool.c:1055 gio/gdbus-tool.c:1885
-#: gio/gdbus-tool.c:2125
-#, c-format
-msgid "Error: %s is not a valid object path\n"
-msgstr "Помилка: %s не є припустимим об'єктним шляхом\n"
-
-#: gio/gdbus-tool.c:760
+#: gio/gdbus-tool.c:765
 msgid "Error: Signal name is not specified\n"
 msgstr "Помилка: не вказано назви сигналу\n"
 
-#: gio/gdbus-tool.c:774
+#: gio/gdbus-tool.c:779
 #, c-format
 msgid "Error: Signal name “%s” is invalid\n"
 msgstr "Помилка: некоректна назва сигналу «%s»\n"
 
-#: gio/gdbus-tool.c:786
+#: gio/gdbus-tool.c:791
 #, c-format
 msgid "Error: %s is not a valid interface name\n"
 msgstr "Помилка: %s не є припустимою назвою інтерфейсу\n"
 
-#: gio/gdbus-tool.c:792
+#: gio/gdbus-tool.c:797
 #, c-format
 msgid "Error: %s is not a valid member name\n"
 msgstr "Помилка: %s не є припустимою назвою члену\n"
 
 #. Use the original non-"parse-me-harder" error
-#: gio/gdbus-tool.c:829 gio/gdbus-tool.c:1167
+#: gio/gdbus-tool.c:834 gio/gdbus-tool.c:1172
 #, c-format
 msgid "Error parsing parameter %d: %s\n"
 msgstr "Сталася помилка під час обробки параметра %d: %s\n"
 
-#: gio/gdbus-tool.c:861
+#: gio/gdbus-tool.c:866
 #, c-format
 msgid "Error flushing connection: %s\n"
 msgstr "Сталася помилка при скиданні під'єднання: %s\n"
 
-#: gio/gdbus-tool.c:888
+#: gio/gdbus-tool.c:893
 msgid "Destination name to invoke method on"
 msgstr "Назва призначення, для якого викликається метод"
 
-#: gio/gdbus-tool.c:889
+#: gio/gdbus-tool.c:894
 msgid "Object path to invoke method on"
 msgstr "Об'єктний шлях, для якого викликається метод"
 
-#: gio/gdbus-tool.c:890
+#: gio/gdbus-tool.c:895
 msgid "Method and interface name"
 msgstr "Назва методу або інтерфейсу"
 
-#: gio/gdbus-tool.c:891
+#: gio/gdbus-tool.c:896
 msgid "Timeout in seconds"
 msgstr "Час очікування у секундах"
 
-#: gio/gdbus-tool.c:937
+#: gio/gdbus-tool.c:942
 msgid "Invoke a method on a remote object."
 msgstr "Викликає метод на віддаленому об'єкті."
 
-#: gio/gdbus-tool.c:1009 gio/gdbus-tool.c:1839 gio/gdbus-tool.c:2079
+#: gio/gdbus-tool.c:1014 gio/gdbus-tool.c:1844 gio/gdbus-tool.c:2084
 msgid "Error: Destination is not specified\n"
 msgstr "Помилка: не вказано призначення\n"
 
-#: gio/gdbus-tool.c:1020 gio/gdbus-tool.c:1856 gio/gdbus-tool.c:2090
+#: gio/gdbus-tool.c:1025 gio/gdbus-tool.c:1861 gio/gdbus-tool.c:2095
 #, c-format
 msgid "Error: %s is not a valid bus name\n"
 msgstr "Помилка: %s не є припустимою назвою шини\n"
 
-#: gio/gdbus-tool.c:1070
+#: gio/gdbus-tool.c:1075
 msgid "Error: Method name is not specified\n"
 msgstr "Помилка: не вказано назви методу\n"
 
-#: gio/gdbus-tool.c:1081
+#: gio/gdbus-tool.c:1086
 #, c-format
 msgid "Error: Method name “%s” is invalid\n"
 msgstr "Помилка: некоректна назва методу «%s»\n"
 
-#: gio/gdbus-tool.c:1159
+#: gio/gdbus-tool.c:1164
 #, c-format
 msgid "Error parsing parameter %d of type “%s”: %s\n"
 msgstr "Сталася помилка під час обробки параметра %d типу «%s»: %s\n"
 
-#: gio/gdbus-tool.c:1185
+#: gio/gdbus-tool.c:1190
 #, c-format
 msgid "Error adding handle %d: %s\n"
 msgstr "Помилка під час додавання елемента керування %d: %s\n"
 
-#: gio/gdbus-tool.c:1681
+#: gio/gdbus-tool.c:1686
 msgid "Destination name to introspect"
 msgstr "Назва призначення для інтроспекції"
 
-#: gio/gdbus-tool.c:1682
+#: gio/gdbus-tool.c:1687
 msgid "Object path to introspect"
 msgstr "Об'єктний шлях для інтроспекції"
 
-#: gio/gdbus-tool.c:1683
+#: gio/gdbus-tool.c:1688
 msgid "Print XML"
 msgstr "Надрукувати XML"
 
-#: gio/gdbus-tool.c:1684
+#: gio/gdbus-tool.c:1689
 msgid "Introspect children"
 msgstr "Інтроспекція нащадка"
 
-#: gio/gdbus-tool.c:1685
+#: gio/gdbus-tool.c:1690
 msgid "Only print properties"
 msgstr "Лише властивості друку"
 
-#: gio/gdbus-tool.c:1774
+#: gio/gdbus-tool.c:1779
 msgid "Introspect a remote object."
 msgstr "Виконати інтроспекцію віддаленого об'єкту."
 
-#: gio/gdbus-tool.c:1980
+#: gio/gdbus-tool.c:1985
 msgid "Destination name to monitor"
 msgstr "Назва призначення для спостерігання"
 
-#: gio/gdbus-tool.c:1981
+#: gio/gdbus-tool.c:1986
 msgid "Object path to monitor"
 msgstr "Об'єктний шлях для спостерігання"
 
-#: gio/gdbus-tool.c:2006
+#: gio/gdbus-tool.c:2011
 msgid "Monitor a remote object."
 msgstr "Спостерігати за віддаленим об'єктом."
 
-#: gio/gdbus-tool.c:2064
+#: gio/gdbus-tool.c:2069
 msgid "Error: can’t monitor a non-message-bus connection\n"
 msgstr ""
 "Помилка: спостереження за з'єднанням, яке не належить до типу message-bus, є "
 "неможливим\n"
 
-#: gio/gdbus-tool.c:2188
+#: gio/gdbus-tool.c:2193
 msgid "Service to activate before waiting for the other one (well-known name)"
 msgstr ""
 "Служба, яку слід активувати, перш ніж очікувати на іншу (добре відома назва)"
 
-#: gio/gdbus-tool.c:2191
+#: gio/gdbus-tool.c:2196
 msgid ""
 "Timeout to wait for before exiting with an error (seconds); 0 for no timeout "
 "(default)"
@@ -1267,32 +1273,32 @@ msgstr ""
 "Час очікування до виходу із станом помилки (у секундах); 0 — не очікувати "
 "(типова поведінка)"
 
-#: gio/gdbus-tool.c:2239
+#: gio/gdbus-tool.c:2244
 msgid "[OPTION…] BUS-NAME"
 msgstr "[ПАРАМЕТР…] НАЗВА-ШИНИ"
 
-#: gio/gdbus-tool.c:2240
+#: gio/gdbus-tool.c:2245
 msgid "Wait for a bus name to appear."
 msgstr "Очікувати на появу назви шини."
 
-#: gio/gdbus-tool.c:2316
+#: gio/gdbus-tool.c:2321
 msgid "Error: A service to activate for must be specified.\n"
 msgstr "Помилка: має бути вказано службу для активації.\n"
 
-#: gio/gdbus-tool.c:2321
+#: gio/gdbus-tool.c:2326
 msgid "Error: A service to wait for must be specified.\n"
 msgstr "Помилка: має бути вказано службу для очікування.\n"
 
-#: gio/gdbus-tool.c:2326
+#: gio/gdbus-tool.c:2331
 msgid "Error: Too many arguments.\n"
 msgstr "Помилка: забагато аргументів.\n"
 
-#: gio/gdbus-tool.c:2334 gio/gdbus-tool.c:2341
+#: gio/gdbus-tool.c:2339 gio/gdbus-tool.c:2346
 #, c-format
 msgid "Error: %s is not a valid well-known bus name.\n"
 msgstr "Помилка: %s не є припустимим добре відомою назвою шини.\n"
 
-#: gio/gdesktopappinfo.c:2106 gio/gdesktopappinfo.c:4926
+#: gio/gdesktopappinfo.c:2106 gio/gdesktopappinfo.c:4932
 msgid "Unnamed"
 msgstr "Без назви"
 
@@ -1300,30 +1306,30 @@ msgstr "Без назви"
 msgid "Desktop file didn’t specify Exec field"
 msgstr "У desktop-файлі не визначено поля Exec"
 
-#: gio/gdesktopappinfo.c:2796
+#: gio/gdesktopappinfo.c:2801
 msgid "Unable to find terminal required for application"
 msgstr "Неможливо знайти термінал, що потрібен програмі"
 
-#: gio/gdesktopappinfo.c:3447
+#: gio/gdesktopappinfo.c:3452
 #, c-format
 msgid "Can’t create user application configuration folder %s: %s"
 msgstr "Не вдалося створити теку параметрів програми %s: %s"
 
-#: gio/gdesktopappinfo.c:3451
+#: gio/gdesktopappinfo.c:3456
 #, c-format
 msgid "Can’t create user MIME configuration folder %s: %s"
 msgstr "Не вдалося створити теку параметрів MIME %s: %s"
 
-#: gio/gdesktopappinfo.c:3693 gio/gdesktopappinfo.c:3717
+#: gio/gdesktopappinfo.c:3698 gio/gdesktopappinfo.c:3722
 msgid "Application information lacks an identifier"
 msgstr "У інформації про програму не вказано ідентифікатор"
 
-#: gio/gdesktopappinfo.c:3953
+#: gio/gdesktopappinfo.c:3958
 #, c-format
 msgid "Can’t create user desktop file %s"
 msgstr "Не вдалося створити для користувача desktop-файл %s"
 
-#: gio/gdesktopappinfo.c:4089
+#: gio/gdesktopappinfo.c:4094
 #, c-format
 msgid "Custom definition for %s"
 msgstr "Власне визначення %s"
@@ -1392,74 +1398,74 @@ msgstr "Очікується GEmblem для GEmblemedIcon"
 #. * trying to find the enclosing (user visible)
 #. * mount of a file, but none exists.
 #.
-#: gio/gfile.c:1547
+#: gio/gfile.c:1561
 msgid "Containing mount does not exist"
 msgstr "Вкладена точка монтування не існує"
 
-#: gio/gfile.c:2594 gio/glocalfile.c:2472
+#: gio/gfile.c:2608 gio/glocalfile.c:2472
 msgid "Can’t copy over directory"
 msgstr "Не можна копіювати із заміною каталогу"
 
-#: gio/gfile.c:2654
+#: gio/gfile.c:2668
 msgid "Can’t copy directory over directory"
 msgstr "Не можна копіювати каталог поверх іншого каталогу"
 
-#: gio/gfile.c:2662
+#: gio/gfile.c:2676
 msgid "Target file exists"
 msgstr "Цільовий файл існує"
 
-#: gio/gfile.c:2681
+#: gio/gfile.c:2695
 msgid "Can’t recursively copy directory"
 msgstr "Не вдалося скопіювати каталог рекурсивно"
 
-#: gio/gfile.c:2982
+#: gio/gfile.c:2996
 msgid "Splice not supported"
 msgstr "З'єднання не підтримується"
 
-#: gio/gfile.c:2986 gio/gfile.c:3031
+#: gio/gfile.c:3000
 #, c-format
 msgid "Error splicing file: %s"
 msgstr "Помилка при розрізанні файла: %s"
 
-#: gio/gfile.c:3147
+#: gio/gfile.c:3152
 msgid "Copy (reflink/clone) between mounts is not supported"
 msgstr "Копіювання (reflink/clone) між точками монтування не підтримується"
 
-#: gio/gfile.c:3151
+#: gio/gfile.c:3156
 msgid "Copy (reflink/clone) is not supported or invalid"
 msgstr "Копіювання (reflink/clone) не підтримується або некоректне"
 
-#: gio/gfile.c:3156
+#: gio/gfile.c:3161
 msgid "Copy (reflink/clone) is not supported or didn’t work"
 msgstr ""
 "Підтримки копіювання (reflink/clone) не передбачено або копіювання не працює"
 
-#: gio/gfile.c:3221
+#: gio/gfile.c:3226
 msgid "Can’t copy special file"
 msgstr "Не вдалося скопіювати спеціальний файл"
 
-#: gio/gfile.c:4030
+#: gio/gfile.c:4035
 msgid "Invalid symlink value given"
 msgstr "Неправильне значення символьного посилання"
 
-#: gio/gfile.c:4040 glib/gfileutils.c:2362
+#: gio/gfile.c:4045 glib/gfileutils.c:2362
 msgid "Symbolic links not supported"
 msgstr "Символічні посилання не підтримуються"
 
-#: gio/gfile.c:4208
+#: gio/gfile.c:4213
 msgid "Trash not supported"
 msgstr "Смітник не підтримується"
 
-#: gio/gfile.c:4320
+#: gio/gfile.c:4325
 #, c-format
 msgid "File names cannot contain “%c”"
 msgstr "Назви файлів не можуть містити символу «%c»"
 
-#: gio/gfile.c:6801 gio/gvolume.c:364
+#: gio/gfile.c:6806 gio/gvolume.c:364
 msgid "volume doesn’t implement mount"
 msgstr "для тому не реалізовано операцію монтування"
 
-#: gio/gfile.c:6915 gio/gfile.c:6963
+#: gio/gfile.c:6920 gio/gfile.c:6968
 msgid "No application is registered as handling this file"
 msgstr "Програм для обробки таких файлів не зареєстровано"
 
@@ -1530,7 +1536,11 @@ msgstr "Слід пройти розпізнавання на проксі-се�
 msgid "HTTP proxy connection failed: %i"
 msgstr "Не вдалося встановити з'єднання із проксі-сервером HTTP: %i"
 
-#: gio/ghttpproxy.c:269
+#: gio/ghttpproxy.c:266
+msgid "HTTP proxy response too big"
+msgstr "Відповідь HTTP-проксі є надто великою"
+
+#: gio/ghttpproxy.c:283
 msgid "HTTP proxy server closed connection unexpectedly."
 msgstr "Проксі-сервер HTTP несподівано розірвав з'єднання."
 
@@ -1605,7 +1615,7 @@ msgstr "Для потоку вхідних даних не реалізован�
 #. Translators: This is an error you get if there is
 #. * already an operation running against this stream when
 #. * you try to start one
-#: gio/ginputstream.c:1218 gio/giostream.c:310 gio/goutputstream.c:2208
+#: gio/ginputstream.c:1247 gio/giostream.c:310 gio/goutputstream.c:2208
 msgid "Stream has outstanding operation"
 msgstr "Для потоку є незавершена операція"
 
@@ -1714,7 +1724,7 @@ msgstr "Помилка при записі до стандартного вив�
 #: gio/gio-tool-cat.c:133 gio/gio-tool-info.c:340 gio/gio-tool-list.c:172
 #: gio/gio-tool-mkdir.c:48 gio/gio-tool-monitor.c:37 gio/gio-tool-monitor.c:39
 #: gio/gio-tool-monitor.c:41 gio/gio-tool-monitor.c:43
-#: gio/gio-tool-monitor.c:203 gio/gio-tool-mount.c:1199 gio/gio-tool-open.c:70
+#: gio/gio-tool-monitor.c:204 gio/gio-tool-mount.c:1199 gio/gio-tool-open.c:70
 #: gio/gio-tool-remove.c:48 gio/gio-tool-rename.c:45 gio/gio-tool-set.c:89
 #: gio/gio-tool-trash.c:220 gio/gio-tool-tree.c:239
 msgid "LOCATION"
@@ -1735,7 +1745,7 @@ msgstr ""
 "щось таке: smb://сервер/ресурс/файл.txt."
 
 #: gio/gio-tool-cat.c:162 gio/gio-tool-info.c:371 gio/gio-tool-mkdir.c:76
-#: gio/gio-tool-monitor.c:228 gio/gio-tool-mount.c:1250 gio/gio-tool-open.c:96
+#: gio/gio-tool-monitor.c:229 gio/gio-tool-mount.c:1250 gio/gio-tool-open.c:96
 #: gio/gio-tool-remove.c:72 gio/gio-tool-trash.c:303
 msgid "No locations given"
 msgstr "Не вказано місць"
@@ -2083,7 +2093,7 @@ msgstr ""
 msgid "Watch for mount events"
 msgstr "Спостерігати за подіями монтування"
 
-#: gio/gio-tool-monitor.c:208
+#: gio/gio-tool-monitor.c:209
 msgid "Monitor files or directories for changes."
 msgstr "Стежити за змінами у файлах і каталогах."
 
@@ -3266,25 +3276,24 @@ msgstr "Помилка при встановленні контексту SELinu
 msgid "Setting attribute %s not supported"
 msgstr "Підтримки встановлення атрибута %s не передбачено"
 
-#: gio/glocalfileinputstream.c:168 gio/glocalfileoutputstream.c:795
+#: gio/glocalfileinputstream.c:163 gio/glocalfileoutputstream.c:795
 #, c-format
 msgid "Error reading from file: %s"
 msgstr "Помилка при читанні файла: %s"
 
-#: gio/glocalfileinputstream.c:199 gio/glocalfileinputstream.c:211
-#: gio/glocalfileinputstream.c:225 gio/glocalfileinputstream.c:333
-#: gio/glocalfileoutputstream.c:557 gio/glocalfileoutputstream.c:1117
-#, c-format
-msgid "Error seeking in file: %s"
-msgstr "Помилка при встановленні позиції у файлі: %s"
-
-#: gio/glocalfileinputstream.c:255 gio/glocalfileoutputstream.c:347
+#: gio/glocalfileinputstream.c:194 gio/glocalfileoutputstream.c:347
 #: gio/glocalfileoutputstream.c:441
 #, c-format
 msgid "Error closing file: %s"
 msgstr "Помилка при закриванні файла: %s"
 
-#: gio/glocalfilemonitor.c:865
+#: gio/glocalfileinputstream.c:272 gio/glocalfileoutputstream.c:557
+#: gio/glocalfileoutputstream.c:1117
+#, c-format
+msgid "Error seeking in file: %s"
+msgstr "Помилка при встановленні позиції у файлі: %s"
+
+#: gio/glocalfilemonitor.c:866
 msgid "Unable to find default local file monitor type"
 msgstr "Не вдалося знайти типовий різновид монітора локального файла"
 
@@ -3315,7 +3324,7 @@ msgid "Error truncating file: %s"
 msgstr "Помилка при обрізанні файла: %s"
 
 #: gio/glocalfileoutputstream.c:656 gio/glocalfileoutputstream.c:894
-#: gio/glocalfileoutputstream.c:1149 gio/gsubprocess.c:380
+#: gio/glocalfileoutputstream.c:1149 gio/gsubprocess.c:226
 #, c-format
 msgid "Error opening file “%s”: %s"
 msgstr "Помилка при відкритті файла «%s»: %s"
@@ -4016,37 +4025,36 @@ msgstr "Помилка при закриванні сокету: %s"
 msgid "Waiting for socket condition: %s"
 msgstr "Очікується умова сокету: %s"
 
-#: gio/gsocket.c:4793 gio/gsocket.c:4805
+#: gio/gsocket.c:4804 gio/gsocket.c:4820 gio/gsocket.c:4833
 #, c-format
 msgid "Unable to send message: %s"
 msgstr "Не вдалося надіслати повідомлення: %s"
 
-#: gio/gsocket.c:4794 gio/gsocket.c:4806
-#| msgid "Message too large"
+#: gio/gsocket.c:4805 gio/gsocket.c:4821 gio/gsocket.c:4834
 msgid "Message vectors too large"
 msgstr "Вектори повідомлення є надто великими"
 
-#: gio/gsocket.c:4822 gio/gsocket.c:4824 gio/gsocket.c:4971 gio/gsocket.c:5056
-#: gio/gsocket.c:5234 gio/gsocket.c:5274 gio/gsocket.c:5276
+#: gio/gsocket.c:4850 gio/gsocket.c:4852 gio/gsocket.c:4999 gio/gsocket.c:5084
+#: gio/gsocket.c:5262 gio/gsocket.c:5302 gio/gsocket.c:5304
 #, c-format
 msgid "Error sending message: %s"
 msgstr "Помилка при надсиланні повідомлення: %s"
 
-#: gio/gsocket.c:4998
+#: gio/gsocket.c:5026
 msgid "GSocketControlMessage not supported on Windows"
 msgstr "GSocketControlMessage не підтримується у windows"
 
-#: gio/gsocket.c:5467 gio/gsocket.c:5540 gio/gsocket.c:5766
+#: gio/gsocket.c:5495 gio/gsocket.c:5571 gio/gsocket.c:5797
 #, c-format
 msgid "Error receiving message: %s"
 msgstr "Помилка при отриманні повідомлення: %s"
 
-#: gio/gsocket.c:6039 gio/gsocket.c:6050 gio/gsocket.c:6096
+#: gio/gsocket.c:6070 gio/gsocket.c:6081 gio/gsocket.c:6127
 #, c-format
 msgid "Unable to read socket credentials: %s"
 msgstr "Не вдалося прочитати повноваження сокета: %s"
 
-#: gio/gsocket.c:6105
+#: gio/gsocket.c:6136
 msgid "g_socket_get_credentials not implemented for this OS"
 msgstr "Функція g_socket_get_credentials не реалізована у цій ОС"
 
@@ -4306,24 +4314,24 @@ msgstr "Контрольне повідомлення не очікувалос�
 msgid "Error while disabling SO_PASSCRED: %s"
 msgstr "Сталася помилка при вимкненні SO_PASSCRED: %s"
 
-#: gio/gunixinputstream.c:362 gio/gunixinputstream.c:383
+#: gio/gunixinputstream.c:357 gio/gunixinputstream.c:378
 #, c-format
 msgid "Error reading from file descriptor: %s"
 msgstr "Помилка при читанні з файлового дескриптора: %s"
 
-#: gio/gunixinputstream.c:416 gio/gunixoutputstream.c:525
+#: gio/gunixinputstream.c:411 gio/gunixoutputstream.c:520
 #: gio/gwin32inputstream.c:217 gio/gwin32outputstream.c:204
 #, c-format
 msgid "Error closing file descriptor: %s"
 msgstr "Помилка при закритті файлового дескриптора: %s"
 
-#: gio/gunixmounts.c:2755 gio/gunixmounts.c:2808
+#: gio/gunixmounts.c:2780 gio/gunixmounts.c:2833
 msgid "Filesystem root"
 msgstr "Корінь файлової системи"
 
-#: gio/gunixoutputstream.c:362 gio/gunixoutputstream.c:382
-#: gio/gunixoutputstream.c:469 gio/gunixoutputstream.c:489
-#: gio/gunixoutputstream.c:635
+#: gio/gunixoutputstream.c:357 gio/gunixoutputstream.c:377
+#: gio/gunixoutputstream.c:464 gio/gunixoutputstream.c:484
+#: gio/gunixoutputstream.c:630
 #, c-format
 msgid "Error writing to file descriptor: %s"
 msgstr "Помилка при запису у файловий дескриптор: %s"
@@ -5025,26 +5033,26 @@ msgstr "Шаблон «%s» не містить XXXXXX"
 msgid "Failed to read the symbolic link “%s”: %s"
 msgstr "Помилка читання символічного посилання «%s»: %s"
 
-#: glib/giochannel.c:1396
+#: glib/giochannel.c:1405
 #, c-format
 msgid "Could not open converter from “%s” to “%s”: %s"
 msgstr "Не вдалося відкрити модуль перетворення з «%s» у «%s»: %s"
 
-#: glib/giochannel.c:1749
+#: glib/giochannel.c:1758
 msgid "Can’t do a raw read in g_io_channel_read_line_string"
 msgstr ""
 "Не вдалося виконати безпосереднє зчитування у функції "
 "g_io_channel_read_line_string"
 
-#: glib/giochannel.c:1796 glib/giochannel.c:2054 glib/giochannel.c:2141
+#: glib/giochannel.c:1805 glib/giochannel.c:2063 glib/giochannel.c:2150
 msgid "Leftover unconverted data in read buffer"
 msgstr "В буфері зчитування лишились не перетворені дані"
 
-#: glib/giochannel.c:1877 glib/giochannel.c:1954
+#: glib/giochannel.c:1886 glib/giochannel.c:1963
 msgid "Channel terminates in a partial character"
 msgstr "Канал завершується на неповному символі"
 
-#: glib/giochannel.c:1940
+#: glib/giochannel.c:1949
 msgid "Can’t do a raw read in g_io_channel_read_to_end"
 msgstr ""
 "Не можна виконувати безпосереднє зчитування у функції "
@@ -5843,82 +5851,82 @@ msgstr ""
 msgid "Text was empty (or contained only whitespace)"
 msgstr "Текст порожній (чи містить лише пропуски)"
 
-#: glib/gspawn.c:323
+#: glib/gspawn.c:318
 #, c-format
 msgid "Failed to read data from child process (%s)"
 msgstr "Помилка зчитування даних з дочірнього процесу (%s)"
 
-#: glib/gspawn.c:468
+#: glib/gspawn.c:465
 #, c-format
 msgid "Unexpected error in reading data from a child process (%s)"
 msgstr "Неочікувана помилка під час читання даних з дочірнього процесу (%s)"
 
-#: glib/gspawn.c:553
+#: glib/gspawn.c:550
 #, c-format
 msgid "Unexpected error in waitpid() (%s)"
 msgstr "Неочікувана помилка у waitpid() (%s)"
 
-#: glib/gspawn.c:1061 glib/gspawn-win32.c:1329
+#: glib/gspawn.c:1154 glib/gspawn-win32.c:1383
 #, c-format
 msgid "Child process exited with code %ld"
 msgstr "Дочірній процес закінчився з кодом %ld"
 
-#: glib/gspawn.c:1069
+#: glib/gspawn.c:1162
 #, c-format
 msgid "Child process killed by signal %ld"
 msgstr "Дочірній процес вбитий за сигналом %ld"
 
-#: glib/gspawn.c:1076
+#: glib/gspawn.c:1169
 #, c-format
 msgid "Child process stopped by signal %ld"
 msgstr "Дочірній процес зупинений за сигналом %ld"
 
-#: glib/gspawn.c:1083
+#: glib/gspawn.c:1176
 #, c-format
 msgid "Child process exited abnormally"
 msgstr "Дочірній процес аварійно закінчив роботу"
 
-#: glib/gspawn.c:1548 glib/gspawn-win32.c:350 glib/gspawn-win32.c:358
+#: glib/gspawn.c:1767 glib/gspawn-win32.c:350 glib/gspawn-win32.c:358
 #, c-format
 msgid "Failed to read from child pipe (%s)"
 msgstr "Помилка зчитування з дочірнього каналу (%s)"
 
-#: glib/gspawn.c:1804
+#: glib/gspawn.c:2069
 #, c-format
 msgid "Failed to spawn child process “%s” (%s)"
 msgstr "Не вдалося запустити дочірній процес «%s» (%s)"
 
-#: glib/gspawn.c:1887
+#: glib/gspawn.c:2186
 #, c-format
 msgid "Failed to fork (%s)"
 msgstr "Помилка створення процесу (%s)"
 
-#: glib/gspawn.c:2042 glib/gspawn-win32.c:381
+#: glib/gspawn.c:2346 glib/gspawn-win32.c:381
 #, c-format
 msgid "Failed to change to directory “%s” (%s)"
 msgstr "Не вдалося змінити каталог на «%s» (%s)"
 
-#: glib/gspawn.c:2052
+#: glib/gspawn.c:2356
 #, c-format
 msgid "Failed to execute child process “%s” (%s)"
 msgstr "Не вдалося виконати дочірній процес «%s» (%s)"
 
-#: glib/gspawn.c:2062
+#: glib/gspawn.c:2366
 #, c-format
 msgid "Failed to redirect output or input of child process (%s)"
 msgstr "Помилка перенаправлення виводу чи вводу дочірнього процесу (%s)"
 
-#: glib/gspawn.c:2071
+#: glib/gspawn.c:2375
 #, c-format
 msgid "Failed to fork child process (%s)"
 msgstr "Помилка запуску дочірнього процесу (%s)"
 
-#: glib/gspawn.c:2079
+#: glib/gspawn.c:2383
 #, c-format
 msgid "Unknown error executing child process “%s”"
 msgstr "Невідома помилка виконання дочірнього процесу «%s»"
 
-#: glib/gspawn.c:2103
+#: glib/gspawn.c:2407
 #, c-format
 msgid "Failed to read enough data from child pid pipe (%s)"
 msgstr "Не вдалося зчитати достатню кількість даних з дочірнього каналу (%s)"
@@ -5942,27 +5950,27 @@ msgstr "Помилка виконання дочірнього процесу (%
 msgid "Invalid program name: %s"
 msgstr "Неправильна назва програми: %s"
 
-#: glib/gspawn-win32.c:471 glib/gspawn-win32.c:725
+#: glib/gspawn-win32.c:471 glib/gspawn-win32.c:757
 #, c-format
 msgid "Invalid string in argument vector at %d: %s"
 msgstr "Неправильний рядок у векторі аргументів %d: %s"
 
-#: glib/gspawn-win32.c:482 glib/gspawn-win32.c:740
+#: glib/gspawn-win32.c:482 glib/gspawn-win32.c:772
 #, c-format
 msgid "Invalid string in environment: %s"
 msgstr "Неправильний рядок у середовищі: %s"
 
-#: glib/gspawn-win32.c:721
+#: glib/gspawn-win32.c:753
 #, c-format
 msgid "Invalid working directory: %s"
 msgstr "Неправильний робочий каталог: %s"
 
-#: glib/gspawn-win32.c:783
+#: glib/gspawn-win32.c:815
 #, c-format
 msgid "Failed to execute helper program (%s)"
 msgstr "Не вдалося виконати допоміжну програму (%s)"
 
-#: glib/gspawn-win32.c:1056
+#: glib/gspawn-win32.c:1042
 msgid ""
 "Unexpected error in g_io_channel_win32_poll() reading data from a child "
 "process"
@@ -5970,21 +5978,21 @@ msgstr ""
 "Неочікувана помилка в зчитуванні даних з дочірнього процесу через "
 "g_io_channel_win32_poll() "
 
-#: glib/gstrfuncs.c:3303 glib/gstrfuncs.c:3405
+#: glib/gstrfuncs.c:3338 glib/gstrfuncs.c:3440
 msgid "Empty string is not a number"
 msgstr "Порожній рядок не є числом"
 
-#: glib/gstrfuncs.c:3327
+#: glib/gstrfuncs.c:3362
 #, c-format
 msgid "“%s” is not a signed number"
 msgstr "«%s» не є числом зі знаком"
 
-#: glib/gstrfuncs.c:3337 glib/gstrfuncs.c:3441
+#: glib/gstrfuncs.c:3372 glib/gstrfuncs.c:3476
 #, c-format
 msgid "Number “%s” is out of bounds [%s, %s]"
 msgstr "Число «%s» не належить до діапазону [%s, %s]"
 
-#: glib/gstrfuncs.c:3431
+#: glib/gstrfuncs.c:3466
 #, c-format
 msgid "“%s” is not an unsigned number"
 msgstr "«%s» не є числом без знаку"
@@ -6063,150 +6071,150 @@ msgid "Character out of range for UTF-16"
 msgstr "Символ не входить в набір UTF-16"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2747
+#: glib/gutils.c:2767
 #, c-format
 msgid "%.1f kB"
 msgstr "%.1f кБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2749
+#: glib/gutils.c:2769
 #, c-format
 msgid "%.1f MB"
 msgstr "%.1f МБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2751
+#: glib/gutils.c:2771
 #, c-format
 msgid "%.1f GB"
 msgstr "%.1f ГБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2753
+#: glib/gutils.c:2773
 #, c-format
 msgid "%.1f TB"
 msgstr "%.1f ТБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2755
+#: glib/gutils.c:2775
 #, c-format
 msgid "%.1f PB"
 msgstr "%.1f ПБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2757
+#: glib/gutils.c:2777
 #, c-format
 msgid "%.1f EB"
 msgstr "%.1f ЕБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2761
+#: glib/gutils.c:2781
 #, c-format
 msgid "%.1f KiB"
 msgstr "%.1f КіБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2763
+#: glib/gutils.c:2783
 #, c-format
 msgid "%.1f MiB"
 msgstr "%.1f МіБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2765
+#: glib/gutils.c:2785
 #, c-format
 msgid "%.1f GiB"
 msgstr "%.1f ГіБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2767
+#: glib/gutils.c:2787
 #, c-format
 msgid "%.1f TiB"
 msgstr "%.1f ТіБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2769
+#: glib/gutils.c:2789
 #, c-format
 msgid "%.1f PiB"
 msgstr "%.1f ПіБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2771
+#: glib/gutils.c:2791
 #, c-format
 msgid "%.1f EiB"
 msgstr "%.1f ЕіБ"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2775
+#: glib/gutils.c:2795
 #, c-format
 msgid "%.1f kb"
 msgstr "%.1f кбіт"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2777
+#: glib/gutils.c:2797
 #, c-format
 msgid "%.1f Mb"
 msgstr "%.1f Мбіт"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2779
+#: glib/gutils.c:2799
 #, c-format
 msgid "%.1f Gb"
 msgstr "%.1f Гбіт"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2781
+#: glib/gutils.c:2801
 #, c-format
 msgid "%.1f Tb"
 msgstr "%.1f Тбіт"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2783
+#: glib/gutils.c:2803
 #, c-format
 msgid "%.1f Pb"
 msgstr "%.1f Пбіт"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2785
+#: glib/gutils.c:2805
 #, c-format
 msgid "%.1f Eb"
 msgstr "%.1f Ебіт"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2789
+#: glib/gutils.c:2809
 #, c-format
 msgid "%.1f Kib"
 msgstr "%.1f Кібіт"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2791
+#: glib/gutils.c:2811
 #, c-format
 msgid "%.1f Mib"
 msgstr "%.1f Мібіт"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2793
+#: glib/gutils.c:2813
 #, c-format
 msgid "%.1f Gib"
 msgstr "%.1f Гібіт"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2795
+#: glib/gutils.c:2815
 #, c-format
 msgid "%.1f Tib"
 msgstr "%.1f Тібіт"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2797
+#: glib/gutils.c:2817
 #, c-format
 msgid "%.1f Pib"
 msgstr "%.1f Пібіт"
 
 #. Translators: Keep the no-break space between %.1f and the unit symbol
-#: glib/gutils.c:2799
+#: glib/gutils.c:2819
 #, c-format
 msgid "%.1f Eib"
 msgstr "%.1f Еібіт"
 
-#: glib/gutils.c:2833 glib/gutils.c:2950
+#: glib/gutils.c:2853 glib/gutils.c:2970
 #, c-format
 msgid "%u byte"
 msgid_plural "%u bytes"
@@ -6214,7 +6222,7 @@ msgstr[0] "%u байт"
 msgstr[1] "%u байти"
 msgstr[2] "%u байтів"
 
-#: glib/gutils.c:2837
+#: glib/gutils.c:2857
 #, c-format
 msgid "%u bit"
 msgid_plural "%u bits"
@@ -6223,7 +6231,7 @@ msgstr[1] "%u бітів"
 msgstr[2] "%u байтів"
 
 #. Translators: the %s in "%s bytes" will always be replaced by a number.
-#: glib/gutils.c:2904
+#: glib/gutils.c:2924
 #, c-format
 msgid "%s byte"
 msgid_plural "%s bytes"
@@ -6232,7 +6240,7 @@ msgstr[1] "%s байти"
 msgstr[2] "%s байтів"
 
 #. Translators: the %s in "%s bits" will always be replaced by a number.
-#: glib/gutils.c:2909
+#: glib/gutils.c:2929
 #, c-format
 msgid "%s bit"
 msgid_plural "%s bits"
@@ -6245,35 +6253,39 @@ msgstr[2] "%s бітів"
 #. * compatibility.  Users will not see this string unless a program is using this deprecated function.
 #. * Please translate as literally as possible.
 #.
-#: glib/gutils.c:2963
+#: glib/gutils.c:2983
 #, c-format
 msgid "%.1f KB"
 msgstr "%.1f КБ"
 
-#: glib/gutils.c:2968
+#: glib/gutils.c:2988
 #, c-format
 msgid "%.1f MB"
 msgstr "%.1f МБ"
 
-#: glib/gutils.c:2973
+#: glib/gutils.c:2993
 #, c-format
 msgid "%.1f GB"
 msgstr "%.1f ГБ"
 
-#: glib/gutils.c:2978
+#: glib/gutils.c:2998
 #, c-format
 msgid "%.1f TB"
 msgstr "%.1f ТБ"
 
-#: glib/gutils.c:2983
+#: glib/gutils.c:3003
 #, c-format
 msgid "%.1f PB"
 msgstr "%.1f ПБ"
 
-#: glib/gutils.c:2988
+#: glib/gutils.c:3008
 #, c-format
 msgid "%.1f EB"
 msgstr "%.1f ЕБ"
+
+#~ msgid "Unable to load /var/lib/dbus/machine-id or /etc/machine-id: "
+#~ msgstr ""
+#~ "Не вдалося завантажити /var/lib/dbus/machine-id або /etc/machine-id: "
 
 #~ msgid "Unknown error on connect"
 #~ msgstr "Невідома помилка при з'єднанні"

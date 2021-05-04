@@ -66,9 +66,9 @@ typedef struct
   GHashTable        *system_locks; /* Used as a set, owning the strings it contains */
 
   gchar             *prefix;
-  gint               prefix_len;
+  gsize              prefix_len;
   gchar             *root_group;
-  gint               root_group_len;
+  gsize              root_group_len;
 
   GFile             *file;
   GFileMonitor      *file_monitor;
@@ -149,8 +149,8 @@ convert_path (GKeyfileSettingsBackend  *kfsb,
               gchar                   **group,
               gchar                   **basename)
 {
-  gint key_len = strlen (key);
-  gint i;
+  gsize key_len = strlen (key);
+  const gchar *last_slash;
 
   if (key_len < kfsb->prefix_len ||
       memcmp (key, kfsb->prefix, kfsb->prefix_len) != 0)
@@ -159,38 +159,50 @@ convert_path (GKeyfileSettingsBackend  *kfsb,
   key_len -= kfsb->prefix_len;
   key += kfsb->prefix_len;
 
-  for (i = key_len; i >= 0; i--)
-    if (key[i] == '/')
-      break;
+  last_slash = strrchr (key, '/');
+
+  /* Disallow empty group names or key names */
+  if (key_len == 0 ||
+      (last_slash != NULL &&
+       (*(last_slash + 1) == '\0' ||
+        last_slash == key)))
+    return FALSE;
 
   if (kfsb->root_group)
     {
       /* if a root_group was specified, make sure the user hasn't given
        * a path that ghosts that group name
        */
-      if (i == kfsb->root_group_len && memcmp (key, kfsb->root_group, i) == 0)
+      if (last_slash != NULL && last_slash - key >= 0 &&
+          (gsize) (last_slash - key) == kfsb->root_group_len &&
+          memcmp (key, kfsb->root_group, last_slash - key) == 0)
         return FALSE;
     }
   else
     {
       /* if no root_group was given, ensure that the user gave a path */
-      if (i == -1)
+      if (last_slash == NULL)
         return FALSE;
     }
 
   if (group)
     {
-      if (i >= 0)
+      if (last_slash != NULL)
         {
-          *group = g_memdup (key, i + 1);
-          (*group)[i] = '\0';
+          *group = g_memdup2 (key, (last_slash - key) + 1);
+          (*group)[(last_slash - key)] = '\0';
         }
       else
         *group = g_strdup (kfsb->root_group);
     }
 
   if (basename)
-    *basename = g_memdup (key + i + 1, key_len - i);
+    {
+      if (last_slash != NULL)
+        *basename = g_memdup2 (last_slash + 1, key_len - (last_slash - key));
+      else
+        *basename = g_strdup (key);
+    }
 
   return TRUE;
 }
@@ -362,7 +374,7 @@ g_keyfile_settings_backend_write_tree (GSettingsBackend *backend,
                                        GTree            *tree,
                                        gpointer          origin_tag)
 {
-  WriteManyData data = { G_KEYFILE_SETTINGS_BACKEND (backend) };
+  WriteManyData data = { G_KEYFILE_SETTINGS_BACKEND (backend), 0 };
   gboolean success;
   GError *error = NULL;
 
@@ -595,19 +607,24 @@ g_keyfile_settings_backend_finalize (GObject *object)
   g_hash_table_unref (kfsb->system_locks);
   g_free (kfsb->defaults_dir);
 
-  g_file_monitor_cancel (kfsb->file_monitor);
-  g_object_unref (kfsb->file_monitor);
+  if (kfsb->file_monitor)
+    {
+      g_file_monitor_cancel (kfsb->file_monitor);
+      g_object_unref (kfsb->file_monitor);
+    }
   g_object_unref (kfsb->file);
 
-  g_file_monitor_cancel (kfsb->dir_monitor);
-  g_object_unref (kfsb->dir_monitor);
+  if (kfsb->dir_monitor)
+    {
+      g_file_monitor_cancel (kfsb->dir_monitor);
+      g_object_unref (kfsb->dir_monitor);
+    }
   g_object_unref (kfsb->dir);
 
   g_free (kfsb->root_group);
   g_free (kfsb->prefix);
 
-  G_OBJECT_CLASS (g_keyfile_settings_backend_parent_class)
-    ->finalize (object);
+  G_OBJECT_CLASS (g_keyfile_settings_backend_parent_class)->finalize (object);
 }
 
 static void
@@ -666,6 +683,8 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
         g_warning ("Failed to read %s: %s", path, error->message);
       g_clear_error (&error);
     }
+  else
+    g_debug ("Loading default settings from %s", path);
 
   g_free (path);
 
@@ -685,6 +704,8 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
       char **lines;
       gsize i;
 
+      g_debug ("Loading locks from %s", path);
+
       lines = g_strsplit (contents, "\n", 0);
       for (i = 0; lines[i]; i++)
         {
@@ -695,6 +716,7 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
               continue;
             }
 
+          g_debug ("Locking key %s", line);
           g_hash_table_add (kfsb->system_locks, g_steal_pointer (&line));
         }
 
@@ -709,6 +731,7 @@ static void
 g_keyfile_settings_backend_constructed (GObject *object)
 {
   GKeyfileSettingsBackend *kfsb = G_KEYFILE_SETTINGS_BACKEND (object);
+  GError *error = NULL;
   const char *path;
 
   if (kfsb->file == NULL)
@@ -734,15 +757,31 @@ g_keyfile_settings_backend_constructed (GObject *object)
   if (g_mkdir_with_parents (path, 0700) == -1)
     g_warning ("Failed to create %s: %s", path, g_strerror (errno));
 
-  kfsb->file_monitor = g_file_monitor (kfsb->file, G_FILE_MONITOR_NONE, NULL, NULL);
-  kfsb->dir_monitor = g_file_monitor (kfsb->dir, G_FILE_MONITOR_NONE, NULL, NULL);
+  kfsb->file_monitor = g_file_monitor (kfsb->file, G_FILE_MONITOR_NONE, NULL, &error);
+  if (!kfsb->file_monitor)
+    {
+      g_warning ("Failed to create file monitor for %s: %s", g_file_peek_path (kfsb->file), error->message);
+      g_clear_error (&error);
+    }
+  else
+    {
+      g_signal_connect (kfsb->file_monitor, "changed",
+                        G_CALLBACK (file_changed), kfsb);
+    }
+
+  kfsb->dir_monitor = g_file_monitor (kfsb->dir, G_FILE_MONITOR_NONE, NULL, &error);
+  if (!kfsb->dir_monitor)
+    {
+      g_warning ("Failed to create file monitor for %s: %s", g_file_peek_path (kfsb->file), error->message);
+      g_clear_error (&error);
+    }
+  else
+    {
+      g_signal_connect (kfsb->dir_monitor, "changed",
+                        G_CALLBACK (dir_changed), kfsb);
+    }
 
   compute_checksum (kfsb->digest, NULL, 0);
-
-  g_signal_connect (kfsb->file_monitor, "changed",
-                    G_CALLBACK (file_changed), kfsb);
-  g_signal_connect (kfsb->dir_monitor, "changed",
-                    G_CALLBACK (dir_changed), kfsb);
 
   g_keyfile_settings_backend_keyfile_writable (kfsb);
   g_keyfile_settings_backend_keyfile_reload (kfsb);

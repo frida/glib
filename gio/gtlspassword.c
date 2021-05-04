@@ -241,9 +241,9 @@ g_tls_password_new (GTlsPasswordFlags  flags,
 }
 
 /**
- * g_tls_password_get_value:
+ * g_tls_password_get_value: (virtual get_value)
  * @password: a #GTlsPassword object
- * @length: (nullable): location to place the length of the password.
+ * @length: (optional): location to place the length of the password.
  *
  * Get the password value. If @length is not %NULL then it will be
  * filled in with the length of the password value. (Note that the
@@ -251,7 +251,7 @@ g_tls_password_new (GTlsPasswordFlags  flags,
  * for @length in contexts where you know the password will have a
  * certain fixed length.)
  *
- * Returns: The password value (owned by the password object).
+ * Returns: (array length=length): The password value (owned by the password object).
  *
  * Since: 2.30
  */
@@ -287,9 +287,14 @@ g_tls_password_set_value (GTlsPassword  *password,
   g_return_if_fail (G_IS_TLS_PASSWORD (password));
 
   if (length < 0)
-    length = strlen ((gchar *)value);
+    {
+      /* FIXME: g_tls_password_set_value_full() doesn’t support unsigned gsize */
+      gsize length_unsigned = strlen ((gchar *) value);
+      g_return_if_fail (length_unsigned <= G_MAXSSIZE);
+      length = (gssize) length_unsigned;
+    }
 
-  g_tls_password_set_value_full (password, g_memdup (value, length), length, g_free);
+  g_tls_password_set_value_full (password, g_memdup2 (value, (gsize) length), length, g_free);
 }
 
 /**

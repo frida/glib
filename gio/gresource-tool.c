@@ -180,17 +180,18 @@ elf_foreach_resource_section (Elf             *elf,
                               SectionCallback  callback,
                               gpointer         data)
 {
+  int ret;
   size_t shstrndx, shnum;
   size_t scnidx;
   Elf_Scn *scn;
   GElf_Shdr *shdr, shdr_mem;
   const gchar *section_name;
 
-  elf_getshdrstrndx (elf, &shstrndx);
-  g_assert (shstrndx >= 0);
+  ret = elf_getshdrstrndx (elf, &shstrndx);
+  g_assert (ret == 0);
 
-  elf_getshdrnum (elf, &shnum);
-  g_assert (shnum >= 0);
+  ret = elf_getshdrnum (elf, &shnum);
+  g_assert (ret == 0);
 
   for (scnidx = 1; scnidx < shnum; scnidx++)
     {
@@ -607,8 +608,6 @@ main (int argc, char *argv[])
 #ifdef G_OS_WIN32
   gchar *tmp;
 #endif
-
-  glib_init ();
 
   setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
   textdomain (GETTEXT_PACKAGE);

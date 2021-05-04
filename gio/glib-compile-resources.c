@@ -550,7 +550,7 @@ parse_resource_file (const gchar *filename,
                      gboolean     collect_data,
                      GHashTable  *files)
 {
-  GMarkupParser parser = { start_element, end_element, text };
+  GMarkupParser parser = { start_element, end_element, text, NULL, NULL };
   ParseState state = { 0, };
   GMarkupParseContext *context;
   GError *error = NULL;
@@ -753,8 +753,6 @@ main (int argc, char **argv)
 #ifdef G_OS_WIN32
   gchar *tmp;
 #endif
-
-  glib_init ();
 
   setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
   textdomain (GETTEXT_PACKAGE);

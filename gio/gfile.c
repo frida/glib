@@ -493,7 +493,7 @@ g_file_get_uri_scheme (GFile *file)
 
 
 /**
- * g_file_get_basename:
+ * g_file_get_basename: (virtual get_basename)
  * @file: input #GFile
  *
  * Gets the base name (the last component of the path) for a given #GFile.
@@ -527,7 +527,7 @@ g_file_get_basename (GFile *file)
 }
 
 /**
- * g_file_get_path:
+ * g_file_get_path: (virtual get_path)
  * @file: input #GFile
  *
  * Gets the local pathname for #GFile, if one exists. If non-%NULL, this is
@@ -946,7 +946,7 @@ g_file_has_prefix (GFile *file,
 }
 
 /**
- * g_file_get_relative_path:
+ * g_file_get_relative_path: (virtual get_relative_path)
  * @parent: input #GFile
  * @descendant: input #GFile
  *
@@ -7057,7 +7057,7 @@ g_file_query_default_handler_finish (GFile        *file,
  * @contents: (out) (transfer full) (element-type guint8) (array length=length): a location to place the contents of the file
  * @length: (out) (optional): a location to place the length of the contents of the file,
  *    or %NULL if the length is not needed
- * @etag_out: (out) (optional): a location to place the current entity tag for the file,
+ * @etag_out: (out) (optional) (nullable): a location to place the current entity tag for the file,
  *    or %NULL if the entity tag is not needed
  * @error: a #GError, or %NULL
  *
@@ -7345,7 +7345,7 @@ g_file_load_partial_contents_async (GFile                 *file,
  * @contents: (out) (transfer full) (element-type guint8) (array length=length): a location to place the contents of the file
  * @length: (out) (optional): a location to place the length of the contents of the file,
  *     or %NULL if the length is not needed
- * @etag_out: (out) (optional): a location to place the current entity tag for the file,
+ * @etag_out: (out) (optional) (nullable): a location to place the current entity tag for the file,
  *     or %NULL if the entity tag is not needed
  * @error: a #GError, or %NULL
  *
@@ -7443,7 +7443,7 @@ g_file_load_contents_async (GFile               *file,
  * @contents: (out) (transfer full) (element-type guint8) (array length=length): a location to place the contents of the file
  * @length: (out) (optional): a location to place the length of the contents of the file,
  *     or %NULL if the length is not needed
- * @etag_out: (out) (optional): a location to place the current entity tag for the file,
+ * @etag_out: (out) (optional) (nullable): a location to place the current entity tag for the file,
  *     or %NULL if the entity tag is not needed
  * @error: a #GError, or %NULL
  *
@@ -7481,7 +7481,7 @@ g_file_load_contents_finish (GFile         *file,
  *     or %NULL
  * @make_backup: %TRUE if a backup should be created
  * @flags: a set of #GFileCreateFlags
- * @new_etag: (out) (optional): a location to a new [entity tag][gfile-etag]
+ * @new_etag: (out) (optional) (nullable): a location to a new [entity tag][gfile-etag]
  *      for the document. This should be freed with g_free() when no longer
  *      needed, or %NULL
  * @cancellable: optional #GCancellable object, %NULL to ignore
@@ -7789,7 +7789,7 @@ g_file_replace_contents_bytes_async  (GFile               *file,
  * g_file_replace_contents_finish:
  * @file: input #GFile
  * @res: a #GAsyncResult
- * @new_etag: (out) (optional): a location of a new [entity tag][gfile-etag]
+ * @new_etag: (out) (optional) (nullable): a location of a new [entity tag][gfile-etag]
  *     for the document. This should be freed with g_free() when it is no
  *     longer needed, or %NULL
  * @error: a #GError, or %NULL
@@ -7903,7 +7903,7 @@ measure_disk_usage_progress (gboolean reporting,
   g_main_context_invoke_full (g_task_get_context (task),
                               g_task_get_priority (task),
                               measure_disk_usage_invoke_progress,
-                              g_memdup (&progress, sizeof progress),
+                              g_memdup2 (&progress, sizeof progress),
                               g_free);
 }
 
@@ -7921,7 +7921,7 @@ measure_disk_usage_thread (GTask        *task,
                                  data->progress_callback ? measure_disk_usage_progress : NULL, task,
                                  &result.disk_usage, &result.num_dirs, &result.num_files,
                                  &error))
-    g_task_return_pointer (task, g_memdup (&result, sizeof result), g_free);
+    g_task_return_pointer (task, g_memdup2 (&result, sizeof result), g_free);
   else
     g_task_return_error (task, error);
 }
@@ -7945,7 +7945,7 @@ g_file_real_measure_disk_usage_async (GFile                        *file,
 
   task = g_task_new (file, cancellable, callback, user_data);
   g_task_set_source_tag (task, g_file_real_measure_disk_usage_async);
-  g_task_set_task_data (task, g_memdup (&data, sizeof data), g_free);
+  g_task_set_task_data (task, g_memdup2 (&data, sizeof data), g_free);
   g_task_set_priority (task, io_priority);
 
   g_task_run_in_thread (task, measure_disk_usage_thread);

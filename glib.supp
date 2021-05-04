@@ -90,7 +90,7 @@
 	match-leak-kinds:reachable
 	fun:malloc
 	...
-	fun:gobject_init_ctor
+	fun:gobject_init*
 }
 
 {
@@ -99,7 +99,7 @@
 	match-leak-kinds:reachable
 	fun:realloc
 	...
-	fun:gobject_init_ctor
+	fun:gobject_init*
 }
 
 {
@@ -108,7 +108,7 @@
 	match-leak-kinds:possible,reachable
 	fun:calloc
 	...
-	fun:gobject_init_ctor
+	fun:gobject_init*
 }
 
 {
@@ -367,6 +367,16 @@
 }
 
 {
+	g-type-class-ref-inlined
+	Memcheck:Leak
+	fun:calloc
+	...
+	fun:UnknownInlinedFun
+	...
+	fun:g_type_class_ref
+}
+
+{
 	g-io-module-default-singleton-malloc
 	Memcheck:Leak
 	match-leak-kinds:reachable
@@ -488,6 +498,15 @@
 	Memcheck:Leak
 	match-leak-kinds:possible,reachable
 	fun:calloc
+	...
+	fun:g_system_thread_new
+}
+
+{
+	g-system-thread-init-malloc
+	Memcheck:Leak
+	match-leak-kinds:possible,reachable
+	fun:malloc
 	...
 	fun:g_system_thread_new
 }

@@ -1,3 +1,269 @@
+Overview of changes in GLib 2.68.0
+==================================
+
+* Bugs fixed:
+ - !1987 build: Drop gconstructor_as_data_h usage from glib-compile-schemas
+ - !1989 glib.supp: Generalize some suppressions
+ - !1992 gbytesicon: Fix error in g_bytes_icon_new() documentation
+ - !1994 glocalfileoutputstream: Tidy up error handling
+ - !1995 tests: Fix copy/paste error in queue test
+
+* Translation updates:
+ - Czech
+ - Finnish
+ - Italian
+ - Korean
+ - Lithuanian
+ - Polish
+ - Romanian
+ - Slovenian
+ - Turkish
+
+
+Overview of changes in GLib 2.67.6
+==================================
+
+* Fix a security issue when using `g_file_replace()` with
+  `G_FILE_CREATE_REPLACE_DESTINATION` (#2325)
+
+* Disallow operations on the empty path with `g_file_new_from_path()` (#2328)
+
+* Various fixes for GLib when building with clang-cl on Windows (work by
+  Aleksandr Mezin) (#2341, #2344)
+
+* Bugs fixed:
+ - #2325 file-roller symlink attack
+ - #2327 Teach glib-mkenums about GLIB_AVAILABLE_ENUMERATOR_IN_2_68, and start using it
+ - #2328 g_file_new_for_path("") yields CWD, which seems wrong
+ - #2341 glib-genmarshal output is sometimes empty because output file is not closed
+ - #2344 c_std=c11: gbitlock.c: ‘asm’ undeclared
+ - !1962 Validate D-Bus machine ID after loading
+ - !1976 Use the right permissions for directory watching on Win32
+ - !1977 gio/tests/{meson.build,pollable.c}: Determine libutil SONAME at build time
+ - !1980 glib.supp: Add another system thread suppression
+
+* Translation updates:
+ - Basque
+ - Catalan
+ - Czech
+ - French
+ - Galician
+ - German
+ - Hungarian
+ - Indonesian
+ - Korean
+ - Latvian
+ - Portuguese
+ - Portuguese (Brazil)
+ - Serbian
+ - Spanish
+ - Swedish
+ - Ukrainian
+
+
+Overview of changes in GLib 2.67.5
+==================================
+
+* Fix more issues with `glib_typeof` macro from 2.67.3–2.67.4 (work by
+  Iain Lane, Simon McVittie) (#2331, !1975)
+
+* Fix regression with some FD mappings passed to `g_subprocess_launcher_spawnv()`
+  caused by changes for #2097 in GLib 2.67.4 (work by Olivier Fourdan,
+  Philip Withnall) (#2332)
+
+* Fix detection of `str[n]casecmp()` when building with `clang-cl` (work by
+  Aleksandr Mezin) (#2337)
+
+* Use zlib from subproject if configured with `wrap_mode=forcefallback` (work by
+  Seungha Yang) (!1959)
+
+* Bump Visual Studio compilation requirement to VS 2012, and Windows 8 SDK for
+  GLib 2.67.x onwards (work by Chun-wei Fan) (!1970)
+
+* Bugs fixed:
+ - #832 Some tweaks re: GRWLock
+ - #2331 glib 2.67.3: <glib.h> can no longer be included in extern "C" blocks
+ - #2332 Glib 2.67.4 causes gnome-shell to exit when spawning Xwayland on demand
+ - #2333 Missing relation between g_file_info_get_size() and G_FILE_ATTRIBUTE_STANDARD_SIZE attribute in documentation
+ - #2337 Linking fails when building with clang-cl because of str[n]casecmp
+ - !1936 tests: Fix leak of dlopened module in pollable test
+ - !1954 Change SkipAsyncData fields to be gsize (and not gssize)
+ - !1956 The ETag returned by various GFile functions is nullable
+ - !1959 meson: Use subproject zlib if "wrap_mode=forcefallback" was specified
+ - !1961 gkeyfilesettingsbackend: check for errors when creating file monitors
+ - !1970 README.win32.md: Mention about Window 8+ SDK requirement
+ - !1971 gio/tests/pollable.c: Fix build on non-Linux UNIX
+ - !1975 gatomic.h: Make `glib_typeof` API break opt in.
+
+* Translation updates:
+ - Basque
+ - Danish
+ - English (United Kingdom)
+ - Galician
+ - German
+ - Indonesian
+ - Lithuanian
+ - Portuguese
+ - Portuguese (Brazil)
+ - Slovenian
+
+
+Overview of changes in GLib 2.67.4
+==================================
+
+* Add a `g_string_replace()` function (work by Joshua Lee) (#225)
+
+* Add `G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER` flag to simplify
+  the common case for writing a D-Bus authentication observer, allowing most
+  uses of `GDBusAuthObserver` to be dropped (#1804)
+
+* Add a new `g_spawn_with_pipes_and_fds()` variant which supports renumbering
+  FDs (#2097)
+
+* Add new g_memdup2() API to replace g_memdup(), which is vulnerable to a
+  silent integer truncation and heap overflow problem if not used carefully
+  (discovered by Kevin Backhouse, work by Philip Withnall) (#2319)
+
+* Fix various regressions caused by rushed security fixes in 2.66.6 (work by
+  Simon McVittie and Jan Alexander Steffens) (!1932, !1941, #2323)
+
+* Fix a silent integer truncation when calling g_byte_array_new_take() for
+  byte arrays bigger than G_MAXUINT (work by Krzesimir Nowak) (!1942)
+
+* Fix `g_utf8_strdown()` to fix some issues in Turkish
+  (work by Kjell Ahlstedt) (!1930)
+
+* Bugs fixed:
+ - #225 GString doesn't have a g_string_replace() function
+ - #587 g_input_stream_skip() out-of-bounds behavior is inconsistent between implementations
+ - #1804 Add G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER flag
+ - #2097 GSubprocessLauncher with FD assignment can clash with g_spawn_async internal pipe
+ - #2315 httpproxy: Need overflow protection when reading response during connection establishment
+ - #2319 CVE-2021-27219 (GHSL-2021-045): integer overflow in g_bytes_new/g_memdup
+ - #2322 g_test_dbus: double output when piping
+ - #2323 [GLIB 2.66.6] g_io_channel_set_line_term() stopped working with null terminated strings and length -1
+ - !1917 Adding a missing test on integer overflow within g_http_proxy_connect()
+ - !1918 Fix more warnings
+ - !1923 Add support for Tilix and Konsole
+ - !1930 guniprop: Fix g_utf8_strdown() for Turkish locale
+ - !1932 gtlspassword: Fix inverted assertion
+ - !1934 gdbus: Reject attempts to set future connection or server flags
+ - !1938 Fix more warnings
+ - !1939 ci: Temporarily disable macOS CI job as runner is offline
+ - !1940 Fix more warnings
+ - !1941 gkeyfilesettingsbackend: Fix basename handling when group is unset
+ - !1942 CVE-2021-27218: gbytearray: Do not accept too large byte arrays
+ - !1947 Revert "Merge branch 'wip/pwithnall/macos-ci-disable' into 'master'"
+ - !1948 tests: Use a more realistic language code than sv_SV
+ - !1949 gatomic: Make fallback g_atomic_pointer_get type-safe
+ - !1951 Add a test for parsing 0 as double
+ - !1955 tests: Add missing NULL terminator to spawn-singlethread test
+
+* Translation updates:
+ - Catalan
+ - Galician
+ - Hungarian
+ - Portuguese
+ - Romanian
+ - Slovenian
+ - Spanish
+ - Swedish
+ - Turkish
+ - Ukrainian
+
+
+Overview of changes in GLib 2.67.3
+==================================
+
+* Add new `g_memdup2()` API to replace `g_memdup()`, which is vulnerable to a
+  silent integer truncation and heap overflow problem if not used carefully
+  (discovered by Kevin Backhouse, work by Philip Withnall) (#2319)
+
+* Add new `g_dbus_object_path_escape()` and `g_dbus_object_path_unescape()` APIs
+  to provide one way of escaping arbitrary bytestrings for use in D-Bus object
+  paths (work by Lars Karlitski and Frederic Martinsons) (#968)
+
+* Use `bash-completion.pc` (if available) to provide the path to install
+  completion files into (work by Frederic Martinsons) (#1054)
+
+* Fix support for public/private trigraphs in `glib-mkenums` (work by Matthias Klumpp) (!1870)
+
+* Add `glib_debug` configure option to allow disabling debug infrastructure in
+  builds with debug symbols enabled (work by Ole André Vadla Ravnås) (!1889)
+
+* Fix a regression where `PATH` would always be searched when using `g_spawn()`,
+  even when it wasn’t supposed to (work by Simon McVittie and Thomas Haller) (!1902)
+
+* Override `gio-querymodules` in Meson when used as a submodule (work by Xavier Claessens) (!1909)
+
+* Bugs fixed:
+ - #344 gdbus(1) command-line completion issues
+ - #968 gdbus: add g_dbus_object_path_{un,}escape
+ - #1054 Use pkg-config to get path for bash-completion file installation
+ - #1180 GUnixInputStream and GUnixOutputStream don't consider TTYs pollable
+ - #2011 Add additional unit tests for D-Bus name watching
+ - #2226 clang++ compilation fails on clusterfuzz
+ - #2292 Cannot find a common ancestor when running CI style check jobs
+ - #2299 GObject introspection annotation of g_closure_new_object() is wrong
+ - #2305 GIO security hardening causing gnome-keyring to regress when session bus is provided by dbus-launch (dbus-x11)
+ - #2314 gdatetime: math library link issue
+ - #2319 GHSL-2021-045: integer overflow in g_bytes_new/g_memdup
+ - !610 Various memory leak cleanups to GSettings tests
+ - !1804 Add more GIR annotations to gparam.c and gsignal.c
+ - !1823 Fix more warnings
+ - !1843 gfile: Add Linux kernel headers compatibility kludge
+ - !1847 Port to QNX
+ - !1853 ginetaddress: Handle systems without IPv6 support
+ - !1859 docs: update g_action_group_activate_action() remote activation semantics
+ - !1860 glocalfile: Fix an uninitialized variable
+ - !1865 tests: Add more debug information to gdbus-connection-slow
+ - !1868 gdesktopappinfo: Fix validation of XDG_CURRENT_DESKTOP
+ - !1870 mkenums: Support public/private trigraph again
+ - !1873 Fix possible integer overflow of g_socket_send_message()
+ - !1876 Fixing g_socket_send_message() documentation to make it clearer
+ - !1877 Fix more warnings
+ - !1878 Another fix on g_socket_send_message()
+ - !1879 Fix more warnings
+ - !1880 GError documentation tweaks
+ - !1881 docs: Move ‘Notes’ section from README to NEWS
+ - !1883 gutils: Document caching of XDG directory variables
+ - !1884 gthread-win32: Use SetThreadDescription Win32 API for setting thread name
+ - !1887 ci: Fix msys-mingw32 CI builds due to package rename
+ - !1888 docs: Add documentation for GLIB_VERSION_CUR_STABLE and PREV_STABLE
+ - !1889 build: Add glib_debug option
+ - !1890 gtype: Improve formatting of GType documentation
+ - !1891 Fix more warnings
+ - !1893 gwin32appinfo: Fix printf length sub-specifier
+ - !1894 gsocket: Fix SO_NOSIGPIPE regression on Darwin
+ - !1898 gtestutils: Add g_test_get_path() API
+ - !1899 m4macros: replace obsolete macros AC_TRY_RUN and AC_TRY_LINK in glib-2.0.m4
+ - !1900 [th/gsignal-cleanup] minor changes to GSignal related code
+ - !1901 Check if the remote already exists before adding it.
+ - !1902 spawn: Don't set a search path if we don't want to search PATH
+ - !1903 m4macros: Increment serial number of glib-2.0.m4
+ - !1905 Start to ignore known leaks under AddressSanitizer
+ - !1906 gdbus-serialization: Don't leak string containing first serialization
+ - !1908 Fix straightforward memory leaks in tests
+ - !1909 Meson: override gio-querymodules program
+ - !1910 gio: Add explicit virtual g-i annotations for undiscovered invoker relationship
+ - !1911 Fix more warnings
+ - !1915 Mark g_key_file_get_comment() key parameter as nullable
+ - !1919 atomic: Fix type check of g_atomic_pointer_compare_and_exchange()
+ - !1921 guri: Mark g_uri_get_host as nullable
+ - !1925 gapplication: Fix a memory leak
+
+* Translation updates:
+ - Czech
+ - Friulian
+ - Galician
+ - Hungarian
+ - Portuguese
+ - Portuguese (Brazil)
+ - Romanian
+ - Spanish
+ - Ukrainian
+
+
 Overview of changes in GLib 2.67.2
 ==================================
 

@@ -1028,8 +1028,6 @@ g_dbus_address_get_stream_sync (const gchar   *address,
   return ret;
 }
 
-#ifndef GIO_STATIC_COMPILATION
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 /*
@@ -1230,20 +1228,6 @@ get_session_address_dbus_launch (GError **error)
 }
 #endif /* neither G_OS_UNIX nor G_OS_WIN32 */
 
-#else /* !GIO_STATIC_COMPILATION */
-
-static gchar *
-get_session_address_dbus_launch (GError **error)
-{
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Session bus not available for static GIO"));
-  return NULL;
-}
-
-#endif /* GIO_STATIC_COMPILATION */
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 static gchar *
@@ -1251,7 +1235,6 @@ get_session_address_platform_specific (GError **error)
 {
   gchar *ret;
 
-#ifndef GIO_STATIC_COMPILATION
   /* Use XDG_RUNTIME_DIR/bus if it exists and is suitable. This is appropriate
    * for systems using the "a session is a user-session" model described in
    * <http://lists.freedesktop.org/archives/dbus/2015-January/016522.html>,
@@ -1276,15 +1259,6 @@ get_session_address_platform_specific (GError **error)
    * mechanism based on shared memory.
    */
   return get_session_address_dbus_launch (error);
-#else
-  ret = NULL;
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Session bus not available for static GIO"));
-#endif
-
-  return ret;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1312,7 +1286,7 @@ g_dbus_address_get_for_bus_sync (GBusType       bus_type,
                                  GCancellable  *cancellable,
                                  GError       **error)
 {
-  gboolean is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
+  gboolean has_elevated_privileges = GLIB_PRIVATE_CALL (g_check_setuid) ();
   gchar *ret, *s = NULL;
   const gchar *starter_bus;
   GError *local_error;
@@ -1356,7 +1330,11 @@ g_dbus_address_get_for_bus_sync (GBusType       bus_type,
   switch (bus_type)
     {
     case G_BUS_TYPE_SYSTEM:
-      ret = !is_setuid ? g_strdup (g_getenv ("DBUS_SYSTEM_BUS_ADDRESS")) : NULL;
+      if (has_elevated_privileges)
+        ret = NULL;
+      else
+        ret = g_strdup (g_getenv ("DBUS_SYSTEM_BUS_ADDRESS"));
+
       if (ret == NULL)
         {
           ret = g_strdup ("unix:path=/var/run/dbus/system_bus_socket");
@@ -1364,7 +1342,33 @@ g_dbus_address_get_for_bus_sync (GBusType       bus_type,
       break;
 
     case G_BUS_TYPE_SESSION:
-      ret = !is_setuid ? g_strdup (g_getenv ("DBUS_SESSION_BUS_ADDRESS")) : NULL;
+      if (has_elevated_privileges)
+        {
+#ifdef G_OS_UNIX
+          if (geteuid () == getuid ())
+            {
+              /* Ideally we shouldn't do this, because setgid and
+               * filesystem capabilities are also elevated privileges
+               * with which we should not be trusting environment variables
+               * from the caller. Unfortunately, there are programs with
+               * elevated privileges that rely on the session bus being
+               * available. We already prevent the really dangerous
+               * transports like autolaunch: and unixexec: when our
+               * privileges are elevated, so this can only make us connect
+               * to the wrong AF_UNIX or TCP socket. */
+              ret = g_strdup (g_getenv ("DBUS_SESSION_BUS_ADDRESS"));
+            }
+          else
+#endif
+            {
+              ret = NULL;
+            }
+        }
+      else
+        {
+          ret = g_strdup (g_getenv ("DBUS_SESSION_BUS_ADDRESS"));
+        }
+
       if (ret == NULL)
         {
           ret = get_session_address_platform_specific (&local_error);

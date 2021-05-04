@@ -924,6 +924,7 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
                          GDBusAuthObserver      *observer,
                          const gchar            *guid,
                          gboolean                allow_anonymous,
+                         gboolean                require_same_user,
                          GDBusCapabilityFlags    offered_capabilities,
                          GDBusCapabilityFlags   *out_negotiated_capabilities,
                          GCredentials          **out_received_credentials,
@@ -941,6 +942,7 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
   gchar *s;
   GDBusCapabilityFlags negotiated_capabilities;
   GCredentials *credentials;
+  GCredentials *own_credentials = NULL;
 
   debug_print ("SERVER: initiating");
 
@@ -1005,6 +1007,7 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
           g_propagate_error (error, local_error);
           goto out;
         }
+      g_clear_error (&local_error);
     }
   else
     {
@@ -1038,6 +1041,8 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
     {
       debug_print ("SERVER: didn't receive any credentials");
     }
+
+  own_credentials = g_credentials_new ();
 
   state = SERVER_STATE_WAITING_FOR_AUTH;
   while (TRUE)
@@ -1155,10 +1160,21 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
                   switch (_g_dbus_auth_mechanism_server_get_state (mech))
                     {
                     case G_DBUS_AUTH_MECHANISM_STATE_ACCEPTED:
-                      if (observer != NULL &&
-                          !g_dbus_auth_observer_authorize_authenticated_peer (observer,
-                                                                              auth->priv->stream,
-                                                                              credentials))
+                      if (require_same_user &&
+                          (credentials == NULL ||
+                           !g_credentials_is_same_user (credentials, own_credentials, NULL)))
+                        {
+                          /* disconnect */
+                          g_set_error_literal (error,
+                                               G_IO_ERROR,
+                                               G_IO_ERROR_FAILED,
+                                               _("User IDs must be the same for peer and server"));
+                          goto out;
+                        }
+                      else if (observer != NULL &&
+                               !g_dbus_auth_observer_authorize_authenticated_peer (observer,
+                                                                                   auth->priv->stream,
+                                                                                   credentials))
                         {
                           /* disconnect */
                           g_set_error_literal (error,
@@ -1326,6 +1342,7 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
             }
           else
             {
+              g_debug ("Unexpected line '%s' while in WaitingForBegin state", line);
               g_free (line);
               s = "ERROR \"Unknown Command\"\r\n";
               debug_print ("SERVER: writing '%s'", s);
@@ -1347,12 +1364,10 @@ _g_dbus_auth_run_server (GDBusAuth              *auth,
                        "Not implemented (server)");
 
  out:
-  if (mech != NULL)
-    g_object_unref (mech);
-  if (dis != NULL)
-    g_object_unref (dis);
-  if (dos != NULL)
-    g_object_unref (dos);
+  g_clear_object (&mech);
+  g_clear_object (&dis);
+  g_clear_object (&dos);
+  g_clear_object (&own_credentials);
 
   /* ensure return value is FALSE if error is set */
   if (error != NULL && *error != NULL)

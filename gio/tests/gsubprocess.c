@@ -771,7 +771,7 @@ test_communicate_async (gconstpointer test_data)
   GSubprocessFlags flags = GPOINTER_TO_INT (test_data);
   GError *error = NULL;
   GPtrArray *args;
-  TestAsyncCommunicateData data = { flags, 0, };
+  TestAsyncCommunicateData data = { flags, 0, 0, NULL };
   GSubprocess *proc;
   GCancellable *cancellable = NULL;
   GBytes *input;
@@ -1022,7 +1022,7 @@ test_communicate_utf8_async (gconstpointer test_data)
   GSubprocessFlags flags = GPOINTER_TO_INT (test_data);
   GError *error = NULL;
   GPtrArray *args;
-  TestAsyncCommunicateData data = { flags, 0, };
+  TestAsyncCommunicateData data = { flags, 0, 0, NULL };
   GSubprocess *proc;
   GCancellable *cancellable = NULL;
 
@@ -1055,7 +1055,7 @@ test_communicate_utf8_cancelled_async (gconstpointer test_data)
   GSubprocessFlags flags = GPOINTER_TO_INT (test_data);
   GError *error = NULL;
   GPtrArray *args;
-  TestAsyncCommunicateData data = { flags, 0, };
+  TestAsyncCommunicateData data = { flags, 0, 0, NULL };
   GSubprocess *proc;
   GCancellable *cancellable = NULL;
 
@@ -1199,7 +1199,7 @@ test_communicate_utf8_async_invalid (void)
   GSubprocessFlags flags = G_SUBPROCESS_FLAGS_STDOUT_PIPE;
   GError *error = NULL;
   GPtrArray *args;
-  TestAsyncCommunicateData data = { flags, 0, };
+  TestAsyncCommunicateData data = { flags, 0, 0, NULL };
   GSubprocess *proc;
   GCancellable *cancellable = NULL;
 
@@ -1494,23 +1494,44 @@ test_subprocess_launcher_close (void)
   GSubprocessLauncher *launcher;
   GSubprocess *proc;
   GPtrArray *args;
-  int fd;
+  int fd, fd2;
   gboolean is_open;
 
-  fd = dup(0);
+  /* Open two arbitrary FDs. One of them, @fd, will be transferred to the
+   * launcher, and the other’s FD integer will be used as its target FD, giving
+   * the mapping `fd → fd2` if a child process were to be spawned.
+   *
+   * The launcher will then be closed, which should close @fd but *not* @fd2,
+   * as the value of @fd2 is only valid as an FD in a child process. (A child
+   * process is not actually spawned in this test.)
+   */
+  fd = dup (0);
+  fd2 = dup (0);
   launcher = g_subprocess_launcher_new (G_SUBPROCESS_FLAGS_NONE);
-  g_subprocess_launcher_take_fd (launcher, fd, fd);
+  g_subprocess_launcher_take_fd (launcher, fd, fd2);
+
   is_open = fcntl (fd, F_GETFD) != -1;
   g_assert_true (is_open);
+  is_open = fcntl (fd2, F_GETFD) != -1;
+  g_assert_true (is_open);
+
   g_subprocess_launcher_close (launcher);
+
   is_open = fcntl (fd, F_GETFD) != -1;
   g_assert_false (is_open);
+  is_open = fcntl (fd2, F_GETFD) != -1;
+  g_assert_true (is_open);
+
+  /* Now test that actually trying to spawn the child gives %G_IO_ERROR_CLOSED,
+   * as g_subprocess_launcher_close() has been called. */
   args = get_test_subprocess_args ("cat", NULL);
   proc = g_subprocess_launcher_spawnv (launcher, (const gchar * const *) args->pdata, error);
   g_ptr_array_free (args, TRUE);
   g_assert_null (proc);
   g_assert_error (local_error, G_IO_ERROR, G_IO_ERROR_CLOSED);
   g_clear_error (error);
+
+  close (fd2);
   g_object_unref (launcher);
 }
 

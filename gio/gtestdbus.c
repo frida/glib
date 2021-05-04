@@ -251,6 +251,16 @@ watcher_init (void)
           g_assert_not_reached ();
         }
 
+      /* flush streams to avoid buffers being duplicated in the child and
+       * flushed by both the child and parent later
+       *
+       * FIXME: This is a workaround for the fact that watch_parent() uses
+       * non-async-signal-safe API. See
+       * https://gitlab.gnome.org/GNOME/glib/-/issues/2322#note_1034330
+       */
+      fflush (stdout);
+      fflush (stderr);
+
       switch (fork ())
         {
         case -1:
@@ -370,7 +380,7 @@ _g_test_watcher_remove_pid (GPid pid)
  *
  * An example of a test fixture for D-Bus services can be found
  * here:
- * [gdbus-test-fixture.c](https://git.gnome.org/browse/glib/tree/gio/tests/gdbus-test-fixture.c)
+ * [gdbus-test-fixture.c](https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gdbus-test-fixture.c)
  *
  * Note that these examples only deal with isolating the D-Bus aspect of your
  * service. To successfully run isolated unit tests on your service you may need

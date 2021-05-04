@@ -10,7 +10,7 @@ cache:
     - _ccache/
 
 variables:
-  FEDORA_IMAGE: "registry.gitlab.gnome.org/gnome/glib/fedora:v9"
+  FEDORA_IMAGE: "registry.gitlab.gnome.org/gnome/glib/fedora:v10"
   COVERITY_IMAGE: "registry.gitlab.gnome.org/gnome/glib/coverity:v1"
   DEBIAN_IMAGE: "registry.gitlab.gnome.org/gnome/glib/debian-stable:v7"
   ANDROID_IMAGE: "registry.gitlab.gnome.org/gnome/glib/android-ndk:v3"
@@ -74,6 +74,7 @@ fedora-x86_64:
             --werror
             --default-library=both
             --prefix=$HOME/glib-installed
+            --localstatedir=/var
             --libdir=lib
             -Dsystemtap=true
             -Ddtrace=true
@@ -117,6 +118,7 @@ debian-stable-x86_64:
             --werror
             --default-library=both
             --prefix=$HOME/glib-installed
+            --localstatedir=/var
             --libdir=lib
             -Dsystemtap=true
             -Ddtrace=true
@@ -355,7 +357,8 @@ freebsd-11-x86_64:
     # FreeBSD iconv doesn't handle transliteration, so we use (external) GNU libiconv here.
     # FreeBSD supports xattr, but its API is different from Linux xattr.
     # FIXME: extattr(2) support: https://gitlab.gnome.org/GNOME/glib/issues/1404
-    - meson ${MESON_COMMON_OPTIONS} -Db_lundef=false -Diconv=external -Dxattr=false _build
+    # localstatedir is needed for access to /var/lib/dbus/machine-id
+    - meson ${MESON_COMMON_OPTIONS} --localstatedir=/var -Db_lundef=false -Diconv=external -Dxattr=false _build
     - ninja -C _build
     - bash -x ./.gitlab-ci/run-tests.sh
   artifacts:
@@ -383,7 +386,7 @@ freebsd-12-x86_64:
   before_script:
     - bash .gitlab-ci/show-execution-environment.sh
   script:
-    - meson ${MESON_COMMON_OPTIONS} -Db_lundef=false -Diconv=external -Dxattr=false _build
+    - meson ${MESON_COMMON_OPTIONS} --localstatedir=/var -Db_lundef=false -Diconv=external -Dxattr=false _build
     - ninja -C _build
     - bash -x ./.gitlab-ci/run-tests.sh
   except:
@@ -461,6 +464,7 @@ scan-build:
             --werror
             --default-library=both
             --prefix=$HOME/glib-installed
+            --localstatedir=/var
             --libdir=lib
             -Dsystemtap=true
             -Ddtrace=true
@@ -487,6 +491,7 @@ coverity:
             --werror
             --default-library=both
             --prefix=$HOME/glib-installed
+            --localstatedir=/var
             --libdir=lib
             -Dsystemtap=true
             -Ddtrace=true

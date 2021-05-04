@@ -24,6 +24,11 @@
 
 #include <glib/gmem.h>
 
+#if defined(glib_typeof_2_68) && GLIB_VERSION_MIN_REQUIRED >= GLIB_VERSION_2_68
+/* for glib_typeof */
+#include <type_traits>
+#endif
+
 G_BEGIN_DECLS
 
 GLIB_AVAILABLE_IN_2_58
@@ -71,7 +76,7 @@ gsize           g_atomic_rc_box_get_size        (gpointer        mem_block);
 #define g_atomic_rc_box_new0(type) \
   ((type *) g_atomic_rc_box_alloc0 (sizeof (type)))
 
-#ifdef glib_typeof
+#if defined(glib_typeof) && (!defined(glib_typeof_2_68) || GLIB_VERSION_MIN_REQUIRED >= GLIB_VERSION_2_68)
 /* Type check to avoid assigning references to different types */
 #define g_rc_box_acquire(mem_block) \
   ((glib_typeof (mem_block)) (g_rc_box_acquire) (mem_block))

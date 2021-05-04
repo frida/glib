@@ -120,6 +120,14 @@
 
 #include "glibintl.h"
 
+#define G_DBUS_CONNECTION_FLAGS_ALL \
+  (G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT | \
+   G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_SERVER | \
+   G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS | \
+   G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION | \
+   G_DBUS_CONNECTION_FLAGS_DELAY_MESSAGE_PROCESSING | \
+   G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER)
+
 /**
  * SECTION:gdbusconnection
  * @short_description: D-Bus Connections
@@ -158,22 +166,22 @@
  * ## An example D-Bus server # {#gdbus-server}
  *
  * Here is an example for a D-Bus server:
- * [gdbus-example-server.c](https://git.gnome.org/browse/glib/tree/gio/tests/gdbus-example-server.c)
+ * [gdbus-example-server.c](https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gdbus-example-server.c)
  *
  * ## An example for exporting a subtree # {#gdbus-subtree-server}
  *
  * Here is an example for exporting a subtree:
- * [gdbus-example-subtree.c](https://git.gnome.org/browse/glib/tree/gio/tests/gdbus-example-subtree.c)
+ * [gdbus-example-subtree.c](https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gdbus-example-subtree.c)
  *
  * ## An example for file descriptor passing # {#gdbus-unix-fd-client}
  *
  * Here is an example for passing UNIX file descriptors:
- * [gdbus-unix-fd-client.c](https://git.gnome.org/browse/glib/tree/gio/tests/gdbus-example-unix-fd-client.c)
+ * [gdbus-unix-fd-client.c](https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gdbus-example-unix-fd-client.c)
  *
  * ## An example for exporting a GObject # {#gdbus-export}
  *
  * Here is an example for exporting a #GObject:
- * [gdbus-example-export.c](https://git.gnome.org/browse/glib/tree/gio/tests/gdbus-example-export.c)
+ * [gdbus-example-export.c](https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gdbus-example-export.c)
  */
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1602,7 +1610,6 @@ g_dbus_connection_send_message_unlocked (GDBusConnection   *connection,
   guchar *blob;
   gsize blob_size;
   guint32 serial_to_use;
-  gboolean ret;
 
   CONNECTION_ENSURE_LOCK (connection);
 
@@ -1610,9 +1617,6 @@ g_dbus_connection_send_message_unlocked (GDBusConnection   *connection,
   g_return_val_if_fail (G_IS_DBUS_MESSAGE (message), FALSE);
 
   /* TODO: check all necessary headers are present */
-
-  ret = FALSE;
-  blob = NULL;
 
   if (out_serial != NULL)
     *out_serial = 0;
@@ -1625,14 +1629,14 @@ g_dbus_connection_send_message_unlocked (GDBusConnection   *connection,
   if (!check_unclosed (connection,
                        (flags & SEND_MESSAGE_FLAGS_INITIALIZING) ? MAY_BE_UNINITIALIZED : 0,
                        error))
-    goto out;
+    return FALSE;
 
   blob = g_dbus_message_to_blob (message,
                                  &blob_size,
                                  connection->capabilities,
                                  error);
   if (blob == NULL)
-    goto out;
+    return FALSE;
 
   if (flags & G_DBUS_SEND_MESSAGE_FLAGS_PRESERVE_SERIAL)
     serial_to_use = g_dbus_message_get_serial (message);
@@ -1678,18 +1682,13 @@ g_dbus_connection_send_message_unlocked (GDBusConnection   *connection,
     g_dbus_message_set_serial (message, serial_to_use);
 
   g_dbus_message_lock (message);
+
   _g_dbus_worker_send_message (connection->worker,
                                message,
-                               (gchar*) blob,
+                               (gchar*) blob, /* transfer ownership */
                                blob_size);
-  blob = NULL; /* since _g_dbus_worker_send_message() steals the blob */
 
-  ret = TRUE;
-
- out:
-  g_free (blob);
-
-  return ret;
+  return TRUE;
 }
 
 /**
@@ -2194,6 +2193,24 @@ typedef struct
   GMainContext               *context;
 } FilterData;
 
+static void
+filter_data_destroy (FilterData *filter, gboolean notify_sync)
+{
+  if (notify_sync)
+    {
+      if (filter->user_data_free_func != NULL)
+        filter->user_data_free_func (filter->user_data);
+    }
+  else
+    {
+      call_destroy_notify (filter->context,
+                           filter->user_data_free_func,
+                           filter->user_data);
+    }
+  g_main_context_unref (filter->context);
+  g_free (filter);
+}
+
 /* requires CONNECTION_LOCK */
 static FilterData **
 copy_filter_list (GPtrArray *filters)
@@ -2222,13 +2239,7 @@ free_filter_list (FilterData **filters)
     {
       filters[n]->ref_count--;
       if (filters[n]->ref_count == 0)
-        {
-          call_destroy_notify (filters[n]->context,
-                               filters[n]->user_data_free_func,
-                               filters[n]->user_data);
-          g_main_context_unref (filters[n]->context);
-          g_free (filters[n]);
-        }
+        filter_data_destroy (filters[n], FALSE);
     }
   g_free (filters);
 }
@@ -2511,7 +2522,8 @@ initable_init (GInitable     *initable,
       g_assert (connection->stream == NULL);
 
       if ((connection->flags & G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_SERVER) ||
-          (connection->flags & G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS))
+          (connection->flags & G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS) ||
+          (connection->flags & G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER))
         {
           g_set_error_literal (&connection->initialization_error,
                                G_IO_ERROR,
@@ -2546,6 +2558,7 @@ initable_init (GInitable     *initable,
                                     connection->authentication_observer,
                                     connection->guid,
                                     (connection->flags & G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS),
+                                    (connection->flags & G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER),
                                     get_offered_capabilities_max (connection),
                                     &connection->capabilities,
                                     &connection->credentials,
@@ -2711,6 +2724,7 @@ g_dbus_connection_new (GIOStream            *stream,
   _g_dbus_initialize ();
 
   g_return_if_fail (G_IS_IO_STREAM (stream));
+  g_return_if_fail ((flags & ~G_DBUS_CONNECTION_FLAGS_ALL) == 0);
 
   g_async_initable_new_async (G_TYPE_DBUS_CONNECTION,
                               G_PRIORITY_DEFAULT,
@@ -2799,6 +2813,7 @@ g_dbus_connection_new_sync (GIOStream             *stream,
 {
   _g_dbus_initialize ();
   g_return_val_if_fail (G_IS_IO_STREAM (stream), NULL);
+  g_return_val_if_fail ((flags & ~G_DBUS_CONNECTION_FLAGS_ALL) == 0, NULL);
   g_return_val_if_fail (error == NULL || *error == NULL, NULL);
   return g_initable_new (G_TYPE_DBUS_CONNECTION,
                          cancellable,
@@ -2829,8 +2844,9 @@ g_dbus_connection_new_sync (GIOStream             *stream,
  * This constructor can only be used to initiate client-side
  * connections - use g_dbus_connection_new() if you need to act as the
  * server. In particular, @flags cannot contain the
- * %G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_SERVER or
- * %G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS flags.
+ * %G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_SERVER,
+ * %G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS or
+ * %G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER flags.
  *
  * When the operation is finished, @callback will be invoked. You can
  * then call g_dbus_connection_new_for_address_finish() to get the result of
@@ -2856,6 +2872,7 @@ g_dbus_connection_new_for_address (const gchar          *address,
   _g_dbus_initialize ();
 
   g_return_if_fail (address != NULL);
+  g_return_if_fail ((flags & ~G_DBUS_CONNECTION_FLAGS_ALL) == 0);
 
   g_async_initable_new_async (G_TYPE_DBUS_CONNECTION,
                               G_PRIORITY_DEFAULT,
@@ -2919,8 +2936,9 @@ g_dbus_connection_new_for_address_finish (GAsyncResult  *res,
  * This constructor can only be used to initiate client-side
  * connections - use g_dbus_connection_new_sync() if you need to act
  * as the server. In particular, @flags cannot contain the
- * %G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_SERVER or
- * %G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS flags.
+ * %G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_SERVER,
+ * %G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS or
+ * %G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER flags.
  *
  * This is a synchronous failable constructor. See
  * g_dbus_connection_new_for_address() for the asynchronous version.
@@ -2943,6 +2961,7 @@ g_dbus_connection_new_for_address_sync (const gchar           *address,
   _g_dbus_initialize ();
 
   g_return_val_if_fail (address != NULL, NULL);
+  g_return_val_if_fail ((flags & ~G_DBUS_CONNECTION_FLAGS_ALL) == 0, NULL);
   g_return_val_if_fail (error == NULL || *error == NULL, NULL);
   return g_initable_new (G_TYPE_DBUS_CONNECTION,
                          cancellable,
@@ -3163,16 +3182,9 @@ static void
 purge_all_filters (GDBusConnection *connection)
 {
   guint n;
-  for (n = 0; n < connection->filters->len; n++)
-    {
-      FilterData *data = connection->filters->pdata[n];
 
-      call_destroy_notify (data->context,
-                           data->user_data_free_func,
-                           data->user_data);
-      g_main_context_unref (data->context);
-      g_free (data);
-    }
+  for (n = 0; n < connection->filters->len; n++)
+    filter_data_destroy (connection->filters->pdata[n], FALSE);
 }
 
 /**
@@ -3222,12 +3234,7 @@ g_dbus_connection_remove_filter (GDBusConnection *connection,
 
   /* do free without holding lock */
   if (to_destroy != NULL)
-    {
-      if (to_destroy->user_data_free_func != NULL)
-        to_destroy->user_data_free_func (to_destroy->user_data);
-      g_main_context_unref (to_destroy->context);
-      g_free (to_destroy);
-    }
+    filter_data_destroy (to_destroy, TRUE);
   else if (!found)
     {
       g_warning ("g_dbus_connection_remove_filter: No filter found for filter_id %d", filter_id);
@@ -4016,7 +4023,7 @@ _g_dbus_interface_vtable_copy (const GDBusInterfaceVTable *vtable)
   /* Don't waste memory by copying padding - remember to update this
    * when changing struct _GDBusInterfaceVTable in gdbusconnection.h
    */
-  return g_memdup ((gconstpointer) vtable, 3 * sizeof (gpointer));
+  return g_memdup2 ((gconstpointer) vtable, 3 * sizeof (gpointer));
 }
 
 static void
@@ -4033,7 +4040,7 @@ _g_dbus_subtree_vtable_copy (const GDBusSubtreeVTable *vtable)
   /* Don't waste memory by copying padding - remember to update this
    * when changing struct _GDBusSubtreeVTable in gdbusconnection.h
    */
-  return g_memdup ((gconstpointer) vtable, 3 * sizeof (gpointer));
+  return g_memdup2 ((gconstpointer) vtable, 3 * sizeof (gpointer));
 }
 
 static void
@@ -5530,7 +5537,8 @@ g_dbus_connection_register_object_with_closures (GDBusConnection     *connection
     {
       method_call_closure != NULL  ? register_with_closures_on_method_call  : NULL,
       get_property_closure != NULL ? register_with_closures_on_get_property : NULL,
-      set_property_closure != NULL ? register_with_closures_on_set_property : NULL
+      set_property_closure != NULL ? register_with_closures_on_set_property : NULL,
+      { 0 }
     };
 
   data = register_object_data_new (method_call_closure, get_property_closure, set_property_closure);

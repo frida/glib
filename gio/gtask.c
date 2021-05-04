@@ -23,8 +23,6 @@
 
 #include "gasyncresult.h"
 #include "gcancellable.h"
-#include "gconstructor.h"
-#include "gio-init.h"
 #include "glib-private.h"
 #include "gtrace-private.h"
 
@@ -614,20 +612,11 @@ G_DEFINE_TYPE_WITH_CODE (GTask, g_task, G_TYPE_OBJECT,
                                                 g_task_async_result_iface_init);
                          g_task_thread_pool_init ();)
 
-#ifdef G_HAS_CONSTRUCTORS
-#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(g_task_deinit)
-#endif
-G_DEFINE_DESTRUCTOR(g_task_deinit)
-#endif /* G_HAS_CONSTRUCTORS */
-
 static GThreadPool *task_pool;
 static GMutex task_pool_mutex;
-static GCond task_pool_cond;
 static GPrivate task_private = G_PRIVATE_INIT (NULL);
 static GSource *task_pool_manager;
 static guint64 task_wait_time;
-static gint tasks_queued;
 static gint tasks_running;
 
 static guint task_pool_max_counter;
@@ -653,34 +642,9 @@ static guint tasks_running_counter;
 #define G_TASK_WAIT_TIME_MAX_POOL_SIZE 330
 
 static void
-g_task_deinit (void)
-{
-  _g_task_shutdown ();
-}
-
-static void
 g_task_init (GTask *task)
 {
   task->check_cancellable = TRUE;
-}
-
-void
-_g_task_shutdown (void)
-{
-  GThreadPool *pool;
-
-  g_mutex_lock (&task_pool_mutex);
-
-  while (tasks_queued + tasks_running != 0)
-    g_cond_wait (&task_pool_cond, &task_pool_mutex);
-
-  pool = task_pool;
-  task_pool = NULL;
-
-  g_mutex_unlock (&task_pool_mutex);
-
-  if (pool != NULL)
-    g_thread_pool_free (pool, FALSE, TRUE);
 }
 
 static void
@@ -1400,8 +1364,7 @@ static gboolean
 task_pool_manager_timeout (gpointer user_data)
 {
   g_mutex_lock (&task_pool_mutex);
-  if (task_pool != NULL)
-    g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
+  g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
   g_trace_set_int64_counter (task_pool_max_counter, tasks_running + 1);
   g_source_set_ready_time (task_pool_manager, -1);
   g_mutex_unlock (&task_pool_mutex);
@@ -1414,7 +1377,6 @@ g_task_thread_setup (void)
 {
   g_private_set (&task_private, GUINT_TO_POINTER (TRUE));
   g_mutex_lock (&task_pool_mutex);
-  tasks_queued--;
   tasks_running++;
 
   g_trace_set_int64_counter (tasks_running_counter, tasks_running);
@@ -1452,9 +1414,6 @@ g_task_thread_cleanup (void)
   tasks_running--;
 
   g_trace_set_int64_counter (tasks_running_counter, tasks_running);
-
-  if (tasks_queued + tasks_running == 0)
-    g_cond_signal (&task_pool_cond);
 
   g_mutex_unlock (&task_pool_mutex);
   g_private_set (&task_private, GUINT_TO_POINTER (FALSE));
@@ -1515,10 +1474,6 @@ static void
 g_task_start_task_thread (GTask           *task,
                           GTaskThreadFunc  task_func)
 {
-  g_mutex_lock (&task_pool_mutex);
-  tasks_queued++;
-  g_mutex_unlock (&task_pool_mutex);
-
   g_mutex_init (&task->lock);
   g_cond_init (&task->cond);
 
@@ -1573,9 +1528,9 @@ g_task_start_task_thread (GTask           *task,
  *
  * Although GLib currently rate-limits the tasks queued via
  * g_task_run_in_thread(), you should not assume that it will always
- * do this. If you have a very large number of tasks to run, but don't
- * want them to all run at once, you should only queue a limited
- * number of them at a time.
+ * do this. If you have a very large number of tasks to run (several tens of
+ * tasks), but don't want them to all run at once, you should only queue a
+ * limited number of them (around ten) at a time.
  *
  * Since: 2.36
  */
@@ -2207,7 +2162,9 @@ GSourceFuncs trivial_source_funcs = {
   NULL, /* prepare */
   NULL, /* check */
   trivial_source_dispatch,
-  NULL
+  NULL, /* finalize */
+  NULL, /* closure */
+  NULL  /* marshal */
 };
 
 static void

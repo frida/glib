@@ -149,7 +149,7 @@ char *
 attribute_flags_to_string (GFileAttributeInfoFlags flags)
 {
   GString *s;
-  int i;
+  gsize i;
   gboolean first;
   struct {
     guint32 mask;
@@ -257,8 +257,6 @@ main (int argc, char **argv)
 #ifdef G_OS_WIN32
   gchar *localedir;
 #endif
-
-  glib_init ();
 
   setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
   textdomain (GETTEXT_PACKAGE);

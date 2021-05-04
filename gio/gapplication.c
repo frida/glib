@@ -155,13 +155,13 @@
  * respectively.
  *
  * For an example of opening files with a GApplication, see
- * [gapplication-example-open.c](https://git.gnome.org/browse/glib/tree/gio/tests/gapplication-example-open.c).
+ * [gapplication-example-open.c](https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gapplication-example-open.c).
  *
  * For an example of using actions with GApplication, see
- * [gapplication-example-actions.c](https://git.gnome.org/browse/glib/tree/gio/tests/gapplication-example-actions.c).
+ * [gapplication-example-actions.c](https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gapplication-example-actions.c).
  *
  * For an example of using extra D-Bus hooks with GApplication, see
- * [gapplication-example-dbushooks.c](https://git.gnome.org/browse/glib/tree/gio/tests/gapplication-example-dbushooks.c).
+ * [gapplication-example-dbushooks.c](https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gapplication-example-dbushooks.c).
  */
 
 /**
@@ -542,7 +542,7 @@ g_application_parse_command_line (GApplication   *application,
     {
       GOptionEntry entries[] = {
         { "gapplication-service", '\0', 0, G_OPTION_ARG_NONE, &become_service,
-          N_("Enter GApplication service mode (use from D-Bus service files)") },
+          N_("Enter GApplication service mode (use from D-Bus service files)"), NULL },
         { NULL }
       };
 
@@ -554,7 +554,7 @@ g_application_parse_command_line (GApplication   *application,
     {
       GOptionEntry entries[] = {
         { "gapplication-app-id", '\0', 0, G_OPTION_ARG_STRING, &app_id,
-          N_("Override the application’s ID") },
+          N_("Override the application’s ID"), NULL },
         { NULL }
       };
 
@@ -566,7 +566,7 @@ g_application_parse_command_line (GApplication   *application,
     {
       GOptionEntry entries[] = {
         { "gapplication-replace", '\0', 0, G_OPTION_ARG_NONE, &replace,
-          N_("Replace the running instance") },
+          N_("Replace the running instance"), NULL },
         { NULL }
       };
 
@@ -1091,6 +1091,7 @@ g_application_real_local_command_line (GApplication   *application,
   if (!options)
     {
       g_printerr ("%s\n", error->message);
+      g_error_free (error);
       *exit_status = 1;
       return TRUE;
     }
@@ -2394,7 +2395,7 @@ g_application_open (GApplication  *application,
  * and override local_command_line(). In this case, you most likely want
  * to return %TRUE from your local_command_line() implementation to
  * suppress the default handling. See
- * [gapplication-example-cmdline2.c][gapplication-example-cmdline2]
+ * [gapplication-example-cmdline2.c][https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gapplication-example-cmdline2.c]
  * for an example.
  *
  * If, after the above is done, the use count of the application is zero
@@ -2523,7 +2524,12 @@ g_application_run (GApplication  *application,
 
   context = g_main_context_default ();
   acquired_context = g_main_context_acquire (context);
-  g_return_val_if_fail (acquired_context, 0);
+  if (!acquired_context)
+    {
+      g_critical ("g_application_run() cannot acquire the default main context because it is already acquired by another thread!");
+      g_strfreev (arguments);
+      return 1;
+    }
 
   if (!G_APPLICATION_GET_CLASS (application)
         ->local_command_line (application, &arguments, &status))
@@ -2572,6 +2578,13 @@ g_application_run (GApplication  *application,
 
   if (application->priv->impl)
     {
+      if (application->priv->is_registered)
+        {
+          application->priv->is_registered = FALSE;
+
+          g_object_notify (G_OBJECT (application), "is-registered");
+        }
+
       g_application_impl_flush (application->priv->impl);
       g_application_impl_destroy (application->priv->impl);
       application->priv->impl = NULL;

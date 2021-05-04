@@ -145,7 +145,7 @@ modify_argv0_for_command (gint *argc, gchar **argv[], const gchar *command)
   remove_arg (1, argc, argv);
 
   program_name = g_path_get_basename ((*argv)[0]);
-  s = g_strdup_printf ("%s %s", (*argv)[0], command);
+  s = g_strdup_printf ("%s %s", program_name, command);
   (*argv)[0] = s;
   g_free (program_name);
 }
@@ -248,6 +248,11 @@ print_paths (GDBusConnection *c,
   if (!g_dbus_is_name (name))
     {
       g_printerr (_("Error: %s is not a valid name\n"), name);
+      goto out;
+    }
+  if (!g_variant_is_object_path (path))
+    {
+      g_printerr (_("Error: %s is not a valid object path\n"), path);
       goto out;
     }
 
@@ -676,8 +681,8 @@ handle_emit (gint        *argc,
       else
         {
           g_printerr (_("Error connecting: %s\n"), error->message);
-          g_error_free (error);
         }
+      g_error_free (error);
       goto out;
     }
 
@@ -911,7 +916,7 @@ handle_call (gint        *argc,
   GPtrArray *in_signature_types;
 #ifdef G_OS_UNIX
   GUnixFDList *fd_list;
-  guint fd_id;
+  gint fd_id;
 #endif
   gboolean complete_names;
   gboolean complete_paths;
@@ -990,8 +995,8 @@ handle_call (gint        *argc,
       else
         {
           g_printerr (_("Error connecting: %s\n"), error->message);
-          g_error_free (error);
         }
+      g_error_free (error);
       goto out;
     }
 
@@ -1820,8 +1825,8 @@ handle_introspect (gint        *argc,
       else
         {
           g_printerr (_("Error connecting: %s\n"), error->message);
-          g_error_free (error);
         }
+      g_error_free (error);
       goto out;
     }
 
@@ -2052,8 +2057,8 @@ handle_monitor (gint        *argc,
       else
         {
           g_printerr (_("Error connecting: %s\n"), error->message);
-          g_error_free (error);
         }
+      g_error_free (error);
       goto out;
     }
 
@@ -2272,8 +2277,8 @@ handle_wait (gint        *argc,
       else
         {
           g_printerr (_("Error connecting: %s\n"), error->message);
-          g_error_free (error);
         }
+      g_error_free (error);
       goto out;
     }
 
@@ -2436,8 +2441,6 @@ main (gint argc, gchar *argv[])
 #ifdef G_OS_WIN32
   gchar *tmp;
 #endif
-
-  glib_init ();
 
   setlocale (LC_ALL, "");
   textdomain (GETTEXT_PACKAGE);

@@ -51,7 +51,6 @@
 
 #include "gstrfuncs.h"
 
-#include "glib-init.h"
 #include "gprintf.h"
 #include "gprintfint.h"
 #include "glibintl.h"
@@ -318,8 +317,7 @@ static const guint16 ascii_table_data[256] = {
 
 const guint16 * const g_ascii_table = ascii_table_data;
 
-#if !defined (GLIB_STATIC_COMPILATION) && \
-    defined (HAVE_NEWLOCALE) && \
+#if defined (HAVE_NEWLOCALE) && \
     defined (HAVE_USELOCALE) && \
     defined (HAVE_STRTOD_L) && \
     defined (HAVE_STRTOULL_L) && \
@@ -328,12 +326,11 @@ const guint16 * const g_ascii_table = ascii_table_data;
 #endif
 
 #ifdef USE_XLOCALE
-static locale_t C_locale = NULL;
-
 static locale_t
 get_C_locale (void)
 {
   static gsize initialized = FALSE;
+  static locale_t C_locale = NULL;
 
   if (g_once_init_enter (&initialized))
     {
@@ -383,10 +380,45 @@ g_strdup (const gchar *str)
  *
  * Returns: a pointer to the newly-allocated copy of the memory, or %NULL if @mem
  *  is %NULL.
+ * Deprecated: 2.68: Use g_memdup2() instead, as it accepts a #gsize argument
+ *     for @byte_size, avoiding the possibility of overflow in a #gsize → #guint
+ *     conversion
  */
 gpointer
 g_memdup (gconstpointer mem,
           guint         byte_size)
+{
+  gpointer new_mem;
+
+  if (mem && byte_size != 0)
+    {
+      new_mem = g_malloc (byte_size);
+      memcpy (new_mem, mem, byte_size);
+    }
+  else
+    new_mem = NULL;
+
+  return new_mem;
+}
+
+/**
+ * g_memdup2:
+ * @mem: (nullable): the memory to copy.
+ * @byte_size: the number of bytes to copy.
+ *
+ * Allocates @byte_size bytes of memory, and copies @byte_size bytes into it
+ * from @mem. If @mem is %NULL it returns %NULL.
+ *
+ * This replaces g_memdup(), which was prone to integer overflows when
+ * converting the argument from a #gsize to a #guint.
+ *
+ * Returns: (nullable): a pointer to the newly-allocated copy of the memory,
+ *    or %NULL if @mem is %NULL.
+ * Since: 2.68
+ */
+gpointer
+g_memdup2 (gconstpointer mem,
+           gsize         byte_size)
 {
   gpointer new_mem;
 
@@ -3450,14 +3482,6 @@ g_ascii_string_to_unsigned (const gchar  *str,
   if (out_num != NULL)
     *out_num = number;
   return TRUE;
-}
-
-void
-_g_strfuncs_deinit (void)
-{
-#ifdef USE_XLOCALE
-  g_clear_pointer (&C_locale, freelocale);
-#endif
 }
 
 G_DEFINE_QUARK (g-number-parser-error-quark, g_number_parser_error)
