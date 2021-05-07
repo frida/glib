@@ -216,7 +216,6 @@ endif
 if get_option('default_library') == 'static'
     glibconfig_conf.set('GLIB_STATIC_COMPILATION', '1')
     glibconfig_conf.set('GOBJECT_STATIC_COMPILATION', '1')
-    glibconfig_conf.set('GIO_STATIC_COMPILATION', '1')
 endif
 
 # Cygwin glib port maintainers made it clear
@@ -285,7 +284,6 @@ headers = [
   'limits.h',
   'linux/magic.h',
   'locale.h',
-  'mach/mach.h',
   'mach/mach_time.h',
   'memory.h',
   'mntent.h',
@@ -488,8 +486,8 @@ if host_system == 'windows'
     uwp_gio_deps = [cc.find_library('shcore'),
                     cc.find_library('runtimeobject')]
   else
-    # We require Windows XP+ on Win32
-    glib_conf.set('_WIN32_WINNT', '0x0501')
+    # We require Windows 7+ on Win32
+    glib_conf.set('_WIN32_WINNT', '0x0601')
     uwp_gio_deps = []
   endif
 endif
@@ -753,6 +751,44 @@ osx_ldflags = []
 glib_have_os_x_9_or_later = false
 glib_have_carbon = false
 glib_have_cocoa = false
+if host_system == 'darwin'
+  add_languages('objc')
+  objcc = meson.get_compiler('objc')
+
+  osx_ldflags += ['-Wl,-framework,CoreFoundation']
+
+  # Mac OS X Carbon support
+  glib_have_carbon = objcc.compiles('''#include <Carbon/Carbon.h>
+                                       #include <CoreServices/CoreServices.h>''',
+                                    name : 'Mac OS X Carbon support')
+
+  if glib_have_carbon
+    glib_conf.set('HAVE_CARBON', true)
+    osx_ldflags += '-Wl,-framework,Carbon'
+    glib_have_os_x_9_or_later = objcc.compiles('''#include <AvailabilityMacros.h>
+                                                  #if MAC_OS_X_VERSION_MIN_REQUIRED < 1090
+                                                  #error Compiling for minimum OS X version before 10.9
+                                                  #endif''',
+                                               name : 'OS X 9 or later')
+  endif
+
+  # Mac OS X Cocoa support
+  glib_have_cocoa = objcc.compiles('''#include <Cocoa/Cocoa.h>
+                                      #ifdef GNUSTEP_BASE_VERSION
+                                      #error "Detected GNUstep, not Cocoa"
+                                      #endif''',
+                                   name : 'Mac OS X Cocoa support')
+
+  if glib_have_cocoa
+    glib_conf.set('HAVE_COCOA', true)
+    osx_ldflags += ['-Wl,-framework,Foundation', '-Wl,-framework,AppKit']
+  endif
+
+  # FIXME: libgio mix C and objC source files and there is no way to reliably
+  # know which language flags it's going to use to link. Add to both languages
+  # for now. See https://github.com/mesonbuild/meson/issues/3585.
+  add_project_link_arguments(osx_ldflags, language : ['objc', 'c'])
+endif
 
 if host_system == 'qnx'
   glib_conf.set('HAVE_QNX', 1)
@@ -903,11 +939,7 @@ have_good_vsnprintf = false
 have_good_snprintf = false
 have_good_printf = false
 
-if get_option('default_library') == 'static'
-  glib_conf.set('HAVE_C99_SNPRINTF', false)
-  glib_conf.set('HAVE_C99_VSNPRINTF', false)
-  glib_conf.set('HAVE_UNIX98_PRINTF', false)
-elif host_system == 'windows' and (cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl')
+if host_system == 'windows' and (cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl')
   # Unfortunately the Visual Studio 2015+ implementations of C99-style
   # snprintf and vsnprintf don't seem to be quite good enough.
   # (Sorry, I don't know exactly what is the problem,
@@ -2015,51 +2047,44 @@ if not libz_dep.found()
   endif
 endif
 
-if get_option('default_library') == 'static'
-  subdir('proxy-libintl')
-  libintl = intl_dep
-  libintl_deps = [intl_dep]
-  have_bind_textdomain_codeset = true
+# First check in libc, fallback to libintl, and as last chance build
+# proxy-libintl subproject.
+# FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
+# implementations. This could be extended if issues are found in some platforms.
+libintl_deps = []
+if cc.has_function('ngettext')
+  have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset')
 else
-  # First check in libc, fallback to libintl, and as last chance build
-  # proxy-libintl subproject.
-  # FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
-  # implementations. This could be extended if issues are found in some platforms.
-  libintl_deps = []
-  if cc.has_function('ngettext')
-    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset')
+  # First just find the bare library.
+  libintl = cc.find_library('intl', required : false)
+  # The bare library probably won't link without help if it's static.
+  if libintl.found() and not cc.has_function('ngettext', dependencies : libintl)
+     libintl_iconv = cc.find_library('iconv', required : false)
+     # libintl supports different threading APIs, which may not
+     # require additional flags, but it defaults to using pthreads if
+     # found. Meson's "threads" dependency does not allow you to
+     # prefer pthreads. We may not be using pthreads for glib itself
+     # either so just link the library to satisfy libintl rather than
+     # also defining the macros with the -pthread flag.
+     libintl_pthread = cc.find_library('pthread', required : false)
+     # Try linking with just libiconv.
+     if libintl_iconv.found() and cc.has_function('ngettext', dependencies : [libintl, libintl_iconv])
+       libintl_deps += [libintl_iconv]
+     # Then also try linking with pthreads.
+     elif libintl_iconv.found() and libintl_pthread.found() and cc.has_function('ngettext', dependencies : [libintl, libintl_iconv, libintl_pthread])
+       libintl_deps += [libintl_iconv, libintl_pthread]
+     else
+       libintl = disabler()
+     endif
+  endif
+  if not libintl.found()
+    libintl = subproject('proxy-libintl').get_variable('intl_dep')
+    libintl_deps = [libintl] + libintl_deps
+    have_bind_textdomain_codeset = true  # proxy-libintl supports it
   else
-    # First just find the bare library.
-    libintl = cc.find_library('intl', required : false)
-    # The bare library probably won't link without help if it's static.
-    if libintl.found() and not cc.has_function('ngettext', dependencies : libintl)
-       libintl_iconv = cc.find_library('iconv', required : false)
-       # libintl supports different threading APIs, which may not
-       # require additional flags, but it defaults to using pthreads if
-       # found. Meson's "threads" dependency does not allow you to
-       # prefer pthreads. We may not be using pthreads for glib itself
-       # either so just link the library to satisfy libintl rather than
-       # also defining the macros with the -pthread flag.
-       libintl_pthread = cc.find_library('pthread', required : false)
-       # Try linking with just libiconv.
-       if libintl_iconv.found() and cc.has_function('ngettext', dependencies : [libintl, libintl_iconv])
-         libintl_deps += [libintl_iconv]
-       # Then also try linking with pthreads.
-       elif libintl_iconv.found() and libintl_pthread.found() and cc.has_function('ngettext', dependencies : [libintl, libintl_iconv, libintl_pthread])
-         libintl_deps += [libintl_iconv, libintl_pthread]
-       else
-         libintl = disabler()
-       endif
-    endif
-    if not libintl.found()
-      libintl = subproject('proxy-libintl').get_variable('intl_dep')
-      libintl_deps = [libintl] + libintl_deps
-      have_bind_textdomain_codeset = true  # proxy-libintl supports it
-    else
-      libintl_deps = [libintl] + libintl_deps
-      have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset',
-                                                     dependencies : libintl_deps)
-    endif
+    libintl_deps = [libintl] + libintl_deps
+    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset',
+                                                   dependencies : libintl_deps)
   endif
 endif
 
@@ -2273,7 +2298,7 @@ enable_dtrace = false
 # Since dtrace support is opt-in we just error out if it was requested but
 # is not available. We don't bother with autodetection yet.
 if want_dtrace
-  if host_system == 'darwin'
+  if glib_have_carbon
     error('GLib dtrace support not yet compatible with macOS dtrace')
   endif
   dtrace = find_program('dtrace', required : true) # error out if not found

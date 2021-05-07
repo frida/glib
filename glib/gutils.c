@@ -1597,6 +1597,8 @@ set_str_if_different (gchar       **global_str,
   if (*global_str == NULL ||
       !g_str_equal (new_value, *global_str))
     {
+      g_debug ("g_set_user_dirs: Setting %s to %s", type, new_value);
+
       /* We have to leak the old value, as user code could be retaining pointers
        * to it. */
       g_ignore_leak (*global_str);
@@ -1613,6 +1615,7 @@ set_strv_if_different (gchar                ***global_strv,
       !g_strv_equal (new_value, (const gchar * const *) *global_strv))
     {
       gchar *new_value_str = g_strjoinv (":", (gchar **) new_value);
+      g_debug ("g_set_user_dirs: Setting %s to %s", type, new_value_str);
       g_free (new_value_str);
 
       /* We have to leak the old value, as user code could be retaining pointers
@@ -3044,25 +3047,8 @@ g_check_setuid (void)
   errno = 0;
   value = getauxval (AT_SECURE);
   errsv = errno;
-
-  /*
-   * When running 32-bit user applications on a 64-bit kernel, reading of the
-   * auxilliary vector can be unreliable, likely as a result of the vector not
-   * being architecture agnostic.
-   *
-   * Whilst qemu-user appears to correct these structures depending on the
-   * target architecture, the glibc based loader for armhf (ld-2.27.so) used by
-   * the default toolchain included in the package respositories on Ubuntu
-   * 18.04 does not appear to do so (presumably as the same binary is used on
-   * both 32-bit and 64-bit kernels).
-   *
-   * Since an error results in everything stopping, we instead return TRUE
-   * (indicating that the application was setuid). Hence we assume the worst
-   * case scenario.
-   */
   if (errsv)
-    return TRUE;
-
+    g_error ("getauxval () failed: %s", g_strerror (errsv));
   return value;
 #elif defined(HAVE_ISSETUGID) && !defined(__BIONIC__)
   /* BSD: http://www.freebsd.org/cgi/man.cgi?query=issetugid&sektion=2 */

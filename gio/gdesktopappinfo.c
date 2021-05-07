@@ -1555,6 +1555,9 @@ desktop_file_dirs_lock (void)
   if (desktop_file_dirs_config_dir != NULL &&
       g_strcmp0 (desktop_file_dirs_config_dir, user_config_dir) != 0)
     {
+      g_debug ("%s: Resetting desktop app info dirs from %s to %s",
+               G_STRFUNC, desktop_file_dirs_config_dir, user_config_dir);
+
       g_ptr_array_set_size (desktop_file_dirs, 0);
       g_clear_pointer (&desktop_file_dir_user_config, desktop_file_dir_unref);
       g_clear_pointer (&desktop_file_dir_user_data, desktop_file_dir_unref);
@@ -2612,6 +2615,7 @@ prepend_terminal_to_vector (int    *argc,
           if (check == NULL)
             {
               check = g_strdup ("xterm");
+              g_debug ("Couldn’t find a terminal: falling back to xterm");
             }
           term_argv[0] = check;
           term_argv[1] = g_strdup ("-e");
@@ -3434,6 +3438,8 @@ ensure_dir (DirType   type,
     default:
       g_assert_not_reached ();
     }
+
+  g_debug ("%s: Ensuring %s", G_STRFUNC, path);
 
   errno = 0;
   if (g_mkdir_with_parents (path, 0700) == 0)

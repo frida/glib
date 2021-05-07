@@ -683,6 +683,8 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
         g_warning ("Failed to read %s: %s", path, error->message);
       g_clear_error (&error);
     }
+  else
+    g_debug ("Loading default settings from %s", path);
 
   g_free (path);
 
@@ -702,6 +704,8 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
       char **lines;
       gsize i;
 
+      g_debug ("Loading locks from %s", path);
+
       lines = g_strsplit (contents, "\n", 0);
       for (i = 0; lines[i]; i++)
         {
@@ -712,6 +716,7 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
               continue;
             }
 
+          g_debug ("Locking key %s", line);
           g_hash_table_add (kfsb->system_locks, g_steal_pointer (&line));
         }
 
