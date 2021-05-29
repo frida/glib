@@ -26,7 +26,6 @@
  * (and at all other use sites).
  */
 #ifdef GLIB_COMPILATION
-#include "gplatformaudit.h"
 #include "gtypes.h"
 #include "gpoll.h"
 #else
@@ -115,25 +114,6 @@ g_wakeup_free (GWakeup *wakeup)
 
 #if defined (HAVE_EVENTFD)
 #include <sys/eventfd.h>
-#elif defined (__linux__)
-# include <sys/syscall.h>
-# ifndef __NR_eventfd
-#  if defined (__i386__)
-#   define __NR_eventfd 323
-#  elif defined (__x86_64__)
-#   define __NR_eventfd 284
-#  else
-#   error Please implement for your architecture
-#  endif
-# endif
-# ifndef EFD_CLOEXEC
-#  define EFD_CLOEXEC 0x80000
-# endif
-# ifndef EFD_NONBLOCK
-#  define EFD_NONBLOCK 0x800
-# endif
-# define eventfd g_try_eventfd
-static int g_try_eventfd (unsigned int count, int flags);
 #endif
 
 struct _GWakeup
@@ -161,7 +141,7 @@ g_wakeup_new (void)
   wakeup = g_slice_new (GWakeup);
 
   /* try eventfd first, if we think we can */
-#if defined (__linux__)
+#if defined (HAVE_EVENTFD)
 #ifndef TEST_EVENTFD_FALLBACK
   wakeup->fds[0] = eventfd (0, EFD_CLOEXEC | EFD_NONBLOCK);
 #else
@@ -170,7 +150,6 @@ g_wakeup_new (void)
 
   if (wakeup->fds[0] != -1)
     {
-      glib_fd_callbacks->on_fd_opened (wakeup->fds[0], "GWakeup");
       wakeup->fds[1] = -1;
       return wakeup;
     }
@@ -180,9 +159,6 @@ g_wakeup_new (void)
 
   if (!g_unix_open_pipe (wakeup->fds, FD_CLOEXEC, &error))
     g_error ("Creating pipes for GWakeup: %s", error->message);
-
-  glib_fd_callbacks->on_fd_opened (wakeup->fds[0], "GWakeup");
-  glib_fd_callbacks->on_fd_opened (wakeup->fds[1], "GWakeup");
 
   if (!g_unix_set_fd_nonblocking (wakeup->fds[0], TRUE, &error) ||
       !g_unix_set_fd_nonblocking (wakeup->fds[1], TRUE, &error))
@@ -288,26 +264,11 @@ void
 g_wakeup_free (GWakeup *wakeup)
 {
   close (wakeup->fds[0]);
-  glib_fd_callbacks->on_fd_closed (wakeup->fds[0], "GWakeup");
 
   if (wakeup->fds[1] != -1)
-    {
-      close (wakeup->fds[1]);
-      glib_fd_callbacks->on_fd_closed (wakeup->fds[1], "GWakeup");
-    }
+    close (wakeup->fds[1]);
 
   g_slice_free (GWakeup, wakeup);
 }
-
-#if defined (__linux__) && !defined (HAVE_EVENTFD)
-
-static int
-g_try_eventfd (unsigned int count,
-               int flags)
-{
-  return syscall (__NR_eventfd, count, flags);
-}
-
-#endif
 
 #endif /* !_WIN32 */
