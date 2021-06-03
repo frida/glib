@@ -101,7 +101,6 @@
 #include "gwakeup.h"
 #include "gmain-internal.h"
 #include "glib-init.h"
-#include "glib-fork.h"
 #include "glib-private.h"
 
 /**
@@ -443,15 +442,7 @@ static gboolean g_idle_dispatch    (GSource     *source,
 
 static void block_source (GSource *source);
 
-static void glib_worker_start (void);
-static gboolean glib_worker_try_stop (void);
-static void glib_worker_deinit (void);
-
-static GMainContext *default_main_context;
-
-static GThread *glib_worker_thread;
 static GMainContext *glib_worker_context;
-static gboolean glib_worker_running = FALSE;
 
 #ifndef G_OS_WIN32
 
@@ -522,56 +513,6 @@ GSourceFuncs g_idle_funcs =
   g_idle_dispatch,
   NULL, NULL, NULL
 };
-
-void
-_g_main_shutdown (void)
-{
-  glib_worker_try_stop ();
-}
-
-void
-_g_main_deinit (void)
-{
-  glib_worker_deinit ();
-
-  g_clear_pointer (&default_main_context, g_main_context_unref);
-}
-
-static gboolean glib_worker_was_running;
-
-void
-_g_main_prepare_to_fork (void)
-{
-  glib_worker_was_running = glib_worker_try_stop ();
-}
-
-void
-_g_main_recover_from_fork_in_parent (void)
-{
-  if (glib_worker_was_running)
-    glib_worker_start ();
-}
-
-void
-_g_main_recover_from_fork_in_child (void)
-{
-  GSList *l;
-
-  for (l = main_context_list; l; l = l->next)
-    {
-      GMainContext *context = l->data;
-
-      g_wakeup_free (context->wakeup);
-      context->wakeup = g_wakeup_new ();
-
-      g_main_context_remove_poll_unlocked (context, &context->wake_up_rec);
-      g_wakeup_get_pollfd (context->wakeup, &context->wake_up_rec);
-      g_main_context_add_poll_unlocked (context, 0, &context->wake_up_rec);
-    }
-
-  if (glib_worker_was_running)
-    glib_worker_start ();
-}
 
 /**
  * g_main_context_ref:
@@ -785,6 +726,8 @@ g_main_context_new (void)
 GMainContext *
 g_main_context_default (void)
 {
+  static GMainContext *default_main_context = NULL;
+
   if (g_once_init_enter (&default_main_context))
     {
       GMainContext *context;
@@ -2936,7 +2879,7 @@ g_get_real_time (void)
 static gdouble g_monotonic_usec_per_tick = 0;
 
 void
-_g_clock_win32_init (void)
+g_clock_win32_init (void)
 {
   LARGE_INTEGER freq;
 
@@ -6148,7 +6091,7 @@ g_main_context_invoke_full (GMainContext   *context,
 static gpointer
 glib_worker_main (gpointer data)
 {
-  while (glib_worker_running)
+  while (TRUE)
     {
       g_main_context_iteration (glib_worker_context, TRUE);
 
@@ -6161,69 +6104,6 @@ glib_worker_main (gpointer data)
   return NULL; /* worst GCC warning message ever... */
 }
 
-static gboolean
-glib_worker_do_stop (gpointer data)
-{
-  glib_worker_running = FALSE;
-
-  return FALSE;
-}
-
-static void
-glib_worker_start (void)
-{
-  /* mask all signals in the worker thread */
-#ifdef G_OS_UNIX
-  sigset_t prev_mask;
-  sigset_t all;
-
-  sigfillset (&all);
-  pthread_sigmask (SIG_SETMASK, &all, &prev_mask);
-#endif
-
-  if (glib_worker_context == NULL)
-    glib_worker_context = g_main_context_new ();
-
-  glib_worker_running = TRUE;
-
-  glib_worker_thread = g_thread_new ("gmain", glib_worker_main, NULL);
-
-#ifdef G_OS_UNIX
-  pthread_sigmask (SIG_SETMASK, &prev_mask, NULL);
-#endif
-}
-
-static gboolean
-glib_worker_try_stop (void)
-{
-  GSource *source;
-
-  if (glib_worker_thread == NULL)
-    return FALSE;
-
-  source = g_idle_source_new ();
-  g_source_set_callback (source, glib_worker_do_stop, NULL, NULL);
-  g_source_attach (source, glib_worker_context);
-  g_source_unref (source);
-
-  g_thread_join (glib_worker_thread);
-  glib_worker_thread = NULL;
-
-  return TRUE;
-}
-
-static void
-glib_worker_deinit (void)
-{
-  if (glib_worker_context != NULL)
-    {
-      g_assert (glib_worker_thread == NULL);
-
-      g_main_context_unref (glib_worker_context);
-      glib_worker_context = NULL;
-    }
-}
-
 GMainContext *
 g_get_worker_context (void)
 {
@@ -6231,8 +6111,19 @@ g_get_worker_context (void)
 
   if (g_once_init_enter (&initialised))
     {
-      glib_worker_start ();
+      /* mask all signals in the worker thread */
+#ifdef G_OS_UNIX
+      sigset_t prev_mask;
+      sigset_t all;
 
+      sigfillset (&all);
+      pthread_sigmask (SIG_SETMASK, &all, &prev_mask);
+#endif
+      glib_worker_context = g_main_context_new ();
+      g_thread_new ("gmain", glib_worker_main, NULL);
+#ifdef G_OS_UNIX
+      pthread_sigmask (SIG_SETMASK, &prev_mask, NULL);
+#endif
       g_once_init_leave (&initialised, TRUE);
     }
 

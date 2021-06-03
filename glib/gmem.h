@@ -50,6 +50,8 @@ G_BEGIN_DECLS
  * A set of functions used to perform memory allocation. The same #GMemVTable must
  * be used for all allocations in the same program; a call to g_mem_set_vtable(),
  * if it exists, should be prior to any use of GLib.
+ *
+ * This functions related to this has been deprecated in 2.46, and no longer work.
  */
 typedef struct _GMemVTable GMemVTable;
 
@@ -372,9 +374,6 @@ struct _GMemVTable {
   gpointer (*malloc)      (gsize    n_bytes);
   gpointer (*realloc)     (gpointer mem,
 			   gsize    n_bytes);
-  /* optional; set to NULL if not supported */
-  gpointer (*memalign)    (gsize    alignment,
-			   gsize    size);
   void     (*free)        (gpointer mem);
   /* optional; set to NULL if not used ! */
   gpointer (*calloc)      (gsize    n_blocks,
@@ -383,10 +382,9 @@ struct _GMemVTable {
   gpointer (*try_realloc) (gpointer mem,
 			   gsize    n_bytes);
 };
-GLIB_VAR GMemVTable	*glib_mem_table;
-GLIB_AVAILABLE_IN_ALL
+GLIB_DEPRECATED_IN_2_46
 void	 g_mem_set_vtable (GMemVTable	*vtable);
-GLIB_AVAILABLE_IN_ALL
+GLIB_DEPRECATED_IN_2_46
 gboolean g_mem_is_system_malloc (void);
 
 GLIB_VAR gboolean g_mem_gc_friendly;
