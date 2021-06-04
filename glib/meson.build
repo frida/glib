@@ -2,12 +2,6 @@ configure_file(input : 'glibconfig.h.in', output : 'glibconfig.h',
   install_dir : join_paths(get_option('libdir'), 'glib-2.0/include'),
   configuration : glibconfig_conf)
 
-if get_option('default_library') == 'static'
-  intl_objects = [intl_lib.extract_all_objects()]
-else
-  intl_objects = []
-endif
-
 subdir('libcharset')
 if not use_system_pcre
   subdir('pcre')
@@ -34,7 +28,13 @@ glib_conf.set('HAVE_SYSPROF', libsysprof_capture_dep.found())
 # <https://github.com/mesonbuild/meson/issues/3937>. When we can depend
 # on a meson version where those are fixed, revert the commit that
 # introduced this workaround.
-if true
+if use_system_printf
+  gnulib_lib = []
+  gnulib_objects = []
+  gnulib_libm_dependency = []
+  glib_conf.set ('gl_unused', '')
+  glib_conf.set ('gl_extern_inline', '')
+else
   subdir ('gnulib/gl_extern_inline')
   subdir ('gnulib/gl_cv_long_double_equals_double')
   subdir ('gnulib/gl_cv_cc_double_expbit0')
@@ -180,7 +180,6 @@ glib_sub_headers = files(
   'gnode.h',
   'goption.h',
   'gpattern.h',
-  'gplatformaudit.h',
   'gpoll.h',
   'gprimes.h',
   'gqsort.h',
@@ -259,7 +258,6 @@ glib_sources = files(
   'giochannel.c',
   'gkeyfile.c',
   'glib-init.c',
-  'glib-fork.c',
   'glib-private.c',
   'glist.c',
   'gmain.c',
@@ -270,7 +268,6 @@ glib_sources = files(
   'gnode.c',
   'goption.c',
   'gpattern.c',
-  'gplatformaudit.c',
   'gpoll.c',
   'gprimes.c',
   'gqsort.c',
@@ -296,7 +293,6 @@ glib_sources = files(
   'gthreadpool.c',
   'gtimer.c',
   'gtimezone.c',
-  'gtinylist.c',
   'gtrace.c',
   'gtrace-private.h',
   'gtranslit.c',
@@ -324,15 +320,13 @@ glib_sources = files(
 )
 
 if host_system == 'windows'
-  if get_option('default_library') != 'static'
-    glib_win_rc = configure_file(
-      input: 'glib.rc.in',
-      output: 'glib.rc',
-      configuration: glibconfig_conf,
-    )
-    glib_win_res = windows.compile_resources(glib_win_rc)
-    glib_sources += [glib_win_res]
-  endif
+  glib_win_rc = configure_file(
+    input: 'glib.rc.in',
+    output: 'glib.rc',
+    configuration: glibconfig_conf,
+  )
+  glib_win_res = windows.compile_resources(glib_win_rc)
+  glib_sources += [glib_win_res]
   glib_sources += files('gwin32.c', 'gspawn-win32.c', 'giowin32.c')
   platform_deps = [winsock2, cc.find_library('winmm')]
   if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
@@ -375,7 +369,7 @@ glib_c_args = ['-DG_LOG_DOMAIN="GLib"', '-DGLIB_COMPILATION'] + pcre_static_args
 libglib = library('glib-2.0',
   glib_dtrace_obj, glib_dtrace_hdr,
   sources : [deprecated_sources, glib_sources],
-  objects : intl_objects + [charset_lib.extract_all_objects()] + gnulib_objects + pcre_objects,
+  objects : [charset_lib.extract_all_objects()] + gnulib_objects + pcre_objects,
   version : library_version,
   soversion : soversion,
   darwin_versions : darwin_versions,

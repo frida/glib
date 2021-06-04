@@ -28,8 +28,6 @@
 
 #include "gwin32file-sync-stream.h"
 
-#if _WIN32_WINNT >= 0x0600
-
 static HRESULT STDMETHODCALLTYPE _file_sync_stream_query_interface (IStream         *self_ptr,
                                                                     REFIID           ref_interface_guid,
                                                                     LPVOID          *output_object_ptr);
@@ -508,5 +506,3 @@ g_win32_file_sync_stream_new (HANDLE    file_handle,
 
   return result;
 }
-
-#endif
