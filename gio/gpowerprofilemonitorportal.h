@@ -1,6 +1,6 @@
 /* GIO - GLib Input, Output and Streaming Library
  *
- * Copyright (C) 2015 Chun-wei Fan
+ * Copyright 2021 Red Hat, Inc.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,27 +16,16 @@
  * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __G_WIN32_NETWORKING_H__
-#define __G_WIN32_NETWORKING_H__
+#ifndef __G_POWER_PROFILE_MONITOR_PORTAL_H__
+#define __G_POWER_PROFILE_MONITOR_PORTAL_H__
+
+#include <glib-object.h>
 
 G_BEGIN_DECLS
 
-/* Check if more ANSI-compliant Winsock2 functions are provided */
-/* For run-time compatibility with Windows XP, remove when XP support dropped */
+#define G_TYPE_POWER_PROFILE_MONITOR_PORTAL         (g_power_profile_monitor_portal_get_type ())
+G_DECLARE_FINAL_TYPE (GPowerProfileMonitorPortal, g_power_profile_monitor_portal, G, POWER_PROFILE_MONITOR_PORTAL, GObject)
 
-typedef INT (WSAAPI *PFN_InetPton) (INT, PWSTR, PVOID);
-typedef PCTSTR (WSAAPI *PFN_InetNtop) (INT, PVOID, PWSTR, size_t);
-typedef NET_IFINDEX (WINAPI *PFN_IfNameToIndex) (PCSTR);
+G_END_DECLS
 
-typedef struct _GWin32WinsockFuncs
-{
-  PFN_InetPton pInetPton;
-  PFN_InetNtop pInetNtop;
-  PFN_IfNameToIndex pIfNameToIndex;
-} GWin32WinsockFuncs;
-
-extern GWin32WinsockFuncs ws2funcs;
-
-G_END_DECLS /* __G_WIN32_NETWORKING_H__ */
-
-#endif
+#endif /* __G_POWER_PROFILE_MONITOR_PORTAL_H__ */

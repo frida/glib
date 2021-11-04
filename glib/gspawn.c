@@ -141,7 +141,7 @@ extern char **environ;
  *                 gpointer user_data)
  * {
  *   g_message ("Child %" G_PID_FORMAT " exited %s", pid,
- *              g_spawn_check_exit_status (status, NULL) ? "normally" : "abnormally");
+ *              g_spawn_check_wait_status (status, NULL) ? "normally" : "abnormally");
  *
  *   // Free any resources associated with the child here, such as I/O channels
  *   // on its stdout and stderr FDs. If you have no code to put in the
@@ -209,6 +209,8 @@ G_DEFINE_QUARK (g-spawn-exit-error-quark, g_spawn_exit_error)
  * @user_data: (closure): user data for @child_setup
  * @child_pid: (out) (optional): return location for child process reference, or %NULL
  * @error: return location for error
+ *
+ * Executes a child program asynchronously.
  * 
  * See g_spawn_async_with_pipes() for a full description; this function
  * simply calls the g_spawn_async_with_pipes() without any pipes.
@@ -216,7 +218,7 @@ G_DEFINE_QUARK (g-spawn-exit-error-quark, g_spawn_exit_error)
  * You should call g_spawn_close_pid() on the returned child process
  * reference when you don't need it any more.
  * 
- * If you are writing a GTK+ application, and the program you are spawning is a
+ * If you are writing a GTK application, and the program you are spawning is a
  * graphical application too, then to ensure that the spawned program opens its
  * windows on the right screen, you may want to use #GdkAppLaunchContext,
  * #GAppLaunchContext, or set the %DISPLAY environment variable.
@@ -325,24 +327,28 @@ read_data (GString *str,
  * @user_data: (closure): user data for @child_setup
  * @standard_output: (out) (array zero-terminated=1) (element-type guint8) (optional): return location for child output, or %NULL
  * @standard_error: (out) (array zero-terminated=1) (element-type guint8) (optional): return location for child error messages, or %NULL
- * @exit_status: (out) (optional): return location for child exit status, as returned by waitpid(), or %NULL
+ * @wait_status: (out) (optional): return location for child wait status, as returned by waitpid(), or %NULL
  * @error: return location for error, or %NULL
  *
  * Executes a child synchronously (waits for the child to exit before returning).
+ *
  * All output from the child is stored in @standard_output and @standard_error,
  * if those parameters are non-%NULL. Note that you must set the  
  * %G_SPAWN_STDOUT_TO_DEV_NULL and %G_SPAWN_STDERR_TO_DEV_NULL flags when
  * passing %NULL for @standard_output and @standard_error.
  *
- * If @exit_status is non-%NULL, the platform-specific exit status of
+ * If @wait_status is non-%NULL, the platform-specific status of
  * the child is stored there; see the documentation of
- * g_spawn_check_exit_status() for how to use and interpret this.
+ * g_spawn_check_wait_status() for how to use and interpret this.
+ * On Unix platforms, note that it is usually not equal
+ * to the integer passed to `exit()` or returned from `main()`.
+ *
  * Note that it is invalid to pass %G_SPAWN_DO_NOT_REAP_CHILD in
  * @flags, and on POSIX platforms, the same restrictions as for
  * g_child_watch_source_new() apply.
  *
  * If an error occurs, no data is returned in @standard_output,
- * @standard_error, or @exit_status.
+ * @standard_error, or @wait_status.
  *
  * This function calls g_spawn_async_with_pipes() internally; see that
  * function for full details on the other parameters and details on
@@ -359,7 +365,7 @@ g_spawn_sync (const gchar          *working_directory,
               gpointer              user_data,
               gchar               **standard_output,
               gchar               **standard_error,
-              gint                 *exit_status,
+              gint                 *wait_status,
               GError              **error)     
 {
   gint outpipe = -1;
@@ -517,13 +523,13 @@ g_spawn_sync (const gchar          *working_directory,
         goto again;
       else if (errno == ECHILD)
         {
-          if (exit_status)
+          if (wait_status)
             {
-              g_warning ("In call to g_spawn_sync(), exit status of a child process was requested but ECHILD was received by waitpid(). See the documentation of g_child_watch_source_new() for possible causes.");
+              g_warning ("In call to g_spawn_sync(), wait status of a child process was requested but ECHILD was received by waitpid(). See the documentation of g_child_watch_source_new() for possible causes.");
             }
           else
             {
-              /* We don't need the exit status. */
+              /* We don't need the wait status. */
             }
         }
       else
@@ -554,8 +560,8 @@ g_spawn_sync (const gchar          *working_directory,
     }
   else
     {
-      if (exit_status)
-        *exit_status = status;
+      if (wait_status)
+        *wait_status = status;
       
       if (standard_output)        
         *standard_output = g_string_free (outstr, FALSE);
@@ -662,52 +668,53 @@ g_spawn_async_with_pipes (const gchar          *working_directory,
  * @error: return location for error
  *
  * Executes a child program asynchronously (your program will not
- * block waiting for the child to exit). The child program is
- * specified by the only argument that must be provided, @argv.
- * @argv should be a %NULL-terminated array of strings, to be passed
- * as the argument vector for the child. The first string in @argv
- * is of course the name of the program to execute. By default, the
- * name of the program must be a full path. If @flags contains the
- * %G_SPAWN_SEARCH_PATH flag, the `PATH` environment variable is
- * used to search for the executable. If @flags contains the
- * %G_SPAWN_SEARCH_PATH_FROM_ENVP flag, the `PATH` variable from
- * @envp is used to search for the executable. If both the
- * %G_SPAWN_SEARCH_PATH and %G_SPAWN_SEARCH_PATH_FROM_ENVP flags
- * are set, the `PATH` variable from @envp takes precedence over
- * the environment variable.
+ * block waiting for the child to exit).
  *
- * If the program name is not a full path and %G_SPAWN_SEARCH_PATH flag is not
- * used, then the program will be run from the current directory (or
- * @working_directory, if specified); this might be unexpected or even
+ * The child program is specified by the only argument that must be
+ * provided, @argv. @argv should be a %NULL-terminated array of strings,
+ * to be passed as the argument vector for the child. The first string
+ * in @argv is of course the name of the program to execute. By default,
+ * the name of the program must be a full path. If @flags contains the
+ * %G_SPAWN_SEARCH_PATH flag, the `PATH` environment variable is used to
+ * search for the executable. If @flags contains the
+ * %G_SPAWN_SEARCH_PATH_FROM_ENVP flag, the `PATH` variable from @envp
+ * is used to search for the executable. If both the
+ * %G_SPAWN_SEARCH_PATH and %G_SPAWN_SEARCH_PATH_FROM_ENVP flags are
+ * set, the `PATH` variable from @envp takes precedence over the
+ * environment variable.
+ *
+ * If the program name is not a full path and %G_SPAWN_SEARCH_PATH flag
+ * is not used, then the program will be run from the current directory
+ * (or @working_directory, if specified); this might be unexpected or even
  * dangerous in some cases when the current directory is world-writable.
  *
  * On Windows, note that all the string or string vector arguments to
- * this function and the other g_spawn*() functions are in UTF-8, the
+ * this function and the other `g_spawn*()` functions are in UTF-8, the
  * GLib file name encoding. Unicode characters that are not part of
  * the system codepage passed in these arguments will be correctly
  * available in the spawned program only if it uses wide character API
  * to retrieve its command line. For C programs built with Microsoft's
- * tools it is enough to make the program have a wmain() instead of
- * main(). wmain() has a wide character argument vector as parameter.
+ * tools it is enough to make the program have a `wmain()` instead of
+ * `main()`. `wmain()` has a wide character argument vector as parameter.
  *
- * At least currently, mingw doesn't support wmain(), so if you use
+ * At least currently, mingw doesn't support `wmain()`, so if you use
  * mingw to develop the spawned program, it should call
  * g_win32_get_command_line() to get arguments in UTF-8.
  *
- * On Windows the low-level child process creation API CreateProcess()
+ * On Windows the low-level child process creation API `CreateProcess()`
  * doesn't use argument vectors, but a command line. The C runtime
- * library's spawn*() family of functions (which g_spawn_async_with_pipes()
+ * library's `spawn*()` family of functions (which g_spawn_async_with_pipes()
  * eventually calls) paste the argument vector elements together into
  * a command line, and the C runtime startup code does a corresponding
  * reconstruction of an argument vector from the command line, to be
- * passed to main(). Complications arise when you have argument vector
+ * passed to `main()`. Complications arise when you have argument vector
  * elements that contain spaces or double quotes. The `spawn*()` functions
  * don't do any quoting or escaping, but on the other hand the startup
  * code does do unquoting and unescaping in order to enable receiving
  * arguments with embedded spaces or double quotes. To work around this
  * asymmetry, g_spawn_async_with_pipes() will do quoting and escaping on
  * argument vector elements that need it before calling the C runtime
- * spawn() function.
+ * `spawn()` function.
  *
  * The returned @child_pid on Windows is a handle to the child
  * process, not its identifier. Process handles and process
@@ -726,13 +733,13 @@ g_spawn_async_with_pipes (const gchar          *working_directory,
  * free resources which may be associated with the child process. (On Unix,
  * using a child watch is equivalent to calling waitpid() or handling
  * the `SIGCHLD` signal manually. On Windows, calling g_spawn_close_pid()
- * is equivalent to calling CloseHandle() on the process handle returned
+ * is equivalent to calling `CloseHandle()` on the process handle returned
  * in @child_pid). See g_child_watch_add().
  *
  * Open UNIX file descriptors marked as `FD_CLOEXEC` will be automatically
  * closed in the child process. %G_SPAWN_LEAVE_DESCRIPTORS_OPEN means that
  * other open file descriptors will be inherited by the child; otherwise all
- * descriptors except stdin/stdout/stderr will be closed before calling exec()
+ * descriptors except stdin/stdout/stderr will be closed before calling `exec()`
  * in the child. %G_SPAWN_SEARCH_PATH means that @argv[0] need not be an
  * absolute path, it will be looked for in the `PATH` environment
  * variable. %G_SPAWN_SEARCH_PATH_FROM_ENVP means need not be an
@@ -773,25 +780,25 @@ g_spawn_async_with_pipes (const gchar          *working_directory,
  * @child_setup and @user_data are a function and user data. On POSIX
  * platforms, the function is called in the child after GLib has
  * performed all the setup it plans to perform (including creating
- * pipes, closing file descriptors, etc.) but before calling exec().
- * That is, @child_setup is called just before calling exec() in the
+ * pipes, closing file descriptors, etc.) but before calling `exec()`.
+ * That is, @child_setup is called just before calling `exec()` in the
  * child. Obviously actions taken in this function will only affect
  * the child, not the parent.
  *
- * On Windows, there is no separate fork() and exec() functionality.
+ * On Windows, there is no separate `fork()` and `exec()` functionality.
  * Child processes are created and run with a single API call,
- * CreateProcess(). There is no sensible thing @child_setup
+ * `CreateProcess()`. There is no sensible thing @child_setup
  * could be used for on Windows so it is ignored and not called.
  *
  * If non-%NULL, @child_pid will on Unix be filled with the child's
  * process ID. You can use the process ID to send signals to the child,
- * or to use g_child_watch_add() (or waitpid()) if you specified the
+ * or to use g_child_watch_add() (or `waitpid()`) if you specified the
  * %G_SPAWN_DO_NOT_REAP_CHILD flag. On Windows, @child_pid will be
  * filled with a handle to the child process only if you specified the
  * %G_SPAWN_DO_NOT_REAP_CHILD flag. You can then access the child
  * process using the Win32 API, for example wait for its termination
- * with the WaitFor*() functions, or examine its exit code with
- * GetExitCodeProcess(). You should close the handle with CloseHandle()
+ * with the `WaitFor*()` functions, or examine its exit code with
+ * `GetExitCodeProcess()`. You should close the handle with `CloseHandle()`
  * or g_spawn_close_pid() when you no longer need it.
  *
  * If non-%NULL, the @stdin_pipe_out, @stdout_pipe_out, @stderr_pipe_out
@@ -815,7 +822,7 @@ g_spawn_async_with_pipes (const gchar          *working_directory,
  * @error can be %NULL to ignore errors, or non-%NULL to report errors.
  * If an error is set, the function returns %FALSE. Errors are reported
  * even if they occur in the child (for example if the executable in
- * @argv[0] is not found). Typically the `message` field of returned
+ * `@argv[0]` is not found). Typically the `message` field of returned
  * errors should be displayed to users. Possible errors are those from
  * the #G_SPAWN_ERROR domain.
  *
@@ -826,7 +833,7 @@ g_spawn_async_with_pipes (const gchar          *working_directory,
  * process reference must be closed using g_spawn_close_pid().
  *
  * On modern UNIX platforms, GLib can use an efficient process launching
- * codepath driven internally by posix_spawn(). This has the advantage of
+ * codepath driven internally by `posix_spawn()`. This has the advantage of
  * avoiding the fork-time performance costs of cloning the parent process
  * address space, and avoiding associated memory overcommit checks that are
  * not relevant in the context of immediately executing a distinct process.
@@ -838,9 +845,11 @@ g_spawn_async_with_pipes (const gchar          *working_directory,
  * 3. %G_SPAWN_SEARCH_PATH_FROM_ENVP is not set
  * 4. @working_directory is %NULL
  * 5. @child_setup is %NULL
- * 6. The program is of a recognised binary format, or has a shebang. Otherwise, GLib will have to execute the program through the shell, which is not done using the optimized codepath.
+ * 6. The program is of a recognised binary format, or has a shebang.
+ *    Otherwise, GLib will have to execute the program through the
+ *    shell, which is not done using the optimized codepath.
  *
- * If you are writing a GTK+ application, and the program you are spawning is a
+ * If you are writing a GTK application, and the program you are spawning is a
  * graphical application too, then to ensure that the spawned program opens its
  * windows on the right screen, you may want to use #GdkAppLaunchContext,
  * #GAppLaunchContext, or set the `DISPLAY` environment variable.
@@ -922,6 +931,8 @@ g_spawn_async_with_pipes_and_fds (const gchar           *working_directory,
  * @stderr_fd: file descriptor to use for child's stderr, or `-1`
  * @error: return location for error
  *
+ * Executes a child program asynchronously.
+ *
  * Identical to g_spawn_async_with_pipes_and_fds() but with `n_fds` set to zero,
  * so no FD assignments are used.
  *
@@ -979,21 +990,28 @@ g_spawn_async_with_fds (const gchar          *working_directory,
  * @command_line: (type filename): a command line
  * @standard_output: (out) (array zero-terminated=1) (element-type guint8) (optional): return location for child output
  * @standard_error: (out) (array zero-terminated=1) (element-type guint8) (optional): return location for child errors
- * @exit_status: (out) (optional): return location for child exit status, as returned by waitpid()
+ * @wait_status: (out) (optional): return location for child wait status, as returned by waitpid()
  * @error: return location for errors
  *
  * A simple version of g_spawn_sync() with little-used parameters
- * removed, taking a command line instead of an argument vector.  See
- * g_spawn_sync() for full details. @command_line will be parsed by
- * g_shell_parse_argv(). Unlike g_spawn_sync(), the %G_SPAWN_SEARCH_PATH flag
- * is enabled. Note that %G_SPAWN_SEARCH_PATH can have security
- * implications, so consider using g_spawn_sync() directly if
- * appropriate. Possible errors are those from g_spawn_sync() and those
+ * removed, taking a command line instead of an argument vector.
+ *
+ * See g_spawn_sync() for full details.
+ *
+ * The @command_line argument will be parsed by g_shell_parse_argv().
+ *
+ * Unlike g_spawn_sync(), the %G_SPAWN_SEARCH_PATH flag is enabled.
+ * Note that %G_SPAWN_SEARCH_PATH can have security implications, so
+ * consider using g_spawn_sync() directly if appropriate.
+ *
+ * Possible errors are those from g_spawn_sync() and those
  * from g_shell_parse_argv().
  *
- * If @exit_status is non-%NULL, the platform-specific exit status of
+ * If @wait_status is non-%NULL, the platform-specific status of
  * the child is stored there; see the documentation of
- * g_spawn_check_exit_status() for how to use and interpret this.
+ * g_spawn_check_wait_status() for how to use and interpret this.
+ * On Unix platforms, note that it is usually not equal
+ * to the integer passed to `exit()` or returned from `main()`.
  * 
  * On Windows, please note the implications of g_shell_parse_argv()
  * parsing @command_line. Parsing is done according to Unix shell rules, not 
@@ -1011,7 +1029,7 @@ gboolean
 g_spawn_command_line_sync (const gchar  *command_line,
                            gchar       **standard_output,
                            gchar       **standard_error,
-                           gint         *exit_status,
+                           gint         *wait_status,
                            GError      **error)
 {
   gboolean retval;
@@ -1032,7 +1050,7 @@ g_spawn_command_line_sync (const gchar  *command_line,
                          NULL,
                          standard_output,
                          standard_error,
-                         exit_status,
+                         wait_status,
                          error);
   g_strfreev (argv);
 
@@ -1045,8 +1063,9 @@ g_spawn_command_line_sync (const gchar  *command_line,
  * @error: return location for errors
  * 
  * A simple version of g_spawn_async() that parses a command line with
- * g_shell_parse_argv() and passes it to g_spawn_async(). Runs a
- * command line in the background. Unlike g_spawn_async(), the
+ * g_shell_parse_argv() and passes it to g_spawn_async().
+ *
+ * Runs a command line in the background. Unlike g_spawn_async(), the
  * %G_SPAWN_SEARCH_PATH flag is enabled, other flags are not. Note
  * that %G_SPAWN_SEARCH_PATH can have security implications, so
  * consider using g_spawn_async() directly if appropriate. Possible
@@ -1084,80 +1103,83 @@ g_spawn_command_line_async (const gchar *command_line,
 }
 
 /**
- * g_spawn_check_exit_status:
- * @exit_status: An exit code as returned from g_spawn_sync()
+ * g_spawn_check_wait_status:
+ * @wait_status: A platform-specific wait status as returned from g_spawn_sync()
  * @error: a #GError
  *
- * Set @error if @exit_status indicates the child exited abnormally
+ * Set @error if @wait_status indicates the child exited abnormally
  * (e.g. with a nonzero exit code, or via a fatal signal).
  *
- * The g_spawn_sync() and g_child_watch_add() family of APIs return an
- * exit status for subprocesses encoded in a platform-specific way.
+ * The g_spawn_sync() and g_child_watch_add() family of APIs return the
+ * status of subprocesses encoded in a platform-specific way.
  * On Unix, this is guaranteed to be in the same format waitpid() returns,
  * and on Windows it is guaranteed to be the result of GetExitCodeProcess().
  *
  * Prior to the introduction of this function in GLib 2.34, interpreting
- * @exit_status required use of platform-specific APIs, which is problematic
+ * @wait_status required use of platform-specific APIs, which is problematic
  * for software using GLib as a cross-platform layer.
  *
  * Additionally, many programs simply want to determine whether or not
  * the child exited successfully, and either propagate a #GError or
  * print a message to standard error. In that common case, this function
  * can be used. Note that the error message in @error will contain
- * human-readable information about the exit status.
+ * human-readable information about the wait status.
  *
  * The @domain and @code of @error have special semantics in the case
  * where the process has an "exit code", as opposed to being killed by
  * a signal. On Unix, this happens if WIFEXITED() would be true of
- * @exit_status. On Windows, it is always the case.
+ * @wait_status. On Windows, it is always the case.
  *
  * The special semantics are that the actual exit code will be the
  * code set in @error, and the domain will be %G_SPAWN_EXIT_ERROR.
  * This allows you to differentiate between different exit codes.
  *
  * If the process was terminated by some means other than an exit
- * status, the domain will be %G_SPAWN_ERROR, and the code will be
- * %G_SPAWN_ERROR_FAILED.
+ * status (for example if it was killed by a signal), the domain will be
+ * %G_SPAWN_ERROR and the code will be %G_SPAWN_ERROR_FAILED.
  *
  * This function just offers convenience; you can of course also check
  * the available platform via a macro such as %G_OS_UNIX, and use
- * WIFEXITED() and WEXITSTATUS() on @exit_status directly. Do not attempt
+ * WIFEXITED() and WEXITSTATUS() on @wait_status directly. Do not attempt
  * to scan or parse the error message string; it may be translated and/or
  * change in future versions of GLib.
  *
- * Returns: %TRUE if child exited successfully, %FALSE otherwise (and
- *     @error will be set)
+ * Prior to version 2.70, g_spawn_check_exit_status() provides the same
+ * functionality, although under a misleading name.
  *
- * Since: 2.34
+ * Returns: %TRUE if child exited successfully, %FALSE otherwise (and
+ *   @error will be set)
+ *
+ * Since: 2.70
  */
 gboolean
-g_spawn_check_exit_status (gint      exit_status,
+g_spawn_check_wait_status (gint      wait_status,
 			   GError  **error)
 {
   gboolean ret = FALSE;
 
-  if (WIFEXITED (exit_status))
+  if (WIFEXITED (wait_status))
     {
-      if (WEXITSTATUS (exit_status) != 0)
+      if (WEXITSTATUS (wait_status) != 0)
 	{
-	  g_set_error (error, G_SPAWN_EXIT_ERROR, WEXITSTATUS (exit_status),
+	  g_set_error (error, G_SPAWN_EXIT_ERROR, WEXITSTATUS (wait_status),
 		       _("Child process exited with code %ld"),
-		       (long) WEXITSTATUS (exit_status));
+		       (long) WEXITSTATUS (wait_status));
 	  goto out;
 	}
     }
-  else if (WIFSIGNALED (exit_status))
+  else if (WIFSIGNALED (wait_status))
     {
       g_set_error (error, G_SPAWN_ERROR, G_SPAWN_ERROR_FAILED,
 		   _("Child process killed by signal %ld"),
-		   (long) WTERMSIG (exit_status));
+		   (long) WTERMSIG (wait_status));
       goto out;
     }
-  else if (WIFSTOPPED (exit_status))
+  else if (WIFSTOPPED (wait_status))
     {
       g_set_error (error, G_SPAWN_ERROR, G_SPAWN_ERROR_FAILED,
 		   _("Child process stopped by signal %ld"),
-		   (long) WSTOPSIG (exit_status));
+		   (long) WSTOPSIG (wait_status));
       goto out;
     }
   else
@@ -1170,6 +1192,34 @@ g_spawn_check_exit_status (gint      exit_status,
   ret = TRUE;
  out:
   return ret;
+}
+
+/**
+ * g_spawn_check_exit_status:
+ * @wait_status: A status as returned from g_spawn_sync()
+ * @error: a #GError
+ *
+ * An old name for g_spawn_check_wait_status(), deprecated because its
+ * name is misleading.
+ *
+ * Despite the name of the function, @wait_status must be the wait status
+ * as returned by g_spawn_sync(), g_subprocess_get_status(), `waitpid()`,
+ * etc. On Unix platforms, it is incorrect for it to be the exit status
+ * as passed to `exit()` or returned by g_subprocess_get_exit_status() or
+ * `WEXITSTATUS()`.
+ *
+ * Returns: %TRUE if child exited successfully, %FALSE otherwise (and
+ *     @error will be set)
+ *
+ * Since: 2.34
+ *
+ * Deprecated: 2.70: Use g_spawn_check_wait_status() instead, and check whether your code is conflating wait and exit statuses.
+ */
+gboolean
+g_spawn_check_exit_status (gint      wait_status,
+                           GError  **error)
+{
+  return g_spawn_check_wait_status (wait_status, error);
 }
 
 /* This function is called between fork() and exec() and hence must be
@@ -1408,6 +1458,27 @@ safe_fdwalk (int (*cb)(void *data, int fd), void *data)
 
 #endif
 
+#if defined(__sun__) && defined(F_PREVFD) && defined(F_NEXTFD)
+/*
+ * Solaris 11.4 has a signal-safe way which allows
+ * us to find all file descriptors in a process.
+ *
+ * fcntl(fd, F_NEXTFD, maxfd)
+ * - returns the first allocated file descriptor <= maxfd  > fd.
+ *
+ * fcntl(fd, F_PREVFD)
+ * - return highest allocated file descriptor < fd.
+ */
+
+  open_max = fcntl (INT_MAX, F_PREVFD); /* find the maximum fd */
+  if (open_max < 0) /* No open files */
+    return 0;
+
+  for (fd = -1; (fd = fcntl (fd, F_NEXTFD, open_max)) != -1; )
+    if ((res = cb (data, fd)) != 0 || fd == open_max)
+      break;
+#else
+
 #if 0 && defined(HAVE_SYS_RESOURCE_H)
   /* Use getrlimit() function provided by the system if it is known to be
    * async-signal safe.
@@ -1441,6 +1512,7 @@ safe_fdwalk (int (*cb)(void *data, int fd), void *data)
   for (fd = 0; fd < open_max; fd++)
       if ((res = cb (data, fd)) != 0)
           break;
+#endif
 
   return res;
 #endif
@@ -1449,9 +1521,32 @@ safe_fdwalk (int (*cb)(void *data, int fd), void *data)
 /* This function is called between fork() and exec() and hence must be
  * async-signal-safe (see signal-safety(7)). */
 static void
+safe_fdwalk_set_cloexec (int lowfd)
+{
+#if defined(HAVE_CLOSE_RANGE) && defined(CLOSE_RANGE_CLOEXEC)
+  /* close_range() is available in Linux since kernel 5.9, and on FreeBSD at
+   * around the same time. It was designed for use in async-signal-safe
+   * situations: https://bugs.python.org/issue38061
+   *
+   * The `CLOSE_RANGE_CLOEXEC` flag was added in Linux 5.11, and is not yet
+   * present in FreeBSD.
+   *
+   * Handle ENOSYS in case it’s supported in libc but not the kernel; if so,
+   * fall back to safe_fdwalk(). Handle EINVAL in case `CLOSE_RANGE_CLOEXEC`
+   * is not supported. */
+  if (close_range (lowfd, G_MAXUINT, CLOSE_RANGE_CLOEXEC) != 0 &&
+      (errno == ENOSYS || errno == EINVAL))
+#endif  /* HAVE_CLOSE_RANGE */
+  (void) safe_fdwalk (set_cloexec, GINT_TO_POINTER (lowfd));
+}
+
+/* This function is called between fork() and exec() and hence must be
+ * async-signal-safe (see signal-safety(7)). */
+static void
 safe_closefrom (int lowfd)
 {
-#if defined(__FreeBSD__) || defined(__OpenBSD__)
+#if defined(__FreeBSD__) || defined(__OpenBSD__) || \
+  (defined(__sun__) && defined(F_CLOSEFROM))
   /* Use closefrom function provided by the system if it is known to be
    * async-signal safe.
    *
@@ -1460,6 +1555,9 @@ safe_closefrom (int lowfd)
    *
    * OpenBSD: closefrom is not included in the list, but a direct system call
    * should be safe to use.
+   *
+   * In Solaris as of 11.3 SRU 31, closefrom() is also a direct system call.
+   * On such systems, F_CLOSEFROM is defined.
    */
   (void) closefrom (lowfd);
 #elif defined(__DragonFly__)
@@ -1484,7 +1582,7 @@ safe_closefrom (int lowfd)
    *
    * Handle ENOSYS in case it’s supported in libc but not the kernel; if so,
    * fall back to safe_fdwalk(). */
-  if (close_range (lowfd, G_MAXUINT) != 0 && errno == ENOSYS)
+  if (close_range (lowfd, G_MAXUINT, 0) != 0 && errno == ENOSYS)
 #endif  /* HAVE_CLOSE_RANGE */
   (void) safe_fdwalk (close_func, GINT_TO_POINTER (lowfd));
 #endif
@@ -1653,7 +1751,7 @@ do_exec (gint                  child_err_report_fd,
         }
       else
         {
-          safe_fdwalk (set_cloexec, GINT_TO_POINTER (3));
+          safe_fdwalk_set_cloexec (3);
         }
     }
   else
@@ -2067,6 +2165,7 @@ fork_exec (gboolean              intermediate_child,
        * So if it fails with ENOEXEC, we fall through to the regular
        * gspawn codepath so that script execution can be attempted,
        * per standard gspawn behaviour. */
+      g_debug ("posix_spawn failed (ENOEXEC), fall back to regular gspawn");
     }
   else
     {

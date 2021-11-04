@@ -1028,8 +1028,6 @@ g_dbus_address_get_stream_sync (const gchar   *address,
   return ret;
 }
 
-#ifndef GIO_STATIC_COMPILATION
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 /*
@@ -1084,7 +1082,7 @@ get_session_address_dbus_launch (GError **error)
   gchar *command_line;
   gchar *launch_stdout;
   gchar *launch_stderr;
-  gint exit_status;
+  gint wait_status;
   gchar *old_dbus_verbose;
   gboolean restore_dbus_verbose;
 
@@ -1100,7 +1098,7 @@ get_session_address_dbus_launch (GError **error)
   if (GLIB_PRIVATE_CALL (g_check_setuid) ())
     {
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-		   _("Cannot spawn a message bus when setuid"));
+                   _("Cannot spawn a message bus when AT_SECURE is set"));
       goto out;
     }
 
@@ -1148,13 +1146,13 @@ get_session_address_dbus_launch (GError **error)
   if (!g_spawn_command_line_sync (command_line,
                                   &launch_stdout,
                                   &launch_stderr,
-                                  &exit_status,
+                                  &wait_status,
                                   error))
     {
       goto out;
     }
 
-  if (!g_spawn_check_exit_status (exit_status, error))
+  if (!g_spawn_check_wait_status (wait_status, error))
     {
       g_prefix_error (error, _("Error spawning command line “%s”: "), command_line);
       goto out;
@@ -1230,20 +1228,6 @@ get_session_address_dbus_launch (GError **error)
 }
 #endif /* neither G_OS_UNIX nor G_OS_WIN32 */
 
-#else /* !GIO_STATIC_COMPILATION */
-
-static gchar *
-get_session_address_dbus_launch (GError **error)
-{
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Session bus not available for static GIO"));
-  return NULL;
-}
-
-#endif /* GIO_STATIC_COMPILATION */
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 static gchar *
@@ -1251,7 +1235,6 @@ get_session_address_platform_specific (GError **error)
 {
   gchar *ret;
 
-#ifndef GIO_STATIC_COMPILATION
   /* Use XDG_RUNTIME_DIR/bus if it exists and is suitable. This is appropriate
    * for systems using the "a session is a user-session" model described in
    * <http://lists.freedesktop.org/archives/dbus/2015-January/016522.html>,
@@ -1276,15 +1259,6 @@ get_session_address_platform_specific (GError **error)
    * mechanism based on shared memory.
    */
   return get_session_address_dbus_launch (error);
-#else
-  ret = NULL;
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Session bus not available for static GIO"));
-#endif
-
-  return ret;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1369,31 +1343,9 @@ g_dbus_address_get_for_bus_sync (GBusType       bus_type,
 
     case G_BUS_TYPE_SESSION:
       if (has_elevated_privileges)
-        {
-#ifdef G_OS_UNIX
-          if (geteuid () == getuid ())
-            {
-              /* Ideally we shouldn't do this, because setgid and
-               * filesystem capabilities are also elevated privileges
-               * with which we should not be trusting environment variables
-               * from the caller. Unfortunately, there are programs with
-               * elevated privileges that rely on the session bus being
-               * available. We already prevent the really dangerous
-               * transports like autolaunch: and unixexec: when our
-               * privileges are elevated, so this can only make us connect
-               * to the wrong AF_UNIX or TCP socket. */
-              ret = g_strdup (g_getenv ("DBUS_SESSION_BUS_ADDRESS"));
-            }
-          else
-#endif
-            {
-              ret = NULL;
-            }
-        }
+        ret = NULL;
       else
-        {
-          ret = g_strdup (g_getenv ("DBUS_SESSION_BUS_ADDRESS"));
-        }
+        ret = g_strdup (g_getenv ("DBUS_SESSION_BUS_ADDRESS"));
 
       if (ret == NULL)
         {

@@ -107,7 +107,7 @@ struct _GRealArray
 {
   guint8 *data;
   guint   len;
-  guint   alloc;
+  guint   elt_capacity;
   guint   elt_size;
   guint   zero_terminated : 1;
   guint   clear : 1;
@@ -150,7 +150,7 @@ struct _GRealArray
  * Returns: the element of the #GArray at the index given by @i
  */
 
-#define g_array_elt_len(array,i) ((array)->elt_size * (i))
+#define g_array_elt_len(array,i) ((gsize)(array)->elt_size * (i))
 #define g_array_elt_pos(array,i) ((array)->data + g_array_elt_len((array),(i)))
 #define g_array_elt_zero(array, pos, len)                               \
   (memset (g_array_elt_pos ((array), pos), 0,  g_array_elt_len ((array), len)))
@@ -159,7 +159,7 @@ struct _GRealArray
     g_array_elt_zero ((array), (array)->len, 1);                        \
 }G_STMT_END
 
-static guint g_nearest_pow        (guint       num) G_GNUC_CONST;
+static gsize g_nearest_pow        (gsize       num) G_GNUC_CONST;
 static void  g_array_maybe_expand (GRealArray *array,
                                    guint       len);
 
@@ -181,6 +181,9 @@ g_array_new (gboolean zero_terminated,
              guint    elt_size)
 {
   g_return_val_if_fail (elt_size > 0, NULL);
+#if (UINT_WIDTH / 8) >= GLIB_SIZEOF_SIZE_T
+  g_return_val_if_fail (elt_size <= G_MAXSIZE / 2 - 1, NULL);
+#endif
 
   return g_array_sized_new (zero_terminated, clear, elt_size, 0);
 }
@@ -232,7 +235,7 @@ g_array_steal (GArray *array,
 
   rarray->data  = NULL;
   rarray->len   = 0;
-  rarray->alloc = 0;
+  rarray->elt_capacity = 0;
   return segment;
 }
 
@@ -261,12 +264,15 @@ g_array_sized_new (gboolean zero_terminated,
   GRealArray *array;
   
   g_return_val_if_fail (elt_size > 0, NULL);
+#if (UINT_WIDTH / 8) >= GLIB_SIZEOF_SIZE_T
+  g_return_val_if_fail (elt_size <= G_MAXSIZE / 2 - 1, NULL);
+#endif
 
   array = g_slice_new (GRealArray);
 
   array->data            = NULL;
   array->len             = 0;
-  array->alloc           = 0;
+  array->elt_capacity = 0;
   array->zero_terminated = (zero_terminated ? 1 : 0);
   array->clear           = (clear ? 1 : 0);
   array->elt_size        = elt_size;
@@ -298,6 +304,27 @@ g_array_sized_new (gboolean zero_terminated,
  * Note that in contrast with other uses of #GDestroyNotify
  * functions, @clear_func is expected to clear the contents of
  * the array element it is given, but not free the element itself.
+ *
+ * |[<!-- language="C" -->
+ * typedef struct
+ * {
+ *   gchar *str;
+ *   GObject *obj;
+ * } ArrayElement;
+ *
+ * static void
+ * array_element_clear (ArrayElement *element)
+ * {
+ *   g_clear_pointer (&element->str, g_free);
+ *   g_clear_object (&element->obj);
+ * }
+ *
+ * // main code
+ * GArray *garray = g_array_new (FALSE, FALSE, sizeof (ArrayElement));
+ * g_array_set_clear_func (garray, (GDestroyNotify) array_element_clear);
+ * // assign data to the structure
+ * g_array_free (garray, TRUE);
+ * ]|
  *
  * Since: 2.32
  */
@@ -450,7 +477,7 @@ array_free (GRealArray     *array,
     {
       array->data            = NULL;
       array->len             = 0;
-      array->alloc           = 0;
+      array->elt_capacity = 0;
     }
   else
     {
@@ -945,22 +972,22 @@ g_array_binary_search (GArray        *array,
   return result;
 }
 
-/* Returns the smallest power of 2 greater than n, or n if
- * such power does not fit in a guint
+/* Returns the smallest power of 2 greater than or equal to n,
+ * or 0 if such power does not fit in a gsize
  */
-static guint
-g_nearest_pow (guint num)
+static gsize
+g_nearest_pow (gsize num)
 {
-  guint n = num - 1;
+  gsize n = num - 1;
 
-  g_assert (num > 0);
+  g_assert (num > 0 && num <= G_MAXSIZE / 2);
 
   n |= n >> 1;
   n |= n >> 2;
   n |= n >> 4;
   n |= n >> 8;
   n |= n >> 16;
-#if SIZEOF_INT == 8
+#if GLIB_SIZEOF_SIZE_T == 8
   n |= n >> 32;
 #endif
 
@@ -971,26 +998,32 @@ static void
 g_array_maybe_expand (GRealArray *array,
                       guint       len)
 {
-  guint want_alloc;
+  guint max_len, want_len;
+ 
+  /* The maximum array length is derived from following constraints:
+   * - The number of bytes must fit into a gsize / 2.
+   * - The number of elements must fit into guint.
+   * - zero terminated arrays must leave space for the terminating element
+   */
+  max_len = MIN (G_MAXSIZE / 2 / array->elt_size, G_MAXUINT) - array->zero_terminated;
 
   /* Detect potential overflow */
-  if G_UNLIKELY ((G_MAXUINT - array->len) < len)
+  if G_UNLIKELY ((max_len - array->len) < len)
     g_error ("adding %u to array would overflow", len);
 
-  want_alloc = g_array_elt_len (array, array->len + len +
-                                array->zero_terminated);
-
-  if (want_alloc > array->alloc)
+  want_len = array->len + len + array->zero_terminated;
+  if (want_len > array->elt_capacity)
     {
-      want_alloc = g_nearest_pow (want_alloc);
+      gsize want_alloc = g_nearest_pow (g_array_elt_len (array, want_len));
       want_alloc = MAX (want_alloc, MIN_ARRAY_SIZE);
 
       array->data = g_realloc (array->data, want_alloc);
 
       if (G_UNLIKELY (g_mem_gc_friendly))
-        memset (array->data + array->alloc, 0, want_alloc - array->alloc);
+        memset (g_array_elt_pos (array, array->elt_capacity), 0,
+                g_array_elt_len (array, want_len - array->elt_capacity));
 
-      array->alloc = want_alloc;
+      array->elt_capacity = want_alloc / array->elt_size;
     }
 }
 
@@ -1276,7 +1309,7 @@ g_array_copy (GArray *array)
 
   new_rarray =
     (GRealArray *) g_array_sized_new (rarray->zero_terminated, rarray->clear,
-                                      rarray->elt_size, rarray->alloc / rarray->elt_size);
+                                      rarray->elt_size, rarray->elt_capacity);
   new_rarray->len = rarray->len;
   if (rarray->len > 0)
     memcpy (new_rarray->data, rarray->data, rarray->len * rarray->elt_size);
@@ -2277,7 +2310,6 @@ g_byte_array_new_take (guint8 *data,
   GRealArray *real;
 
   g_return_val_if_fail (len <= G_MAXUINT, NULL);
-
   array = g_byte_array_new ();
   real = (GRealArray *)array;
   g_assert (real->data == NULL);
@@ -2285,7 +2317,7 @@ g_byte_array_new_take (guint8 *data,
 
   real->data = data;
   real->len = len;
-  real->alloc = len;
+  real->elt_capacity = len;
 
   return array;
 }

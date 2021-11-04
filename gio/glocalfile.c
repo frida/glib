@@ -832,36 +832,6 @@ get_mount_info (GFileInfo             *fs_info,
 
 #ifdef G_OS_WIN32
 
-static gboolean
-is_xp_or_later (void)
-{
-  static int result = -1;
-
-  if (result == -1)
-    {
-#ifndef _MSC_VER
-      OSVERSIONINFOEX ver_info = {0};
-      DWORDLONG cond_mask = 0;
-      int op = VER_GREATER_EQUAL;
-
-      ver_info.dwOSVersionInfoSize = sizeof ver_info;
-      ver_info.dwMajorVersion = 5;
-      ver_info.dwMinorVersion = 1;
-
-      VER_SET_CONDITION (cond_mask, VER_MAJORVERSION, op);
-      VER_SET_CONDITION (cond_mask, VER_MINORVERSION, op);
-
-      result = VerifyVersionInfo (&ver_info,
-				  VER_MAJORVERSION | VER_MINORVERSION,
-				  cond_mask) != 0;
-#else
-      result = ((DWORD)(LOBYTE (LOWORD (GetVersion ())))) >= 5;
-#endif
-    }
-
-  return result;
-}
-
 static wchar_t *
 get_volume_for_path (const char *path)
 {
@@ -920,18 +890,10 @@ get_filesystem_readonly (GFileInfo  *info,
 
   if (rootdir)
     {
-      if (is_xp_or_later ())
-        {
-          DWORD flags;
-          if (GetVolumeInformationW (rootdir, NULL, 0, NULL, NULL, &flags, NULL, 0))
-	    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY,
-					       (flags & FILE_READ_ONLY_VOLUME) != 0);
-        }
-      else
-        {
-          if (GetDriveTypeW (rootdir) == DRIVE_CDROM)
-	    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY, TRUE);
-        }
+      DWORD flags;
+      if (GetVolumeInformationW (rootdir, NULL, 0, NULL, NULL, &flags, NULL, 0))
+        g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY,
+                                           (flags & FILE_READ_ONLY_VOLUME) != 0);
     }
 
   g_free (rootdir);
@@ -2049,7 +2011,16 @@ g_local_file_trash (GFile         *file,
        * trying to rename across a filesystem boundary, which doesn't work. So
        * we use g_stat here instead of g_lstat, to know where the symlink
        * points to. */
-      g_stat (path, &file_stat);
+      if (g_stat (path, &file_stat))
+	{
+	  errsv = errno;
+	  g_free (path);
+
+	  g_set_io_error (error,
+			  _("Error trashing file %s: %s"),
+			  file, errsv);
+	  return FALSE;
+	}
       g_free (path);
     }
 
@@ -2108,6 +2079,7 @@ g_local_file_trash (GFile         *file,
 	  (global_stat.st_mode & S_ISVTX) != 0)
 	{
 	  trashdir = g_build_filename (globaldir, uid_str, NULL);
+	  success = TRUE;
 
 	  if (g_lstat (trashdir, &trash_stat) == 0)
 	    {
@@ -2117,12 +2089,14 @@ g_local_file_trash (GFile         *file,
 		  /* Not a directory or not owned by user, ignore */
 		  g_free (trashdir);
 		  trashdir = NULL;
+		  success = FALSE;
 		}
 	    }
 	  else if (g_mkdir (trashdir, 0700) == -1)
 	    {
 	      g_free (trashdir);
 	      trashdir = NULL;
+	      success = FALSE;
 	    }
 	}
       g_free (globaldir);

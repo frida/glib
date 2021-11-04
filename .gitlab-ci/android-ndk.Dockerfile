@@ -1,4 +1,4 @@
-FROM fedora:28
+FROM fedora:33
 
 RUN dnf -y install \
     autoconf \
@@ -44,6 +44,7 @@ RUN dnf -y install \
     ncurses-compat-libs \
     ninja-build \
     pcre-devel \
+    python-unversioned-command \
     python3 \
     python3-pip \
     python3-wheel \
@@ -63,7 +64,7 @@ RUN ./android-setup-env.sh arm64 21
 RUN ./android-setup-env.sh arm64 28
 RUN rm -rf $ANDROID_NDK_PATH
 
-RUN pip3 install meson==0.49.2
+RUN pip3 install meson==0.52.0
 
 ARG HOST_USER_ID=5555
 ENV HOST_USER_ID ${HOST_USER_ID}

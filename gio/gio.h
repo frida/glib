@@ -120,6 +120,7 @@
 #include <gio/gpollableinputstream.h>
 #include <gio/gpollableoutputstream.h>
 #include <gio/gpollableutils.h>
+#include <gio/gpowerprofilemonitor.h>
 #include <gio/gpropertyaction.h>
 #include <gio/gproxy.h>
 #include <gio/gproxyaddress.h>
@@ -173,27 +174,5 @@
 #include <gio/gio-autocleanups.h>
 
 #undef __GIO_GIO_H_INSIDE__
-
-G_BEGIN_DECLS
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_init (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_shutdown (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_deinit (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_prepare_to_fork (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_recover_from_fork_in_parent (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_recover_from_fork_in_child (void);
-
-G_END_DECLS
 
 #endif /* __G_IO_H__ */

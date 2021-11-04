@@ -25,8 +25,6 @@
 
 #include "config.h"
 
-#if _WIN32_WINNT >= 0x0600
-
 #define COBJMACROS
 #define INITGUID
 #include <windows.h>
@@ -392,7 +390,7 @@ g_win32_package_parser_enum_packages (GWin32PackageParserCallback   callback,
       wcs_path = LoadedWindowsGetStringRawBuffer (path, NULL);
       manifest_filename_size = wcslen (wcs_path) + wcslen (bslash_appmanifest);
       manifest_filename = g_new (wchar_t, manifest_filename_size + 1);
-      memcpy (manifest_filename, wcs_path, manifest_filename_size * sizeof (wchar_t));
+      memcpy (manifest_filename, wcs_path, wcslen (wcs_path) * sizeof (wchar_t));
       memcpy (&manifest_filename[wcslen (wcs_path)], bslash_appmanifest, (wcslen (bslash_appmanifest) + 1) * sizeof (wchar_t));
 
       memset (sax, 0, sizeof (*sax));
@@ -818,5 +816,3 @@ xml_parser_iteration (struct _xml_sax_state  *sax,
 
   return TRUE;
 }
-
-#endif

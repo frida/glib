@@ -437,8 +437,6 @@ app_list_actions (gchar **args)
 int
 main (int argc, char **argv)
 {
-  glib_init ();
-
   setlocale (LC_ALL, "");
   textdomain (GETTEXT_PACKAGE);
   bindtextdomain (GETTEXT_PACKAGE, GLIB_LOCALE_DIR);

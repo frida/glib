@@ -277,28 +277,6 @@
 #endif
 
 /*
- * We can only use __typeof__ on GCC >= 4.8, and not when compiling C++. Since
- * __typeof__ is used in a few places in GLib, provide a pre-processor symbol
- * to factor the check out from callers.
- *
- * This symbol is private.
- */
-#undef glib_typeof
-#if !defined(__cplusplus) && (G_GNUC_CHECK_VERSION(4, 8) || defined(__clang__))
-#define glib_typeof(t) __typeof__ (t)
-#elif defined(__cplusplus) && __cplusplus >= 201103L
-/* C++11 decltype() is close enough for our usage */
-/* This needs `#include <type_traits>`, but we have guarded this feature with a
- * `GLIB_VERSION_MIN_REQUIRED >= GLIB_VERSION_2_68` check, and such a check
- * cannot be enforced in this header due to include ordering requirements.
- * Within GLib itself, which use `glib_typeof` need to add the include
- * themselves. See other examples in GLib for how to do this.
- */
-#define glib_typeof(t) typename std::remove_reference<decltype (t)>::type
-#define glib_typeof_2_68
-#endif
-
-/*
  * Clang feature detection: http://clang.llvm.org/docs/LanguageExtensions.html
  * These are not available on GCC, but since the pre-processor doesn't do
  * operator short-circuiting, we can't use it in a statement or we'll get:
@@ -742,6 +720,7 @@
 #else
 #define G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 #define G_GNUC_END_IGNORE_DEPRECATIONS
+#define GLIB_CANNOT_IGNORE_DEPRECATIONS
 #endif
 
 /**
@@ -1112,7 +1091,14 @@
 #define G_UNLIKELY(expr) (expr)
 #endif
 
-#if G_GNUC_CHECK_VERSION(3, 1) || defined(__clang__)
+/* GLIB_CANNOT_IGNORE_DEPRECATIONS is defined above for compilers that do not
+ * have a way to temporarily suppress deprecation warnings. In these cases,
+ * suppress the deprecated attribute altogether (otherwise a simple #include
+ * <glib.h> will emit a barrage of warnings).
+ */
+#if defined(GLIB_CANNOT_IGNORE_DEPRECATIONS)
+#define G_DEPRECATED
+#elif G_GNUC_CHECK_VERSION(3, 1) || defined(__clang__)
 #define G_DEPRECATED __attribute__((__deprecated__))
 #elif defined(_MSC_VER) && (_MSC_VER >= 1300)
 #define G_DEPRECATED __declspec(deprecated)
@@ -1120,7 +1106,9 @@
 #define G_DEPRECATED
 #endif
 
-#if G_GNUC_CHECK_VERSION(4, 5) || defined(__clang__)
+#if defined(GLIB_CANNOT_IGNORE_DEPRECATIONS)
+#define G_DEPRECATED_FOR(f) G_DEPRECATED
+#elif G_GNUC_CHECK_VERSION(4, 5) || defined(__clang__)
 #define G_DEPRECATED_FOR(f) __attribute__((__deprecated__("Use '" #f "' instead")))
 #elif defined(_MSC_FULL_VER) && (_MSC_FULL_VER > 140050320)
 #define G_DEPRECATED_FOR(f) __declspec(deprecated("is deprecated. Use '" #f "' instead"))

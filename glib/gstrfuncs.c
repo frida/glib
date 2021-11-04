@@ -51,7 +51,6 @@
 
 #include "gstrfuncs.h"
 
-#include "glib-init.h"
 #include "gprintf.h"
 #include "gprintfint.h"
 #include "glibintl.h"
@@ -318,8 +317,7 @@ static const guint16 ascii_table_data[256] = {
 
 const guint16 * const g_ascii_table = ascii_table_data;
 
-#if !defined (GLIB_STATIC_COMPILATION) && \
-    defined (HAVE_NEWLOCALE) && \
+#if defined (HAVE_NEWLOCALE) && \
     defined (HAVE_USELOCALE) && \
     defined (HAVE_STRTOD_L) && \
     defined (HAVE_STRTOULL_L) && \
@@ -328,12 +326,11 @@ const guint16 * const g_ascii_table = ascii_table_data;
 #endif
 
 #ifdef USE_XLOCALE
-static locale_t C_locale = NULL;
-
 static locale_t
 get_C_locale (void)
 {
   static gsize initialized = FALSE;
+  static locale_t C_locale = NULL;
 
   if (g_once_init_enter (&initialized))
     {
@@ -1877,7 +1874,9 @@ g_ascii_strcasecmp (const gchar *s1,
  * @n: number of characters to compare
  *
  * Compare @s1 and @s2, ignoring the case of ASCII characters and any
- * characters after the first @n in each string.
+ * characters after the first @n in each string. If either string is
+ * less than @n bytes long, comparison will stop at the first nul byte
+ * encountered.
  *
  * Unlike the BSD strcasecmp() function, this only recognizes standard
  * ASCII letters and ignores the locale, treating all non-ASCII
@@ -2031,22 +2030,26 @@ g_strncasecmp (const gchar *s1,
  * @new_delimiter: the new delimiter character
  *
  * Converts any delimiter characters in @string to @new_delimiter.
+ *
  * Any characters in @string which are found in @delimiters are
  * changed to the @new_delimiter character. Modifies @string in place,
- * and returns @string itself, not a copy. The return value is to
- * allow nesting such as
+ * and returns @string itself, not a copy.
+ *
+ * The return value is to allow nesting such as:
+ *
  * |[<!-- language="C" -->
  *   g_ascii_strup (g_strdelimit (str, "abc", '?'))
  * ]|
  *
- * In order to modify a copy, you may use `g_strdup()`:
+ * In order to modify a copy, you may use g_strdup():
+ *
  * |[<!-- language="C" -->
  *   reformatted = g_strdelimit (g_strdup (const_str), "abc", '?');
  *   ...
  *   g_free (reformatted);
  * ]|
  *
- * Returns: @string
+ * Returns: the modified @string
  */
 gchar *
 g_strdelimit (gchar       *string,
@@ -2076,21 +2079,24 @@ g_strdelimit (gchar       *string,
  * @substitutor: replacement character for disallowed bytes
  *
  * For each character in @string, if the character is not in @valid_chars,
- * replaces the character with @substitutor. Modifies @string in place,
- * and return @string itself, not a copy. The return value is to allow
- * nesting such as
+ * replaces the character with @substitutor.
+ *
+ * Modifies @string in place, and return @string itself, not a copy. The
+ * return value is to allow nesting such as:
+ *
  * |[<!-- language="C" -->
  *   g_ascii_strup (g_strcanon (str, "abc", '?'))
  * ]|
  *
- * In order to modify a copy, you may use `g_strdup()`:
+ * In order to modify a copy, you may use g_strdup():
+ *
  * |[<!-- language="C" -->
  *   reformatted = g_strcanon (g_strdup (const_str), "abc", '?');
  *   ...
  *   g_free (reformatted);
  * ]|
  *
- * Returns: @string
+ * Returns: the modified @string
  */
 gchar *
 g_strcanon (gchar       *string,
@@ -3485,14 +3491,6 @@ g_ascii_string_to_unsigned (const gchar  *str,
   if (out_num != NULL)
     *out_num = number;
   return TRUE;
-}
-
-void
-_g_strfuncs_deinit (void)
-{
-#ifdef USE_XLOCALE
-  g_clear_pointer (&C_locale, freelocale);
-#endif
 }
 
 G_DEFINE_QUARK (g-number-parser-error-quark, g_number_parser_error)

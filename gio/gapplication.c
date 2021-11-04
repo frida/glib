@@ -155,13 +155,13 @@
  * respectively.
  *
  * For an example of opening files with a GApplication, see
- * [gapplication-example-open.c](https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gapplication-example-open.c).
+ * [gapplication-example-open.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gapplication-example-open.c).
  *
  * For an example of using actions with GApplication, see
- * [gapplication-example-actions.c](https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gapplication-example-actions.c).
+ * [gapplication-example-actions.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gapplication-example-actions.c).
  *
  * For an example of using extra D-Bus hooks with GApplication, see
- * [gapplication-example-dbushooks.c](https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gapplication-example-dbushooks.c).
+ * [gapplication-example-dbushooks.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gapplication-example-dbushooks.c).
  */
 
 /**
@@ -2399,7 +2399,7 @@ g_application_open (GApplication  *application,
  * and override local_command_line(). In this case, you most likely want
  * to return %TRUE from your local_command_line() implementation to
  * suppress the default handling. See
- * [gapplication-example-cmdline2.c][https://gitlab.gnome.org/GNOME/glib/-/blob/master/gio/tests/gapplication-example-cmdline2.c]
+ * [gapplication-example-cmdline2.c][https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gapplication-example-cmdline2.c]
  * for an example.
  *
  * If, after the above is done, the use count of the application is zero
@@ -2832,6 +2832,8 @@ g_application_quit (GApplication *application)
  *
  * To cancel the busy indication, use g_application_unmark_busy().
  *
+ * The application must be registered before calling this function.
+ *
  * Since: 2.38
  **/
 void
@@ -2840,6 +2842,7 @@ g_application_mark_busy (GApplication *application)
   gboolean was_busy;
 
   g_return_if_fail (G_IS_APPLICATION (application));
+  g_return_if_fail (application->priv->is_registered);
 
   was_busy = (application->priv->busy_count > 0);
   application->priv->busy_count++;

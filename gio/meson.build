@@ -11,15 +11,9 @@ gio_c_args += glib_hidden_visibility_args
 
 gnetworking_h_conf = configuration_data()
 
-gnetworking_h_wspiapi_include = ''
 gnetworking_h_nameser_compat_include = ''
 
-if host_system == 'windows'
-  # <wspiapi.h> in the Windows SDK and in mingw-w64 has wrappers for
-  # inline workarounds for getaddrinfo, getnameinfo and freeaddrinfo if
-  # they aren't present at run-time (on Windows 2000).
-  gnetworking_h_wspiapi_include = '#include <wspiapi.h>'
-elif host_system != 'android'
+if host_system not in ['windows', 'android']
   # Don't check for C_IN on Android since it does not define it in public
   # headers, we define it ourselves wherever necessary
   if not cc.compiles('''#include <sys/types.h>
@@ -172,7 +166,6 @@ if host_system == 'android'
   endif
 endif
 
-gnetworking_h_conf.set('WSPIAPI_INCLUDE', gnetworking_h_wspiapi_include)
 gnetworking_h_conf.set('NAMESER_COMPAT_INCLUDE', gnetworking_h_nameser_compat_include)
 
 gnetworking_h = configure_file(input : 'gnetworking.h.in',
@@ -348,12 +341,6 @@ local_sources = files(
 
 platform_deps = []
 internal_deps = []
-# TODO: internal_objects is a workaround for
-# <https://github.com/mesonbuild/meson/issues/3934> and
-# <https://github.com/mesonbuild/meson/issues/3937>. When we can depend
-# on a meson version where those are fixed, revert the commit that
-# introduced this workaround.
-internal_objects = []
 appinfo_sources = []
 contenttype_sources = []
 portal_sources = []
@@ -390,6 +377,7 @@ if host_system != 'windows'
     'gopenuriportal.c',
     'gmemorymonitorportal.c',
     'gnetworkmonitorportal.c',
+    'gpowerprofilemonitorportal.c',
     'gproxyresolverportal.c',
     'gtrashportal.c',
     'gportalsupport.c',
@@ -425,7 +413,6 @@ if host_system != 'windows'
 
   subdir('xdgmime')
   internal_deps += [xdgmime_lib]
-  internal_objects += [xdgmime_lib.extract_all_objects()]
 
   install_headers(gio_unix_include_headers, subdir : 'gio-unix-2.0/gio')
 
@@ -457,15 +444,13 @@ else
     'gwin32notificationbackend.c',
   )
 
-  if get_option('default_library') != 'static'
-    gio_win_rc = configure_file(
-      input: 'gio.rc.in',
-      output: 'gio.rc',
-      configuration: glibconfig_conf,
-    )
-    gio_win_res = windows.compile_resources(gio_win_rc)
-    win32_sources += [gio_win_res]
-  endif
+  gio_win_rc = configure_file(
+    input: 'gio.rc.in',
+    output: 'gio.rc',
+    configuration: glibconfig_conf,
+  )
+  gio_win_res = windows.compile_resources(gio_win_rc)
+  win32_sources += [gio_win_res]
 
   gio_win32_include_headers = files(
     'gwin32inputstream.h',
@@ -475,8 +460,6 @@ else
 endif
 
 gio_sources = files(
-  'gio-init.c',
-  'gio-fork.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',
@@ -544,6 +527,8 @@ gio_sources = files(
   'gpollableoutputstream.c',
   'gpollableutils.c',
   'gpollfilemonitor.c',
+  'gpowerprofilemonitor.c',
+  'gpowerprofilemonitordbus.c',
   'gproxy.c',
   'gproxyaddress.c',
   'gproxyaddressenumerator.c',
@@ -684,6 +669,7 @@ gio_headers = files(
   'gpollableinputstream.h',
   'gpollableoutputstream.h',
   'gpollableutils.h',
+  'gpowerprofilemonitor.h',
   'gproxy.h',
   'gproxyaddress.h',
   'gproxyaddressenumerator.h',
@@ -762,23 +748,20 @@ gioenumtypes_c = custom_target('gioenumtypes_c',
 gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_h])
 
 # inotify
-if host_system in ['linux', 'android']
+if glib_conf.has('HAVE_SYS_INOTIFY_H') and have_func_inotify_init1
   subdir('inotify')
   internal_deps += [ inotify_lib ]
-  internal_objects += [inotify_lib.extract_all_objects()]
 endif
 
 # kevent
 if have_func_kqueue and have_func_kevent
   subdir('kqueue')
   internal_deps += [ kqueue_lib ]
-  internal_objects += [kqueue_lib.extract_all_objects()]
 endif
 
 if host_system == 'windows'
   subdir('win32')
   internal_deps += [ giowin32_lib ]
-  internal_objects += [giowin32_lib.extract_all_objects()]
 endif
 
 if have_bash
@@ -811,21 +794,16 @@ else
   gio_dtrace_hdr = []
 endif
 
-internal_objects = []
-foreach dep : internal_deps
-  internal_objects += dep.extract_all_objects()
-endforeach
-
 libgio = library('gio-2.0',
   gioenumtypes_h, gioenumtypes_c, gnetworking_h, gio_sources,
   gio_dtrace_hdr, gio_dtrace_obj,
-  objects : internal_objects,
   version : library_version,
   soversion : soversion,
   darwin_versions : darwin_versions,
   install : true,
   include_directories : [configinc, gioinc],
   #  '$(gio_win32_res_ldflag)',
+  link_with: internal_deps,
   dependencies : [libz_dep, libdl_dep, libmount_dep, libglib_dep,
                   libgobject_dep, libgmodule_dep, selinux_dep, xattr_dep,
                   platform_deps, network_libs, libsysprof_capture_dep],

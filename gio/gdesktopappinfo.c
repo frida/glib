@@ -1555,6 +1555,9 @@ desktop_file_dirs_lock (void)
   if (desktop_file_dirs_config_dir != NULL &&
       g_strcmp0 (desktop_file_dirs_config_dir, user_config_dir) != 0)
     {
+      g_debug ("%s: Resetting desktop app info dirs from %s to %s",
+               G_STRFUNC, desktop_file_dirs_config_dir, user_config_dir);
+
       g_ptr_array_set_size (desktop_file_dirs, 0);
       g_clear_pointer (&desktop_file_dir_user_config, desktop_file_dir_unref);
       g_clear_pointer (&desktop_file_dir_user_data, desktop_file_dir_unref);
@@ -2610,8 +2613,12 @@ prepend_terminal_to_vector (int    *argc,
           if (check == NULL)
             check = g_find_program_in_path ("dtterm");
           if (check == NULL)
+            check = g_find_program_in_path ("xterm");
+          if (check == NULL)
             {
-              check = g_strdup ("xterm");
+              g_debug ("Couldn’t find a known terminal");
+              g_free (term_argv);
+              return FALSE;
             }
           term_argv[0] = check;
           term_argv[1] = g_strdup ("-e");
@@ -2724,6 +2731,26 @@ notify_desktop_launch (GDBusConnection  *session_bus,
   g_object_unref (msg);
 }
 
+static void
+emit_launch_started (GAppLaunchContext *context,
+                     GDesktopAppInfo   *info,
+                     const gchar       *startup_id)
+{
+  GVariantBuilder builder;
+  GVariant *platform_data = NULL;
+
+  if (startup_id)
+    {
+      g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
+      g_variant_builder_add (&builder, "{sv}",
+                             "startup-notification-id",
+                             g_variant_new_string (startup_id));
+      platform_data = g_variant_ref_sink (g_variant_builder_end (&builder));
+    }
+  g_signal_emit_by_name (context, "launch-started", info, platform_data);
+  g_clear_pointer (&platform_data, g_variant_unref);
+}
+
 #define _SPAWN_FLAGS_DEFAULT (G_SPAWN_SEARCH_PATH)
 
 static gboolean
@@ -2819,6 +2846,8 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
             }
 
           g_list_free_full (launched_files, g_object_unref);
+
+          emit_launch_started (launch_context, info, sn_id);
         }
 
       /* Wrap the @argv in a command which will set the
@@ -2952,6 +2981,64 @@ g_desktop_app_info_make_platform_data (GDesktopAppInfo   *info,
   return g_variant_builder_end (&builder);
 }
 
+typedef struct
+{
+  GDesktopAppInfo     *info; /* (owned) */
+  GAppLaunchContext   *launch_context; /* (owned) (nullable) */
+  GAsyncReadyCallback  callback;
+  gchar               *startup_id; /* (owned) */
+  gpointer             user_data;
+} LaunchUrisWithDBusData;
+
+static void
+launch_uris_with_dbus_data_free (LaunchUrisWithDBusData *data)
+{
+  g_clear_object (&data->info);
+  g_clear_object (&data->launch_context);
+  g_free (data->startup_id);
+
+  g_free (data);
+}
+
+static void
+launch_uris_with_dbus_signal_cb (GObject      *object,
+                                 GAsyncResult *result,
+                                 gpointer      user_data)
+{
+  LaunchUrisWithDBusData *data = user_data;
+  GVariantBuilder builder;
+
+  if (data->launch_context)
+    {
+      if (g_task_had_error (G_TASK (result)))
+        g_app_launch_context_launch_failed (data->launch_context, data->startup_id);
+      else
+        {
+          GVariant *platform_data;
+
+          g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
+          /* the docs guarantee `pid` will be set, but we can’t
+           * easily know it for a D-Bus process, so set it to zero */
+          g_variant_builder_add (&builder, "{sv}", "pid", g_variant_new_int32 (0));
+          if (data->startup_id)
+            g_variant_builder_add (&builder, "{sv}",
+                                   "startup-notification-id",
+                                   g_variant_new_string (data->startup_id));
+          platform_data = g_variant_ref_sink (g_variant_builder_end (&builder));
+          g_signal_emit_by_name (data->launch_context,
+                                 "launched",
+                                 data->info,
+                                 platform_data);
+          g_variant_unref (platform_data);
+        }
+    }
+
+  if (data->callback)
+    data->callback (object, result, data->user_data);
+
+  launch_uris_with_dbus_data_free (data);
+}
+
 static void
 launch_uris_with_dbus (GDesktopAppInfo    *info,
                        GDBusConnection    *session_bus,
@@ -2961,8 +3048,11 @@ launch_uris_with_dbus (GDesktopAppInfo    *info,
                        GAsyncReadyCallback callback,
                        gpointer            user_data)
 {
+  GVariant *platform_data;
   GVariantBuilder builder;
+  GVariantDict dict;
   gchar *object_path;
+  LaunchUrisWithDBusData *data;
 
   g_variant_builder_init (&builder, G_VARIANT_TYPE_TUPLE);
 
@@ -2976,13 +3066,26 @@ launch_uris_with_dbus (GDesktopAppInfo    *info,
       g_variant_builder_close (&builder);
     }
 
-  g_variant_builder_add_value (&builder, g_desktop_app_info_make_platform_data (info, uris, launch_context));
+  platform_data = g_desktop_app_info_make_platform_data (info, uris, launch_context);
 
+  g_variant_builder_add_value (&builder, platform_data);
   object_path = object_path_from_appid (info->app_id);
+
+  data = g_new0 (LaunchUrisWithDBusData, 1);
+  data->info = g_object_ref (info);
+  data->callback = callback;
+  data->user_data = user_data;
+  data->launch_context = launch_context ? g_object_ref (launch_context) : NULL;
+  g_variant_dict_init (&dict, platform_data);
+  g_variant_dict_lookup (&dict, "desktop-startup-id", "s", &data->startup_id);
+
+  if (launch_context)
+    emit_launch_started (launch_context, info, data->startup_id);
+
   g_dbus_connection_call (session_bus, info->app_id, object_path, "org.freedesktop.Application",
                           uris ? "Open" : "Activate", g_variant_builder_end (&builder),
                           NULL, G_DBUS_CALL_FLAGS_NONE, -1,
-                          cancellable, callback, user_data);
+                          cancellable, launch_uris_with_dbus_signal_cb, g_steal_pointer (&data));
   g_free (object_path);
 }
 
@@ -3435,6 +3538,8 @@ ensure_dir (DirType   type,
       g_assert_not_reached ();
     }
 
+  g_debug ("%s: Ensuring %s", G_STRFUNC, path);
+
   errno = 0;
   if (g_mkdir_with_parents (path, 0700) == 0)
     return path;
@@ -3728,7 +3833,7 @@ update_program_done (GPid     pid,
                      gpointer data)
 {
   /* Did the application exit correctly */
-  if (g_spawn_check_exit_status (status, NULL))
+  if (g_spawn_check_wait_status (status, NULL))
     {
       /* Here we could clean out any caches in use */
     }

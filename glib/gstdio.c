@@ -313,9 +313,7 @@ _g_win32_fill_statbuf_from_handle_info (const wchar_t                    *filena
 static void
 _g_win32_fill_privatestat (const struct __stat64            *statbuf,
                            const BY_HANDLE_FILE_INFORMATION *handle_info,
-#if _WIN32_WINNT >= 0x0600
                            const FILE_STANDARD_INFO         *std_info,
-#endif
                            DWORD                             reparse_tag,
                            GWin32PrivateStat                *buf)
 {
@@ -327,11 +325,7 @@ _g_win32_fill_privatestat (const struct __stat64            *statbuf,
   buf->attributes = handle_info->dwFileAttributes;
   buf->st_nlink = handle_info->nNumberOfLinks;
   buf->st_size = (((guint64) handle_info->nFileSizeHigh) << 32) | handle_info->nFileSizeLow;
-#if _WIN32_WINNT >= 0x0600
   buf->allocated_size = std_info->AllocationSize.QuadPart;
-#else
-  buf->allocated_size = buf->st_size;
-#endif
 
   buf->reparse_tag = reparse_tag;
 
@@ -378,7 +372,7 @@ _g_win32_readlink_handle_raw (HANDLE      h,
 {
   DWORD error_code;
   DWORD returned_bytes = 0;
-  BYTE *data;
+  BYTE *data = NULL;
   gsize to_copy;
   /* This is 16k. It's impossible to make DeviceIoControl() tell us
    * the required size. NtFsControlFile() does have such a feature,
@@ -587,9 +581,7 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
 {
   struct __stat64 statbuf;
   BY_HANDLE_FILE_INFORMATION handle_info;
-#if _WIN32_WINNT >= 0x0600
   FILE_STANDARD_INFO std_info;
-#endif
   gboolean is_symlink = FALSE;
   wchar_t *filename_target = NULL;
   DWORD immediate_attributes;
@@ -638,7 +630,6 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
                                                  &handle_info);
   error_code = GetLastError ();
 
-#if _WIN32_WINNT >= 0x0600
   if (succeeded_so_far)
     {
       succeeded_so_far = GetFileInformationByHandleEx (file_handle,
@@ -647,7 +638,6 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
                                                        sizeof (std_info));
       error_code = GetLastError ();
     }
-#endif
 
   if (!succeeded_so_far)
     {
@@ -683,9 +673,7 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
   g_free (filename_target);
   _g_win32_fill_privatestat (&statbuf,
                              &handle_info,
-#if _WIN32_WINNT >= 0x0600
                              &std_info,
-#endif
                              reparse_tag,
                              buf);
 
@@ -702,9 +690,7 @@ _g_win32_stat_fd (int                 fd,
   DWORD error_code;
   struct __stat64 statbuf;
   BY_HANDLE_FILE_INFORMATION handle_info;
-#if _WIN32_WINNT >= 0x0600
   FILE_STANDARD_INFO std_info;
-#endif
   DWORD reparse_tag = 0;
   gboolean is_symlink = FALSE;
 
@@ -717,7 +703,6 @@ _g_win32_stat_fd (int                 fd,
                                                  &handle_info);
   error_code = GetLastError ();
 
-#if _WIN32_WINNT >= 0x0600
   if (succeeded_so_far)
     {
       succeeded_so_far = GetFileInformationByHandleEx (file_handle,
@@ -726,7 +711,6 @@ _g_win32_stat_fd (int                 fd,
                                                        sizeof (std_info));
       error_code = GetLastError ();
     }
-#endif
 
   if (!succeeded_so_far)
     {
@@ -745,9 +729,7 @@ _g_win32_stat_fd (int                 fd,
 
   _g_win32_fill_privatestat (&statbuf,
                              &handle_info,
-#if _WIN32_WINNT >= 0x0600
                              &std_info,
-#endif
                              reparse_tag,
                              buf);
 
@@ -778,7 +760,7 @@ _g_win32_stat_utf8 (const gchar       *filename,
     len--;
 
   if (len <= 0 ||
-      (g_path_is_absolute (filename) && len <= g_path_skip_root (filename) - filename))
+      (g_path_is_absolute (filename) && len <= (gsize) (g_path_skip_root (filename) - filename)))
     len = strlen (filename);
 
   wfilename = g_utf8_to_utf16 (filename, len, NULL, NULL, NULL);
@@ -911,7 +893,7 @@ g_win32_readlink_utf8 (const gchar  *filename,
       return tmp_len;
     }
 
-  if (tmp_len > buf_size)
+  if ((gsize) tmp_len > buf_size)
     tmp_len = buf_size;
 
   memcpy (buf, tmp, tmp_len);

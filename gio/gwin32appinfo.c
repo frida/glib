@@ -49,8 +49,6 @@
 #include "giowin32-priv.h"
 #include "glib-private.h"
 
-#if _WIN32_WINNT >= 0x0600
-
 /* We need to watch 8 places:
  * 0) HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations
  *    (anything below that key)
@@ -985,7 +983,10 @@ get_verbs (GWin32RegistryKey  *program_id_key,
                                                  name,
                                                  NULL);
 
-      g_assert (subkey != NULL);
+      /* We may not have the required access rights to open the child key */
+      if (subkey == NULL)
+        continue;
+
       /* The key we're looking at is "<some_root>/Shell/<this_key>",
        * where "Shell" is verbshell_prefix.
        * If it has a value named 'Subcommands' (doesn't matter what its data is),
@@ -1631,6 +1632,7 @@ process_uwp_verbs (GList                    *verbs,
           continue;
         }
 
+      acid = NULL;
       got_value = g_win32_registry_key_get_value_w (key,
                                                     g_win32_registry_get_os_dirs_w (),
                                                     TRUE,
@@ -3636,6 +3638,7 @@ grab_registry_string (GWin32RegistryKey  *handler_appkey,
   if (*destination != NULL)
     return;
 
+  value = NULL;
   if (g_win32_registry_key_get_value_w (handler_appkey,
                                         NULL,
                                         TRUE,
@@ -3830,6 +3833,9 @@ update_registry_data (void)
   return;
 }
 
+static void
+watch_keys (void);
+
 /* This function is called when any of our registry watchers detect
  * changes in the registry.
  */
@@ -3837,6 +3843,7 @@ static void
 keys_updated (GWin32RegistryKey  *key,
               gpointer            user_data)
 {
+  watch_keys ();
   /* Indicate the tree as not up-to-date, push a new job for the AppInfo thread */
   g_atomic_int_inc (&gio_win32_appinfo_update_counter);
   /* We don't use the data pointer, but it must be non-NULL */
@@ -4031,7 +4038,6 @@ gio_win32_appinfo_init (gboolean do_wait)
       g_mutex_lock (&gio_win32_appinfo_mutex);
       while (g_atomic_int_get (&gio_win32_appinfo_update_counter) > 0)
         g_cond_wait (&gio_win32_appinfo_cond, &gio_win32_appinfo_mutex);
-      watch_keys ();
       g_mutex_unlock (&gio_win32_appinfo_mutex);
     }
 }
@@ -4850,7 +4856,13 @@ g_win32_app_info_launch_internal (GWin32AppInfo      *info,
           GVariant *platform_data;
 
           g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
-          g_variant_builder_add (&builder, "{sv}", "pid", g_variant_new_int32 ((gint32) pid));
+          /* pid handles are never bigger than 2^24 as per
+           * https://docs.microsoft.com/en-us/windows/win32/sysinfo/kernel-objects,
+           * so truncating to `int32` is valid.
+           * The gsize cast is to silence a compiler warning
+           * about conversion from pointer to integer of
+           * different size. */
+          g_variant_builder_add (&builder, "{sv}", "pid", g_variant_new_int32 ((gsize) pid));
 
           platform_data = g_variant_ref_sink (g_variant_builder_end (&builder));
           g_signal_emit_by_name (launch_context, "launched", info, platform_data);
@@ -5453,63 +5465,3 @@ g_app_info_reset_type_associations (const char *content_type)
 {
   /* nothing to do */
 }
-
-#else
-
-void
-gio_win32_appinfo_init (gboolean do_wait)
-{
-}
-
-GAppInfo *
-g_app_info_create_from_commandline (const char           *commandline,
-                                    const char           *application_name,
-                                    GAppInfoCreateFlags   flags,
-                                    GError              **error)
-{
-  return NULL;
-}
-
-GAppInfo *
-g_app_info_get_default_for_uri_scheme (const char *uri_scheme)
-{
-  return NULL;
-}
-
-GAppInfo *
-g_app_info_get_default_for_type (const char *content_type,
-                                 gboolean    must_support_uris)
-{
-  return NULL;
-}
-
-GList *
-g_app_info_get_all (void)
-{
-  return NULL;
-}
-
-GList *
-g_app_info_get_all_for_type (const char *content_type)
-{
-  return NULL;
-}
-
-GList *
-g_app_info_get_fallback_for_type (const gchar *content_type)
-{
-  return NULL;
-}
-
-GList *
-g_app_info_get_recommended_for_type (const gchar *content_type)
-{
-  return NULL;
-}
-
-void
-g_app_info_reset_type_associations (const char *content_type)
-{
-}
-
-#endif

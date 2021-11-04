@@ -49,24 +49,6 @@
 #define MOVE_PAIR_DELAY      (10 * G_TIME_SPAN_MILLISECOND)
 #define MOVE_PAIR_DISTANCE   (100)
 
-#ifndef HAVE_INOTIFY_INIT1
-# include <sys/syscall.h>
-# ifndef __NR_inotify_init1
-#  if defined (__i386__)
-#   define __NR_inotify_init1 332
-#  elif defined (__x86_64__)
-#   define __NR_inotify_init1 294
-#  else
-#   error Please implement for your architecture
-#  endif
-# endif
-# ifndef IN_CLOEXEC
-#  define IN_CLOEXEC 0x80000
-# endif
-# define inotify_init1 ik_try_inotify_init1
-static int ik_try_inotify_init1 (int flags);
-#endif
-
 /* We use the lock from inotify-helper.c
  *
  * We only have to take it on our read callback.
@@ -399,7 +381,7 @@ ik_source_new (gboolean (* callback) (ik_event_t *event))
   source = g_source_new (&source_funcs, sizeof (InotifyKernelSource));
   iks = (InotifyKernelSource *) source;
 
-  g_source_set_name (source, "inotify kernel source");
+  g_source_set_static_name (source, "inotify kernel source");
 
   iks->unmatched_moves = g_hash_table_new (NULL, NULL);
   iks->fd = inotify_init1 (IN_CLOEXEC);
@@ -474,13 +456,3 @@ _ik_ignore (const char *path,
 
   return 0;
 }
-
-#ifndef HAVE_INOTIFY_INIT1
-
-static int
-ik_try_inotify_init1 (int flags)
-{
-  return syscall (__NR_inotify_init1, flags);
-}
-
-#endif

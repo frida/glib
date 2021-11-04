@@ -19,16 +19,6 @@
  * be used for encoding validation purpose.
  */
 
-/* Use GLib memory allocation */
-#include "gmem.h"
-
-#undef malloc
-#undef calloc
-#undef free
-#define malloc  g_malloc
-#define calloc  g_malloc0_n
-#define free    g_free
-
 /* for WC_NO_BEST_FIT_CHARS */
 #ifndef WINVER
 # define WINVER 0x0500
@@ -1690,7 +1680,7 @@ utf32_wctomb(csconv_t *cv, ushort *wbuf, int wbufsize, uchar *buf, int bufsize)
  * Use MLang instead.
  */
 
-#define ISO2022_MODE(cs, shift) (((cs) << 8) | (shift))
+#define ISO2022_MODE(cs, shift) ((((DWORD) cs) << 8) | (shift))
 #define ISO2022_MODE_CS(mode) (((mode) >> 8) & 0xFF)
 #define ISO2022_MODE_SHIFT(mode) ((mode) & 0xFF)
 

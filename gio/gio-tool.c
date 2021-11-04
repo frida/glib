@@ -258,8 +258,6 @@ main (int argc, char **argv)
   gchar *localedir;
 #endif
 
-  glib_init ();
-
   setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
   textdomain (GETTEXT_PACKAGE);
 

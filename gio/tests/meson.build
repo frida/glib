@@ -75,6 +75,7 @@ gio_tests = {
   'network-monitor-race' : {},
   'permission' : {},
   'pollable' : {'dependencies' : [libdl_dep]},
+  'power-profile-monitor' : {},
   'proxy-test' : {},
   'readwrite' : {},
   'simple-async-result' : {},
@@ -93,17 +94,10 @@ gio_tests = {
   'tls-certificate' : {'extra_sources' : ['gtesttlsbackend.c']},
   'tls-interaction' : {'extra_sources' : ['gtesttlsbackend.c']},
   'tls-database' : {'extra_sources' : ['gtesttlsbackend.c']},
+  'tls-bindings' : {'extra_sources' : ['gtesttlsbackend.c']},
   'gdbus-address-get-session' : {},
   'win32-appinfo' : {},
 }
-
-# FIXME: These sometimes can’t be killed on the Windows CI machines, and cause
-# all subsequent CI runs on Windows to fail. See #2297.
-if host_machine.system() != 'windows'
-  gio_tests += {
-    'tls-bindings' : {'extra_sources' : ['gtesttlsbackend.c']}
-  }
-endif
 
 test_extra_programs = {
   'gdbus-connection-flush-helper' : {},
@@ -547,27 +541,29 @@ if installed_tests_enabled
   install_subdir('static-link', install_dir : installed_tests_execdir)
   install_data('static-link.py', install_dir : installed_tests_execdir)
 
-  memory_monitor_tests = [
+  monitor_tests = [
     'memory-monitor-dbus',
     'memory-monitor-portal',
+    'power-profile-monitor-dbus',
+    'power-profile-monitor-portal'
   ]
 
-  foreach memory_monitor_test : memory_monitor_tests
+  foreach monitor_test : monitor_tests
     cdata = configuration_data()
     cdata.set('installed_tests_dir', installed_tests_execdir)
-    cdata.set('program', memory_monitor_test + '.py')
+    cdata.set('program', monitor_test + '.py')
     cdata.set('env', '')
     configure_file(
       input: installed_tests_template_tap,
-      output: memory_monitor_test + '.test',
+      output: monitor_test + '.test',
       install_dir: installed_tests_metadir,
       configuration: cdata
     )
     cdata = configuration_data()
     cdata.set('libexecdir', join_paths(glib_prefix, get_option('libexecdir')))
     configure_file(
-      input: memory_monitor_test + '.py.in',
-      output: memory_monitor_test + '.py',
+      input: monitor_test + '.py.in',
+      output: monitor_test + '.py',
       install_dir : installed_tests_execdir,
       configuration: cdata,
     )
@@ -682,10 +678,8 @@ if not meson.is_cross_build() or meson.has_exe_wrapper()
   ]
 
   # Create object file containing resource data for testing the --external-data
-  # option. Currently only GNU ld and GNU objcopy support the right options.
-  # Support for --add-symbol was added to LLVM objcopy in 2019
-  # (https://reviews.llvm.org/D58234). FIXME: This test could be enabled for
-  # LLVM once that support is in a stable release.
+  # option. Currently only GNU ld and objcopy, or (as of 2019) LLVM ld and
+  # objcopy, support the right options.
   objcopy_supports_add_symbol = false
   objcopy = find_program('objcopy', required : false)
   if objcopy.found()
@@ -694,7 +688,7 @@ if not meson.is_cross_build() or meson.has_exe_wrapper()
 
   ld = find_program('ld', required : false)
 
-  if build_machine.system() == 'linux' and cc.get_id() == 'gcc' and objcopy.found() and objcopy_supports_add_symbol and ld.found()
+  if build_machine.system() == 'linux' and objcopy.found() and objcopy_supports_add_symbol and ld.found()
     test_gresource_binary = custom_target('test5.gresource',
       input : 'test5.gresource.xml',
       output : 'test5.gresource',

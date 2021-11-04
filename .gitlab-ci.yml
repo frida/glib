@@ -10,11 +10,11 @@ cache:
     - _ccache/
 
 variables:
-  FEDORA_IMAGE: "registry.gitlab.gnome.org/gnome/glib/fedora:v10"
-  COVERITY_IMAGE: "registry.gitlab.gnome.org/gnome/glib/coverity:v1"
-  DEBIAN_IMAGE: "registry.gitlab.gnome.org/gnome/glib/debian-stable:v7"
-  ANDROID_IMAGE: "registry.gitlab.gnome.org/gnome/glib/android-ndk:v3"
-  MINGW_IMAGE: "registry.gitlab.gnome.org/gnome/glib/mingw:v2"
+  FEDORA_IMAGE: "registry.gitlab.gnome.org/gnome/glib/fedora:v12"
+  COVERITY_IMAGE: "registry.gitlab.gnome.org/gnome/glib/coverity:v2"
+  DEBIAN_IMAGE: "registry.gitlab.gnome.org/gnome/glib/debian-stable:v9"
+  ANDROID_IMAGE: "registry.gitlab.gnome.org/gnome/glib/android-ndk:v5"
+  MINGW_IMAGE: "registry.gitlab.gnome.org/gnome/glib/mingw:v4"
   MESON_TEST_TIMEOUT_MULTIPLIER: 2
   G_MESSAGES_DEBUG: all
   MESON_COMMON_OPTIONS_NO_WARNING: "--buildtype debug --wrap-mode=nodownload"
@@ -68,7 +68,7 @@ fedora-x86_64:
     CFLAGS: "-coverage -ftest-coverage -fprofile-arcs"
   script:
     # FIXME: Cannot use MESON_COMMON_OPTIONS here because meson warns about gtkdoc
-    # feature introduced in 0.52 but we only depends on 0.49. So we cannot build
+    # feature fully functional in 0.54, but we only depend on 0.52. So we cannot build
     # with --fatal-meson-warnings.
     - meson ${MESON_COMMON_OPTIONS_NO_WARNING}
             --werror
@@ -170,7 +170,7 @@ installed-tests:
     # FIXME install newer gobject-introspection
     # with GMemoryMonitor support, see:
     # https://gitlab.gnome.org/GNOME/gobject-introspection/merge_requests/193
-    - git clone --branch master --depth 1 --no-tags https://gitlab.gnome.org/GNOME/gobject-introspection.git
+    - git clone --single-branch --depth 1 --no-tags https://gitlab.gnome.org/GNOME/gobject-introspection.git
     - cd gobject-introspection
     - /usr/bin/meson _build --prefix=/usr --libdir=/usr/lib64
     - ninja -C _build
@@ -270,7 +270,7 @@ cross-android_api21_arm64:
     # FIXME: add --werror
     # We use -Diconv=auto to test that we successfully detect that iconv is not
     # provided by android api 21, and detect the external iconv instead.
-    - meson ${MESON_COMMON_OPTIONS} --cross-file=/opt/cross_file_android_arm64_21.txt -Diconv=auto -Dinternal_pcre=true _build
+    - meson ${MESON_COMMON_OPTIONS} --cross-file=/opt/cross_file_android_arm64_21.txt -Diconv=auto _build
     - ninja -C _build
 
 cross-android_api28_arm64:
@@ -278,7 +278,7 @@ cross-android_api28_arm64:
   image: $ANDROID_IMAGE
   script:
     # FIXME: add --werror
-    - meson ${MESON_COMMON_OPTIONS} --cross-file=/opt/cross_file_android_arm64_28.txt -Dinternal_pcre=true _build
+    - meson ${MESON_COMMON_OPTIONS} --cross-file=/opt/cross_file_android_arm64_28.txt _build
     - ninja -C _build
 
 cross-mingw64:
@@ -288,6 +288,19 @@ cross-mingw64:
     # FIXME: Add --werror
     - meson ${MESON_COMMON_OPTIONS} --cross-file=/opt/cross_file_mingw64.txt _build
     - ninja -C _build
+  artifacts:
+    reports:
+      junit: "_build/${env:CI_JOB_NAME}-report.xml"
+    name: "glib-${env:CI_JOB_NAME}-${env:CI_COMMIT_REF_NAME}"
+    when: always
+    paths:
+      - _build/meson-logs
+      - "_build/${env:CI_JOB_NAME}-report.xml"
+      - _build/glib/libglib-2.0-0.dll
+      - _build/gio/libgio-2.0-0.dll
+      - _build/gmodule/libgmodule-2.0-0.dll
+      - _build/gthread/libgthread-2.0-0.dll
+      - _build/gobject/libgobject-2.0-0.dll
 
 msys2-mingw32:
   extends: .only-default
@@ -328,8 +341,13 @@ vs2017-x64:
     paths:
       - _build/meson-logs
       - "_build/${env:CI_JOB_NAME}-report.xml"
+      - _build/glib/libglib-2.0-0.dll
+      - _build/gio/libgio-2.0-0.dll
+      - _build/gmodule/libgmodule-2.0-0.dll
+      - _build/gthread/libgthread-2.0-0.dll
+      - _build/gobject/libgobject-2.0-0.dll
 
-freebsd-11-x86_64:
+freebsd-12-x86_64:
   stage: build
   only:
     - branches@GNOME/glib
@@ -338,7 +356,7 @@ freebsd-11-x86_64:
     # gitlab-runner and dbus service because we need /var/lib/dbus/machine-id.
     # To compile GLib, you still have to install the following packages:
     # desktop-file-utils gettext libiconv meson pkgconf python3 shared-mime-info
-    - freebsd-11
+    - freebsd-12
   needs: []
   variables:
     # CPPFLAGS is required because libintl doesn't use pkg-config.
@@ -348,8 +366,8 @@ freebsd-11-x86_64:
     # https://github.com/mesonbuild/meson/issues/1635
     # https://github.com/mesonbuild/meson/issues/2881
     LDFLAGS: -L/usr/local/lib -Wl,--disable-new-dtags
-    # FreeBSD doesn't have C.UTF-8 locale.
-    LANG: en_US.UTF-8
+    # FreeBSD supports C.UTF-8 locale since 12.1.
+    LANG: C.UTF-8
   before_script:
     - bash .gitlab-ci/show-execution-environment.sh
   script:
@@ -361,6 +379,8 @@ freebsd-11-x86_64:
     - meson ${MESON_COMMON_OPTIONS} --localstatedir=/var -Db_lundef=false -Diconv=external -Dxattr=false _build
     - ninja -C _build
     - bash -x ./.gitlab-ci/run-tests.sh
+  except:
+    - tags
   artifacts:
     reports:
       junit: "_build/${CI_JOB_NAME}-report.xml"
@@ -372,17 +392,17 @@ freebsd-11-x86_64:
       - "_build/meson-logs"
       - "_build/${CI_JOB_NAME}-report.xml"
 
-freebsd-12-x86_64:
+freebsd-13-x86_64:
   stage: build
   only:
     - branches@GNOME/glib
   tags:
-    - freebsd-12
+    - freebsd-13
   needs: []
   variables:
     CPPFLAGS: -I/usr/local/include
     LDFLAGS: -L/usr/local/lib -Wl,--disable-new-dtags
-    LANG: en_US.UTF-8
+    LANG: C.UTF-8
   before_script:
     - bash .gitlab-ci/show-execution-environment.sh
   script:
@@ -412,7 +432,7 @@ macos:
   needs: []
   before_script:
     - bash .gitlab-ci/show-execution-environment.sh
-    - pip3 install --user meson==0.49.2
+    - pip3 install --user meson==0.52.0
     - pip3 install --user ninja
     - export PATH=/Users/gitlabrunner/Library/Python/3.7/bin:$PATH
   script:
@@ -513,7 +533,7 @@ coverity:
 pages:
   stage: deploy
   only:
-    - master
+    - main
   needs: ['coverage', 'style-check-diff']
   script:
     - mv _coverage/ public/
@@ -527,8 +547,9 @@ dist-job:
   only:
     - tags
   script:
-    # FIXME: Cannot use --fatal-meson-warnings here because meson warns about gtkdoc
-    # feature introduced in 0.52 but we only depends on 0.49.
+    # FIXME: Cannot use MESON_COMMON_OPTIONS here because meson warns about gtkdoc
+    # feature fully functional in 0.54, but we only depend on 0.52. So we cannot build
+    # with --fatal-meson-warnings.
     - meson ${MESON_COMMON_OPTIONS_NO_WARNING} --buildtype release -Dgtk_doc=true -Dman=true _build
     - cd _build
     - ninja dist
