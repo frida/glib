@@ -18,7 +18,8 @@
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
+#ifndef __G_RCBOX_H__
+#define __G_RCBOX_H__
 
 #if !defined (__GLIB_H_INSIDE__) && !defined (GLIB_COMPILATION)
 #error "Only <glib.h> can be included directly."
@@ -89,3 +90,5 @@ gsize           g_atomic_rc_box_get_size        (gpointer        mem_block);
 #endif
 
 G_END_DECLS
+
+#endif /* __G_RCBOX_H__ */
