@@ -40,6 +40,8 @@
 #   define __NR_pipe2 331
 #  elif defined (__x86_64__)
 #   define __NR_pipe2 293
+#  elif defined (__arm__)
+#   define __NR_pipe2 (__NR_SYSCALL_BASE + 359)
 #  else
 #   error Please implement for your architecture
 #  endif

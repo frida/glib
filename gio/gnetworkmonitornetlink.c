@@ -36,6 +36,7 @@
 
 /* must come at the end to pick system includes from
  * gnetworkingprivate.h */
+#include <asm/types.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 

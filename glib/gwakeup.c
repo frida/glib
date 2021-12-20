@@ -122,6 +122,8 @@ g_wakeup_free (GWakeup *wakeup)
 #   define __NR_eventfd 323
 #  elif defined (__x86_64__)
 #   define __NR_eventfd 284
+#  elif defined (__arm__)
+#   define __NR_eventfd (__NR_SYSCALL_BASE + 351)
 #  else
 #   error Please implement for your architecture
 #  endif

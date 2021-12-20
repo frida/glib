@@ -744,8 +744,6 @@ g_cond_impl_new (void)
 #elif defined (HAVE_PTHREAD_CONDATTR_SETCLOCK) && defined (CLOCK_MONOTONIC)
   if G_UNLIKELY ((status = pthread_condattr_setclock (&attr, CLOCK_MONOTONIC)) != 0)
     g_thread_abort (status, "pthread_condattr_setclock");
-#else
-#error Cannot support GCond on your platform.
 #endif
 
   cond = glib_mem_table->malloc (sizeof (pthread_cond_t));
@@ -999,7 +997,22 @@ g_cond_wait_until (GCond  *cond,
       return TRUE;
   }
 #else
-#error Cannot support GCond on your platform.
+  /* This isn't a great fallback, but if we're targeting a system this old it's
+   * unlikely that our monotonic clock emulation is relied on for a use-case
+   * where it needs to be perfect.
+   */
+  {
+    gint64 remaining, deadline;
+
+    remaining = end_time - g_get_monotonic_time ();
+    deadline = g_get_real_time () + remaining;
+
+    ts.tv_sec = deadline / 1000000;
+    ts.tv_nsec = (deadline % 1000000) * 1000;
+
+    if ((status = pthread_cond_timedwait (g_cond_get_impl (cond), g_mutex_get_impl (mutex), &ts)) == 0)
+      return TRUE;
+  }
 #endif
 
   if G_UNLIKELY (status != ETIMEDOUT)

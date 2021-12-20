@@ -1015,8 +1015,10 @@ g_get_host_name (void)
         else
 #ifdef HOST_NAME_MAX
           size = HOST_NAME_MAX + 1;
-#else
+#elif defined(_POSIX_HOST_NAME_MAX)
           size = _POSIX_HOST_NAME_MAX + 1;
+#else
+          size = 256;
 #endif /* HOST_NAME_MAX */
       }
 #else
