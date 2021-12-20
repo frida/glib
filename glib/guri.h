@@ -16,7 +16,8 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
+#ifndef __G_URI_H__
+#define __G_URI_H__
 
 #if !defined (__GLIB_H_INSIDE__) && !defined (GLIB_COMPILATION)
 #error "Only <glib.h> can be included directly."
@@ -416,3 +417,5 @@ char *      g_uri_escape_bytes     (const guint8 *unescaped,
 G_GNUC_END_IGNORE_DEPRECATIONS
 
 G_END_DECLS
+
+#endif /* __G_URI_H__ */
