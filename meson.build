@@ -1581,6 +1581,8 @@ g_sizet_compatibility = {
   'long long': sizet_size == long_long_size,
 }
 
+newline_for_old_gcc_versions = '\n'
+
 # Do separate checks for gcc/clang (and ignore other compilers for now), since
 # we need to explicitly pass -Werror to the compilers.
 # FIXME: https://github.com/mesonbuild/meson/issues/5399
@@ -1594,7 +1596,7 @@ if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
           unsigned ''' + type_name + ''' i = 0;
           f (&i);
           return 0;
-        }''',
+        }''' + newline_for_old_gcc_versions,
         args: ['-Werror'],
         name : 'GCC size_t typedef is ' + type_name), }
   endforeach
