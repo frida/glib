@@ -161,6 +161,8 @@ if host_system == 'windows' and cc.get_id() != 'msvc' and cc.get_id() != 'clang-
   glib_conf.set('_FILE_OFFSET_BITS', 64)
 endif
 
+newline_for_old_gcc_versions = '\n'
+
 # Check for GNU visibility attributes
 g_have_gnuc_visibility = cc.compiles('''
   void
@@ -185,7 +187,7 @@ g_have_gnuc_visibility = cc.compiles('''
     f_default();
     return 0;
   }
-  ''',
+  ''' + newline_for_old_gcc_versions,
   # Not supported by MSVC, but MSVC also won't support visibility,
   # so it's OK to pass -Werror explicitly. Replace with
   # override_options : 'werror=true' once that is supported
@@ -1459,7 +1461,7 @@ if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
           unsigned short i = 0;
           f (&i);
           return 0;
-        }''',
+        }''' + newline_for_old_gcc_versions,
         args: ['-Werror'],
         name : 'GCC size_t typedef is short'),
     'int': g_sizet_compatibility['int'] and cc.compiles(
@@ -1469,7 +1471,7 @@ if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
           unsigned int i = 0;
           f (&i);
           return 0;
-        }''',
+        }''' + newline_for_old_gcc_versions,
         args: ['-Werror'],
         name : 'GCC size_t typedef is int'),
     'long': g_sizet_compatibility['long'] and cc.compiles(
@@ -1479,7 +1481,7 @@ if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
           unsigned long i = 0;
           f (&i);
           return 0;
-        }''',
+        }''' + newline_for_old_gcc_versions,
         args: ['-Werror'],
         name : 'GCC size_t typedef is long'),
     'long long': g_sizet_compatibility['long long'] and cc.compiles(
@@ -1489,7 +1491,7 @@ if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
           unsigned long long i = 0;
           f (&i);
           return 0;
-        }''',
+        }''' + newline_for_old_gcc_versions,
         args: ['-Werror'],
         name : 'GCC size_t typedef is long long'),
   }
