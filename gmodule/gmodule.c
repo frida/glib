@@ -446,6 +446,7 @@ enum
 static void
 _g_module_debug_init (void)
 {
+#ifndef GLIB_DIET
   const GDebugKey keys[] = {
     { "resident-modules", G_MODULE_DEBUG_RESIDENT_MODULES },
     { "bind-now-modules", G_MODULE_DEBUG_BIND_NOW_MODULES }
@@ -456,6 +457,7 @@ _g_module_debug_init (void)
 
   module_debug_flags =
     !env ? 0 : g_parse_debug_string (env, keys, G_N_ELEMENTS (keys));
+#endif
 
   module_debug_initialized = TRUE;
 }

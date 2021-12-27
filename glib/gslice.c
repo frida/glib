@@ -183,6 +183,8 @@
  *     external and internal fragmentation (<= 12.5%). [Bonwick94]
  */
 
+#ifndef GLIB_DIET
+
 /* --- macros and constants --- */
 #define LARGEALIGNMENT          (256)
 #define P2ALIGNMENT             (2 * sizeof (gsize))                            /* fits 2 pointers (assumed to be 2 * GLIB_SIZEOF_SIZE_T below) */
@@ -917,6 +919,15 @@ thread_memory_magazine2_free (ThreadMemory *tmem,
   mag->count++;
 }
 
+#else
+
+void
+_g_slice_deinit (void)
+{
+}
+
+#endif
+
 /* --- API functions --- */
 
 /**
@@ -1051,6 +1062,7 @@ thread_memory_magazine2_free (ThreadMemory *tmem,
 gpointer
 g_slice_alloc (gsize mem_size)
 {
+#ifndef GLIB_DIET
   ThreadMemory *tmem;
   gsize chunk_size;
   gpointer mem;
@@ -1091,6 +1103,9 @@ g_slice_alloc (gsize mem_size)
   TRACE (GLIB_SLICE_ALLOC((void*)mem, mem_size));
 
   return mem;
+#else
+  return g_malloc (mem_size);
+#endif
 }
 
 /**
@@ -1162,6 +1177,7 @@ void
 g_slice_free1 (gsize    mem_size,
                gpointer mem_block)
 {
+#ifndef GLIB_DIET
   gsize chunk_size = P2ALIGN (mem_size);
   guint acat = allocator_categorize (chunk_size);
   if (G_UNLIKELY (!mem_block))
@@ -1198,6 +1214,9 @@ g_slice_free1 (gsize    mem_size,
       g_free (mem_block);
     }
   TRACE (GLIB_SLICE_FREE((void*)mem_block, mem_size));
+#else
+  g_free (mem_block);
+#endif
 }
 
 /**
@@ -1226,6 +1245,7 @@ g_slice_free_chain_with_offset (gsize    mem_size,
                                 gsize    next_offset)
 {
   gpointer slice = mem_chain;
+#ifndef GLIB_DIET
   /* while the thread magazines and the magazine cache are implemented so that
    * they can easily be extended to allow for free lists containing more free
    * lists for the first level nodes, which would allow O(1) freeing in this
@@ -1293,7 +1313,17 @@ g_slice_free_chain_with_offset (gsize    mem_size,
           memset (current, 0, mem_size);
         g_free (current);
       }
+#else
+  while (slice)
+    {
+      guint8 *current = slice;
+      slice = *(gpointer*) (current + next_offset);
+      g_free (current);
+    }
+#endif
 }
+
+#ifndef GLIB_DIET
 
 /* --- single page allocator --- */
 static void
@@ -1760,6 +1790,8 @@ smc_tree_remove (SmcKType key)
   g_mutex_unlock (&smc_tree_mutex);
   return found_one;
 }
+
+#endif
 
 #ifdef G_ENABLE_DEBUG
 void

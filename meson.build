@@ -2360,6 +2360,10 @@ if host_system != 'windows'
     install_dir : join_paths(get_option('datadir'), 'glib-2.0', 'valgrind'))
 endif
 
+if get_option('diet')
+  glib_conf.set('GLIB_DIET', 1)
+endif
+
 configure_file(output : 'config.h', configuration : glib_conf)
 
 if host_system == 'windows'

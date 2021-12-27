@@ -656,6 +656,7 @@ format_error_message (const gchar  *filename,
                       const gchar  *format_string,
                       int           saved_errno)
 {
+#ifndef GLIB_DIET
   gchar *display_name;
   gchar *msg;
 
@@ -664,6 +665,9 @@ format_error_message (const gchar  *filename,
   g_free (display_name);
 
   return msg;
+#else
+  return g_strdup_printf (format_string, "<omitted>", g_strerror (saved_errno));
+#endif
 }
 
 #pragma GCC diagnostic pop
@@ -699,7 +703,9 @@ get_contents_stdio (const gchar  *filename,
   gsize total_bytes = 0;
   gsize total_allocated = 0;
   gchar *tmp;
+#ifndef GLIB_DIET
   gchar *display_filename;
+#endif
 
   g_assert (f != NULL);
 
@@ -731,6 +737,7 @@ get_contents_stdio (const gchar  *filename,
 
           if (tmp == NULL)
             {
+#ifndef GLIB_DIET
               display_filename = g_filename_display_name (filename);
               g_set_error (error,
                            G_FILE_ERROR,
@@ -739,6 +746,13 @@ get_contents_stdio (const gchar  *filename,
                            (gulong) total_allocated,
 			   display_filename);
               g_free (display_filename);
+#else
+              g_set_error (error,
+                           G_FILE_ERROR,
+                           G_FILE_ERROR_NOMEM,
+                           "Could not allocate %lu byte(s) to read file",
+                           (gulong) total_allocated);
+#endif
 
               goto error;
             }
@@ -748,6 +762,7 @@ get_contents_stdio (const gchar  *filename,
 
       if (ferror (f))
         {
+#ifndef GLIB_DIET
           display_filename = g_filename_display_name (filename);
           g_set_error (error,
                        G_FILE_ERROR,
@@ -756,6 +771,13 @@ get_contents_stdio (const gchar  *filename,
                        display_filename,
 		       g_strerror (save_errno));
           g_free (display_filename);
+#else
+          g_set_error (error,
+                       G_FILE_ERROR,
+                       g_file_error_from_errno (save_errno),
+                       "Error reading file: %s",
+                       g_strerror (save_errno));
+#endif
 
           goto error;
         }
@@ -784,6 +806,7 @@ get_contents_stdio (const gchar  *filename,
   return TRUE;
 
  file_too_large:
+#ifndef GLIB_DIET
   display_filename = g_filename_display_name (filename);
   g_set_error (error,
                G_FILE_ERROR,
@@ -791,6 +814,12 @@ get_contents_stdio (const gchar  *filename,
                _("File “%s” is too large"),
                display_filename);
   g_free (display_filename);
+#else
+  g_set_error (error,
+               G_FILE_ERROR,
+               G_FILE_ERROR_FAILED,
+               "File is too large");
+#endif
 
  error:
 
@@ -814,7 +843,9 @@ get_contents_regfile (const gchar  *filename,
   gsize bytes_read;
   gsize size;
   gsize alloc_size;
+#ifndef GLIB_DIET
   gchar *display_filename;
+#endif
   
   size = stat_buf->st_size;
 
@@ -823,6 +854,7 @@ get_contents_regfile (const gchar  *filename,
 
   if (buf == NULL)
     {
+#ifndef GLIB_DIET
       display_filename = g_filename_display_name (filename);
       g_set_error (error,
                    G_FILE_ERROR,
@@ -831,6 +863,13 @@ get_contents_regfile (const gchar  *filename,
                    (gulong) alloc_size, 
 		   display_filename);
       g_free (display_filename);
+#else
+      g_set_error (error,
+                   G_FILE_ERROR,
+                   G_FILE_ERROR_NOMEM,
+                   "Could not allocate %lu byte(s) to read file",
+                   (gulong) alloc_size);
+#endif
       goto error;
     }
   
@@ -848,6 +887,7 @@ get_contents_regfile (const gchar  *filename,
 	      int save_errno = errno;
 
               g_free (buf);
+#ifndef GLIB_DIET
               display_filename = g_filename_display_name (filename);
               g_set_error (error,
                            G_FILE_ERROR,
@@ -856,6 +896,13 @@ get_contents_regfile (const gchar  *filename,
                            display_filename, 
 			   g_strerror (save_errno));
               g_free (display_filename);
+#else
+              g_set_error (error,
+                           G_FILE_ERROR,
+                           g_file_error_from_errno (save_errno),
+                           "Failed to read from file: %s",
+                           g_strerror (save_errno));
+#endif
 	      goto error;
             }
         }

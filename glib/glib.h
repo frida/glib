@@ -123,6 +123,9 @@ GLIB_AVAILABLE_IN_2_68
 void                            glib_init                               (void);
 
 GLIB_AVAILABLE_IN_2_68
+void                            glib_enable_io_features                 (void);
+
+GLIB_AVAILABLE_IN_2_68
 void                            glib_shutdown                           (void);
 
 GLIB_AVAILABLE_IN_2_68

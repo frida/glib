@@ -410,11 +410,15 @@ param_unichar_validate (GParamSpec *pspec,
   gunichar oval = value->data[0].v_uint;
   gboolean changed = FALSE;
 
+#ifndef GLIB_DIET
   if (!g_unichar_validate (oval))
     {
       value->data[0].v_uint = 0;
       changed = TRUE;
     }
+#else
+  g_assert_not_reached ();
+#endif
 
   return changed;
 }
@@ -1123,9 +1127,13 @@ param_variant_finalize (GParamSpec *pspec)
   GParamSpecVariant *vspec = G_PARAM_SPEC_VARIANT (pspec);
   GParamSpecClass *parent_class = g_type_class_peek (g_type_parent (G_TYPE_PARAM_VARIANT));
 
+#ifndef GLIB_DIET
   if (vspec->default_value)
     g_variant_unref (vspec->default_value);
   g_variant_type_free (vspec->type);
+#else
+  g_assert_not_reached ();
+#endif
 
   parent_class->finalize (pspec);
 }
@@ -1145,15 +1153,21 @@ param_variant_validate (GParamSpec *pspec,
   GParamSpecVariant *vspec = G_PARAM_SPEC_VARIANT (pspec);
   GVariant *variant = value->data[0].v_pointer;
 
+#ifndef GLIB_DIET
   if ((variant == NULL && vspec->default_value != NULL) ||
       (variant != NULL && !g_variant_is_of_type (variant, vspec->type)))
     {
       g_param_value_set_default (pspec, value);
       return TRUE;
     }
+#else
+  g_assert_not_reached ();
+#endif
 
   return FALSE;
 }
+
+#ifndef GLIB_DIET
 
 /* g_variant_compare() can only be used with scalar types. */
 static gboolean
@@ -1169,11 +1183,14 @@ variant_is_incomparable (GVariant *v)
           v_class == G_VARIANT_CLASS_DICT_ENTRY);
 }
 
+#endif
+
 static gint
 param_variant_values_cmp (GParamSpec   *pspec,
                           const GValue *value1,
                           const GValue *value2)
 {
+#ifndef GLIB_DIET
   GVariant *v1 = value1->data[0].v_pointer;
   GVariant *v2 = value2->data[0].v_pointer;
 
@@ -1190,6 +1207,9 @@ param_variant_values_cmp (GParamSpec   *pspec,
     return g_variant_equal (v1, v2) ? 0 : (v1 < v2 ? -1 : 1);
 
   return g_variant_compare (v1, v2);
+#else
+  g_assert_not_reached ();
+#endif
 }
 
 /* --- type initialization --- */
