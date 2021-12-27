@@ -118,6 +118,10 @@
 #include "glib-fork.h"
 #include "glib-private.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 /**
  * SECTION:main
  * @title: The Main Event Loop

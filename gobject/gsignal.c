@@ -38,6 +38,10 @@
 #include "genums.h"
 #include "gobject_trace.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 
 /**
  * SECTION:signals

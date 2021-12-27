@@ -41,6 +41,10 @@
 #include "gprintf.h"
 #include "gutilsprivate.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 
 /**
  * SECTION:strings

@@ -37,6 +37,10 @@
 #include "gobject_trace.h"
 #include "gconstructor.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 /**
  * SECTION:objects
  * @title: GObject

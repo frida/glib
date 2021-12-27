@@ -32,6 +32,10 @@
 
 #include <string.h>
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 
 /* GVariantSerialiser
  *

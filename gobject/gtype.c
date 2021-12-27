@@ -44,6 +44,10 @@
 #define	IF_DEBUG(debug_type)	if (_g_type_debug_flags & G_TYPE_DEBUG_ ## debug_type)
 #endif
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 /**
  * SECTION:gtype
  * @short_description: The GLib Runtime type identification and
@@ -130,6 +134,7 @@
 #define G_WRITE_LOCK(rw_lock)   g_rw_lock_writer_lock (rw_lock)
 #define G_WRITE_UNLOCK(rw_lock) g_rw_lock_writer_unlock (rw_lock)
 #endif
+#ifndef G_DISABLE_CHECKS
 #define	INVALID_RECURSION(func, arg, type_name) G_STMT_START{ \
     static const gchar _action[] = " invalidly modified type ";  \
     gpointer _arg = (gpointer) (arg); const gchar *_tname = (type_name), *_fname = (func); \
@@ -138,6 +143,9 @@
     else \
       g_error ("%s()%s'%s'", _fname, _action, _tname); \
 }G_STMT_END
+#else
+#define INVALID_RECURSION(func, arg, type_name)
+#endif
 #define g_assert_type_system_initialized() \
   g_assert (static_quark_type_flags)
 
@@ -690,6 +698,8 @@ type_lookup_prerequisite_L (TypeNode *iface,
   return FALSE;
 }
 
+#ifndef G_DISABLE_CHECKS
+
 static const gchar*
 type_descriptive_name_I (GType type)
 {
@@ -702,6 +712,8 @@ type_descriptive_name_I (GType type)
   else
     return "<invalid>";
 }
+
+#endif
 
 
 /* --- type consistency checks --- */
