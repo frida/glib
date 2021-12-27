@@ -47,6 +47,10 @@
 #include "grefcount.h"
 #include "gutilsprivate.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 #define MIN_ARRAY_SIZE  16
 
 typedef struct _GRealArray  GRealArray;

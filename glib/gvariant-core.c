@@ -36,6 +36,11 @@
 
 #include "glib_trace.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
+
 /*
  * This file includes the structure definition for GVariant and a small
  * set of functions that are allowed to access the structure directly.
