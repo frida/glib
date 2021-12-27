@@ -365,7 +365,7 @@ static gint num_destructors = 0;
   }G_STMT_END
 #define G_XTORS_APPEND(x, f)                     \
   G_STMT_START{                                  \
-  g_assert_cmpint (num_ ## x, <, G_MAX_N_XTORS); \
+  g_assert (num_ ## x < G_MAX_N_XTORS);          \
   x[(num_ ## x)++] = f;                          \
   }G_STMT_END
 
