@@ -2145,6 +2145,7 @@ g_object_thaw_notify (GObject *object)
 static void
 maybe_issue_property_deprecation_warning (const GParamSpec *pspec)
 {
+#ifndef GLIB_DIET
   static GHashTable *already_warned_table;
   static GMutex already_warned_lock;
   gboolean already;
@@ -2176,6 +2177,7 @@ maybe_issue_property_deprecation_warning (const GParamSpec *pspec)
     g_warning ("The property %s:%s is deprecated and shouldn't be used "
                "anymore. It will be removed in a future version.",
                g_type_name (pspec->owner_type), pspec->name);
+#endif
 }
 
 static inline void
