@@ -43,6 +43,10 @@
 #include "gqsort.h"
 #include "grefcount.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 /**
  * SECTION:arrays
  * @title: Arrays

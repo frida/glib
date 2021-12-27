@@ -1352,8 +1352,10 @@ g_strerror (gint errnum)
       if (!g_get_console_charset (NULL))
         {
           msg = g_locale_to_utf8 (msg, -1, NULL, NULL, &error);
+#ifndef G_DISABLE_CHECKS
           if (error)
             g_print ("%s\n", error->message);
+#endif
           g_clear_error (&error);
         }
       else if (msg == (const gchar *)buf)

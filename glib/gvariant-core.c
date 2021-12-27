@@ -31,6 +31,10 @@
 #include <glib/grefcount.h>
 #include <string.h>
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 
 /*
  * This file includes the structure definition for GVariant and a small

@@ -31,6 +31,10 @@
 #include "gvaluearray.h"
 #include "gvaluecollector.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 
 /**
  * SECTION:gboxed

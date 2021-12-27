@@ -61,6 +61,10 @@
 #include "glib_trace.h"
 #include "gtrace-private.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 /**
  * SECTION:threads
  * @title: Threads

@@ -82,6 +82,10 @@
 #define USE_NATIVE_MUTEX
 #endif
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 static pthread_mutex_t g_thread_state_lock;
 static pthread_key_t g_thread_cleanup_key;
 
@@ -127,8 +131,10 @@ static void
 g_thread_abort (gint         status,
                 const gchar *function)
 {
+#ifndef G_DISABLE_CHECKS
   fprintf (stderr, "GLib (gthread-posix.c): Unexpected error from C library during '%s': %s.  Aborting.\n",
            function, strerror (status));
+#endif
   g_abort ();
 }
 

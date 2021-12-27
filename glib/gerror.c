@@ -511,6 +511,10 @@
 #include "gtestutils.h"
 #include "gthread.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 static GRWLock error_domain_global;
 /* error_domain_ht must be accessed with error_domain_global
  * locked.

@@ -68,6 +68,10 @@
 #include "gwin32.h"
 #endif
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 GWakeup *
 g_wakeup_new (void)
 {
@@ -112,6 +116,10 @@ g_wakeup_free (GWakeup *wakeup)
 
 #include "glib-unix.h"
 #include <fcntl.h>
+
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
 
 #if defined (HAVE_EVENTFD)
 #include <sys/eventfd.h>
