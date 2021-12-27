@@ -1354,6 +1354,7 @@ g_strerror (gint errnum)
           msg = g_locale_to_utf8 (msg, -1, NULL, NULL, &error);
           if (error)
             g_print ("%s\n", error->message);
+          g_clear_error (&error);
         }
       else if (msg == (const gchar *)buf)
         msg = g_strdup (buf);
