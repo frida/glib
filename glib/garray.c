@@ -46,6 +46,10 @@
 #include "grefcount.h"
 #include "gutilsprivate.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 /**
  * SECTION:arrays
  * @title: Arrays

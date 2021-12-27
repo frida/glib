@@ -30,6 +30,10 @@
 #include "gbsearcharray.h"
 #include "gtype-private.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 
 /**
  * SECTION:generic_values
