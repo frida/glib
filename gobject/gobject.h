@@ -665,6 +665,7 @@ gsize	    g_object_compat_control	      (gsize	       what,
 					       gpointer	       data);
 
 /* --- implementation macros --- */
+#ifndef G_DISABLE_CHECKS
 #define G_OBJECT_WARN_INVALID_PSPEC(object, pname, property_id, pspec) \
 G_STMT_START { \
   GObject *_glib__object = (GObject*) (object); \
@@ -678,6 +679,12 @@ G_STMT_START { \
              g_type_name (G_PARAM_SPEC_TYPE (_glib__pspec)), \
              G_OBJECT_TYPE_NAME (_glib__object)); \
 } G_STMT_END
+#else
+#define G_OBJECT_WARN_INVALID_PSPEC(object, pname, property_id, pspec) \
+G_STMT_START { \
+  (void) 0; \
+} G_STMT_END
+#endif
 /**
  * G_OBJECT_WARN_INVALID_PROPERTY_ID:
  * @object: the #GObject on which set_property() or get_property() was called

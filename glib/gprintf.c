@@ -28,6 +28,10 @@
 #include "gprintfint.h"
 #include "gprintprivate.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 
 /**
  * g_printf:

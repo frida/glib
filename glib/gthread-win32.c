@@ -55,12 +55,18 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 static void
 g_thread_abort (gint         status,
                 const gchar *function)
 {
+#ifndef G_DISABLE_CHECKS
   fprintf (stderr, "GLib (gthread-win32.c): Unexpected error from C library during '%s': %s.  Aborting.\n",
            strerror (status), function);
+#endif
   g_abort ();
 }
 

@@ -61,6 +61,10 @@
 #include "gthread.h"
 #include "glib_trace.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 /* notes on macros:
  * having G_DISABLE_CHECKS defined disables use of glib_mem_profiler_table and
  * g_mem_profile().

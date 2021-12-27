@@ -72,6 +72,10 @@
 #include "glib_trace.h"
 #include "gtrace-private.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 /* In order that the API can be defined in one place (this file), the platform
  * specific code is moved out into separate files so this one doesn’t turn into
  * a massive #ifdef tangle.

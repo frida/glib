@@ -33,6 +33,10 @@
 #include "gvaluearray.h"
 #include "gvaluecollector.h"
 
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 static inline void              /* keep this function in sync with gvalue.c */
 value_meminit (GValue *value,
 	       GType   value_type)

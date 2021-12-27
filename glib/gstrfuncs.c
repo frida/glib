@@ -1349,7 +1349,9 @@ g_strerror (gint errnum)
           msg = g_locale_to_utf8 (msg, -1, NULL, NULL, &error);
           if (error)
             {
+#ifndef G_DISABLE_CHECKS
               g_print ("%s\n", error->message);
+#endif
               g_error_free (error);
             }
         }
