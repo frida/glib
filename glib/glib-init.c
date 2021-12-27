@@ -226,7 +226,9 @@ typedef struct Foo Foo;
  * This variable is %TRUE if the `G_DEBUG` environment variable
  * includes the key `gc-friendly`.
  */
+#ifndef GLIB_DIET
 gboolean g_mem_gc_friendly = FALSE;
+#endif
 
 GLogLevelFlags g_log_msg_prefix = G_LOG_LEVEL_ERROR | G_LOG_LEVEL_WARNING |
                                   G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_DEBUG;
@@ -349,6 +351,8 @@ g_parse_debug_string  (const gchar     *string,
   return result;
 }
 
+#ifndef GLIB_DIET
+
 static guint
 g_parse_debug_envvar (const gchar     *envvar,
                       const GDebugKey *keys,
@@ -375,9 +379,12 @@ g_parse_debug_envvar (const gchar     *envvar,
   return g_parse_debug_string (value, keys, n_keys);
 }
 
+#endif
+
 static void
 g_messages_prefixed_init (void)
 {
+#ifndef GLIB_DIET
   const GDebugKey keys[] = {
     { "error", G_LOG_LEVEL_ERROR },
     { "critical", G_LOG_LEVEL_CRITICAL },
@@ -388,11 +395,13 @@ g_messages_prefixed_init (void)
   };
 
   g_log_msg_prefix = g_parse_debug_envvar ("G_MESSAGES_PREFIXED", keys, G_N_ELEMENTS (keys), g_log_msg_prefix);
+#endif
 }
 
 static void
 g_debug_init (void)
 {
+#ifndef GLIB_DIET
   const GDebugKey keys[] = {
     { "gc-friendly", 1 },
     {"fatal-warnings",  G_LOG_LEVEL_WARNING | G_LOG_LEVEL_CRITICAL },
@@ -405,6 +414,7 @@ g_debug_init (void)
   g_log_always_fatal |= flags & G_LOG_LEVEL_MASK;
 
   g_mem_gc_friendly = flags & 1;
+#endif
 }
 
 static void

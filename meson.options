@@ -1,3 +1,9 @@
+option('diet',
+       type : 'boolean',
+       value : false,
+       yield : true,
+       description : 'optimize for minimal footprint by disabling features rarely used')
+
 option('runtime_libdir',
        type : 'string',
        value : '',
