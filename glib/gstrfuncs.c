@@ -1338,7 +1338,9 @@ g_strerror (gint errnum)
   if (!msg)
     {
       gchar buf[1024];
+#ifndef GLIB_DIET
       GError *error = NULL;
+#endif
 #if defined(HAVE_STRERROR_R) && !defined(STRERROR_R_CHAR_P)
       int ret;
 #endif
@@ -1368,6 +1370,7 @@ g_strerror (gint errnum)
           return NULL;
         }
 
+#ifndef GLIB_DIET
       if (!g_get_console_charset (NULL))
         {
           msg = g_locale_to_utf8 (msg, -1, NULL, NULL, &error);
@@ -1379,6 +1382,10 @@ g_strerror (gint errnum)
         }
       else if (msg == (const gchar *)buf)
         msg = g_strdup (buf);
+#else
+      g_assert (msg == (const gchar *)buf);
+      msg = g_strdup (buf);
+#endif
 
       g_hash_table_insert (errors, GINT_TO_POINTER (errnum), (char *) msg);
     }
