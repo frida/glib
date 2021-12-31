@@ -912,7 +912,15 @@ have_good_vsnprintf = false
 have_good_snprintf = false
 have_good_printf = false
 
-if get_option('default_library') == 'static'
+printf_preference = get_option('printf')
+if printf_preference == 'auto'
+  if get_option('diet')
+    printf_preference = 'system'
+  else
+    printf_preference = (get_option('default_library') == 'static') ? 'internal' : 'system'
+  endif
+endif
+if printf_preference == 'internal'
   glib_conf.set('HAVE_C99_SNPRINTF', false)
   glib_conf.set('HAVE_C99_VSNPRINTF', false)
   glib_conf.set('HAVE_UNIX98_PRINTF', false)
