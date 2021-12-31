@@ -20,7 +20,12 @@ libsysprof_capture_dep = dependency('sysprof-capture-4', version: '>= 3.38.0',
 )
 glib_conf.set('HAVE_SYSPROF', libsysprof_capture_dep.found())
 
-if true
+if use_system_printf
+  gnulib_lib = []
+  gnulib_libm_dependency = []
+  glib_conf.set ('gl_unused', '')
+  glib_conf.set ('gl_extern_inline', '')
+else
   subdir ('gnulib/gl_extern_inline')
   subdir ('gnulib/gl_cv_long_double_equals_double')
   subdir ('gnulib/gl_cv_cc_double_expbit0')
