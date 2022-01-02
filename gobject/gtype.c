@@ -4442,7 +4442,9 @@ static void
 gobject_perform_init (void)
 {
   static gboolean initialized = FALSE;
+#ifdef G_ENABLE_DEBUG
   const gchar *env_string;
+#endif
   GTypeInfo info;
   TypeNode *node;
   GType type G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
@@ -4458,6 +4460,7 @@ gobject_perform_init (void)
 
   G_WRITE_LOCK (&type_rw_lock);
 
+#ifdef G_ENABLE_DEBUG
   /* setup GObject library wide debugging flags */
   env_string = g_getenv ("GOBJECT_DEBUG");
   if (env_string != NULL)
@@ -4470,6 +4473,7 @@ gobject_perform_init (void)
 
       _g_type_debug_flags = g_parse_debug_string (env_string, debug_keys, G_N_ELEMENTS (debug_keys));
     }
+#endif
 
   /* quarks */
   static_quark_type_flags = g_quark_from_static_string ("-g-type-private--GTypeFlags");
