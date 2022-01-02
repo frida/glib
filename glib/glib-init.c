@@ -345,7 +345,6 @@ glib_perform_init (void)
   g_messages_prefixed_init ();
   g_debug_init ();
   g_quark_init ();
-  g_error_init ();
 #ifdef G_OS_WIN32
   _g_console_win32_init ();
 #endif
