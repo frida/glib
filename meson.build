@@ -2028,8 +2028,6 @@ if not libz_dep.found()
 endif
 
 if get_option('default_library') == 'static'
-  subdir('proxy-libintl-static')
-  libintl_deps = [intl_dep]
   have_bind_textdomain_codeset = true
 else
   # First check in libc, fallback to libintl, and as last chance build
@@ -2327,6 +2325,10 @@ test_timeout_slow = 180
 
 pkg = import('pkgconfig')
 windows = import('windows')
+if get_option('default_library') == 'static'
+  subdir('proxy-libintl-static')
+  libintl_deps = [intl_dep]
+endif
 subdir('glib')
 subdir('gobject')
 subdir('gthread')
