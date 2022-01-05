@@ -820,6 +820,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
 #endif
 
 #ifdef G_OS_WIN32
+#if 0
 
 /* This function looks up two environment
  * variables, G_WIN32_ALLOC_CONSOLE and G_WIN32_ATTACH_CONSOLE.
@@ -1316,4 +1317,5 @@ _g_crash_handler_win32_deinit (void)
   WinVEH_handle = NULL;
 }
 
+#endif
 #endif

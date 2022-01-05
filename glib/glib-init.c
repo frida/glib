@@ -346,7 +346,9 @@ glib_perform_init (void)
   g_debug_init ();
   g_quark_init ();
 #ifdef G_OS_WIN32
+#if 0
   _g_console_win32_init ();
+#endif
 #endif
 }
 
@@ -506,7 +508,9 @@ DllMain (HINSTANCE hinstDLL,
     {
     case DLL_PROCESS_ATTACH:
       glib_dll = hinstDLL;
+#if 0
       _g_crash_handler_win32_init ();
+#endif
       glib_perform_init ();
       break;
 
@@ -521,7 +525,9 @@ DllMain (HINSTANCE hinstDLL,
       if (lpvReserved == NULL)
         _g_thread_win32_process_detach ();
 #endif
+#if 0
       _g_crash_handler_win32_deinit ();
+#endif
       break;
 
     default:
