@@ -31,6 +31,11 @@ if cc.get_argument_syntax() == 'msvc'
   add_project_arguments('/FImsvc_recommended_pragmas.h',language : 'c')
 endif
 
+# Suppress all compiler warnings when we're a subproject
+if meson.is_subproject() and cc.get_argument_syntax() != 'msvc'
+  add_project_arguments('-w', language : 'c')
+endif
+
 if cc.get_id() == 'msvc'
   # Set the input and exec encoding to utf-8, like is the default with GCC
   add_project_arguments(cc.get_supported_arguments(['/utf-8']), language: 'c')
