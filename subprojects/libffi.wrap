@@ -1,5 +1,7 @@
 [wrap-git]
-directory=libffi
-url=https://gitlab.freedesktop.org/gstreamer/meson-ports/libffi.git
-revision=meson
+url=https://github.com/frida/libffi.git
+revision=main
 depth=1
+
+[provide]
+dependency_names=libffi
