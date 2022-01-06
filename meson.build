@@ -2343,8 +2343,8 @@ subdir('gobject')
 subdir('gthread')
 subdir('gmodule')
 subdir('gio')
-subdir('fuzzing')
 if build_tests
+  subdir('fuzzing')
   subdir('tests')
 endif
 
