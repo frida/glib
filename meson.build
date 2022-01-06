@@ -2786,7 +2786,9 @@ subdir('gthread')
 subdir('gmodule')
 subdir('gio')
 subdir('girepository')
-subdir('fuzzing')
+if build_tests
+  subdir('fuzzing')
+endif
 if get_option('tests')
   subdir('tests')
 endif
