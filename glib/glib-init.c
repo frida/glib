@@ -339,6 +339,9 @@ static void
 glib_perform_init (void)
 {
 #ifdef G_OS_WIN32
+# if 0
+  _g_crash_handler_win32_init ();
+# endif
   _g_clock_win32_init ();
 #endif
   _g_thread_init ();
@@ -355,8 +358,6 @@ glib_perform_init (void)
 #ifdef G_OS_WIN32
 HMODULE glib_dll;
 #endif
-
-#ifdef GLIB_STATIC_COMPILATION
 
 #define G_MAX_N_XTORS 16
 
@@ -422,8 +423,13 @@ glib_deinit (void)
 
   glib_initialized = FALSE;
 
-# if defined (G_OS_WIN32) && defined (THREADS_WIN32)
+#ifdef G_OS_WIN32
+# ifdef THREADS_WIN32
   _g_thread_win32_process_detach ();
+# endif
+# if 0
+  _g_crash_handler_win32_deinit ();
+# endif
 #endif
 
   _g_thread_deinit ();
@@ -447,17 +453,49 @@ _glib_register_destructor (GXtorFunc destructor)
   G_XTORS_APPEND (destructors, destructor);
 }
 
-# if defined (G_OS_WIN32) && defined (THREADS_WIN32)
+#ifdef G_OS_WIN32
 
+# if defined (_MSC_VER)
 static void WINAPI
 glib_tls_callback (HINSTANCE hinstDLL,
                    DWORD     fdwReason,
                    LPVOID    lpvReserved)
+# elif defined (GLIB_STATIC_COMPILATION)
+BOOL WINAPI
+glib_dll_main (HINSTANCE hinstDLL,
+               DWORD     fdwReason,
+               LPVOID    lpvReserved)
+# else
+BOOL WINAPI
+DllMain (HINSTANCE hinstDLL,
+         DWORD     fdwReason,
+         LPVOID    lpvReserved)
+# endif
 {
-  if (fdwReason == DLL_THREAD_DETACH && glib_initialized)
-    _g_thread_win32_thread_detach ();
+  switch (fdwReason)
+    {
+    case DLL_PROCESS_ATTACH:
+      glib_dll = hinstDLL;
+      break;
+
+    case DLL_THREAD_DETACH:
+# ifdef THREADS_WIN32
+      if (glib_initialized)
+        _g_thread_win32_thread_detach ();
+# endif
+      break;
+
+    default:
+      /* do nothing */
+      ;
+    }
+
+# ifndef _MSC_VER
+  return TRUE;
+# endif
 }
 
+# ifdef _MSC_VER
 #  if GLIB_SIZEOF_VOID_P == 8
 #   pragma comment (linker, "/INCLUDE:_tls_used")
 #   pragma comment (linker, "/INCLUDE:_xl_b")
@@ -472,87 +510,11 @@ glib_tls_callback (HINSTANCE hinstDLL,
 
 PIMAGE_TLS_CALLBACK _xl_b = glib_tls_callback;
 
-#if GLIB_SIZEOF_VOID_P == 8
+#  if GLIB_SIZEOF_VOID_P == 8
 #   pragma const_seg()
 #  else
 #   pragma data_seg()
 #  endif
-
-# endif
-
-#else /* !GLIB_STATIC_COMPILATION */
-
-void
-glib_init (void)
-{
-}
-
-void
-glib_shutdown (void)
-{
-}
-
-void
-glib_deinit (void)
-{
-}
-
-# if defined (G_OS_WIN32)
-
-BOOL WINAPI
-DllMain (HINSTANCE hinstDLL,
-         DWORD     fdwReason,
-         LPVOID    lpvReserved)
-{
-  switch (fdwReason)
-    {
-    case DLL_PROCESS_ATTACH:
-      glib_dll = hinstDLL;
-#if 0
-      _g_crash_handler_win32_init ();
-#endif
-      glib_perform_init ();
-      break;
-
-    case DLL_THREAD_DETACH:
-#ifdef THREADS_WIN32
-      _g_thread_win32_thread_detach ();
-#endif
-      break;
-
-    case DLL_PROCESS_DETACH:
-#ifdef THREADS_WIN32
-      if (lpvReserved == NULL)
-        _g_thread_win32_process_detach ();
-#endif
-#if 0
-      _g_crash_handler_win32_deinit ();
-#endif
-      break;
-
-    default:
-      /* do nothing */
-      ;
-    }
-
-  return TRUE;
-}
-
-# elif defined (G_HAS_CONSTRUCTORS)
-
-# ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
-# pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(glib_init_ctor)
-# endif
-G_DEFINE_CONSTRUCTOR(glib_init_ctor)
-
-static void
-glib_init_ctor (void)
-{
-  glib_perform_init ();
-}
-
-# else
-#  error Your platform/compiler is missing constructor support
 # endif
 
 #endif

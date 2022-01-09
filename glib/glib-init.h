@@ -50,7 +50,7 @@ G_GNUC_INTERNAL void _g_main_shutdown (void);
 G_GNUC_INTERNAL void _g_main_deinit (void);
 G_GNUC_INTERNAL void _g_messages_deinit (void);
 
-G_GNUC_INTERNAL void _glib_register_constructor (GXtorFunc constructor);
-G_GNUC_INTERNAL void _glib_register_destructor (GXtorFunc destructor);
+_GLIB_EXTERN void _glib_register_constructor (GXtorFunc constructor);
+_GLIB_EXTERN void _glib_register_destructor (GXtorFunc destructor);
 
 #endif /* __GLIB_INIT_H__ */

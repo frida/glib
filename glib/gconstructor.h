@@ -119,8 +119,6 @@
 
 #endif
 
-#ifdef GLIB_STATIC_COMPILATION
-
 #define G_DEFINE_CONSTRUCTOR(_func) \
   _G_DEFINE_CONSTRUCTOR (_func ## _register); \
   void _glib_register_constructor (void (*) (void)); \
@@ -142,21 +140,6 @@
 #define G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
   static void _func ## _register (void); \
   _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS (_func ## _register)
-#endif
-
-#else
-
-#define G_DEFINE_CONSTRUCTOR _G_DEFINE_CONSTRUCTOR
-#define G_DEFINE_DESTRUCTOR _G_DEFINE_DESTRUCTOR
-
-#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
-#define G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS
-#endif
-
-#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
-#define G_DEFINE_DESTRUCTOR_PRAGMA_ARGS _G_DEFINE_DESTRUCTOR_PRAGMA_ARGS
-#endif
-
 #endif
 
 #endif /* __GTK_DOC_IGNORE__ */
