@@ -1848,6 +1848,39 @@ g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
   return !g_file_test (path, G_FILE_TEST_EXISTS);
 }
 
+#elif defined (__FreeBSD__)
+
+#include <pthread_np.h>
+#include <sys/thr.h>
+
+struct _GThreadBeacon
+{
+  int thread_id;
+};
+
+GThreadBeacon *
+g_thread_lifetime_beacon_new (void)
+{
+  GThreadBeacon *beacon;
+
+  beacon = g_slice_new (GThreadBeacon);
+  beacon->thread_id = pthread_getthreadid_np ();
+
+  return beacon;
+}
+
+void
+g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
+{
+  g_slice_free (GThreadBeacon, beacon);
+}
+
+gboolean
+g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
+{
+  return thr_kill (beacon->thread_id, 0) != 0;
+}
+
 #elif defined (HAVE_QNX)
 
 #include <process.h>
