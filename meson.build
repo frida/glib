@@ -111,7 +111,11 @@ else
   pkgconfig_multiarch_bindir = '${bindir}'
 endif
 
-glib_pkgconfigreldir = join_paths(glib_libdir, 'pkgconfig')
+if host_system == 'freebsd'
+  glib_pkgconfigreldir = join_paths(glib_prefix, 'libdata', 'pkgconfig')
+else
+  glib_pkgconfigreldir = join_paths(glib_libdir, 'pkgconfig')
+endif
 
 if get_option('charsetalias_dir') != ''
   glib_charsetaliasdir = join_paths(glib_prefix, get_option('charsetalias_dir'))
