@@ -396,6 +396,99 @@ lookup_by_address_finish (GResolver     *resolver,
 
 #if defined(G_OS_UNIX)
 
+#ifdef __GLIBC__
+
+#include "gconstructor.h"
+
+#include <dlfcn.h>
+
+#undef dn_expand
+#undef res_nquery
+#define dn_expand g_dn_expand
+#define res_nquery g_res_nquery
+
+typedef struct _GResolvApi GResolvApi;
+
+struct _GResolvApi
+{
+  int (* expand) (const unsigned char *msg,
+                  const unsigned char *eomorig,
+                  const unsigned char *comp_dn,
+                  char                *exp_dn,
+                  int                  length);
+  int (* nquery) (res_state            statep,
+                  const char          *dname,
+                  int                  klass,
+                  int                  type,
+                  unsigned char       *answer,
+                  int                  anslen);
+};
+
+#ifdef G_HAS_CONSTRUCTORS
+#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
+#pragma G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(g_resolv_api_deinit)
+#endif
+G_DEFINE_DESTRUCTOR(g_resolv_api_deinit)
+#endif /* G_HAS_CONSTRUCTORS */
+
+static gpointer libresolv = NULL;
+
+static void
+g_resolv_api_deinit (void)
+{
+  g_clear_pointer (&libresolv, dlclose);
+}
+
+static GResolvApi *
+g_get_resolv_api (void)
+{
+  static GResolvApi api;
+  static gsize initialized = 0;
+
+  if (g_once_init_enter (&initialized))
+    {
+      api.expand = dlsym (RTLD_NEXT, "dn_expand");
+      if (api.expand != NULL)
+        {
+          api.nquery = dlsym (RTLD_NEXT, "res_nquery");
+        }
+      else
+        {
+          libresolv = dlopen ("libresolv.so.2", RTLD_GLOBAL | RTLD_LAZY);
+          api.expand = dlsym (libresolv, "__dn_expand");
+          api.nquery = dlsym (libresolv, "__res_nquery");
+        }
+
+      g_once_init_leave (&initialized, 1);
+    }
+
+  return &api;
+}
+
+static int
+g_dn_expand (const unsigned char *msg,
+             const unsigned char *eomorig,
+             const unsigned char *comp_dn,
+             char                *exp_dn,
+             int                  length)
+{
+  return g_get_resolv_api ()->expand (msg, eomorig, comp_dn, exp_dn, length);
+}
+
+static int
+g_res_nquery (res_state      statep,
+              const char    *dname,
+              int            klass,
+              int            type,
+              unsigned char *answer,
+              int            anslen)
+{
+  return g_get_resolv_api ()->nquery (statep, dname, klass, type, answer,
+                                      anslen);
+}
+
+#endif
+
 #if defined __BIONIC__ && !defined BIND_4_COMPAT
 /* Copy from bionic/libc/private/arpa_nameser_compat.h
  * and bionic/libc/private/arpa_nameser.h */
