@@ -435,7 +435,9 @@ glib_deinit (void)
   _g_thread_deinit ();
   _g_slice_deinit ();
   _g_messages_deinit ();
+#ifdef GLIB_STATIC_COMPILATION
   _proxy_libintl_deinit ();
+#endif
 }
 
 void
