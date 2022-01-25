@@ -17,7 +17,8 @@ if build_machine.system() == 'linux'
   libutil_name = 'libutil'
   libutil = run_command('sh', '-c',
     '''ldconfig -p | grep -o "[[:space:]]@0@\.so\(\.[0-9]\+\)\?\b"'''
-    .format(libutil_name)).stdout().strip().split('\n')
+    .format(libutil_name),
+    check : false).stdout().strip().split('\n')
 
   if libutil.length() > 0
       message('Found libutil as @0@'.format(libutil[0]))
@@ -570,7 +571,7 @@ if installed_tests_enabled
   endforeach
 endif
 
-if not meson.is_cross_build() or meson.has_exe_wrapper()
+if cc_can_run
 
   plugin_resources_c = custom_target('plugin-resources.c',
     input : 'test4.gresource.xml',
@@ -683,7 +684,7 @@ if not meson.is_cross_build() or meson.has_exe_wrapper()
   objcopy_supports_add_symbol = false
   objcopy = find_program('objcopy', required : false)
   if objcopy.found()
-    objcopy_supports_add_symbol = run_command(objcopy, '--help').stdout().contains('--add-symbol')
+    objcopy_supports_add_symbol = run_command(objcopy, '--help', check : false).stdout().contains('--add-symbol')
   endif
 
   ld = find_program('ld', required : false)

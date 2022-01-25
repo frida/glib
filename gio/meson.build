@@ -807,7 +807,7 @@ endif
 
 internal_objects = []
 foreach dep : internal_deps
-  internal_objects += dep.extract_all_objects()
+  internal_objects += dep.extract_all_objects(recursive : false)
 endforeach
 
 libgio = library('gio-2.0',

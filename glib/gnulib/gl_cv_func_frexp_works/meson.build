@@ -76,7 +76,7 @@ int main()
   return result;
 }'''
 
-if not meson.is_cross_build() or meson.has_exe_wrapper()
+if cc_can_run
   run_result = cc.run(frexp_test,
       name : 'frexp works',
       dependencies : [libm])
