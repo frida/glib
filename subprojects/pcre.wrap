@@ -1,6 +1,6 @@
 [wrap-git]
-url = https://github.com/frida/pcre.git
-revision = main
+url=https://github.com/frida/pcre.git
+revision=main
 
 [provide]
-dependency_names = libpcre
+dependency_names=libpcre

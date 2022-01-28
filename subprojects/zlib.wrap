@@ -1,6 +1,6 @@
 [wrap-git]
-url = https://github.com/frida/zlib.git
-revision = main
+url=https://github.com/frida/zlib.git
+revision=main
 
 [provide]
-dependency_names = zlib
+dependency_names=zlib
