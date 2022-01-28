@@ -1970,8 +1970,21 @@ else
     libiconv = []
     found_iconv = true
   endif
-  if not found_iconv and ['auto', 'external'].contains(iconv_opt) and cc.has_header_symbol('iconv.h', 'iconv_open')
+
+  allow_external_iconv = ['auto', 'external'].contains(iconv_opt)
+
+  if not found_iconv and allow_external_iconv
+    libiconv = dependency('libiconv', required : false)
+    found_iconv = libiconv.found()
+  endif
+
+  if not found_iconv and allow_external_iconv and cc.has_header_symbol('iconv.h', 'iconv_open')
     libiconv = [cc.find_library('iconv')]
+    found_iconv = true
+  endif
+
+  if not found_iconv and allow_external_iconv
+    libiconv = dependency('libiconv')
     found_iconv = true
   endif
 
