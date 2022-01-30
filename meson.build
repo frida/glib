@@ -262,7 +262,10 @@ endif
 # cast checks
 glib_debug_cflags = []
 glib_debug = get_option('glib_debug')
-if glib_debug.enabled() or (glib_debug.auto() and get_option('debug'))
+if glib_debug.enabled() or (glib_debug.auto() and get_option('debug') and not get_option('diet'))
+  if get_option('diet')
+    error('GLib debugging features are not supported in diet mode')
+  endif
   glib_debug_cflags += ['-DG_ENABLE_DEBUG']
   message('Enabling various debug infrastructure')
 elif get_option('optimization') in ['2', '3', 's']
@@ -273,11 +276,15 @@ endif
 if not get_option('glib_assert')
   glib_debug_cflags += ['-DG_DISABLE_ASSERT']
   message('Disabling GLib asserts')
+elif get_option('diet')
+  error('GLib debugging features are not supported in diet mode')
 endif
 
 if not get_option('glib_checks')
   glib_debug_cflags += ['-DG_DISABLE_CHECKS']
   message('Disabling GLib checks')
+elif get_option('diet')
+  error('GLib debugging features are not supported in diet mode')
 endif
 
 add_project_arguments(glib_debug_cflags, language: 'c')
