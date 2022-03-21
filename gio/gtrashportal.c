@@ -37,6 +37,12 @@
 #define HAVE_O_CLOEXEC 1
 #endif
 
+#ifndef O_NOFOLLOW
+#define O_NOFOLLOW 0
+#else
+#define HAVE_O_NOFOLLOW 1
+#endif
+
 #ifndef O_PATH
 #define O_PATH 0
 #endif
@@ -44,6 +50,7 @@
 static GXdpTrash *
 ensure_trash_portal (void)
 {
+#ifdef HAVE_O_NOFOLLOW
   static GXdpTrash *trash = NULL;
 
   if (g_once_init_enter (&trash))
@@ -64,6 +71,9 @@ ensure_trash_portal (void)
     }
 
   return trash;
+#else
+  return NULL;
+#endif
 }
 
 gboolean
