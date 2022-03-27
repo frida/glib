@@ -126,7 +126,7 @@ G_END_DECLS
   (G_GNUC_EXTENSION ({                                                       \
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
     gpointer gapg_temp_newval;                                               \
-    gpointer *gapg_temp_atomic = (gpointer *)(atomic);                       \
+    gpointer *gapg_temp_atomic G_GNUC_UNUSED = (gpointer *)(atomic);         \
     __atomic_load (gapg_temp_atomic, &gapg_temp_newval, __ATOMIC_SEQ_CST);   \
     gapg_temp_newval;                                                        \
   }))
