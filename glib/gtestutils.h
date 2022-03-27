@@ -216,8 +216,8 @@ typedef void (*GTestFixtureFunc) (gpointer      fixture,
 
 #ifdef G_DISABLE_ASSERT
 /* https://gcc.gnu.org/onlinedocs/gcc-8.3.0/gcc/Other-Builtins.html#index-_005f_005fbuiltin_005funreachable
- * GCC 5 is not a strict lower bound for versions of GCC which provide __builtin_unreachable(). */
-#if __GNUC__ >= 5 || g_macro__has_builtin(__builtin_unreachable)
+ * GCC 4.5 is not a strict lower bound for versions of GCC which provide __builtin_unreachable(). */
+#if G_GNUC_CHECK_VERSION (4, 5) || g_macro__has_builtin (__builtin_unreachable)
 #define g_assert_not_reached()          G_STMT_START { (void) 0; __builtin_unreachable (); } G_STMT_END
 #elif defined (_MSC_VER)
 #define g_assert_not_reached()          G_STMT_START { (void) 0; __assume (0); } G_STMT_END
