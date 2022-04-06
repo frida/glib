@@ -542,7 +542,6 @@ functions = [
   'localtime_r',
   'lstat',
   'mbrtowc',
-  'memalign',
   'mmap',
   'newlocale',
   'pipe2',
@@ -577,6 +576,10 @@ functions = [
 # the app store since it's considered 'private API'
 if host_system == 'darwin'
   functions += ['_NSGetEnviron']
+endif
+
+if host_system != 'qnx'
+  functions += ['memalign']
 endif
 
 if glib_conf.has('HAVE_SYS_STATVFS_H')
@@ -657,7 +660,7 @@ endif
 
 
 # Check that posix_memalign() is usable; must use header
-if host_system != 'windows' and cc.has_function('posix_memalign', prefix : '#include <stdlib.h>')
+if host_system not in ['windows', 'qnx'] and cc.has_function('posix_memalign', prefix : '#include <stdlib.h>')
   glib_conf.set('HAVE_POSIX_MEMALIGN', 1)
 elif host_system == 'linux'
   old_glibc_kludge = '#define _XOPEN_SOURCE 600\n'
