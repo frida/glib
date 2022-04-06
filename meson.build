@@ -633,7 +633,6 @@ functions = [
   'localtime_r',
   'lstat',
   'mbrtowc',
-  'memalign',
   'mmap',
   'newlocale',
   'pipe2',
@@ -669,6 +668,10 @@ functions = [
 # the app store since it's considered 'private API'
 if host_system == 'darwin'
   functions += ['_NSGetEnviron']
+endif
+
+if host_system != 'qnx'
+  functions += ['memalign']
 endif
 
 if glib_conf.has('HAVE_SYS_STATVFS_H')
@@ -727,7 +730,7 @@ if cc.has_function('stpcpy', prefix : '#include <string.h>')
   glib_conf.set('HAVE_STPCPY', 1)
 endif
 
-if cc.has_function('memalign', prefix: '#include <stdlib.h>\n#include <malloc.h>')
+if host_system != 'qnx' and cc.has_function('memalign', prefix: '#include <stdlib.h>\n#include <malloc.h>')
   glib_conf.set('HAVE_MEMALIGN', 1)
 endif
 
@@ -735,11 +738,11 @@ if cc.has_function('_aligned_malloc', prefix: '#include <malloc.h>')
   glib_conf.set('HAVE__ALIGNED_MALLOC', 1)
 endif
 
-if host_system != 'windows' and cc.has_function('aligned_alloc', prefix: '#include <stdlib.h>')
+if cc.has_function('aligned_alloc', prefix: '#include <stdlib.h>')
   glib_conf.set('HAVE_ALIGNED_ALLOC', 1)
 endif
 
-if host_system != 'windows' and cc.has_function('posix_memalign', prefix: '#include <stdlib.h>')
+if host_system not in ['windows', 'qnx'] and cc.has_function('posix_memalign', prefix: '#include <stdlib.h>')
   glib_conf.set('HAVE_POSIX_MEMALIGN', 1)
 elif host_system == 'linux'
   old_glibc_kludge = '#define _XOPEN_SOURCE 600\n'
