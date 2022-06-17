@@ -122,6 +122,8 @@ _g_locale_get_charset_aliases (void)
   if (cp == NULL)
     {
 #if !(defined VMS || defined WIN32_NATIVE || defined __CYGWIN__)
+      cp = "";
+#if 0
       FILE *fp;
       const char *dir;
       const char *base = "charset.alias";
@@ -216,6 +218,7 @@ _g_locale_get_charset_aliases (void)
       if (file_name != NULL)
 	free (file_name);
 
+#endif
 #else
 
 # if defined VMS
