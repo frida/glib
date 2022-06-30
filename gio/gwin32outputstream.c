@@ -52,6 +52,8 @@ struct _GWin32OutputStreamPrivate {
   HANDLE handle;
   gboolean close_handle;
   gint fd;
+  DWORD file_type;
+  guint64 file_offset;
 };
 
 enum {
@@ -79,6 +81,7 @@ g_win32_output_stream_set_property (GObject         *object,
     {
     case PROP_HANDLE:
       win32_stream->priv->handle = g_value_get_pointer (value);
+      win32_stream->priv->file_type = GetFileType (win32_stream->priv->handle);
       break;
     case PROP_CLOSE_HANDLE:
       win32_stream->priv->close_handle = g_value_get_boolean (value);
@@ -138,6 +141,14 @@ g_win32_output_stream_write (GOutputStream  *stream,
   overlap.hEvent = CreateEvent (NULL, FALSE, FALSE, NULL);
   g_return_val_if_fail (overlap.hEvent != NULL, -1);
 
+  if (win32_stream->priv->file_type == FILE_TYPE_DISK)
+    {
+      guint64 offset = win32_stream->priv->file_offset;
+
+      overlap.Offset = offset & 0xffffffff;
+      overlap.OffsetHigh = offset >> 32;
+    }
+
   res = WriteFile (win32_stream->priv->handle, buffer, nbytes, &nwritten, &overlap);
   if (res)
     retval = nwritten;
@@ -176,6 +187,8 @@ g_win32_output_stream_write (GOutputStream  *stream,
     }
 
 end:
+  if (win32_stream->priv->file_type == FILE_TYPE_DISK && retval > 0)
+    win32_stream->priv->file_offset += retval;
   CloseHandle (overlap.hEvent);
   return retval;
 }
@@ -280,6 +293,8 @@ g_win32_output_stream_init (GWin32OutputStream *win32_stream)
   win32_stream->priv->handle = NULL;
   win32_stream->priv->close_handle = TRUE;
   win32_stream->priv->fd = -1;
+  win32_stream->priv->file_type = FILE_TYPE_UNKNOWN;
+  win32_stream->priv->file_offset = 0;
 }
 
 /**
