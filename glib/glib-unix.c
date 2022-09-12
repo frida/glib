@@ -42,6 +42,16 @@
 #   define __NR_pipe2 293
 #  elif defined (__arm__)
 #   define __NR_pipe2 (__NR_SYSCALL_BASE + 359)
+#  elif defined (__mips__)
+#   if _MIPS_SIM == _MIPS_SIM_ABI32
+#    define __NR_pipe2 4328
+#   elif _MIPS_SIM == _MIPS_SIM_ABI64
+#    define __NR_pipe2 5287
+#   elif _MIPS_SIM == _MIPS_SIM_NABI32
+#    define __NR_pipe2 6291
+#   else
+#    error Unexpected MIPS ABI
+#   endif
 #  else
 #   error Please implement for your architecture
 #  endif

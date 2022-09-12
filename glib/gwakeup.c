@@ -132,6 +132,16 @@ g_wakeup_free (GWakeup *wakeup)
 #   define __NR_eventfd 284
 #  elif defined (__arm__)
 #   define __NR_eventfd (__NR_SYSCALL_BASE + 351)
+#  elif defined (__mips__)
+#   if _MIPS_SIM == _MIPS_SIM_ABI32
+#    define __NR_eventfd 4319
+#   elif _MIPS_SIM == _MIPS_SIM_ABI64
+#    define __NR_eventfd 5278
+#   elif _MIPS_SIM == _MIPS_SIM_NABI32
+#    define __NR_eventfd 6282
+#   else
+#    error Unexpected MIPS ABI
+#   endif
 #  else
 #   error Please implement for your architecture
 #  endif

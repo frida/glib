@@ -85,6 +85,16 @@ static int ik_try_inotify_rm_watch  (int fd,
 #   define __NR_inotify_init1 294
 #  elif defined (__arm__)
 #   define __NR_inotify_init1 (__NR_SYSCALL_BASE + 360)
+#  elif defined (__mips__)
+#   if _MIPS_SIM == _MIPS_SIM_ABI32
+#    define __NR_inotify_init1 4329
+#   elif _MIPS_SIM == _MIPS_SIM_ABI64
+#    define __NR_inotify_init1 5288
+#   elif _MIPS_SIM == _MIPS_SIM_NABI32
+#    define __NR_inotify_init1 6292
+#   else
+#    error Unexpected MIPS ABI
+#   endif
 #  else
 #   error Please implement for your architecture
 #  endif
