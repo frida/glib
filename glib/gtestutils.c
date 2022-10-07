@@ -3426,7 +3426,7 @@ test_trap_clear (void)
   g_clear_pointer (&test_trap_last_stderr, g_free);
 }
 
-#ifdef G_OS_UNIX
+#if defined (G_OS_UNIX) && defined (HAVE_FORK)
 
 static int
 safe_dup2 (int fd1,
@@ -3654,7 +3654,7 @@ gboolean
 g_test_trap_fork (guint64        usec_timeout,
                   GTestTrapFlags test_trap_flags)
 {
-#ifdef G_OS_UNIX
+#if defined (G_OS_UNIX) && defined (HAVE_FORK)
   int stdout_pipe[2] = { -1, -1 };
   int stderr_pipe[2] = { -1, -1 };
   int errsv;

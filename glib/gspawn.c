@@ -88,7 +88,7 @@
 #include "glibintl.h"
 #include "glib-unix.h"
 
-#ifdef __APPLE__
+#if defined (__APPLE__) && defined (HAVE_FORK)
 #include <libproc.h>
 #include <sys/proc_info.h>
 #endif
@@ -189,6 +189,7 @@ extern char **environ;
  */
 
 
+#ifdef HAVE_FORK
 static gint g_execute (const gchar  *file,
                        gchar       **argv,
                        gchar       **argv_buffer,
@@ -197,6 +198,7 @@ static gint g_execute (const gchar  *file,
                        const gchar  *search_path,
                        gchar        *search_path_buffer,
                        gsize         search_path_buffer_len);
+#endif
 
 static gboolean fork_exec (gboolean              intermediate_child,
                            const gchar          *working_directory,
@@ -1249,6 +1251,8 @@ g_spawn_check_exit_status (gint      wait_status,
   return g_spawn_check_wait_status (wait_status, error);
 }
 
+#ifdef HAVE_FORK
+
 /* This function is called between fork() and exec() and hence must be
  * async-signal-safe (see signal-safety(7)). */
 static gssize
@@ -1361,6 +1365,8 @@ dupfd_cloexec (int old_fd, int new_fd_min)
   return fd;
 }
 
+#endif /* HAVE_FORK */
+
 /* fdwalk()-compatible callback to close a valid fd.
  * It is an error to pass an invalid fd (causing EBADF) to this function.
  *
@@ -1444,6 +1450,8 @@ filename_to_fd (const char *p)
   return fd;
 }
 #endif
+
+#ifdef HAVE_FORK
 
 /* This function is called between fork() and exec() and hence must be
  * async-signal-safe (see signal-safety(7)). */
@@ -2078,6 +2086,8 @@ read_ints (int      fd,
   return TRUE;
 }
 
+#endif /* HAVE_FORK */
+
 #ifdef POSIX_SPAWN_AVAILABLE
 static gboolean
 do_posix_spawn (const gchar * const *argv,
@@ -2347,14 +2357,14 @@ fork_exec (gboolean              intermediate_child,
   gint child_err_report_pipe[2] = { -1, -1 };
   gint child_pid_report_pipe[2] = { -1, -1 };
   guint pipe_flags = cloexec_pipes ? FD_CLOEXEC : 0;
-  gint status;
-  const gchar *chosen_search_path;
-  gchar *search_path_buffer = NULL;
+  G_GNUC_UNUSED gint status;
+  G_GNUC_UNUSED const gchar *chosen_search_path;
+  G_GNUC_UNUSED gchar *search_path_buffer = NULL;
   gchar *search_path_buffer_heap = NULL;
-  gsize search_path_buffer_len = 0;
-  gchar **argv_buffer = NULL;
+  G_GNUC_UNUSED gsize search_path_buffer_len = 0;
+  G_GNUC_UNUSED gchar **argv_buffer = NULL;
   gchar **argv_buffer_heap = NULL;
-  gsize argv_buffer_len = 0;
+  G_GNUC_UNUSED gsize argv_buffer_len = 0;
   gint stdin_pipe[2] = { -1, -1 };
   gint stdout_pipe[2] = { -1, -1 };
   gint stderr_pipe[2] = { -1, -1 };
@@ -2450,6 +2460,7 @@ fork_exec (gboolean              intermediate_child,
     }
 #endif /* POSIX_SPAWN_AVAILABLE */
 
+#ifdef HAVE_FORK
   /* Choose a search path. This has to be done before calling fork()
    * as getenv() isn’t async-signal-safe (see `man 7 signal-safety`). */
   chosen_search_path = NULL;
@@ -2802,7 +2813,16 @@ fork_exec (gboolean              intermediate_child,
 
       goto success;
     }
+#else
+  g_set_error (error,
+               G_SPAWN_ERROR,
+               G_SPAWN_ERROR_FORK,
+               _("Failed to fork (%s)"),
+               "unsupported syscall");
+  goto cleanup_and_fail;
+#endif
 
+#if defined (POSIX_SPAWN_AVAILABLE) || defined (HAVE_FORK)
 success:
   /* Close the uncared-about ends of the pipes */
   close_and_invalidate (&stdin_pipe[0]);
@@ -2819,6 +2839,7 @@ success:
     *stderr_pipe_out = g_steal_fd (&stderr_pipe[0]);
 
   return TRUE;
+#endif
 
  cleanup_and_fail:
 
@@ -2858,6 +2879,8 @@ success:
 
   return FALSE;
 }
+
+#ifdef HAVE_FORK
 
 /* Based on execvp from GNU C Library */
 
@@ -3048,6 +3071,8 @@ g_execute (const gchar  *file,
   /* Return the error from the last attempt (probably ENOENT).  */
   return -1;
 }
+
+#endif /* HAVE_FORK */
 
 /**
  * g_spawn_close_pid:
