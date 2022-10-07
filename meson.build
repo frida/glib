@@ -565,10 +565,12 @@ functions = [
   'endmntent',
   'endservent',
   'epoll_create',
+  'execvp',
   'fallocate',
   'fchmod',
   'fchown',
   'fdwalk',
+  'fork',
   'fsync',
   'getauxval',
   'getc_unlocked',
@@ -670,8 +672,20 @@ if host_system != 'aix'
   functions += ['splice']
 endif
 
+function_includes = {
+  'execvp': ['unistd.h'],
+  'fork': ['unistd.h'],
+}
+
 foreach f : functions
-  if cc.has_function(f)
+  includes = function_includes.get(f, [])
+
+  prefix_lines = []
+  foreach include : includes
+    prefix_lines += ['#include <@0@>'.format(include)]
+  endforeach
+
+  if cc.has_function(f, prefix: '\n'.join(prefix_lines))
     define = 'HAVE_' + f.underscorify().to_upper()
     glib_conf.set(define, 1)
     glib_conf_prefix = glib_conf_prefix + '#define @0@ 1\n'.format(define)

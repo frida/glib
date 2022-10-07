@@ -260,5 +260,12 @@ main (int argc, char *argv[])
   set_up_journal (argv[1]);
 #endif
 
+#ifdef HAVE_EXECVP
   return execvp (argv[1], argv + 1);
+#else
+  fprintf (stderr,
+           "gio-launch-desktop[%d]: execvp() not supported",
+           getpid ());
+  return -1;
+#endif
 }
