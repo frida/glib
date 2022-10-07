@@ -729,11 +729,13 @@ functions = [
   'endmntent',
   'endservent',
   'epoll_create1',
+  'execvp',
   'faccessat',
   'fallocate',
   'fchmod',
   'fchown',
   'fdwalk',
+  'fork',
   'free_aligned_sized',
   'free_sized',
   'fsync',
@@ -852,8 +854,20 @@ if host_system != 'sunos'
   functions += ['sysinfo']
 endif
 
+function_includes = {
+  'execvp': ['unistd.h'],
+  'fork': ['unistd.h'],
+}
+
 foreach f : functions
-  if cc.has_function(f)
+  includes = function_includes.get(f, [])
+
+  prefix_lines = []
+  foreach include : includes
+    prefix_lines += ['#include <@0@>'.format(include)]
+  endforeach
+
+  if cc.has_function(f, prefix: '\n'.join(prefix_lines))
     define = 'HAVE_' + f.underscorify().to_upper()
     glib_conf.set(define, 1)
     glib_conf_prefix = glib_conf_prefix + '#define @0@ 1\n'.format(define)
