@@ -69,7 +69,7 @@
 #include "gunicode.h"
 #include "gutils.h"
 
-#ifndef G_OS_WIN32
+#if defined (G_OS_UNIX) && defined (HAVE_FORK)
 static void stack_trace (const char * const *args);
 #endif
 
@@ -251,7 +251,7 @@ g_on_error_query (const gchar *prg_name)
 void
 g_on_error_stack_trace (const gchar *prg_name)
 {
-#if defined(G_OS_UNIX)
+#if defined (G_OS_UNIX) && defined (HAVE_FORK)
   pid_t pid;
   gchar buf[16];
   const gchar *args[5] = { DEBUGGER, NULL, NULL, NULL, NULL };
@@ -292,6 +292,8 @@ g_on_error_stack_trace (const gchar *prg_name)
       if (WIFEXITED (retval) || WIFSIGNALED (retval))
         break;
     }
+#elif defined (G_OS_UNIX)
+  g_abort ();
 #else
   if (IsDebuggerPresent ())
     G_BREAKPOINT ();
@@ -300,7 +302,7 @@ g_on_error_stack_trace (const gchar *prg_name)
 #endif
 }
 
-#ifndef G_OS_WIN32
+#if defined (G_OS_UNIX) && defined (HAVE_FORK)
 
 static gboolean stack_trace_done = FALSE;
 
