@@ -147,7 +147,7 @@ _g_test_watcher_remove_pid (GPid pid)
      will be killed anyway */
 }
 
-#else
+#elif defined (HAVE_FORK)
 
 #define ADD_PID_FORMAT "add pid %d\n"
 #define REMOVE_PID_FORMAT "remove pid %d\n"
@@ -324,6 +324,20 @@ _g_test_watcher_remove_pid (GPid pid)
   command = g_strdup_printf (REMOVE_PID_FORMAT, (guint) pid);
   watcher_send_command (command);
   g_free (command);
+}
+
+#else
+
+static void
+_g_test_watcher_add_pid (GPid pid)
+{
+  g_critical ("GTestDBus requires fork() on UNIX");
+}
+
+static void
+_g_test_watcher_remove_pid (GPid pid)
+{
+  g_critical ("GTestDBus requires fork() on UNIX");
 }
 
 #endif
