@@ -19,6 +19,16 @@
  * be used for encoding validation purpose.
  */
 
+/* Use GLib memory allocation */
+#include "gmem.h"
+
+#undef malloc
+#undef calloc
+#undef free
+#define malloc  g_malloc
+#define calloc  g_malloc0_n
+#define free    g_free
+
 /* for WC_NO_BEST_FIT_CHARS */
 #ifndef WINVER
 # define WINVER 0x0500
