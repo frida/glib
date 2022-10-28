@@ -79,7 +79,7 @@ gvisibility_h = custom_target(
 
 gmodule_sources = [gmodule_c, gvisibility_h, 'gmodule-deprecated.c']
 
-if host_system == 'windows'
+if host_system == 'windows' and get_option('default_library') == 'shared'
   gmodule_win_rc = configure_file(
     input: 'gmodule.rc.in',
     output: 'gmodule.rc',

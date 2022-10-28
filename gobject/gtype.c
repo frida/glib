@@ -4441,12 +4441,17 @@ g_type_init (void)
 }
 
 static void
-gobject_init (void)
+gobject_perform_init (void)
 {
+  static gboolean initialized = FALSE;
   const gchar *env_string;
   GTypeInfo info;
   TypeNode *node;
   GType type G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
+
+  if (initialized)
+    return;
+  initialized = TRUE;
 
   /* Ensure GLib is initialized first, see
    * https://bugzilla.gnome.org/show_bug.cgi?id=756139
@@ -4535,23 +4540,15 @@ gobject_init (void)
   _g_signal_init ();
 }
 
-#ifdef G_PLATFORM_WIN32
-
-void gobject_win32_init (void);
-
 void
-gobject_win32_init (void)
+gobject_init (void)
 {
-  /* May be called more than once in static compilation mode */
-  static gboolean win32_already_init = FALSE;
-  if (!win32_already_init)
-    {
-      win32_already_init = TRUE;
-      gobject_init ();
-    }
+#ifdef GLIB_STATIC_COMPILATION
+  gobject_perform_init ();
+#endif
 }
 
-#ifndef GLIB_STATIC_COMPILATION
+#if defined (G_OS_WIN32) && !defined (GLIB_STATIC_COMPILATION)
 
 BOOL WINAPI DllMain (HINSTANCE hinstDLL,
                      DWORD     fdwReason,
@@ -4565,7 +4562,7 @@ DllMain (HINSTANCE hinstDLL,
   switch (fdwReason)
     {
     case DLL_PROCESS_ATTACH:
-      gobject_win32_init ();
+      gobject_perform_init ();
       break;
 
     default:
@@ -4576,55 +4573,21 @@ DllMain (HINSTANCE hinstDLL,
   return TRUE;
 }
 
-#elif defined(G_HAS_CONSTRUCTORS) /* && G_PLATFORM_WIN32 && GLIB_STATIC_COMPILATION */
-extern void glib_win32_init (void);
-
+#elif defined (G_HAS_CONSTRUCTORS)
 #ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
 #pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(gobject_init_ctor)
 #endif
-
 G_DEFINE_CONSTRUCTOR(gobject_init_ctor)
 
 static void
 gobject_init_ctor (void)
 {
-  /* When built dynamically, module initialization is done through DllMain
-   * function which is called when the dynamic library is loaded by the glib
-   * module. So, in dynamic configuration glib is always initialized BEFORE
-   * gobject.
-   *
-   * When built statically, initialization mechanism relies on hooking
-   * functions to the CRT section directly at compilation time. As we don't
-   * control how each compilation unit will be built and in which order, we
-   * obtain the same kind of issue as the "static initialization order fiasco".
-   * In this case, we must ensure explicitly that glib is always well
-   * initialized BEFORE gobject.
-   */
-  glib_win32_init ();
-  gobject_win32_init ();
+  gobject_perform_init ();
 }
 
-#else /* G_PLATFORM_WIN32 && GLIB_STATIC_COMPILATION && !G_HAS_CONSTRUCTORS */
+#else
 # error Your platform/compiler is missing constructor support
-#endif /* GLIB_STATIC_COMPILATION */
-
-#elif defined(G_HAS_CONSTRUCTORS) /* && !G_PLATFORM_WIN32 */
-
-#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(gobject_init_ctor)
 #endif
-
-G_DEFINE_CONSTRUCTOR (gobject_init_ctor)
-
-static void
-gobject_init_ctor (void)
-{
-  gobject_init ();
-}
-
-#else /* !G_PLATFORM_WIN32 && !G_HAS_CONSTRUCTORS */
-#error Your platform/compiler is missing constructor support
-#endif /* G_PLATFORM_WIN32 */
 
 /**
  * g_type_class_add_private:

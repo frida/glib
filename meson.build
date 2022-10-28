@@ -261,7 +261,6 @@ if glib_build_static_only
   glibconfig_conf.set('GIO_STATIC_COMPILATION', '1')
   glibconfig_conf.set('GMODULE_STATIC_COMPILATION', '1')
   glibconfig_conf.set('G_INTL_STATIC_COMPILATION', '1')
-  glibconfig_conf.set('FFI_STATIC_BUILD', '1')
 endif
 
 # Cygwin glib port maintainers made it clear
@@ -1033,7 +1032,11 @@ have_good_vsnprintf = false
 have_good_snprintf = false
 have_good_printf = false
 
-if host_system == 'windows' and (cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl')
+if get_option('default_library') == 'static'
+  glib_conf.set('HAVE_C99_SNPRINTF', false)
+  glib_conf.set('HAVE_C99_VSNPRINTF', false)
+  glib_conf.set('HAVE_UNIX98_PRINTF', false)
+elif host_system == 'windows' and (cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl')
   # Unfortunately the Visual Studio 2015+ implementations of C99-style
   # snprintf and vsnprintf don't seem to be quite good enough.
   # (Sorry, I don't know exactly what is the problem,
@@ -2057,40 +2060,44 @@ libffi_dep = dependency('libffi', version : '>= 3.0.0', fallback : ['libffi', 'f
 
 libz_dep = dependency('zlib')
 
-# First check in libc, fallback to libintl, and as last chance build
-# proxy-libintl subproject.
-# FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
-# implementations. This could be extended if issues are found in some platforms.
-libintl_deps = []
-libintl = dependency('intl', required: false)
-if libintl.found()
-  # libintl supports different threading APIs, which may not
-  # require additional flags, but it defaults to using pthreads if
-  # found. Meson's "threads" dependency does not allow you to
-  # prefer pthreads. We may not be using pthreads for glib itself
-  # either so just link the library to satisfy libintl rather than
-  # also defining the macros with the -pthread flag.
-  #
-  # Meson's builtin dependency lookup as of 0.60.0 doesn't check for
-  # pthread, so we do this manually here.
-  if cc.has_function('ngettext', dependencies : libintl)
-    libintl_deps += [libintl]
-  else
-    libintl_pthread = cc.find_library('pthread', required : false)
-    if libintl_pthread.found() and cc.has_function('ngettext', dependencies : [libintl, libintl_pthread])
-      libintl_deps += [libintl, libintl_pthread]
+if get_option('default_library') == 'static'
+  have_bind_textdomain_codeset = true
+else
+  # First check in libc, fallback to libintl, and as last chance build
+  # proxy-libintl subproject.
+  # FIXME: glib-gettext.m4 has much more checks to detect broken/uncompatible
+  # implementations. This could be extended if issues are found in some platforms.
+  libintl_deps = []
+  libintl = dependency('intl', required: false)
+  if libintl.found()
+    # libintl supports different threading APIs, which may not
+    # require additional flags, but it defaults to using pthreads if
+    # found. Meson's "threads" dependency does not allow you to
+    # prefer pthreads. We may not be using pthreads for glib itself
+    # either so just link the library to satisfy libintl rather than
+    # also defining the macros with the -pthread flag.
+    #
+    # Meson's builtin dependency lookup as of 0.60.0 doesn't check for
+    # pthread, so we do this manually here.
+    if cc.has_function('ngettext', dependencies : libintl)
+      libintl_deps += [libintl]
     else
-      libintl = disabler()
+      libintl_pthread = cc.find_library('pthread', required : false)
+      if libintl_pthread.found() and cc.has_function('ngettext', dependencies : [libintl, libintl_pthread])
+        libintl_deps += [libintl, libintl_pthread]
+      else
+        libintl = disabler()
+      endif
     endif
   endif
-endif
 
-if libintl.found()
-  have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset', dependencies: libintl_deps)
-else
-  libintl = subproject('proxy-libintl').get_variable('intl_dep')
-  libintl_deps = [libintl]
-  have_bind_textdomain_codeset = true  # proxy-libintl supports it
+  if libintl.found()
+    have_bind_textdomain_codeset = cc.has_function('bind_textdomain_codeset', dependencies: libintl_deps)
+  else
+    libintl = subproject('proxy-libintl').get_variable('intl_dep')
+    libintl_deps = [libintl]
+    have_bind_textdomain_codeset = true  # proxy-libintl supports it
+  endif
 endif
 
 glib_conf.set('HAVE_BIND_TEXTDOMAIN_CODESET', have_bind_textdomain_codeset)
@@ -2355,6 +2362,10 @@ endif
 pkg = import('pkgconfig')
 windows = import('windows')
 subdir('tools')
+if get_option('default_library') == 'static'
+  subdir('proxy-libintl-static')
+  libintl_deps = [intl_dep]
+endif
 subdir('glib')
 subdir('gobject')
 subdir('gthread')
