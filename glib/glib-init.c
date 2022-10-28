@@ -21,6 +21,7 @@
 
 #include "config.h"
 
+#include "glib.h"
 #include "glib-init.h"
 #include "glib-private.h"
 #include "gmacros.h"
@@ -406,74 +407,130 @@ g_debug_init (void)
   g_mem_gc_friendly = flags & 1;
 }
 
-void
-glib_init (void)
+static void
+glib_perform_init (void)
 {
-  static gboolean glib_inited;
-
-  if (glib_inited)
-    return;
-
-  glib_inited = TRUE;
-
+#ifdef G_PLATFORM_WIN32
+# if 0
+  _g_crash_handler_win32_init ();
+# endif
+  _g_clock_win32_init ();
+#endif
+  _g_thread_init ();
   g_messages_prefixed_init ();
   g_debug_init ();
   g_quark_init ();
   g_error_init ();
+#ifdef G_PLATFORM_WIN32
+# if 0
+  _g_console_win32_init ();
+# endif
+#endif
+}
+
+#ifdef G_PLATFORM_WIN32
+HMODULE glib_dll;
+#endif
+
+#define G_MAX_N_XTORS 16
+
+extern void _proxy_libintl_deinit (void);
+
+static gboolean glib_initialized = FALSE;
+
+static GXtorFunc constructors[G_MAX_N_XTORS];
+static gint num_constructors = 0;
+
+static GXtorFunc destructors[G_MAX_N_XTORS];
+static gint num_destructors = 0;
+
+#define G_XTORS_CLEAR(x)                         \
+  G_STMT_START{                                  \
+  num_ ## x = 0;                                 \
+  }G_STMT_END
+#define G_XTORS_APPEND(x, f)                     \
+  G_STMT_START{                                  \
+  g_assert (num_ ## x < G_MAX_N_XTORS);          \
+  x[(num_ ## x)++] = f;                          \
+  }G_STMT_END
+
+void
+glib_init (void)
+{
+  gint i;
+
+  if (glib_initialized)
+    return;
+  glib_initialized = TRUE;
+
+  glib_perform_init ();
+
+  for (i = 0; i != num_constructors; i++)
+    constructors[i] ();
+  G_XTORS_CLEAR (constructors);
+}
+
+void
+glib_shutdown (void)
+{
+  _g_thread_pool_shutdown ();
+  _g_main_shutdown ();
+}
+
+void
+glib_deinit (void)
+{
+  gint i;
+
+  if (!glib_initialized)
+    return;
+
+  glib_shutdown ();
+
+  for (i = num_destructors - 1; i >= 0; i--)
+    destructors[i] ();
+  G_XTORS_CLEAR (destructors);
+
+  _g_main_deinit ();
+  _g_strfuncs_deinit ();
+
+  glib_initialized = FALSE;
+
+#ifdef G_PLATFORM_WIN32
+# ifdef THREADS_WIN32
+  _g_thread_win32_thread_detach ();
+  _g_thread_win32_process_detach ();
+# endif
+# if 0
+  _g_crash_handler_win32_deinit ();
+# endif
+#endif
+
+  _g_thread_deinit ();
+  _g_messages_deinit ();
+#ifdef GLIB_STATIC_COMPILATION
+  _proxy_libintl_deinit ();
+#endif
+}
+
+void
+_glib_register_constructor (GXtorFunc constructor)
+{
+  if (glib_initialized)
+    constructor ();
+  else
+    G_XTORS_APPEND (constructors, constructor);
+}
+
+void
+_glib_register_destructor (GXtorFunc destructor)
+{
+  G_XTORS_APPEND (destructors, destructor);
 }
 
 #ifdef G_PLATFORM_WIN32
 
 HMODULE glib_dll = NULL;
-void glib_win32_init (void);
-
-void
-glib_win32_init (void)
-{
-  /* May be called more than once in static compilation mode */
-  static gboolean win32_already_init = FALSE;
-  if (!win32_already_init)
-    {
-      win32_already_init = TRUE;
-
-      g_crash_handler_win32_init ();
-#ifdef THREADS_WIN32
-      g_thread_win32_init ();
-#endif
-
-      g_clock_win32_init ();
-      glib_init ();
-      /* must go after glib_init */
-      g_console_win32_init ();
-    }
-}
-
-static void
-glib_win32_deinit (gboolean detach_thread)
-{
-#ifdef THREADS_WIN32
-  if (detach_thread)
-    g_thread_win32_process_detach ();
-#endif
-  g_crash_handler_win32_deinit ();
-}
-
-#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(glib_priv_constructor)
-#endif
-
-static gboolean tls_callback_invoked;
-
-G_DEFINE_CONSTRUCTOR (glib_priv_constructor)
-
-static void
-glib_priv_constructor (void)
-{
-  glib_win32_init ();
-
-  if (!tls_callback_invoked)
-    g_critical ("TLS callback not invoked");
-}
 
 #ifndef G_HAS_TLS_CALLBACKS
 #error Compilation on Windows requires TLS callbacks support
@@ -490,15 +547,12 @@ glib_priv_tls_callback (LPVOID hinstance,
     {
     case DLL_PROCESS_ATTACH:
       glib_dll = hinstance;
-      tls_callback_invoked = TRUE;
       break;
     case DLL_THREAD_DETACH:
 #ifdef THREADS_WIN32
-      g_thread_win32_thread_detach ();
+      if (glib_initialized)
+        _g_thread_win32_thread_detach ();
 #endif
-      break;
-    case DLL_PROCESS_DETACH:
-      glib_win32_deinit (reserved == NULL);
       break;
 
     default:
@@ -506,19 +560,4 @@ glib_priv_tls_callback (LPVOID hinstance,
     }
 }
 
-#elif defined(G_HAS_CONSTRUCTORS) /* && !G_PLATFORM_WIN32 */
-
-#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(glib_init_ctor)
-#endif
-G_DEFINE_CONSTRUCTOR(glib_init_ctor)
-
-static void
-glib_init_ctor (void)
-{
-  glib_init ();
-}
-
-#else /* !G_PLATFORM_WIN32 && !G_HAS_CONSTRUCTORS */
-# error Your platform/compiler is missing constructor support
 #endif /* G_PLATFORM_WIN32 */
