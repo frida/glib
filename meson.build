@@ -2006,12 +2006,41 @@ glibconfig_conf.set10('G_HAVE_GROWING_STACK', growing_stack)
 # We should never use the MinGW C library's iconv because it may not be
 # available in the actual runtime environment. On Windows, we always use
 # the built-in implementation
+iconv_opt = get_option('iconv')
 if host_system == 'windows'
+  libiconv = []
   # We have a #include "win_iconv.c" in gconvert.c on Windows, so we don't need
   # any external library for it
-  libiconv = []
+  if iconv_opt != 'auto'
+    warning('-Diconv was set to @0@, which was ignored')
+  endif
 else
-  libiconv = dependency('iconv')
+  found_iconv = false
+  if ['auto', 'libc'].contains(iconv_opt) and cc.has_function('iconv_open')
+    libiconv = []
+    found_iconv = true
+  endif
+
+  allow_external_iconv = ['auto', 'external'].contains(iconv_opt)
+
+  if not found_iconv and allow_external_iconv
+    libiconv = dependency('libiconv', required : false)
+    found_iconv = libiconv.found()
+  endif
+
+  if not found_iconv and allow_external_iconv and cc.has_header_symbol('iconv.h', 'iconv_open')
+    libiconv = [cc.find_library('iconv')]
+    found_iconv = true
+  endif
+
+  if not found_iconv and allow_external_iconv
+    libiconv = dependency('libiconv')
+    found_iconv = true
+  endif
+
+  if not found_iconv
+    error('iconv implementation "@0@" not found'.format(iconv_opt))
+  endif
 endif
 
 pcre2 = dependency('libpcre2-8', version: '>= 10.32', required : false)
