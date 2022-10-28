@@ -16,8 +16,8 @@ extra_xdgmime_args = cc.get_supported_arguments([
 ])
 
 xdgmime_lib = static_library('xdgmime',
-  sources : xdgmime_sources,
-  include_directories : [configinc],
+  sources : [xdgmime_sources, glib_built_headers],
+  include_directories : [configinc, glibinc],
   pic : true,
   c_args : [
     '-DHAVE_CONFIG_H',

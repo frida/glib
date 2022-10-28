@@ -507,6 +507,8 @@ else
 endif
 
 gio_base_sources = files(
+  'gio-init.c',
+  'gio-fork.c',
   'gappinfo.c',
   'gasynchelper.c',
   'gasyncinitable.c',
@@ -822,7 +824,8 @@ gioenumtypes_c = custom_target('gioenumtypes_c',
              '--template', files('gioenumtypes.c.template'),
              '@INPUT@', gnetworking_h])
 
-gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_h, gio_visibility_h])
+gioenumtypes_dep = declare_dependency(sources : [gioenumtypes_h, glib_enumtypes_h, glib_built_headers, gio_visibility_h],
+  dependencies : [libgmodule_dep])
 
 file_monitor_backend = get_option('file_monitor_backend')
 if file_monitor_backend == 'auto'
@@ -894,6 +897,11 @@ else
   gio_dtrace_obj = []
   gio_dtrace_hdr = []
 endif
+
+internal_objects = []
+foreach dep : internal_deps
+  internal_objects += dep.extract_all_objects()
+endforeach
 
 libgio = library('gio-2.0',
   gioenumtypes_h, gioenumtypes_c, gnetworking_h, gio_sources,

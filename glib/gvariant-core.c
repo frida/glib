@@ -715,40 +715,45 @@ g_variant_new_take_bytes (const GVariantType *type,
 
   if (!g_variant_serialised_check (serialised))
     {
-#ifdef HAVE_POSIX_MEMALIGN
-      gpointer aligned_data = NULL;
-      gsize aligned_size = g_bytes_get_size (bytes);
+      if (glib_mem_table->memalign != NULL)
+        {
+          gpointer aligned_data = NULL;
+          gsize aligned_size = g_bytes_get_size (bytes);
 
-      /* posix_memalign() requires the alignment to be a multiple of
-       * sizeof(void*), and a power of 2. See g_variant_type_info_query() for
-       * details on the alignment format.
-       *
-       * While calling posix_memalign() with aligned_size==0 is safe on glibc,
-       * POSIX specifies that the behaviour is implementation-defined, so avoid
-       * that and leave aligned_data==NULL in that case.
-       * See https://pubs.opengroup.org/onlinepubs/9699919799/functions/posix_memalign.html */
-      if (aligned_size != 0 &&
-          posix_memalign (&aligned_data, MAX (sizeof (void *), alignment + 1),
-                          aligned_size) != 0)
-        g_error ("posix_memalign failed");
+          /* memalign() requires the alignment to be a multiple of
+           * sizeof(void*), and a power of 2. See g_variant_type_info_query()
+           * for details on the alignment format.
+           *
+           * While calling posix_memalign() with aligned_size==0 is safe on glibc,
+           * POSIX specifies that the behaviour is implementation-defined, so avoid
+           * that and leave aligned_data==NULL in that case.
+           * See https://pubs.opengroup.org/onlinepubs/9699919799/functions/posix_memalign.html */
+          if (aligned_size != 0)
+            {
+              aligned_data =
+                  glib_mem_table->memalign (MAX (sizeof (void *), alignment + 1),
+                                            aligned_size);
+              if (aligned_data == NULL)
+                g_error ("memalign failed");
 
-      if (aligned_size != 0)
-        memcpy (aligned_data, g_bytes_get_data (bytes, NULL), aligned_size);
+              memcpy (aligned_data, g_bytes_get_data (bytes, NULL), aligned_size);
+            }
 
-      owned_bytes = bytes;
-      bytes = g_bytes_new_with_free_func (aligned_data,
-                                          aligned_size,
-                                          free, aligned_data);
-      aligned_data = NULL;
-#else
-      /* NOTE: there may be platforms that lack posix_memalign() and also
-       * have malloc() that returns non-8-aligned.  if so, we need to try
-       * harder here.
-       */
-      owned_bytes = bytes;
-      bytes = g_bytes_new (g_bytes_get_data (bytes, NULL),
-                           g_bytes_get_size (bytes));
-#endif
+          owned_bytes = bytes;
+          bytes = g_bytes_new_with_free_func (aligned_data,
+                                              aligned_size,
+                                              glib_mem_table->free, aligned_data);
+        }
+      else
+        {
+          /* NOTE: there may be platforms that lack posix_memalign() and also
+           * have malloc() that returns non-8-aligned.  if so, we need to try
+           * harder here.
+           */
+          owned_bytes = bytes;
+          bytes = g_bytes_new (g_bytes_get_data (bytes, NULL),
+                               g_bytes_get_size (bytes));
+        }
     }
 
   value->contents.serialised.bytes = bytes;
