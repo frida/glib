@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -734,6 +736,16 @@ test_basic (GDBusProxy *proxy)
 }
 
 static void
+name_disappeared_cb (GDBusConnection *connection,
+                     const gchar     *name,
+                     gpointer         user_data)
+{
+  gboolean *name_disappeared = user_data;
+  *name_disappeared = TRUE;
+  g_main_context_wakeup (NULL);
+}
+
+static void
 kill_test_service (GDBusConnection *connection)
 {
 #ifdef G_OS_UNIX
@@ -741,6 +753,8 @@ kill_test_service (GDBusConnection *connection)
   GVariant *ret;
   GError *error = NULL;
   const gchar *name = "com.example.TestService";
+  guint watch_id;
+  gboolean name_disappeared = FALSE;
 
   ret = g_dbus_connection_call_sync (connection,
                                      "org.freedesktop.DBus",
@@ -755,7 +769,18 @@ kill_test_service (GDBusConnection *connection)
                                      &error);
   g_variant_get (ret, "(u)", &pid);
   g_variant_unref (ret);
+
+  /* Watch the name and wait until it’s disappeared. */
+  watch_id = g_bus_watch_name_on_connection (connection, name,
+                                             G_BUS_NAME_WATCHER_FLAGS_NONE,
+                                             NULL, name_disappeared_cb,
+                                             &name_disappeared, NULL);
   kill (pid, SIGTERM);
+
+  while (!name_disappeared)
+    g_main_context_iteration (NULL, TRUE);
+
+  g_bus_unwatch_name (watch_id);
 #else
   g_warning ("Can't kill com.example.TestService");
 #endif
@@ -797,8 +822,6 @@ test_proxy_with_flags (GDBusProxyFlags flags)
   test_expected_interface (proxy);
 
   kill_test_service (connection);
-
-  _g_assert_property_notify (proxy, "g-name-owner");
 
   owner = g_dbus_proxy_get_name_owner (proxy);
   g_assert_null (owner);

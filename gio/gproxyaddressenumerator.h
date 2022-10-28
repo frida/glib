@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2010 Collabora, Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -73,7 +75,7 @@ struct _GProxyAddressEnumeratorClass
   void (*_g_reserved7) (void);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType           g_proxy_address_enumerator_get_type    (void) G_GNUC_CONST;
 
 G_END_DECLS

@@ -2,6 +2,8 @@
  *
  *  Copyright 2000 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -31,7 +33,7 @@ G_BEGIN_DECLS
 
 /**
  * GError:
- * @domain: error domain, e.g. #G_FILE_ERROR
+ * @domain: error domain, e.g. %G_FILE_ERROR
  * @code: error code, e.g. %G_FILE_ERROR_NOENT
  * @message: human-readable informative error message
  *

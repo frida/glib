@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright © 2020 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -16,8 +18,7 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __G_URI_H__
-#define __G_URI_H__
+#pragma once
 
 #if !defined (__GLIB_H_INSIDE__) && !defined (GLIB_COMPILATION)
 #error "Only <glib.h> can be included directly."
@@ -417,5 +418,3 @@ char *      g_uri_escape_bytes     (const guint8 *unescaped,
 G_GNUC_END_IGNORE_DEPRECATIONS
 
 G_END_DECLS
-
-#endif /* __G_URI_H__ */

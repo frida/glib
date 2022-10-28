@@ -2,6 +2,8 @@
  *
  * Copyright 2011-2018 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -23,8 +25,6 @@
 
 #include "gasyncresult.h"
 #include "gcancellable.h"
-#include "gconstructor.h"
-#include "gio-init.h"
 #include "glib-private.h"
 #include "gtrace-private.h"
 
@@ -573,21 +573,21 @@ struct _GTask {
   gboolean thread_cancelled;
 
   /* Protected by the lock when task is threaded: */
-  gboolean thread_complete : 1;
-  gboolean return_on_cancel : 1;
-  gboolean : 0;
+  guint thread_complete : 1;
+  guint return_on_cancel : 1;
+  guint : 0;
 
   /* Unprotected, but written to when task runs in thread: */
-  gboolean completed : 1;
-  gboolean had_error : 1;
-  gboolean result_set : 1;
-  gboolean ever_returned : 1;
-  gboolean : 0;
+  guint completed : 1;
+  guint had_error : 1;
+  guint result_set : 1;
+  guint ever_returned : 1;
+  guint : 0;
 
   /* Read-only once task runs in thread: */
-  gboolean check_cancellable : 1;
-  gboolean synchronous : 1;
-  gboolean blocking_other_task : 1;
+  guint check_cancellable : 1;
+  guint synchronous : 1;
+  guint blocking_other_task : 1;
 
   GError *error;
   union {
@@ -618,20 +618,11 @@ G_DEFINE_TYPE_WITH_CODE (GTask, g_task, G_TYPE_OBJECT,
                                                 g_task_async_result_iface_init);
                          g_task_thread_pool_init ();)
 
-#ifdef G_HAS_CONSTRUCTORS
-#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(g_task_deinit)
-#endif
-G_DEFINE_DESTRUCTOR(g_task_deinit)
-#endif /* G_HAS_CONSTRUCTORS */
-
 static GThreadPool *task_pool;
 static GMutex task_pool_mutex;
-static GCond task_pool_cond;
 static GPrivate task_private = G_PRIVATE_INIT (NULL);
 static GSource *task_pool_manager;
 static guint64 task_wait_time;
-static gint tasks_queued;
 static gint tasks_running;
 
 static guint task_pool_max_counter;
@@ -657,34 +648,9 @@ static guint tasks_running_counter;
 #define G_TASK_WAIT_TIME_MAX_POOL_SIZE 330
 
 static void
-g_task_deinit (void)
-{
-  _g_task_shutdown ();
-}
-
-static void
 g_task_init (GTask *task)
 {
   task->check_cancellable = TRUE;
-}
-
-void
-_g_task_shutdown (void)
-{
-  GThreadPool *pool;
-
-  g_mutex_lock (&task_pool_mutex);
-
-  while (tasks_queued + tasks_running != 0)
-    g_cond_wait (&task_pool_cond, &task_pool_mutex);
-
-  pool = task_pool;
-  task_pool = NULL;
-
-  g_mutex_unlock (&task_pool_mutex);
-
-  if (pool != NULL)
-    g_thread_pool_free (pool, FALSE, TRUE);
 }
 
 static void
@@ -1017,12 +983,18 @@ g_task_set_return_on_cancel (GTask    *task,
  * @task: the #GTask
  * @source_tag: an opaque pointer indicating the source of this task
  *
- * Sets @task's source tag. You can use this to tag a task return
+ * Sets @task's source tag.
+ *
+ * You can use this to tag a task return
  * value with a particular pointer (usually a pointer to the function
  * doing the tagging) and then later check it using
  * g_task_get_source_tag() (or g_async_result_is_tagged()) in the
  * task's "finish" function, to figure out if the response came from a
  * particular place.
+ *
+ * A macro wrapper around this function will automatically set the
+ * task’s name to the string form of @source_tag if it’s not already
+ * set, for convenience.
  *
  * Since: 2.36
  */
@@ -1050,7 +1022,8 @@ void
  * name of the #GSource used for idle completion of the task.
  *
  * This function may only be called before the @task is first used in a thread
- * other than the one it was constructed in.
+ * other than the one it was constructed in. It is called automatically by
+ * g_task_set_source_tag() if not called already.
  *
  * Since: 2.60
  */
@@ -1163,7 +1136,7 @@ g_task_get_context (GTask *task)
  *
  * Gets @task's #GCancellable
  *
- * Returns: (transfer none): @task's #GCancellable
+ * Returns: (nullable) (transfer none): @task's #GCancellable
  *
  * Since: 2.36
  */
@@ -1286,7 +1259,6 @@ g_task_return (GTask           *task,
                GTaskReturnType  type)
 {
   GSource *source;
-  gchar *source_name = NULL;
 
   if (type != G_TASK_RETURN_FROM_THREAD)
     task->ever_returned = TRUE;
@@ -1335,10 +1307,22 @@ g_task_return (GTask           *task,
 
   /* Otherwise, complete in the next iteration */
   source = g_idle_source_new ();
-  source_name = g_strdup_printf ("[gio] %s complete_in_idle_cb",
-                                 (task->name != NULL) ? task->name : "(unnamed)");
-  g_source_set_name (source, source_name);
-  g_free (source_name);
+
+  /* Note: in case the task name is NULL we set it as a const string instead
+   * of going through the concat path which is more expensive and may show in the
+   * profiler if g_task_return is called very often
+   */
+  if (task->name == NULL)
+    g_source_set_static_name (source, "[gio] (unnamed) complete_in_idle_cb");
+  else
+    {
+      gchar *source_name;
+
+      source_name = g_strconcat ("[gio] ", task->name, " complete_in_idle_cb", NULL);
+      g_source_set_name (source, source_name);
+      g_free (source_name);
+    }
+
   g_task_attach_source (task, source, complete_in_idle_cb);
   g_source_unref (source);
 }
@@ -1404,8 +1388,7 @@ static gboolean
 task_pool_manager_timeout (gpointer user_data)
 {
   g_mutex_lock (&task_pool_mutex);
-  if (task_pool != NULL)
-    g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
+  g_thread_pool_set_max_threads (task_pool, tasks_running + 1, NULL);
   g_trace_set_int64_counter (task_pool_max_counter, tasks_running + 1);
   g_source_set_ready_time (task_pool_manager, -1);
   g_mutex_unlock (&task_pool_mutex);
@@ -1418,7 +1401,6 @@ g_task_thread_setup (void)
 {
   g_private_set (&task_private, GUINT_TO_POINTER (TRUE));
   g_mutex_lock (&task_pool_mutex);
-  tasks_queued--;
   tasks_running++;
 
   g_trace_set_int64_counter (tasks_running_counter, tasks_running);
@@ -1456,9 +1438,6 @@ g_task_thread_cleanup (void)
   tasks_running--;
 
   g_trace_set_int64_counter (tasks_running_counter, tasks_running);
-
-  if (tasks_queued + tasks_running == 0)
-    g_cond_signal (&task_pool_cond);
 
   g_mutex_unlock (&task_pool_mutex);
   g_private_set (&task_private, GUINT_TO_POINTER (FALSE));
@@ -1519,10 +1498,6 @@ static void
 g_task_start_task_thread (GTask           *task,
                           GTaskThreadFunc  task_func)
 {
-  g_mutex_lock (&task_pool_mutex);
-  tasks_queued++;
-  g_mutex_unlock (&task_pool_mutex);
-
   g_mutex_init (&task->lock);
   g_cond_init (&task->cond);
 
@@ -1555,7 +1530,8 @@ g_task_start_task_thread (GTask           *task,
       g_signal_connect_data (task->cancellable, "cancelled",
                              G_CALLBACK (task_thread_cancelled),
                              g_object_ref (task),
-                             task_thread_cancelled_disconnect_notify, 0);
+                             task_thread_cancelled_disconnect_notify,
+                             G_CONNECT_DEFAULT);
     }
 
   if (g_private_get (&task_private))
@@ -2043,7 +2019,7 @@ value_free (gpointer value)
  *
  * Sets @task's result to @result (by copying it) and completes the task.
  *
- * If @result is %NULL then a #GValue of type #G_TYPE_POINTER
+ * If @result is %NULL then a #GValue of type %G_TYPE_POINTER
  * with a value of %NULL will be used for the result.
  *
  * This is a very generic low-level method intended primarily for use

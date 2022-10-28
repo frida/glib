@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -1472,6 +1474,149 @@ test_message_parse_deep_body_nesting (void)
 
 /* ---------------------------------------------------------------------------------------------------- */
 
+static void
+test_message_parse_truncated (void)
+{
+  GDBusMessage *message = NULL;
+  GDBusMessage *message2 = NULL;
+  GVariantBuilder builder;
+  guchar *blob = NULL;
+  gsize size = 0;
+  GError *error = NULL;
+
+  g_test_summary ("Test that truncated messages are properly rejected.");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2528");
+
+  message = g_dbus_message_new ();
+  g_variant_builder_init (&builder, G_VARIANT_TYPE ("(asbynqiuxtd)"));
+  g_variant_builder_open (&builder, G_VARIANT_TYPE ("as"));
+  g_variant_builder_add (&builder, "s", "fourtytwo");
+  g_variant_builder_close (&builder);
+  g_variant_builder_add (&builder, "b", TRUE);
+  g_variant_builder_add (&builder, "y", 42);
+  g_variant_builder_add (&builder, "n", 42);
+  g_variant_builder_add (&builder, "q", 42);
+  g_variant_builder_add (&builder, "i", 42);
+  g_variant_builder_add (&builder, "u", 42);
+  g_variant_builder_add (&builder, "x", 42);
+  g_variant_builder_add (&builder, "t", 42);
+  g_variant_builder_add (&builder, "d", (gdouble) 42);
+
+  g_dbus_message_set_message_type (message, G_DBUS_MESSAGE_TYPE_METHOD_CALL);
+  g_dbus_message_set_header (message, G_DBUS_MESSAGE_HEADER_FIELD_PATH,
+                             g_variant_new_object_path ("/foo/bar"));
+  g_dbus_message_set_header (message, G_DBUS_MESSAGE_HEADER_FIELD_MEMBER,
+                             g_variant_new_string ("Member"));
+  g_dbus_message_set_body (message, g_variant_builder_end (&builder));
+
+  blob = g_dbus_message_to_blob (message, &size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
+  g_assert_no_error (error);
+
+  g_clear_object (&message);
+
+  /* Try parsing all possible prefixes of the full @blob. */
+  for (gsize i = 0; i < size; i++)
+    {
+      message2 = g_dbus_message_new_from_blob (blob, i, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
+      g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+      g_assert_null (message2);
+      g_clear_error (&error);
+    }
+
+  message2 = g_dbus_message_new_from_blob (blob, size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
+  g_assert_no_error (error);
+  g_assert_true (G_IS_DBUS_MESSAGE (message2));
+  g_clear_object (&message2);
+
+  g_free (blob);
+}
+
+static void
+test_message_parse_empty_structure (void)
+{
+  const guint8 data[] =
+    {
+      'l',  /* little-endian byte order */
+      0x02,  /* message type (method return) */
+      0x00,  /* message flags (none) */
+      0x01,  /* major protocol version */
+      0x08, 0x00, 0x00, 0x00,  /* body length (in bytes) */
+      0x00, 0x00, 0x00, 0x00,  /* message serial */
+      /* a{yv} of header fields */
+      0x20, 0x00, 0x00, 0x00,  /* array length (in bytes), must be a multiple of 8 */
+        0x01,  /* array key (PATH) */
+        0x01,  /* signature length */
+        'o',  /* type (OBJECT_PATH) */
+        0x00,  /* nul terminator */
+        0x05, 0x00, 0x00, 0x00, /* length 5 */
+        '/', 'p', 'a', 't', 'h', 0x00, 0x00, 0x00, /* string '/path' and padding */
+        0x03,  /* array key (MEMBER) */
+        0x01,  /* signature length */
+        's',  /* type (STRING) */
+        0x00,  /* nul terminator */
+        0x06, 0x00, 0x00, 0x00, /* length 6 */
+        'M', 'e', 'm', 'b', 'e', 'r', 0x00, 0x00, /* string 'Member' and padding */
+        0x08,  /* array key (SIGNATURE) */
+        0x01,  /* signature length */
+        'g',  /* type (SIGNATURE) */
+        0x00,  /* nul terminator */
+        0x03, /* length 3 */
+        'a', '(', ')', 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* type 'a()' and padding */
+        0x08, 0x00, 0x00, 0x00, /* array length: 4 bytes */
+        0x00, 0x00, 0x00, 0x00, /* padding to 8 bytes */
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /* array data */
+        0x00
+    };
+  gsize size = sizeof (data);
+  GDBusMessage *message = NULL;
+  GError *local_error = NULL;
+
+  g_test_summary ("Test that empty structures are rejected when parsing.");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2557");
+
+  message = g_dbus_message_new_from_blob ((guchar *) data, size,
+                                          G_DBUS_CAPABILITY_FLAGS_NONE,
+                                          &local_error);
+  g_assert_error (local_error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_cmpstr (local_error->message, ==, "Empty structures (tuples) are not allowed in D-Bus");
+  g_assert_null (message);
+
+  g_clear_error (&local_error);
+}
+
+static void
+test_message_serialize_empty_structure (void)
+{
+  GDBusMessage *message;
+  GVariantBuilder builder;
+  gsize size = 0;
+  GError *local_error = NULL;
+
+  g_test_summary ("Test that empty structures are rejected when serializing.");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2557");
+
+  message = g_dbus_message_new ();
+  g_variant_builder_init (&builder, G_VARIANT_TYPE ("(a())"));
+  g_variant_builder_open (&builder, G_VARIANT_TYPE ("a()"));
+  g_variant_builder_add (&builder, "()");
+  g_variant_builder_close (&builder);
+  g_dbus_message_set_message_type (message, G_DBUS_MESSAGE_TYPE_METHOD_CALL);
+  g_dbus_message_set_header (message, G_DBUS_MESSAGE_HEADER_FIELD_PATH,
+                             g_variant_new_object_path ("/path"));
+  g_dbus_message_set_header (message, G_DBUS_MESSAGE_HEADER_FIELD_MEMBER,
+                             g_variant_new_string ("Member"));
+  g_dbus_message_set_body (message, g_variant_builder_end (&builder));
+
+  g_dbus_message_to_blob (message, &size, G_DBUS_CAPABILITY_FLAGS_NONE, &local_error);
+  g_assert_error (local_error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_cmpstr (local_error->message, ==, "Empty structures (tuples) are not allowed in D-Bus");
+
+  g_clear_error (&local_error);
+  g_clear_object (&message);
+}
+
+/* ---------------------------------------------------------------------------------------------------- */
+
 int
 main (int   argc,
       char *argv[])
@@ -1491,6 +1636,8 @@ main (int   argc,
                    test_message_serialize_header_checks);
   g_test_add_func ("/gdbus/message-serialize/double-array",
                    test_message_serialize_double_array);
+  g_test_add_func ("/gdbus/message-serialize/empty-structure",
+                   test_message_serialize_empty_structure);
 
   g_test_add_func ("/gdbus/message-parse/empty-arrays-of-arrays",
                    test_message_parse_empty_arrays_of_arrays);
@@ -1506,6 +1653,10 @@ main (int   argc,
                    test_message_parse_deep_header_nesting);
   g_test_add_func ("/gdbus/message-parse/deep-body-nesting",
                    test_message_parse_deep_body_nesting);
+  g_test_add_func ("/gdbus/message-parse/truncated",
+                   test_message_parse_truncated);
+  g_test_add_func ("/gdbus/message-parse/empty-structure",
+                   test_message_parse_empty_structure);
 
   return g_test_run();
 }

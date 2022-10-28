@@ -3,6 +3,8 @@
  *  Copyright (C) 1999, 2000 Tom Tromey
  *  Copyright 2000, 2005 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -435,6 +437,9 @@ typedef enum
  * @G_UNICODE_SCRIPT_TANGSA:               Tangsa. Since: 2.72
  * @G_UNICODE_SCRIPT_TOTO:                 Toto. Since: 2.72
  * @G_UNICODE_SCRIPT_VITHKUQI:             Vithkuqi. Since: 2.72
+ * @G_UNICODE_SCRIPT_MATH:                 Mathematical notation. Since: 2.72
+ * @G_UNICODE_SCRIPT_KAWI:                 Kawi. Since 2.74
+ * @G_UNICODE_SCRIPT_NAG_MUNDARI:          Nag Mundari. Since 2.74
  *
  * The #GUnicodeScript enumeration identifies different writing
  * systems. The values correspond to the names as defined in the
@@ -640,6 +645,13 @@ typedef enum
   G_UNICODE_SCRIPT_TANGSA,                 /* Tnsa */
   G_UNICODE_SCRIPT_TOTO,                   /* Toto */
   G_UNICODE_SCRIPT_VITHKUQI,               /* Vith */
+
+  /* not really a Unicode script, but part of ISO 15924 */
+  G_UNICODE_SCRIPT_MATH,                   /* Zmth */
+
+  /* Unicode 15.0 additions */
+  G_UNICODE_SCRIPT_KAWI GLIB_AVAILABLE_ENUMERATOR_IN_2_74,          /* Kawi */
+  G_UNICODE_SCRIPT_NAG_MUNDARI GLIB_AVAILABLE_ENUMERATOR_IN_2_74,   /* Nag Mundari */
 } GUnicodeScript;
 
 GLIB_AVAILABLE_IN_ALL

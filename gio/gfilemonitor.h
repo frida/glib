@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -74,20 +76,20 @@ struct _GFileMonitorClass
   void (*_g_reserved5) (void);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType    g_file_monitor_get_type       (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_file_monitor_cancel         (GFileMonitor      *monitor);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_file_monitor_is_cancelled   (GFileMonitor      *monitor);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void     g_file_monitor_set_rate_limit (GFileMonitor      *monitor,
                                         gint               limit_msecs);
 
 
 /* For implementations */
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void     g_file_monitor_emit_event     (GFileMonitor      *monitor,
                                         GFile             *child,
                                         GFile             *other_file,

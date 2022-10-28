@@ -27,16 +27,18 @@
 #include <locale.h>
 #include <string.h>
 #include <fcntl.h>
+#include <glib/gstdio.h>
 
 #ifdef G_OS_UNIX
 #include <glib-unix.h>
-#include <glib/gstdio.h>
 #include <sys/types.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
 
 #ifdef G_OS_WIN32
+#include <winsock2.h>
 #include <io.h>
 #define LINEEND "\r\n"
 #else
@@ -199,7 +201,7 @@ test_spawn_async_with_fds (void)
     { NO_FD, PIPE, STDOUT_PIPE },  /* Test the same fd for stdout + stderr */
   };
 
-  arg = g_strdup_printf ("thread %d", tnum);
+  arg = g_strdup_printf ("# thread %d\n", tnum);
 
   argv = g_ptr_array_new ();
   g_ptr_array_add (argv, echo_prog_path);
@@ -293,10 +295,12 @@ test_spawn_async_with_fds (void)
 
       if (test_pipe[1][0] >= 0)
         {
+          gchar *tmp = g_strdup_printf ("# thread %d" LINEEND, tnum);
           /* Check for echo on stdout */
           g_assert_true (data.stdout_done);
-          g_assert_cmpstr (data.stdout_buf->str, ==, arg);
+          g_assert_cmpstr (data.stdout_buf->str, ==, tmp);
           g_io_channel_unref (channel);
+          g_free (tmp);
         }
       g_string_free (data.stdout_buf, TRUE);
 
@@ -351,6 +355,56 @@ test_spawn_sync (void)
   g_free (arg);
   g_free (stdout_str);
   g_free (joined_args_str);
+}
+
+static void
+init_networking (void)
+{
+#ifdef G_OS_WIN32
+  WSADATA wsadata;
+
+  if (WSAStartup (MAKEWORD (2, 0), &wsadata) != 0)
+    g_error ("Windows Sockets could not be initialized");
+#endif
+}
+
+static void
+test_spawn_stderr_socket (void)
+{
+  GError *error = NULL;
+  GPtrArray *argv;
+  int estatus;
+  int fd;
+
+  g_test_summary ("Test calling g_spawn_sync() with its stderr FD set to a socket");
+
+  if (g_test_subprocess ())
+    {
+      init_networking ();
+      fd = socket (AF_INET, SOCK_STREAM, 0);
+      g_assert_cmpint (fd, >=, 0);
+#ifdef G_OS_WIN32
+      fd = _open_osfhandle (fd, 0);
+      g_assert_cmpint (fd, >=, 0);
+#endif
+      /* Set the socket as FD 2, stderr */
+      estatus = dup2 (fd, 2);
+      g_assert_cmpint (estatus, >=, 0);
+
+      argv = g_ptr_array_new ();
+      g_ptr_array_add (argv, echo_script_path);
+      g_ptr_array_add (argv, NULL);
+
+      g_spawn_sync (NULL, (char**) argv->pdata, NULL, 0, NULL, NULL, NULL, NULL, NULL, &error);
+      g_assert_no_error (error);
+      g_ptr_array_free (argv, TRUE);
+      g_close (fd, &error);
+      g_assert_no_error (error);
+      return;
+    }
+
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+  g_test_trap_assert_passed ();
 }
 
 /* Like test_spawn_sync but uses spawn flags that trigger the optimized
@@ -433,12 +487,11 @@ test_spawn_nonexistent (void)
 static void
 test_spawn_fd_assignment_clash (void)
 {
-#if defined(G_OS_UNIX) && defined(F_DUPFD_CLOEXEC)
   int tmp_fd;
   guint i;
-  const guint n_fds = 10;
-  gint source_fds[n_fds];
-  gint target_fds[n_fds];
+#define N_FDS 10
+  gint source_fds[N_FDS];
+  gint target_fds[N_FDS];
   const gchar *argv[] = { "/nonexistent", NULL };
   gboolean retval;
   GError *local_error = NULL;
@@ -449,27 +502,32 @@ test_spawn_fd_assignment_clash (void)
   tmp_fd = g_file_open_tmp ("glib-spawn-test-XXXXXX", NULL, NULL);
   g_assert_cmpint (tmp_fd, >=, 0);
 
-  for (i = 0; i < (n_fds - 1); ++i)
+  for (i = 0; i < (N_FDS - 1); ++i)
     {
-      int source = fcntl (tmp_fd, F_DUPFD_CLOEXEC, 3);
+      int source;
+#ifdef F_DUPFD_CLOEXEC
+      source = fcntl (tmp_fd, F_DUPFD_CLOEXEC, 3);
+#else
+      source = dup (tmp_fd);
+#endif
       g_assert_cmpint (source, >=, 0);
       source_fds[i] = source;
-      target_fds[i] = source + n_fds;
+      target_fds[i] = source + N_FDS;
     }
 
   source_fds[i] = tmp_fd;
-  target_fds[i] = tmp_fd + n_fds;
+  target_fds[i] = tmp_fd + N_FDS;
 
   /* Print out the FD map. */
   g_test_message ("FD map:");
-  for (i = 0; i < n_fds; i++)
+  for (i = 0; i < N_FDS; i++)
     g_test_message (" • %d → %d", source_fds[i], target_fds[i]);
 
   /* Spawn the subprocess. This should fail because the executable doesn’t
    * exist. */
   retval = g_spawn_async_with_pipes_and_fds (NULL, argv, NULL, G_SPAWN_DEFAULT,
                                              NULL, NULL, -1, -1, -1,
-                                             source_fds, target_fds, n_fds,
+                                             source_fds, target_fds, N_FDS,
                                              NULL, NULL, NULL, NULL,
                                              &local_error);
   g_assert_error (local_error, G_SPAWN_ERROR, G_SPAWN_ERROR_NOENT);
@@ -484,11 +542,8 @@ test_spawn_fd_assignment_clash (void)
   g_assert_cmpuint (statbuf.st_size, ==, 0);
 
   /* Clean up. */
-  for (i = 0; i < n_fds; i++)
+  for (i = 0; i < N_FDS; i++)
     g_close (source_fds[i], NULL);
-#else  /* !G_OS_UNIX */
-  g_test_skip ("FD redirection only supported on Unix with F_DUPFD_CLOEXEC");
-#endif  /* !G_OS_UNIX */
 }
 
 int
@@ -504,11 +559,6 @@ main (int   argc,
 
   dirname = g_path_get_dirname (argv[0]);
   echo_prog_path = g_build_filename (dirname, "test-spawn-echo" EXEEXT, NULL);
-  if (!g_file_test (echo_prog_path, G_FILE_TEST_EXISTS))
-    {
-      g_free (echo_prog_path);
-      echo_prog_path = g_build_filename (dirname, "lt-test-spawn-echo" EXEEXT, NULL);
-    }
   echo_script_path = g_build_filename (dirname, "echo-script" SCRIPT_EXT, NULL);
   if (!g_file_test (echo_script_path, G_FILE_TEST_EXISTS))
     {
@@ -521,6 +571,7 @@ main (int   argc,
   g_assert (g_file_test (echo_script_path, G_FILE_TEST_EXISTS));
 
   g_test_add_func ("/gthread/spawn-single-sync", test_spawn_sync);
+  g_test_add_func ("/gthread/spawn-stderr-socket", test_spawn_stderr_socket);
   g_test_add_func ("/gthread/spawn-single-async", test_spawn_async);
   g_test_add_func ("/gthread/spawn-single-async-with-fds", test_spawn_async_with_fds);
   g_test_add_func ("/gthread/spawn-script", test_spawn_script);

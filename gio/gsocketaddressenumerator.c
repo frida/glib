@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -85,7 +87,7 @@ g_socket_address_enumerator_class_init (GSocketAddressEnumeratorClass *enumerato
  * internal errors (other than @cancellable being triggered) will be
  * ignored.
  *
- * Returns: (transfer full): a #GSocketAddress (owned by the caller), or %NULL on
+ * Returns: (transfer full) (nullable): a #GSocketAddress (owned by the caller), or %NULL on
  *     error (in which case *@error will be set) or if there are no
  *     more addresses.
  */
@@ -179,7 +181,7 @@ g_socket_address_enumerator_real_next_finish (GSocketAddressEnumerator  *enumera
  * g_socket_address_enumerator_next() for more information about
  * error handling.
  *
- * Returns: (transfer full): a #GSocketAddress (owned by the caller), or %NULL on
+ * Returns: (transfer full) (nullable): a #GSocketAddress (owned by the caller), or %NULL on
  *     error (in which case *@error will be set) or if there are no
  *     more addresses.
  */

@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -64,18 +66,18 @@ struct _GUnixInputStreamClass
   void (*_g_reserved5) (void);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType          g_unix_input_stream_get_type     (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GInputStream * g_unix_input_stream_new          (gint              fd,
                                                  gboolean          close_fd);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void           g_unix_input_stream_set_close_fd (GUnixInputStream *stream,
                                                  gboolean          close_fd);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean       g_unix_input_stream_get_close_fd (GUnixInputStream *stream);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gint           g_unix_input_stream_get_fd       (GUnixInputStream *stream);
 
 G_END_DECLS

@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -166,7 +168,7 @@ g_local_file_class_init (GLocalFileClass *klass)
 				  0);
 #endif
   
-#ifdef HAVE_UTIMES
+#if defined(HAVE_UTIMES) || defined(HAVE_UTIMENSAT)
   g_file_attribute_info_list_add (list,
 				  G_FILE_ATTRIBUTE_TIME_MODIFIED,
 				  G_FILE_ATTRIBUTE_TYPE_UINT64,
@@ -186,6 +188,18 @@ g_local_file_class_init (GLocalFileClass *klass)
 				  G_FILE_ATTRIBUTE_INFO_COPY_WHEN_MOVED);
   g_file_attribute_info_list_add (list,
 				  G_FILE_ATTRIBUTE_TIME_ACCESS_USEC,
+				  G_FILE_ATTRIBUTE_TYPE_UINT32,
+				  G_FILE_ATTRIBUTE_INFO_COPY_WHEN_MOVED);
+#endif  /* HAVE_UTIMES || HAVE_UTIMENSAT */
+
+#ifdef HAVE_UTIMENSAT
+  g_file_attribute_info_list_add (list,
+				  G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC,
+				  G_FILE_ATTRIBUTE_TYPE_UINT32,
+				  G_FILE_ATTRIBUTE_INFO_COPY_WITH_FILE |
+				  G_FILE_ATTRIBUTE_INFO_COPY_WHEN_MOVED);
+  g_file_attribute_info_list_add (list,
+				  G_FILE_ATTRIBUTE_TIME_ACCESS_NSEC,
 				  G_FILE_ATTRIBUTE_TYPE_UINT32,
 				  G_FILE_ATTRIBUTE_INFO_COPY_WHEN_MOVED);
 #endif
@@ -773,6 +787,7 @@ get_mount_info (GFileInfo             *fs_info,
   dev_t *dev;
   GUnixMountEntry *mount;
   guint64 cache_time;
+  gboolean is_remote = FALSE;
 
   if (g_lstat (path, &buf) != 0)
     return;
@@ -809,6 +824,8 @@ get_mount_info (GFileInfo             *fs_info,
 	{
 	  if (g_unix_mount_is_readonly (mount))
 	    mount_info |= MOUNT_INFO_READONLY;
+          if (is_remote_fs_type (g_unix_mount_get_fs_type (mount)))
+            is_remote = TRUE;
 	  
 	  g_unix_mount_free (mount);
 	}
@@ -824,43 +841,19 @@ get_mount_info (GFileInfo             *fs_info,
       G_UNLOCK (mount_info_hash);
     }
 
-  if (mount_info & MOUNT_INFO_READONLY)
+  if (mount_info & MOUNT_INFO_READONLY &&
+      g_file_attribute_matcher_matches (matcher,
+                                        G_FILE_ATTRIBUTE_FILESYSTEM_READONLY))
     g_file_info_set_attribute_boolean (fs_info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY, TRUE);
+
+  if (g_file_attribute_matcher_matches (matcher,
+                                        G_FILE_ATTRIBUTE_FILESYSTEM_REMOTE))
+    g_file_info_set_attribute_boolean (fs_info, G_FILE_ATTRIBUTE_FILESYSTEM_REMOTE, is_remote);
 }
 
 #endif
 
 #ifdef G_OS_WIN32
-
-static gboolean
-is_xp_or_later (void)
-{
-  static int result = -1;
-
-  if (result == -1)
-    {
-#ifndef _MSC_VER
-      OSVERSIONINFOEX ver_info = {0};
-      DWORDLONG cond_mask = 0;
-      int op = VER_GREATER_EQUAL;
-
-      ver_info.dwOSVersionInfoSize = sizeof ver_info;
-      ver_info.dwMajorVersion = 5;
-      ver_info.dwMinorVersion = 1;
-
-      VER_SET_CONDITION (cond_mask, VER_MAJORVERSION, op);
-      VER_SET_CONDITION (cond_mask, VER_MINORVERSION, op);
-
-      result = VerifyVersionInfo (&ver_info,
-				  VER_MAJORVERSION | VER_MINORVERSION,
-				  cond_mask) != 0;
-#else
-      result = ((DWORD)(LOBYTE (LOWORD (GetVersion ())))) >= 5;
-#endif
-    }
-
-  return result;
-}
 
 static wchar_t *
 get_volume_for_path (const char *path)
@@ -920,18 +913,10 @@ get_filesystem_readonly (GFileInfo  *info,
 
   if (rootdir)
     {
-      if (is_xp_or_later ())
-        {
-          DWORD flags;
-          if (GetVolumeInformationW (rootdir, NULL, 0, NULL, NULL, &flags, NULL, 0))
-	    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY,
-					       (flags & FILE_READ_ONLY_VOLUME) != 0);
-        }
-      else
-        {
-          if (GetDriveTypeW (rootdir) == DRIVE_CDROM)
-	    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY, TRUE);
-        }
+      DWORD flags;
+      if (GetVolumeInformationW (rootdir, NULL, 0, NULL, NULL, &flags, NULL, 0))
+        g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY,
+                                           (flags & FILE_READ_ONLY_VOLUME) != 0);
     }
 
   g_free (rootdir);
@@ -1109,7 +1094,9 @@ g_local_file_query_filesystem_info (GFile         *file,
 #endif /* G_OS_WIN32 */
 
   if (g_file_attribute_matcher_matches (attribute_matcher,
-					G_FILE_ATTRIBUTE_FILESYSTEM_READONLY))
+                                        G_FILE_ATTRIBUTE_FILESYSTEM_READONLY) ||
+      g_file_attribute_matcher_matches (attribute_matcher,
+                                        G_FILE_ATTRIBUTE_FILESYSTEM_REMOTE))
     {
 #ifdef G_OS_WIN32
       get_filesystem_readonly (info, local->filename);
@@ -1117,13 +1104,6 @@ g_local_file_query_filesystem_info (GFile         *file,
       get_mount_info (info, local->filename, attribute_matcher);
 #endif /* G_OS_WIN32 */
     }
-
-#ifndef G_OS_WIN32
-  if (g_file_attribute_matcher_matches (attribute_matcher,
-                                        G_FILE_ATTRIBUTE_FILESYSTEM_REMOTE))
-    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_FILESYSTEM_REMOTE,
-                                       is_remote_fs_type (fstype));
-#endif
 
   g_file_attribute_matcher_unref (attribute_matcher);
   
@@ -2626,6 +2606,8 @@ is_remote_fs_type (const gchar *fsname)
       if (strcmp (fsname, "smb") == 0)
         return TRUE;
       if (strcmp (fsname, "smb2") == 0)
+        return TRUE;
+      if (strcmp (fsname, "fuse.sshfs") == 0)
         return TRUE;
     }
 

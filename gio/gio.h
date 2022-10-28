@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -69,6 +71,8 @@
 #include <gio/gdbusproxy.h>
 #include <gio/gdbusserver.h>
 #include <gio/gdbusutils.h>
+#include <gio/gdebugcontroller.h>
+#include <gio/gdebugcontrollerdbus.h>
 #include <gio/gdrive.h>
 #include <gio/gdtlsclientconnection.h>
 #include <gio/gdtlsconnection.h>
@@ -165,6 +169,10 @@
 #include <gio/gtlsinteraction.h>
 #include <gio/gtlspassword.h>
 #include <gio/gtlsserverconnection.h>
+#include <gio/gunixconnection.h>
+#include <gio/gunixcredentialsmessage.h>
+#include <gio/gunixfdlist.h>
+#include <gio/gunixsocketaddress.h>
 #include <gio/gvfs.h>
 #include <gio/gvolume.h>
 #include <gio/gvolumemonitor.h>
@@ -174,27 +182,5 @@
 #include <gio/gio-autocleanups.h>
 
 #undef __GIO_GIO_H_INSIDE__
-
-G_BEGIN_DECLS
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_init (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_shutdown (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_deinit (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_prepare_to_fork (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_recover_from_fork_in_parent (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            gio_recover_from_fork_in_child (void);
-
-G_END_DECLS
 
 #endif /* __G_IO_H__ */

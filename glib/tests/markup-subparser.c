@@ -1,6 +1,8 @@
 /* 
  * Copyright © 2008 Ryan Lortie
  * 
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -289,7 +291,7 @@ test (gconstpointer user_data)
 
   error = NULL;
   string = g_string_new (NULL);
-  ctx = g_markup_parse_context_new (&parser, 0, string, NULL);
+  ctx = g_markup_parse_context_new (&parser, G_MARKUP_DEFAULT_FLAGS, string, NULL);
   result = g_markup_parse_context_parse (ctx, tc->markup,
                                          strlen (tc->markup), &error);
   if (result)

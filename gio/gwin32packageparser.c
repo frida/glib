@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2020 Руслан Ижбулатов <lrn1986@gmail.com>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -24,8 +26,6 @@
  */
 
 #include "config.h"
-
-#if _WIN32_WINNT >= 0x0600
 
 #define COBJMACROS
 #define INITGUID
@@ -98,7 +98,7 @@ static BOOL
 WIN32_FROM_HRESULT (HRESULT hresult,
                     DWORD  *win32_error_code)
 {
-  if ((hresult & 0xFFFF0000) == MAKE_HRESULT (SEVERITY_ERROR, FACILITY_WIN32, 0) ||
+  if ((hresult & (HRESULT) 0xFFFF0000) == MAKE_HRESULT (SEVERITY_ERROR, FACILITY_WIN32, 0) ||
       hresult == S_OK)
     {
       *win32_error_code = HRESULT_CODE (hresult);
@@ -818,5 +818,3 @@ xml_parser_iteration (struct _xml_sax_state  *sax,
 
   return TRUE;
 }
-
-#endif

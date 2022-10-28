@@ -2,6 +2,8 @@
  * Copyright (C) 2007 Imendio AB
  * Authors: Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -28,6 +30,7 @@
 #include <glib/gerror.h>
 #include <glib/gslist.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 
 G_BEGIN_DECLS
@@ -216,8 +219,8 @@ typedef void (*GTestFixtureFunc) (gpointer      fixture,
 
 #ifdef G_DISABLE_ASSERT
 /* https://gcc.gnu.org/onlinedocs/gcc-8.3.0/gcc/Other-Builtins.html#index-_005f_005fbuiltin_005funreachable
- * GCC 4.5 is not a strict lower bound for versions of GCC which provide __builtin_unreachable(). */
-#if G_GNUC_CHECK_VERSION (4, 5) || g_macro__has_builtin (__builtin_unreachable)
+ * GCC 5 is not a strict lower bound for versions of GCC which provide __builtin_unreachable(). */
+#if __GNUC__ >= 5 || g_macro__has_builtin(__builtin_unreachable)
 #define g_assert_not_reached()          G_STMT_START { (void) 0; __builtin_unreachable (); } G_STMT_END
 #elif defined (_MSC_VER)
 #define g_assert_not_reached()          G_STMT_START { (void) 0; __assume (0); } G_STMT_END
@@ -275,6 +278,7 @@ void    g_test_init                     (int            *argc,
  *  - g_get_user_config_dir()
  *  - g_get_system_data_dirs()
  *  - g_get_user_data_dir()
+ *  - g_get_user_state_dir()
  *  - g_get_user_runtime_dir()
  *
  * The subdirectories may not be created by the test harness; as with normal
@@ -422,6 +426,7 @@ void    g_test_queue_destroy            (GDestroyNotify destroy_func,
 
 /**
  * GTestTrapFlags:
+ * @G_TEST_TRAP_DEFAULT: Default behaviour. Since: 2.74
  * @G_TEST_TRAP_SILENCE_STDOUT: Redirect stdout of the test child to
  *     `/dev/null` so it cannot be observed on the console during test
  *     runs. The actual output is still captured though to allow later
@@ -442,6 +447,7 @@ void    g_test_queue_destroy            (GDestroyNotify destroy_func,
  * #GTestSubprocessFlags.
  */
 typedef enum {
+  G_TEST_TRAP_DEFAULT GLIB_AVAILABLE_ENUMERATOR_IN_2_74 = 0,
   G_TEST_TRAP_SILENCE_STDOUT    = 1 << 7,
   G_TEST_TRAP_SILENCE_STDERR    = 1 << 8,
   G_TEST_TRAP_INHERIT_STDIN     = 1 << 9
@@ -456,6 +462,7 @@ gboolean g_test_trap_fork               (guint64              usec_timeout,
 G_GNUC_END_IGNORE_DEPRECATIONS
 
 typedef enum {
+  G_TEST_SUBPROCESS_DEFAULT GLIB_AVAILABLE_ENUMERATOR_IN_2_74 = 0,
   G_TEST_SUBPROCESS_INHERIT_STDIN  = 1 << 0,
   G_TEST_SUBPROCESS_INHERIT_STDOUT = 1 << 1,
   G_TEST_SUBPROCESS_INHERIT_STDERR = 1 << 2

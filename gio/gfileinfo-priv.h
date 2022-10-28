@@ -3,6 +3,8 @@
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *               2009 Benjamin Otte
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -73,6 +75,10 @@
 #define G_FILE_ATTRIBUTE_ID_TIME_CHANGED_USEC (6291456 + 6)
 #define G_FILE_ATTRIBUTE_ID_TIME_CREATED (6291456 + 7)
 #define G_FILE_ATTRIBUTE_ID_TIME_CREATED_USEC (6291456 + 8)
+#define G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_NSEC (6291456 + 9)
+#define G_FILE_ATTRIBUTE_ID_TIME_ACCESS_NSEC (6291456 + 10)
+#define G_FILE_ATTRIBUTE_ID_TIME_CREATED_NSEC (6291456 + 11)
+#define G_FILE_ATTRIBUTE_ID_TIME_CHANGED_NSEC (6291456 + 12)
 #define G_FILE_ATTRIBUTE_ID_UNIX_DEVICE (7340032 + 1)
 #define G_FILE_ATTRIBUTE_ID_UNIX_INODE (7340032 + 2)
 #define G_FILE_ATTRIBUTE_ID_UNIX_MODE (7340032 + 3)

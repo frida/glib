@@ -1,6 +1,8 @@
 /* glib-private.h - GLib-internal private API, shared between glib, gobject, gio
  * Copyright (C) 2011 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -120,7 +122,6 @@ gboolean                g_check_setuid                  (void);
 GMainContext *          g_main_context_new_with_next_id (guint next_id);
 
 #ifdef G_OS_WIN32
-gchar *_glib_get_dll_directory (void);
 GLIB_AVAILABLE_IN_ALL
 gchar *_glib_get_locale_dir    (void);
 #endif
@@ -168,6 +169,17 @@ typedef struct {
 
   int                   (* g_win32_fstat)               (int                 fd,
                                                          GWin32PrivateStat  *buf);
+
+  /* See gwin32.c */
+  gchar *(*g_win32_find_helper_executable_path) (const gchar *process_name,
+                                                 void *dll_handle);
+
+  int                   (* g_win32_reopen_noninherited) (int      fd,
+                                                         int      mode,
+                                                         GError **err);
+
+  gboolean              (* g_win32_handle_is_socket)    (void *handle);
+
 #endif
 
 

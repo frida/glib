@@ -1,6 +1,8 @@
 /* 
  * Copyright © 2007 Ryan Lortie
  * 
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -206,7 +208,9 @@ test_cleanup (void)
   if (!g_test_undefined ())
     return;
 
-  context = g_markup_parse_context_new (&cleanup_parser, 0, NULL, NULL);
+  context = g_markup_parse_context_new (&cleanup_parser,
+                                        G_MARKUP_DEFAULT_FLAGS, NULL,
+                                        NULL);
   g_markup_parse_context_parse (context, XML, -1, NULL);
 
   g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,

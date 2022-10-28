@@ -1,6 +1,8 @@
 /*
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -1038,7 +1040,7 @@ schema_state_add_override (SchemaState  *state,
                            GError      **error)
 {
   SchemaState *parent;
-  KeyState *original;
+  KeyState *original = NULL;
 
   if (state->extends == NULL)
     {
@@ -1386,14 +1388,14 @@ start_element (GMarkupParseContext  *context,
         }
       else if (strcmp (element_name, "override") == 0)
         {
-          const gchar *name, *l10n, *context;
+          const gchar *name, *l10n, *str_context;
 
-          if (COLLECT (STRING,            "name",    &name,
-                       OPTIONAL | STRING, "l10n",    &l10n,
-                       OPTIONAL | STRING, "context", &context))
+          if (COLLECT (STRING, "name", &name,
+                       OPTIONAL | STRING, "l10n", &l10n,
+                       OPTIONAL | STRING, "context", &str_context))
             schema_state_add_override (state->schema_state,
                                        &state->key_state, &state->string,
-                                       name, l10n, context, error);
+                                       name, l10n, str_context, error);
           return;
         }
     }
@@ -1403,11 +1405,11 @@ start_element (GMarkupParseContext  *context,
     {
       if (strcmp (element_name, "default") == 0)
         {
-          const gchar *l10n, *context;
-          if (COLLECT (STRING | OPTIONAL, "l10n",    &l10n,
-                       STRING | OPTIONAL, "context", &context))
+          const gchar *l10n, *str_context;
+          if (COLLECT (STRING | OPTIONAL, "l10n", &l10n,
+                       STRING | OPTIONAL, "context", &str_context))
             state->string = key_state_start_default (state->key_state,
-                                                     l10n, context, error);
+                                                     l10n, str_context, error);
           return;
         }
 
@@ -2184,8 +2186,6 @@ main (int argc, char **argv)
 #ifdef G_OS_WIN32
   gchar *tmp = NULL;
 #endif
-
-  glib_init ();
 
   setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
   textdomain (GETTEXT_PACKAGE);

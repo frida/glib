@@ -1,6 +1,8 @@
 /*
  * Copyright © 2009, 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -1564,7 +1566,7 @@ unicode_unescape (const gchar  *src,
 {
   gchar buffer[9];
   guint64 value = 0;
-  gchar *end;
+  gchar *end = NULL;
   gsize n_valid_chars;
 
   (*src_ofs)++;
@@ -2224,6 +2226,16 @@ typedecl_parse (TokenStream  *stream,
           token_stream_set_error (stream, error, TRUE,
                                   G_VARIANT_PARSE_ERROR_INVALID_TYPE_STRING,
                                   "invalid type declaration");
+          g_free (token);
+
+          return NULL;
+        }
+
+      if (g_variant_type_string_get_depth_ (token + 1) > max_depth)
+        {
+          token_stream_set_error (stream, error, TRUE,
+                                  G_VARIANT_PARSE_ERROR_RECURSION,
+                                  "type declaration recurses too deeply");
           g_free (token);
 
           return NULL;

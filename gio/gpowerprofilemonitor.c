@@ -3,6 +3,8 @@
  * Copyright 2019 Red Hat, Inc
  * Copyright 2021 Igalia S.L.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -41,10 +43,10 @@
  * some systems).
  *
  * When in “Low Power” mode, it is recommended that applications:
- * - disabling automatic downloads
+ * - disable automatic downloads;
  * - reduce the rate of refresh from online sources such as calendar or
- *   email synchronisation
- * - if the application has expensive visual effects, reduce them
+ *   email synchronisation;
+ * - reduce the use of expensive visual effects.
  *
  * It is also likely that OS components providing services to applications will
  * lower their own background activity, for the sake of the system.

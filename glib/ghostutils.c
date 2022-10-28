@@ -3,6 +3,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 2008 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -430,10 +432,8 @@ get_hostname_max_length_bytes (void)
 
 #ifdef HOST_NAME_MAX
   return HOST_NAME_MAX;
-#elif defined(_POSIX_HOST_NAME_MAX)
-  return _POSIX_HOST_NAME_MAX;
 #else
-  return 255;
+  return _POSIX_HOST_NAME_MAX;
 #endif /* HOST_NAME_MAX */
 #else
   /* Fallback to some reasonable value

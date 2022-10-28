@@ -3,6 +3,8 @@
  * Copyright (C) 1999 Tom Tromey
  * Copyright (C) 2000 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -421,8 +423,15 @@ g_unichar_iszerowidth (gunichar c)
   if (G_UNLIKELY (ISZEROWIDTHTYPE (TYPE (c))))
     return TRUE;
 
+  /* A few additional codepoints are zero-width:
+   *  - Part of the Hangul Jamo block covering medial/vowels/jungseong and
+   *    final/trailing_consonants/jongseong Jamo
+   *  - Jungseong and jongseong for Old Korean
+   *  - Zero-width space (U+200B)
+   */
   if (G_UNLIKELY ((c >= 0x1160 && c < 0x1200) ||
-		  c == 0x200B))
+                  (c >= 0xD7B0 && c < 0xD800) ||
+                  c == 0x200B))
     return TRUE;
 
   return FALSE;
@@ -468,6 +477,14 @@ g_unichar_iswide_bsearch (gunichar ch)
   return FALSE;
 }
 
+static const struct Interval default_wide_blocks[] = {
+  { 0x3400, 0x4dbf },
+  { 0x4e00, 0x9fff },
+  { 0xf900, 0xfaff },
+  { 0x20000, 0x2fffd },
+  { 0x30000, 0x3fffd }
+};
+
 /**
  * g_unichar_iswide:
  * @c: a Unicode character
@@ -482,8 +499,17 @@ g_unichar_iswide (gunichar c)
 {
   if (c < g_unicode_width_table_wide[0].start)
     return FALSE;
-  else
-    return g_unichar_iswide_bsearch (c);
+  else if (g_unichar_iswide_bsearch (c))
+    return TRUE;
+  else if (g_unichar_type (c) == G_UNICODE_UNASSIGNED &&
+           bsearch (GUINT_TO_POINTER (c),
+                    default_wide_blocks,
+                    G_N_ELEMENTS (default_wide_blocks),
+                    sizeof default_wide_blocks[0],
+                    interval_compare))
+    return TRUE;
+
+  return FALSE;
 }
 
 
@@ -1493,6 +1519,13 @@ static const guint32 iso15924_tags[] =
     PACK ('T', 'n', 's', 'a'), /* G_UNICODE_SCRIPT_TANGSA */
     PACK ('T', 'o', 't', 'o'), /* G_UNICODE_SCRIPT_TOTO */
     PACK ('V', 'i', 't', 'h'), /* G_UNICODE_SCRIPT_VITHKUQI */
+
+  /* not really a Unicode script, but part of ISO 15924 */
+    PACK ('Z', 'm', 't', 'h'), /* G_UNICODE_SCRIPT_MATH */
+
+    /* Unicode 15.0 additions */
+    PACK ('K', 'a', 'w', 'i'), /* G_UNICODE_SCRIPT_KAWI */
+    PACK ('N', 'a', 'g', 'm'), /* G_UNICODE_SCRIPT_NAG_MUNDARI */
 
 #undef PACK
 };

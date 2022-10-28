@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2009 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -67,12 +69,12 @@ struct _GConverterOutputStreamClass
   void (*_g_reserved5) (void);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType                   g_converter_output_stream_get_type      (void) G_GNUC_CONST;
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GOutputStream          *g_converter_output_stream_new           (GOutputStream         *base_stream,
                                                                  GConverter            *converter);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GConverter             *g_converter_output_stream_get_converter (GConverterOutputStream *converter_stream);
 
 G_END_DECLS

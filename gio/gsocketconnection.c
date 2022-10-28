@@ -4,6 +4,8 @@
  *           © 2008 codethink
  * Copyright © 2009 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -615,9 +617,7 @@ g_socket_connection_factory_register_type (GType         g_type,
 static void
 init_builtin_types (void)
 {
-#ifndef G_OS_WIN32
   g_type_ensure (G_TYPE_UNIX_CONNECTION);
-#endif
   g_type_ensure (G_TYPE_TCP_CONNECTION);
 }
 

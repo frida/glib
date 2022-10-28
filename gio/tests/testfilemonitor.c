@@ -4,6 +4,17 @@
 #include <stdlib.h>
 #include <gio/gio.h>
 
+static gboolean
+skip_win32 (void)
+{
+#ifdef G_OS_WIN32
+  g_test_skip ("FIXME, test is broken on win32");
+  return TRUE;
+#else
+  return FALSE;
+#endif
+}
+
 /* These tests were written for the inotify implementation.
  * Other implementations may require slight adjustments in
  * the tests, e.g. the length of timeouts
@@ -235,12 +246,12 @@ check_expected_events (RecordedEvent *expected,
            * error messages. Print the expected and actual events first. */
           else
             {
-              GList *l;
+              GList *ll;
               gsize j;
 
               g_test_message ("Recorded events:");
-              for (l = recorded; l != NULL; l = l->next)
-                output_event ((RecordedEvent *) l->data);
+              for (ll = recorded; ll != NULL; ll = ll->next)
+                output_event ((RecordedEvent *) ll->data);
 
               g_test_message ("Expected events:");
               for (j = 0; j < n_expected; j++)
@@ -361,6 +372,9 @@ test_atomic_replace (Fixture       *fixture,
   GError *error = NULL;
   TestData data;
 
+  if (skip_win32 ())
+    return;
+
   data.step = 0;
   data.events = NULL;
 
@@ -465,6 +479,9 @@ test_file_changes (Fixture       *fixture,
 {
   GError *error = NULL;
   TestData data;
+
+  if (skip_win32 ())
+    return;
 
   data.step = 0;
   data.events = NULL;
@@ -583,6 +600,9 @@ test_dir_monitor (Fixture       *fixture,
   GError *error = NULL;
   TestData data;
 
+  if (skip_win32 ())
+    return;
+
   data.step = 0;
   data.events = NULL;
 
@@ -679,6 +699,9 @@ test_dir_non_existent (Fixture       *fixture,
 {
   TestData data;
   GError *error = NULL;
+
+  if (skip_win32 ())
+    return;
 
   data.step = 0;
   data.events = NULL;
@@ -788,6 +811,9 @@ test_cross_dir_moves (Fixture       *fixture,
 {
   GError *error = NULL;
   TestData data[2];
+
+  if (skip_win32 ())
+    return;
 
   data[0].step = 0;
   data[0].events = NULL;
@@ -960,6 +986,9 @@ test_file_hard_links (Fixture       *fixture,
 
   g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=755721");
 
+  if (skip_win32 ())
+    return;
+
 #ifdef HAVE_LINK
   g_test_message ("Running with hard link tests");
 #else  /* if !HAVE_LINK */
@@ -1007,6 +1036,57 @@ test_file_hard_links (Fixture       *fixture,
   g_object_unref (data.output_stream);
 }
 
+static void
+test_finalize_in_callback (Fixture       *fixture,
+                           gconstpointer  user_data)
+{
+  GFile *file = NULL;
+  guint i;
+
+  g_test_summary ("Test that finalization of a GFileMonitor in one of its "
+                  "callbacks doesn’t cause a deadlock.");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/1941");
+
+  file = g_file_get_child (fixture->tmp_dir, "race-file");
+
+  for (i = 0; i < 50; i++)
+    {
+      GFileMonitor *monitor = NULL;
+      GError *local_error = NULL;
+
+      /* Monitor the file. */
+      monitor = g_file_monitor_file (file, G_FILE_MONITOR_NONE, NULL, &local_error);
+      g_assert_no_error (local_error);
+      g_assert_nonnull (monitor);
+
+      /* Create the file. */
+      g_file_replace_contents (file, "hello", 5, NULL, FALSE,
+                               G_FILE_CREATE_NONE, NULL, NULL, &local_error);
+      g_assert_no_error (local_error);
+
+      /* Immediately drop the last ref to the monitor in the hope that this
+       * happens in the middle of the critical section in
+       * g_file_monitor_source_handle_event(), so that any cleanup at the end
+       * of that function is done with a now-finalised file monitor. */
+      g_object_unref (monitor);
+
+      /* Re-create the monitor and do the same again for deleting the file, to
+       * give a second chance at hitting the race condition. */
+      monitor = g_file_monitor_file (file, G_FILE_MONITOR_NONE, NULL, &local_error);
+      g_assert_no_error (local_error);
+      g_assert_nonnull (monitor);
+
+      /* Delete the file. */
+      g_file_delete (file, NULL, &local_error);
+      g_assert_no_error (local_error);
+
+      /* Drop the ref again. */
+      g_object_unref (monitor);
+    }
+
+  g_object_unref (file);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -1018,6 +1098,7 @@ main (int argc, char *argv[])
   g_test_add ("/monitor/dir-not-existent", Fixture, NULL, setup, test_dir_non_existent, teardown);
   g_test_add ("/monitor/cross-dir-moves", Fixture, NULL, setup, test_cross_dir_moves, teardown);
   g_test_add ("/monitor/file/hard-links", Fixture, NULL, setup, test_file_hard_links, teardown);
+  g_test_add ("/monitor/finalize-in-callback", Fixture, NULL, setup, test_finalize_in_callback, teardown);
 
   return g_test_run ();
 }

@@ -4,6 +4,8 @@
  * GNode: N-way tree implementation.
  * Copyright (C) 1998 Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -866,7 +868,7 @@ g_node_depth_traverse_level (GNode             *node,
 /**
  * GNodeTraverseFunc:
  * @node: a #GNode.
- * @data: user data passed to g_node_traverse().
+ * @user_data: user data passed to g_node_traverse().
  *
  * Specifies the type of function passed to g_node_traverse(). The
  * function is called with each of the nodes visited, together with the
@@ -1243,7 +1245,7 @@ g_node_last_sibling (GNode *node)
 /**
  * GNodeForeachFunc:
  * @node: a #GNode.
- * @data: user data passed to g_node_children_foreach().
+ * @user_data: user data passed to g_node_children_foreach().
  *
  * Specifies the type of function passed to g_node_children_foreach().
  * The function is called with each child node, together with the user

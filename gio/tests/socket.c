@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2011 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -17,15 +19,23 @@
  */
 
 #include <gio/gio.h>
+#include <glib/gstdio.h>
+#include "glib-private.h"
 
 #include <gio/gcredentialsprivate.h>
+#include <gio/gunixconnection.h>
+
 #ifdef G_OS_UNIX
 #include <errno.h>
 #include <sys/wait.h>
 #include <string.h>
 #include <stdlib.h>
 #include <gio/gnetworking.h>
-#include <gio/gunixconnection.h>
+#endif
+
+#ifdef G_OS_WIN32
+#include "giowin32-afunix.h"
+#include <io.h>
 #endif
 
 #include "gnetworkingprivate.h"
@@ -133,6 +143,9 @@ create_server_full (GSocketFamily   family,
   g_assert_cmpint (g_socket_get_family (server), ==, family);
   g_assert_cmpint (g_socket_get_socket_type (server), ==, socket_type);
   g_assert_cmpint (g_socket_get_protocol (server), ==, G_SOCKET_PROTOCOL_DEFAULT);
+#ifdef G_OS_WIN32
+  g_assert (GLIB_PRIVATE_CALL (g_win32_handle_is_socket) ((HANDLE)(gintptr) g_socket_get_fd (server)));
+#endif
 
   g_socket_set_blocking (server, TRUE);
 
@@ -469,7 +482,9 @@ test_ip_sync (GSocketFamily family)
   g_assert_cmpint (g_socket_get_family (client), ==, family);
   g_assert_cmpint (g_socket_get_socket_type (client), ==, G_SOCKET_TYPE_STREAM);
   g_assert_cmpint (g_socket_get_protocol (client), ==, G_SOCKET_PROTOCOL_DEFAULT);
-
+#ifdef G_OS_WIN32
+  g_assert (GLIB_PRIVATE_CALL (g_win32_handle_is_socket) ((HANDLE)(gintptr) g_socket_get_fd (client)));
+#endif
   g_socket_set_blocking (client, TRUE);
   g_socket_set_timeout (client, 1);
 
@@ -606,6 +621,9 @@ test_ip_sync_dgram (GSocketFamily family)
   g_assert_cmpint (g_socket_get_family (client), ==, family);
   g_assert_cmpint (g_socket_get_socket_type (client), ==, G_SOCKET_TYPE_DATAGRAM);
   g_assert_cmpint (g_socket_get_protocol (client), ==, G_SOCKET_PROTOCOL_DEFAULT);
+#ifdef G_OS_WIN32
+  g_assert (GLIB_PRIVATE_CALL (g_win32_handle_is_socket) ((HANDLE)(gintptr) g_socket_get_fd (client)));
+#endif
 
   g_socket_set_blocking (client, TRUE);
   g_socket_set_timeout (client, 1);
@@ -843,6 +861,9 @@ test_ip_sync_dgram_timeouts (GSocketFamily family)
   g_assert_cmpint (g_socket_get_family (client), ==, family);
   g_assert_cmpint (g_socket_get_socket_type (client), ==, G_SOCKET_TYPE_DATAGRAM);
   g_assert_cmpint (g_socket_get_protocol (client), ==, G_SOCKET_PROTOCOL_DEFAULT);
+#ifdef G_OS_WIN32
+  g_assert (GLIB_PRIVATE_CALL (g_win32_handle_is_socket) ((HANDLE)(gintptr) g_socket_get_fd (client)));
+#endif
 
 #ifdef G_OS_WIN32
   /* Winsock can't recv() on unbound udp socket */
@@ -985,6 +1006,9 @@ test_close_graceful (void)
   g_assert_cmpint (g_socket_get_family (client), ==, family);
   g_assert_cmpint (g_socket_get_socket_type (client), ==, G_SOCKET_TYPE_STREAM);
   g_assert_cmpint (g_socket_get_protocol (client), ==, G_SOCKET_PROTOCOL_DEFAULT);
+#ifdef G_OS_WIN32
+  g_assert (GLIB_PRIVATE_CALL (g_win32_handle_is_socket) ((HANDLE)(gintptr) g_socket_get_fd (client)));
+#endif
 
   g_socket_set_blocking (client, TRUE);
   g_socket_set_timeout (client, 1);
@@ -1181,23 +1205,25 @@ test_timed_wait (void)
 }
 
 static int
-duplicate_fd (int fd)
+duplicate_socket_fd (int fd)
 {
 #ifdef G_OS_WIN32
-  HANDLE newfd;
+  WSAPROTOCOL_INFO info;
 
-  if (!DuplicateHandle (GetCurrentProcess (),
-                        (HANDLE)fd,
-                        GetCurrentProcess (),
-                        &newfd,
-                        0,
-                        FALSE,
-                        DUPLICATE_SAME_ACCESS))
+  if (WSADuplicateSocket ((SOCKET)fd,
+                          GetCurrentProcessId (),
+                          &info))
     {
+      gchar *emsg = g_win32_error_message (WSAGetLastError ());
+      g_test_message ("Error duplicating socket: %s", emsg);
+      g_free (emsg);
       return -1;
     }
 
-  return (int)newfd;
+  return (int)WSASocket (FROM_PROTOCOL_INFO,
+                         FROM_PROTOCOL_INFO,
+                         FROM_PROTOCOL_INFO,
+                         &info, 0, 0);
 #else
   return dup (fd);
 #endif
@@ -1243,13 +1269,16 @@ test_fd_reuse (void)
   g_object_unref (addr);
 
   /* we have to dup otherwise the fd gets closed twice on unref */
-  fd = duplicate_fd (g_socket_get_fd (client));
+  fd = duplicate_socket_fd (g_socket_get_fd (client));
   client2 = g_socket_new_from_fd (fd, &error);
   g_assert_no_error (error);
 
   g_assert_cmpint (g_socket_get_family (client2), ==, g_socket_get_family (client));
   g_assert_cmpint (g_socket_get_socket_type (client2), ==, g_socket_get_socket_type (client));
   g_assert_cmpint (g_socket_get_protocol (client2), ==, G_SOCKET_PROTOCOL_TCP);
+#ifdef G_OS_WIN32
+  g_assert (GLIB_PRIVATE_CALL (g_win32_handle_is_socket) ((HANDLE)(gintptr) g_socket_get_fd (client)));
+#endif
 
   len = g_socket_send (client2, testbuf, strlen (testbuf) + 1, NULL, &error);
   g_assert_no_error (error);
@@ -1327,7 +1356,23 @@ test_sockaddr (void)
   g_object_unref (saddr);
 }
 
-#ifdef G_OS_UNIX
+static void
+bind_win32_unixfd (int fd)
+{
+#ifdef G_OS_WIN32
+  gint len, ret;
+  struct sockaddr_un addr;
+
+  memset (&addr, 0, sizeof addr);
+  addr.sun_family = AF_UNIX;
+  len = g_snprintf (addr.sun_path, sizeof addr.sun_path, "%s" G_DIR_SEPARATOR_S "%d.sock", g_get_tmp_dir (), fd);
+  g_assert_cmpint (len, <=, sizeof addr.sun_path);
+  ret = bind (fd, (struct sockaddr *)&addr, sizeof addr);
+  g_assert_cmpint (ret, ==, 0);
+  g_remove (addr.sun_path);
+#endif
+}
+
 static void
 test_unix_from_fd (void)
 {
@@ -1336,7 +1381,16 @@ test_unix_from_fd (void)
   GSocket *s;
 
   fd = socket (AF_UNIX, SOCK_STREAM, 0);
+#ifdef G_OS_WIN32
+  if (fd == -1)
+    {
+      g_test_skip ("AF_UNIX not supported on this Windows system.");
+      return;
+    }
+#endif
   g_assert_cmpint (fd, !=, -1);
+
+  bind_win32_unixfd (fd);
 
   error = NULL;
   s = g_socket_new_from_fd (fd, &error);
@@ -1344,6 +1398,9 @@ test_unix_from_fd (void)
   g_assert_cmpint (g_socket_get_family (s), ==, G_SOCKET_FAMILY_UNIX);
   g_assert_cmpint (g_socket_get_socket_type (s), ==, G_SOCKET_TYPE_STREAM);
   g_assert_cmpint (g_socket_get_protocol (s), ==, G_SOCKET_PROTOCOL_DEFAULT);
+#ifdef G_OS_WIN32
+  g_assert (GLIB_PRIVATE_CALL (g_win32_handle_is_socket) ((HANDLE)(gintptr) g_socket_get_fd (s)));
+#endif
   g_object_unref (s);
 }
 
@@ -1356,7 +1413,16 @@ test_unix_connection (void)
   GSocketConnection *c;
 
   fd = socket (AF_UNIX, SOCK_STREAM, 0);
+#ifdef G_OS_WIN32
+  if (fd == -1)
+    {
+      g_test_skip ("AF_UNIX not supported on this Windows system.");
+      return;
+    }
+#endif
   g_assert_cmpint (fd, !=, -1);
+
+  bind_win32_unixfd (fd);
 
   error = NULL;
   s = g_socket_new_from_fd (fd, &error);
@@ -1367,6 +1433,7 @@ test_unix_connection (void)
   g_object_unref (s);
 }
 
+#ifdef G_OS_UNIX
 static GSocketConnection *
 create_connection_for_fd (int fd)
 {
@@ -1466,6 +1533,36 @@ test_unix_connection_ancillary_data (void)
    * g_unix_connection_receive_credentials().
    */
 }
+#endif
+
+#ifdef G_OS_WIN32
+static void
+test_handle_not_socket (void)
+{
+  GError *err = NULL;
+  gchar *name = NULL;
+  HANDLE hReadPipe, hWritePipe, h;
+  int fd;
+
+  g_assert_true (CreatePipe (&hReadPipe, &hWritePipe, NULL, 2048));
+  g_assert_false (GLIB_PRIVATE_CALL (g_win32_handle_is_socket) (hReadPipe));
+  g_assert_false (GLIB_PRIVATE_CALL (g_win32_handle_is_socket) (hWritePipe));
+  CloseHandle (hReadPipe);
+  CloseHandle (hWritePipe);
+
+  h = (HANDLE) _get_osfhandle (1);
+  g_assert_false (GLIB_PRIVATE_CALL (g_win32_handle_is_socket) (h));
+
+  fd = g_file_open_tmp (NULL, &name, &err);
+  g_assert_no_error (err);
+  h = (HANDLE) _get_osfhandle (fd);
+  g_assert_false (GLIB_PRIVATE_CALL (g_win32_handle_is_socket) (h));
+  g_close (fd, &err);
+  g_assert_no_error (err);
+  g_unlink (name);
+  g_free (name);
+}
+#endif
 
 static gboolean
 postmortem_source_cb (GSocket      *socket,
@@ -1490,6 +1587,14 @@ test_source_postmortem (void)
   gboolean callback_visited = FALSE;
 
   socket = g_socket_new (G_SOCKET_FAMILY_UNIX, G_SOCKET_TYPE_STREAM, G_SOCKET_PROTOCOL_DEFAULT, &error);
+#ifdef G_OS_WIN32
+  if (error)
+    {
+      g_test_skip_printf ("AF_UNIX not supported on this Windows system: %s", error->message);
+      g_clear_error (&error);
+      return;
+    }
+#endif
   g_assert_no_error (error);
 
   context = g_main_context_new ();
@@ -1512,8 +1617,6 @@ test_source_postmortem (void)
 
   g_main_context_unref (context);
 }
-
-#endif /* G_OS_UNIX */
 
 static void
 test_reuse_tcp (void)
@@ -1949,14 +2052,14 @@ test_credentials_tcp_client (void)
   if (creds != NULL)
     {
       gchar *str = g_credentials_to_string (creds);
-      g_print ("Supported on this OS: %s\n", str);
+      g_test_message ("Supported on this OS: %s", str);
       g_free (str);
       g_clear_object (&creds);
     }
   else
     {
       g_assert_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED);
-      g_print ("Unsupported on this OS: %s\n", error->message);
+      g_test_message ("Unsupported on this OS: %s", error->message);
       g_clear_error (&error);
     }
 
@@ -2015,14 +2118,14 @@ test_credentials_tcp_server (void)
   if (creds != NULL)
     {
       gchar *str = g_credentials_to_string (creds);
-      g_print ("Supported on this OS: %s\n", str);
+      g_test_message ("Supported on this OS: %s", str);
       g_free (str);
       g_clear_object (&creds);
     }
   else
     {
       g_assert_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED);
-      g_print ("Unsupported on this OS: %s\n", error->message);
+      g_test_message ("Unsupported on this OS: %s", error->message);
       g_clear_error (&error);
     }
 
@@ -2076,40 +2179,162 @@ client_setup_thread (gpointer user_data)
   return NULL;
 }
 
-#ifdef G_OS_UNIX
+#ifdef G_OS_WIN32
+/*
+ * _g_win32_socketpair:
+ *
+ * Create a pair of connected sockets, similar to POSIX/BSD socketpair().
+ *
+ * Windows does not (yet) provide a socketpair() function. However, since the
+ * introduction of AF_UNIX sockets, it is possible to implement a fairly close
+ * function.
+ */
+static gint
+_g_win32_socketpair (gint            domain,
+                     gint            type,
+                     gint            protocol,
+                     gint            sv[2])
+{
+  struct sockaddr_un addr = { 0, };
+  socklen_t socklen;
+  SOCKET listener = INVALID_SOCKET;
+  SOCKET client = INVALID_SOCKET;
+  SOCKET server = INVALID_SOCKET;
+  gchar *path = NULL;
+  int tmpfd, rv = -1;
+  u_long arg, br;
+
+  g_return_val_if_fail (sv != NULL, -1);
+
+  addr.sun_family = AF_UNIX;
+  socklen = sizeof (addr);
+
+  tmpfd = g_file_open_tmp (NULL, &path, NULL);
+  if (tmpfd == -1)
+    {
+      WSASetLastError (WSAEACCES);
+      goto out;
+    }
+
+  g_close (tmpfd, NULL);
+
+  if (strlen (path) >= sizeof (addr.sun_path))
+    {
+      WSASetLastError (WSAEACCES);
+      goto out;
+    }
+
+  strncpy (addr.sun_path, path, sizeof (addr.sun_path) - 1);
+
+  listener = socket (domain, type, protocol);
+  if (listener == INVALID_SOCKET)
+    goto out;
+
+  if (DeleteFile (path) == 0)
+    {
+      if (GetLastError () != ERROR_FILE_NOT_FOUND)
+        goto out;
+    }
+
+  if (bind (listener, (struct sockaddr *) &addr, socklen) == SOCKET_ERROR)
+    goto out;
+
+  if (listen (listener, 1) == SOCKET_ERROR)
+    goto out;
+
+  client = socket (domain, type, protocol);
+  if (client == INVALID_SOCKET)
+    goto out;
+
+  arg = 1;
+  if (ioctlsocket (client, FIONBIO, &arg) == SOCKET_ERROR)
+    goto out;
+
+  if (connect (client, (struct sockaddr *) &addr, socklen) == SOCKET_ERROR &&
+      WSAGetLastError () != WSAEWOULDBLOCK)
+    goto out;
+
+  server = accept (listener, NULL, NULL);
+  if (server == INVALID_SOCKET)
+    goto out;
+
+  arg = 0;
+  if (ioctlsocket (client, FIONBIO, &arg) == SOCKET_ERROR)
+    goto out;
+
+  if (WSAIoctl (server, SIO_AF_UNIX_GETPEERPID,
+                NULL, 0U,
+                &arg, sizeof (arg), &br,
+                NULL, NULL) == SOCKET_ERROR || arg != GetCurrentProcessId ())
+    {
+      WSASetLastError (WSAEACCES);
+      goto out;
+    }
+
+  sv[0] = server;
+  server = INVALID_SOCKET;
+  sv[1] = client;
+  client = INVALID_SOCKET;
+  rv = 0;
+
+ out:
+  if (listener != INVALID_SOCKET)
+    closesocket (listener);
+  if (client != INVALID_SOCKET)
+    closesocket (client);
+  if (server != INVALID_SOCKET)
+    closesocket (server);
+
+  DeleteFile (path);
+  g_free (path);
+  return rv;
+}
+#endif /* G_OS_WIN32 */
+
 static void
 test_credentials_unix_socketpair (void)
 {
   gint fds[2];
   gint status;
-  GSocket *sock;
+  GSocket *sock[2];
   GError *error = NULL;
   GCredentials *creds;
 
+#ifdef G_OS_WIN32
+  status = _g_win32_socketpair (PF_UNIX, SOCK_STREAM, 0, fds);
+  if (status != 0)
+    {
+      g_test_skip ("AF_UNIX not supported on this Windows system.");
+      return;
+    }
+#else
   status = socketpair (PF_UNIX, SOCK_STREAM, 0, fds);
+#endif
   g_assert_cmpint (status, ==, 0);
 
-  sock = g_socket_new_from_fd (fds[0], &error);
+  sock[0] = g_socket_new_from_fd (fds[0], &error);
+  g_assert_no_error (error);
+  sock[1] = g_socket_new_from_fd (fds[1], &error);
+  g_assert_no_error (error);
 
-  creds = g_socket_get_credentials (sock, &error);
+  creds = g_socket_get_credentials (sock[0], &error);
   if (creds != NULL)
     {
       gchar *str = g_credentials_to_string (creds);
-      g_print ("Supported on this OS: %s\n", str);
+      g_test_message ("Supported on this OS: %s", str);
       g_free (str);
       g_clear_object (&creds);
     }
   else
     {
       g_assert_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED);
-      g_print ("Unsupported on this OS: %s\n", error->message);
+      g_test_message ("Unsupported on this OS: %s", error->message);
       g_clear_error (&error);
     }
 
-  g_object_unref (sock);
-  close (fds[1]);
+  g_object_unref (sock[0]);
+  g_object_unref (sock[1]);
 }
-#endif
 #endif
 
 int
@@ -2151,12 +2376,15 @@ main (int   argc,
   g_test_add_func ("/socket/timed_wait", test_timed_wait);
   g_test_add_func ("/socket/fd_reuse", test_fd_reuse);
   g_test_add_func ("/socket/address", test_sockaddr);
-#ifdef G_OS_UNIX
   g_test_add_func ("/socket/unix-from-fd", test_unix_from_fd);
   g_test_add_func ("/socket/unix-connection", test_unix_connection);
+#ifdef G_OS_UNIX
   g_test_add_func ("/socket/unix-connection-ancillary-data", test_unix_connection_ancillary_data);
-  g_test_add_func ("/socket/source-postmortem", test_source_postmortem);
 #endif
+#ifdef G_OS_WIN32
+  g_test_add_func ("/socket/win32-handle-not-socket", test_handle_not_socket);
+#endif
+  g_test_add_func ("/socket/source-postmortem", test_source_postmortem);
   g_test_add_func ("/socket/reuse/tcp", test_reuse_tcp);
   g_test_add_func ("/socket/reuse/udp", test_reuse_udp);
   g_test_add_data_func ("/socket/get_available/datagram", GUINT_TO_POINTER (G_SOCKET_TYPE_DATAGRAM),
@@ -2173,9 +2401,7 @@ main (int   argc,
 #if G_CREDENTIALS_SUPPORTED
   g_test_add_func ("/socket/credentials/tcp_client", test_credentials_tcp_client);
   g_test_add_func ("/socket/credentials/tcp_server", test_credentials_tcp_server);
-#ifdef G_OS_UNIX
   g_test_add_func ("/socket/credentials/unix_socketpair", test_credentials_unix_socketpair);
-#endif
 #endif
 
   return g_test_run();

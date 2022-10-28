@@ -1,6 +1,8 @@
 /*
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -376,20 +378,20 @@ g_application_impl_attempt_primary (GApplicationImpl  *impl,
 
   if (org_gtk_Application == NULL)
     {
-      GError *error = NULL;
+      GError *my_error = NULL;
       GDBusNodeInfo *info;
 
-      info = g_dbus_node_info_new_for_xml (org_gtk_Application_xml, &error);
+      info = g_dbus_node_info_new_for_xml (org_gtk_Application_xml, &my_error);
       if G_UNLIKELY (info == NULL)
-        g_error ("%s", error->message);
+        g_error ("%s", my_error->message);
       org_gtk_Application = g_dbus_node_info_lookup_interface (info, "org.gtk.Application");
       g_assert (org_gtk_Application != NULL);
       g_dbus_interface_info_ref (org_gtk_Application);
       g_dbus_node_info_unref (info);
 
-      info = g_dbus_node_info_new_for_xml (org_freedesktop_Application_xml, &error);
+      info = g_dbus_node_info_new_for_xml (org_freedesktop_Application_xml, &my_error);
       if G_UNLIKELY (info == NULL)
-        g_error ("%s", error->message);
+        g_error ("%s", my_error->message);
       org_freedesktop_Application = g_dbus_node_info_lookup_interface (info, "org.freedesktop.Application");
       g_assert (org_freedesktop_Application != NULL);
       g_dbus_interface_info_ref (org_freedesktop_Application);

@@ -2,6 +2,8 @@
  *
  * Copyright © 2019 Endless Mobile, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -52,7 +54,8 @@ test_assert_finalize_object (void)
 
   g_assert_finalize_object (obj);
 
-  g_test_trap_subprocess ("/assert/finalize_object/subprocess/bad", 0, 0);
+  g_test_trap_subprocess ("/assert/finalize_object/subprocess/bad", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*g_assert_finalize_object:*'weak_pointer' should be NULL*");
 }

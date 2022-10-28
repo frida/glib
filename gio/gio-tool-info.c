@@ -1,6 +1,8 @@
 /*
  * Copyright 2015 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -30,13 +32,13 @@
 
 static gboolean writable = FALSE;
 static gboolean filesystem = FALSE;
-static char *attributes = NULL;
+static char *global_attributes = NULL;
 static gboolean nofollow_symlinks = FALSE;
 
 static const GOptionEntry entries[] = {
   { "query-writable", 'w', 0, G_OPTION_ARG_NONE, &writable, N_("List writable attributes"), NULL },
   { "filesystem", 'f', 0, G_OPTION_ARG_NONE, &filesystem, N_("Get file system info"), NULL },
-  { "attributes", 'a', 0, G_OPTION_ARG_STRING, &attributes, N_("The attributes to get"), N_("ATTRIBUTES") },
+  { "attributes", 'a', 0, G_OPTION_ARG_STRING, &global_attributes, N_("The attributes to get"), N_("ATTRIBUTES") },
   { "nofollow-symlinks", 'n', 0, G_OPTION_ARG_NONE, &nofollow_symlinks, N_("Don’t follow symbolic links"), NULL },
   G_OPTION_ENTRY_NULL
 };
@@ -66,11 +68,36 @@ escape_string (const char *in)
   return g_string_free (str, FALSE);
 }
 
+static char *
+flatten_string (const char *in)
+{
+  GString *str;
+  unsigned char c;
+
+  str = g_string_new ("");
+
+  while ((c = *in++) != 0)
+    {
+      switch (c)
+        {
+        case '\n':
+          g_string_append (str, " ↵ ");
+          break;
+
+        default:
+          g_string_append_c (str, c);
+          break;
+        }
+    }
+
+  return g_string_free (str, FALSE);
+}
+
 static void
 show_attributes (GFileInfo *info)
 {
   char **attributes;
-  char *s;
+  char *s, *flatten;
   int i;
 
   attributes = g_file_info_list_attributes (info, NULL);
@@ -110,7 +137,9 @@ show_attributes (GFileInfo *info)
       else
         {
           s = g_file_info_get_attribute_as_string (info, attributes[i]);
-          g_print ("  %s: %s\n", attributes[i], s);
+          flatten = flatten_string (s);
+          g_print ("  %s: %s\n", attributes[i], flatten);
+          g_free (flatten);
           g_free (s);
         }
     }
@@ -121,7 +150,7 @@ static void
 show_info (GFile *file, GFileInfo *info)
 {
   const char *name, *type;
-  char *escaped, *uri;
+  char *escaped, *uri, *flatten;
   goffset size;
   const char *path;
 #ifdef G_OS_UNIX
@@ -130,13 +159,21 @@ show_info (GFile *file, GFileInfo *info)
 
   name = g_file_info_get_display_name (info);
   if (name)
-    /* Translators: This is a noun and represents and attribute of a file */
-    g_print (_("display name: %s\n"), name);
+    {
+      /* Translators: This is a noun and represents and attribute of a file */
+      flatten = flatten_string (name);
+      g_print (_("display name: %s\n"), flatten);
+      g_free (flatten);
+    }
 
   name = g_file_info_get_edit_name (info);
   if (name)
-    /* Translators: This is a noun and represents and attribute of a file */
-    g_print (_("edit name: %s\n"), name);
+    {
+      /* Translators: This is a noun and represents and attribute of a file */
+      flatten = flatten_string (name);
+      g_print (_("display name: %s\n"), flatten);
+      g_free (flatten);
+    }
 
   name = g_file_info_get_name (info);
   if (name)
@@ -169,7 +206,9 @@ show_info (GFile *file, GFileInfo *info)
   path = g_file_peek_path (file);
   if (path)
     {
-      g_print (_("local path: %s\n"), path);
+      flatten = flatten_string (path);
+      g_print (_("local path: %s\n"), flatten);
+      free (flatten);
 
 #ifdef G_OS_UNIX
       entry = g_unix_mount_at (path, NULL);
@@ -230,8 +269,8 @@ query_info (GFile *file)
   if (file == NULL)
     return FALSE;
 
-  if (attributes == NULL)
-    attributes = "*";
+  if (global_attributes == NULL)
+    global_attributes = "*";
 
   flags = 0;
   if (nofollow_symlinks)
@@ -239,9 +278,9 @@ query_info (GFile *file)
 
   error = NULL;
   if (filesystem)
-    info = g_file_query_filesystem_info (file, attributes, NULL, &error);
+    info = g_file_query_filesystem_info (file, global_attributes, NULL, &error);
   else
-    info = g_file_query_info (file, attributes, flags, NULL, &error);
+    info = g_file_query_info (file, global_attributes, flags, NULL, &error);
 
   if (info == NULL)
     {

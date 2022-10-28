@@ -1,6 +1,8 @@
 /*
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -106,7 +108,7 @@
  * The complete example can be found here: 
  * [gapplication-example-cmdline.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gapplication-example-cmdline.c)
  *
- * In more complicated cases, the handling of the comandline can be
+ * In more complicated cases, the handling of the commandline can be
  * split between the launcher and the primary instance.
  * |[<!-- language="C" -->
  * static gboolean
@@ -118,6 +120,12 @@
  *   gchar **argv;
  *
  *   argv = *arguments;
+ *
+ *   if (argv[0] == NULL)
+ *     {
+ *       *exit_status = 0;
+ *       return FALSE;
+ *     }
  *
  *   i = 1;
  *   while (argv[i])

@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008 Christian Kellner, Samuel Cormier-Iijima
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -35,8 +37,10 @@
 #include "glibintl.h"
 #include "gioenumtypes.h"
 
-#ifdef G_OS_UNIX
 #include "gunixsocketaddress.h"
+
+#ifdef G_OS_WIN32
+#include "giowin32-afunix.h"
 #endif
 
 
@@ -265,7 +269,6 @@ g_socket_address_new_from_native (gpointer native,
       return sockaddr;
     }
 
-#ifdef G_OS_UNIX
   if (family == AF_UNIX)
     {
       struct sockaddr_un *addr = (struct sockaddr_un *) native;
@@ -299,7 +302,6 @@ g_socket_address_new_from_native (gpointer native,
       else
 	return g_unix_socket_address_new (addr->sun_path);
     }
-#endif
 
   return g_native_socket_address_new (native, len);
 }

@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2009 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -66,15 +68,15 @@ struct _GInitableIface
 };
 
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType    g_initable_get_type   (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_initable_init       (GInitable     *initable,
 				GCancellable  *cancellable,
 				GError       **error);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gpointer g_initable_new        (GType          object_type,
 				GCancellable  *cancellable,
 				GError       **error,
@@ -83,7 +85,7 @@ gpointer g_initable_new        (GType          object_type,
 
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 
-GLIB_DEPRECATED_IN_2_54_FOR(g_object_new_with_properties and g_initable_init)
+GIO_DEPRECATED_IN_2_54_FOR(g_object_new_with_properties and g_initable_init)
 gpointer g_initable_newv       (GType          object_type,
 				guint          n_parameters,
 				GParameter    *parameters,
@@ -92,7 +94,7 @@ gpointer g_initable_newv       (GType          object_type,
 
 G_GNUC_END_IGNORE_DEPRECATIONS
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GObject* g_initable_new_valist (GType          object_type,
 				const gchar   *first_property_name,
 				va_list        var_args,

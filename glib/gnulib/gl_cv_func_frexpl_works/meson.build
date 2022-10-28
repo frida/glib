@@ -104,7 +104,7 @@ int main()
 }
 '''
 
-if cc_can_run
+if meson.can_run_host_binaries()
   run_result = cc.run(frexpl_test,
       name : 'frexpl works',
       dependencies : [libm])

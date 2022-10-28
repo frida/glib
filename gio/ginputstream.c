@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -429,8 +431,8 @@ g_input_stream_real_skip (GInputStream  *stream,
           end = g_seekable_tell (seekable);
           g_assert (start >= 0);
           g_assert (end >= start);
-          if ((guint64) start > (G_MAXSIZE - count) ||
-              (start + count) > (guint64) end)
+          if (start > (goffset) (G_MAXOFFSET - count) ||
+              (goffset) (start + count) > end)
             {
               stream->priv->pending = TRUE;
               return end - start;

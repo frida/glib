@@ -2,6 +2,8 @@
  *
  *  Copyright 2001,2005 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -71,6 +73,10 @@ msc_strxfrm_wrapper (char       *string1,
  * compare the keys with strcmp() when sorting instead of sorting 
  * the original strings.
  * 
+ * If the two strings are not comparable due to being in different collation
+ * sequences, the result is undefined. This can happen if the strings are in
+ * different language scripts, for example.
+ *
  * Returns: < 0 if @str1 compares before @str2, 
  *   0 if they compare equal, > 0 if @str1 compares after @str2.
  **/
@@ -415,7 +421,7 @@ g_utf8_collate_key (const gchar *str,
   return result;
 #else
 
-  gsize xfrm_len;
+  gsize xfrm_len = 0;
   const gchar *charset;
   gchar *str_norm;
 

@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -447,8 +449,8 @@ g_resource_file_query_info (GFile                *file,
   GFileInfo *info;
   GFileAttributeMatcher *matcher;
   gboolean res;
-  gsize size;
-  guint32 resource_flags;
+  gsize size = 0;
+  guint32 resource_flags = 0;
   char **children;
   gboolean is_dir;
   char *base;
@@ -644,6 +646,19 @@ g_resource_file_monitor_file (GFile              *file,
   return g_object_new (g_resource_file_monitor_get_type (), NULL);
 }
 
+static GFile *
+g_resource_file_set_display_name (GFile         *file,
+                                  const char    *display_name,
+                                  GCancellable  *cancellable,
+                                  GError       **error)
+{
+  g_set_error_literal (error,
+                       G_IO_ERROR,
+                       G_IO_ERROR_NOT_SUPPORTED,
+                       _("Resource files cannot be renamed"));
+  return NULL;
+}
+
 static void
 g_resource_file_file_iface_init (GFileIface *iface)
 {
@@ -662,6 +677,7 @@ g_resource_file_file_iface_init (GFileIface *iface)
   iface->get_relative_path = g_resource_file_get_relative_path;
   iface->resolve_relative_path = g_resource_file_resolve_relative_path;
   iface->get_child_for_display_name = g_resource_file_get_child_for_display_name;
+  iface->set_display_name = g_resource_file_set_display_name;
   iface->enumerate_children = g_resource_file_enumerate_children;
   iface->query_info = g_resource_file_query_info;
   iface->query_filesystem_info = g_resource_file_query_filesystem_info;

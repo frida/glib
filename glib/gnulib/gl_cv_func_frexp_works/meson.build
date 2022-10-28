@@ -76,7 +76,7 @@ int main()
   return result;
 }'''
 
-if cc_can_run
+if meson.can_run_host_binaries()
   run_result = cc.run(frexp_test,
       name : 'frexp works',
       dependencies : [libm])

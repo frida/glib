@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2013 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -61,17 +63,10 @@ server_new_for_mechanism (const gchar *allowed_mechanism)
   guid = g_dbus_generate_guid ();
 
 #ifdef G_OS_UNIX
-  if (g_unix_socket_address_abstract_names_supported ())
-    {
-      addr = g_strdup ("unix:tmpdir=/tmp/gdbus-test-");
-    }
-  else
-    {
-      gchar *tmpdir;
-      tmpdir = g_dir_make_tmp ("gdbus-test-XXXXXX", NULL);
-      addr = g_strdup_printf ("unix:tmpdir=%s", tmpdir);
-      g_free (tmpdir);
-    }
+  gchar *tmpdir;
+  tmpdir = g_dir_make_tmp ("gdbus-test-XXXXXX", NULL);
+  addr = g_strdup_printf ("unix:tmpdir=%s", tmpdir);
+  g_free (tmpdir);
 #else
   addr = g_strdup ("nonce-tcp:");
 #endif
@@ -167,6 +162,7 @@ test_auth_mechanism (const gchar *allowed_client_mechanism,
   GMainLoop *loop;
   GThread *client_thread;
   TestAuthData data;
+  guint timeout_id;
 
   server = server_new_for_mechanism (allowed_server_mechanism);
 
@@ -177,7 +173,7 @@ test_auth_mechanism (const gchar *allowed_client_mechanism,
                     G_CALLBACK (test_auth_on_new_connection),
                     loop);
 
-  g_timeout_add_seconds (5, test_auth_on_timeout, NULL);
+  timeout_id = g_timeout_add_seconds (5, test_auth_on_timeout, NULL);
 
   data.allowed_client_mechanism = allowed_client_mechanism;
   data.allowed_server_mechanism = allowed_server_mechanism;
@@ -195,6 +191,7 @@ test_auth_mechanism (const gchar *allowed_client_mechanism,
   g_dbus_server_stop (server);
 
   g_thread_join (client_thread);
+  g_source_remove (timeout_id);
 
   while (g_main_context_iteration (NULL, FALSE));
   g_main_loop_unref (loop);

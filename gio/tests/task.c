@@ -1,6 +1,8 @@
 /*
  * Copyright 2012-2019 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -2303,7 +2305,7 @@ test_return_in_idle_error_first (void)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*assertion '!task->ever_returned' failed*");
 }
@@ -2319,7 +2321,7 @@ test_return_in_idle_value_first (void)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*assertion '!task->ever_returned' failed*");
 }
@@ -2335,7 +2337,7 @@ test_return_error_first (void)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*assertion '!task->ever_returned' failed*");
 }
@@ -2351,7 +2353,7 @@ test_return_value_first (void)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*assertion '!task->ever_returned' failed*");
 }

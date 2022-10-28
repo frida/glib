@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2009 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -73,10 +75,10 @@ struct _GConverterIface
   void  (* reset)   (GConverter *converter);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType            g_converter_get_type     (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GConverterResult g_converter_convert (GConverter       *converter,
 				      const void       *inbuf,
 				      gsize             inbuf_size,
@@ -86,7 +88,7 @@ GConverterResult g_converter_convert (GConverter       *converter,
 				      gsize            *bytes_read,
 				      gsize            *bytes_written,
 				      GError          **error);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void             g_converter_reset   (GConverter       *converter);
 
 

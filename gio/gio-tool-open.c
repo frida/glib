@@ -1,6 +1,8 @@
 /*
  * Copyright 2015 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -21,7 +23,7 @@
 
 #include <gio/gio.h>
 
-#if defined(G_OS_UNIX) && !defined(HAVE_COCOA)
+#if defined(G_OS_UNIX) && !defined(G_OS_DARWIN)
 #include <gio/gdesktopappinfo.h>
 #endif
 

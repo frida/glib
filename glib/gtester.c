@@ -2,6 +2,8 @@
  * Copyright (C) 2007 Sven Herzberg
  * Copyright (C) 2007 Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -668,8 +670,8 @@ parse_args (gint    *argc_p,
         }
     }
   /* collapse argv */
-  e = 1;
-  for (i = 1; i < argc; i++)
+  e = 0;
+  for (i = 0; i < argc; i++)
     if (argv[i])
       {
         argv[e++] = argv[i];
@@ -684,8 +686,6 @@ main (int    argc,
       char **argv)
 {
   gint ui;
-
-  glib_init ();
 
   g_set_prgname (argv[0]);
   parse_args (&argc, &argv);

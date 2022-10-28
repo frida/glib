@@ -2,6 +2,8 @@
  *
  * Copyright 2020 Руслан Ижбулатов
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -27,8 +29,6 @@
 #include <windows.h>
 
 #include "gwin32file-sync-stream.h"
-
-#if _WIN32_WINNT >= 0x0600
 
 static HRESULT STDMETHODCALLTYPE _file_sync_stream_query_interface (IStream         *self_ptr,
                                                                     REFIID           ref_interface_guid,
@@ -388,8 +388,8 @@ _file_sync_stream_stat (IStream *self_ptr,
 
           if (buffer_size == 0)
             {
-              DWORD error = GetLastError ();
-              return __HRESULT_FROM_WIN32 (error);
+              DWORD my_error = GetLastError ();
+              return __HRESULT_FROM_WIN32 (my_error);
             }
 
           buffer = CoTaskMemAlloc (buffer_size);
@@ -508,5 +508,3 @@ g_win32_file_sync_stream_new (HANDLE    file_handle,
 
   return result;
 }
-
-#endif

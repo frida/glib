@@ -13,7 +13,7 @@ The official web site is:
 
 ## Installation
 
-See the file '[INSTALL.in](INSTALL.in)'
+See the file '[INSTALL.md](INSTALL.md)'
 
 ## Supported versions
 
@@ -23,13 +23,31 @@ which may be exploitable security vulnerabilities.
 
 See [SECURITY.md](SECURITY.md) for more details.
 
-## How to report bugs
+## Documentation
 
-Bugs should be reported to the GNOME issue tracking system.
-(<https://gitlab.gnome.org/GNOME/glib/issues/new>). You will need
-to create an account for yourself.
+API documentation is available online for GLib for the:
+ * [GLib](https://docs.gtk.org/glib/)
+ * [GObject](https://docs.gtk.org/gobject/)
+ * [GModule](https://docs.gtk.org/gmodule/)
+ * [GIO](https://docs.gtk.org/gio/)
 
-In the bug report please include:
+## Discussion
+
+If you have a question about how to use GLib, seek help on [GNOME’s Discourse
+instance](https://discourse.gnome.org/tags/glib). Alternatively, ask a question
+on [StackOverflow and tag it `glib`](https://stackoverflow.com/questions/tagged/glib).
+
+## Reporting bugs
+
+Bugs should be [reported to the GNOME issue tracking system](https://gitlab.gnome.org/GNOME/glib/issues/new).
+You will need to create an account for yourself. You may also submit bugs by
+e-mail (without an account) by e-mailing <incoming+gnome-glib-658-issue-@gitlab.gnome.org>,
+but this will give you a degraded experience.
+
+Bugs are for reporting problems in GLib itself, not for asking questions about
+how to use it. To ask questions, use one of our [discussion forums](#discussion).
+
+In bug reports please include:
 
 * Information about your system. For instance:
   * What operating system and version
@@ -37,7 +55,7 @@ In the bug report please include:
   * And anything else you think is relevant.
 * How to reproduce the bug.
   * If you can reproduce it with one of the test programs that are built
-  in the tests/ subdirectory, that will be most convenient.  Otherwise,
+  in the `tests/` subdirectory, that will be most convenient.  Otherwise,
   please include a short test program that exhibits the behavior.
   As a last resort, you can also provide a pointer to a larger piece
   of software that can be downloaded.
@@ -46,14 +64,19 @@ In the bug report please include:
 * Further information such as stack traces may be useful, but
   is not necessary.
 
-## Patches
+## Contributing to GLib
 
-Patches should also be submitted as merge requests to gitlab.gnome.org. If the
-patch fixes an existing issue, please refer to the issue in your commit message
-with the following notation (for issue 123):
+Please follow the [contribution guide](./CONTRIBUTING.md) to know how to
+start contributing to GLib.
+
+Patches should be [submitted as merge requests](https://gitlab.gnome.org/GNOME/glib/-/merge_requests/new)
+to gitlab.gnome.org. If the patch fixes an existing issue, please refer to the
+issue in your commit message with the following notation (for issue 123):
+```
 Closes: #123
+```
 
-Otherwise, create a new merge request that introduces the change, filing a
+Otherwise, create a new merge request that introduces the change. Filing a
 separate issue is not required.
 
 ## Default branch renamed to `main`

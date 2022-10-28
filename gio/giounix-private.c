@@ -1,6 +1,8 @@
 /*
  * Copyright © 2021 Ole André Vadla Ravnås
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -80,9 +82,9 @@ _g_fd_is_pollable (int fd)
   struct epoll_event ev = { 0, };
   gboolean add_succeeded;
 
-  efd = epoll_create (1);
+  efd = epoll_create1 (EPOLL_CLOEXEC);
   if (efd == -1)
-    g_error ("epoll_create () failed: %s", g_strerror (errno));
+    g_error ("epoll_create1 () failed: %s", g_strerror (errno));
 
   ev.events = EPOLLIN;
 

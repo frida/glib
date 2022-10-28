@@ -4,6 +4,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -121,25 +123,29 @@ static GHashTable *gid_cache = NULL;
 char *
 _g_local_file_info_create_etag (GLocalFileStat *statbuf)
 {
-  glong sec, usec;
+  glong sec, usec, nsec;
 
   g_return_val_if_fail (_g_stat_has_field (statbuf, G_LOCAL_FILE_STAT_FIELD_MTIME), NULL);
 
 #if defined (G_OS_WIN32)
   sec = statbuf->st_mtim.tv_sec;
   usec = statbuf->st_mtim.tv_nsec / 1000;
+  nsec = statbuf->st_mtim.tv_nsec;
 #else
   sec = _g_stat_mtime (statbuf);
 #if defined (HAVE_STRUCT_STAT_ST_MTIMENSEC)
   usec = statbuf->st_mtimensec / 1000;
+  nsec = statbuf->st_mtimensec;
 #elif defined (HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
   usec = _g_stat_mtim_nsec (statbuf) / 1000;
+  nsec = _g_stat_mtim_nsec (statbuf);
 #else
   usec = 0;
+  nsec = 0;
 #endif
 #endif
 
-  return g_strdup_printf ("%lu:%lu", sec, usec);
+  return g_strdup_printf ("%lu:%lu:%lu", sec, usec, nsec);
 }
 
 static char *
@@ -255,10 +261,12 @@ get_selinux_context (const char            *path,
 #define g_fgetxattr(fd,name,value,size)  fgetxattr(fd,name,value,size,0,0)
 #define g_flistxattr(fd,name,size)       flistxattr(fd,name,size,0)
 #define g_setxattr(path,name,value,size) setxattr(path,name,value,size,0,0)
+#define g_removexattr(path,name) removexattr(path,name,0)
 #else
 #define g_fgetxattr     fgetxattr
 #define g_flistxattr    flistxattr
 #define g_setxattr(path,name,value,size) setxattr(path,name,value,size,0)
+#define g_removexattr(path,name) removexattr(path,name)
 #endif
 
 static gssize
@@ -768,10 +776,10 @@ set_xattr (char                       *filename,
       return FALSE;
     }
 
-  if (attr_value->type != G_FILE_ATTRIBUTE_TYPE_STRING)
+  if (attr_value->type != G_FILE_ATTRIBUTE_TYPE_STRING && attr_value->type != G_FILE_ATTRIBUTE_TYPE_INVALID)
     {
       g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                           _("Invalid attribute type (string expected)"));
+                           _("Invalid attribute type (string or invalid expected)"));
       return FALSE;
     }
 
@@ -793,16 +801,27 @@ set_xattr (char                       *filename,
       escaped_attribute += strlen ("xattr-sys::");
       is_user = FALSE;
     }
-  
+
   attribute = hex_unescape_string (escaped_attribute, NULL, &free_attribute);
-  value = hex_unescape_string (attr_value->u.string, &val_len, &free_value);
 
   if (is_user)
     a = g_strconcat ("user.", attribute, NULL);
   else
     a = attribute;
-  
-  res = g_setxattr (filename, a, value, val_len);
+
+  if (attr_value->type == G_FILE_ATTRIBUTE_TYPE_STRING)
+    {
+      value = hex_unescape_string (attr_value->u.string, &val_len, &free_value);
+      res = g_setxattr (filename, a, value, val_len);
+    }
+  else
+    {
+      value = NULL;
+      val_len = 0;
+      free_value = FALSE;
+      res = g_removexattr (filename, a);
+    }
+
   errsv = errno;
   
   if (is_user)
@@ -1016,14 +1035,18 @@ set_info_from_stat (GFileInfo             *info,
 #if defined (G_OS_WIN32)
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED, statbuf->st_mtim.tv_sec);
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_USEC, statbuf->st_mtim.tv_nsec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_NSEC, statbuf->st_mtim.tv_nsec);
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS, statbuf->st_atim.tv_sec);
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_USEC, statbuf->st_atim.tv_nsec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_NSEC, statbuf->st_atim.tv_nsec);
 #else
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED, _g_stat_mtime (statbuf));
 #if defined (HAVE_STRUCT_STAT_ST_MTIMENSEC)
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_USEC, statbuf->st_mtimensec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_NSEC, statbuf->st_mtimensec);
 #elif defined (HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_USEC, _g_stat_mtim_nsec (statbuf) / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_NSEC, _g_stat_mtim_nsec (statbuf));
 #endif
 
   if (_g_stat_has_field (statbuf, G_LOCAL_FILE_STAT_FIELD_ATIME))
@@ -1031,8 +1054,10 @@ set_info_from_stat (GFileInfo             *info,
       _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS, _g_stat_atime (statbuf));
 #if defined (HAVE_STRUCT_STAT_ST_ATIMENSEC)
       _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_USEC, statbuf->st_atimensec / 1000);
+      _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_NSEC, statbuf->st_atimensec);
 #elif defined (HAVE_STRUCT_STAT_ST_ATIM_TV_NSEC)
       _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_USEC, _g_stat_atim_nsec (statbuf) / 1000);
+      _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_NSEC, _g_stat_atim_nsec (statbuf));
 #endif
     }
 #endif
@@ -1046,8 +1071,10 @@ set_info_from_stat (GFileInfo             *info,
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED, _g_stat_ctime (statbuf));
 #if defined (HAVE_STRUCT_STAT_ST_CTIMENSEC)
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED_USEC, statbuf->st_ctimensec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED_NSEC, statbuf->st_ctimensec);
 #elif defined (HAVE_STRUCT_STAT_ST_CTIM_TV_NSEC)
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED_USEC, _g_stat_ctim_nsec (statbuf) / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED_NSEC, _g_stat_ctim_nsec (statbuf));
 #endif
 #endif
 
@@ -1056,20 +1083,24 @@ set_info_from_stat (GFileInfo             *info,
     {
       _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED, statbuf->stx_btime.tv_sec);
       _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED_USEC, statbuf->stx_btime.tv_nsec / 1000);
+      _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED_NSEC, statbuf->stx_btime.tv_nsec);
     }
 #elif defined (HAVE_STRUCT_STAT_ST_BIRTHTIME) && defined (HAVE_STRUCT_STAT_ST_BIRTHTIMENSEC)
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED, statbuf->st_birthtime);
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED_USEC, statbuf->st_birthtimensec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED_NSEC, statbuf->st_birthtimensec);
 #elif defined (HAVE_STRUCT_STAT_ST_BIRTHTIM) && defined (HAVE_STRUCT_STAT_ST_BIRTHTIM_TV_NSEC)
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED, statbuf->st_birthtim.tv_sec);
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED_USEC, statbuf->st_birthtim.tv_nsec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED_NSEC, statbuf->st_birthtim.tv_nsec);
 #elif defined (HAVE_STRUCT_STAT_ST_BIRTHTIME)
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED, statbuf->st_birthtime);
 #elif defined (HAVE_STRUCT_STAT_ST_BIRTHTIM)
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED, statbuf->st_birthtim);
 #elif defined (G_OS_WIN32)
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED, statbuf->st_ctim.tv_sec);
-  _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED_USEC, statbuf->st_ctim.tv_nsec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED_USEC, statbuf->st_ctim.tv_nsec / 1000);
+  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CREATED_NSEC, statbuf->st_ctim.tv_nsec);
 #endif
 
   if (_g_file_attribute_matcher_matches_id (attribute_matcher,
@@ -1349,7 +1380,7 @@ get_content_type (const char          *basename,
 
       content_type = g_content_type_guess (basename, NULL, 0, &result_uncertain);
       
-#if !defined(G_OS_WIN32) && !defined(HAVE_COCOA)
+#if !defined(G_OS_WIN32) && !defined(G_OS_DARWIN)
       if (!fast && result_uncertain && path != NULL)
 	{
 	  guchar sniff_buffer[4096];
@@ -1357,7 +1388,7 @@ get_content_type (const char          *basename,
 	  int fd, errsv;
 
 	  sniff_length = _g_unix_content_type_get_sniff_len ();
-	  if (sniff_length > 4096)
+	  if (sniff_length == 0 || sniff_length > 4096)
 	    sniff_length = 4096;
 
 #ifdef O_NOATIME	  
@@ -1395,8 +1426,10 @@ get_thumbnail_attributes (const char     *path,
 {
   GChecksum *checksum;
   char *uri;
-  char *filename;
+  char *filename = NULL;
   char *basename;
+  const char *size_dirs[4] = { "xx-large", "x-large", "large", "normal" };
+  gsize i;
 
   uri = g_filename_to_uri (path, NULL, NULL);
 
@@ -1406,11 +1439,18 @@ get_thumbnail_attributes (const char     *path,
   basename = g_strconcat (g_checksum_get_string (checksum), ".png", NULL);
   g_checksum_free (checksum);
 
-  filename = g_build_filename (g_get_user_cache_dir (),
-                               "thumbnails", "large", basename,
-                               NULL);
+  for (i = 0; i < G_N_ELEMENTS (size_dirs); i++)
+    {
+      filename = g_build_filename (g_get_user_cache_dir (),
+                                   "thumbnails", size_dirs[i], basename,
+                                   NULL);
+      if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
+        break;
 
-  if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
+      g_clear_pointer (&filename, g_free);
+    }
+
+  if (filename)
     {
       _g_file_info_set_attribute_byte_string_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH, filename);
       _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID,
@@ -1418,32 +1458,17 @@ get_thumbnail_attributes (const char     *path,
     }
   else
     {
-      g_free (filename);
       filename = g_build_filename (g_get_user_cache_dir (),
-                                   "thumbnails", "normal", basename,
+                                   "thumbnails", "fail",
+                                   "gnome-thumbnail-factory",
+                                   basename,
                                    NULL);
 
       if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
         {
-          _g_file_info_set_attribute_byte_string_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH, filename);
+          _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED, TRUE);
           _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID,
                                                     thumbnail_verify (filename, uri, stat_buf));
-        }
-      else
-        {
-          g_free (filename);
-          filename = g_build_filename (g_get_user_cache_dir (),
-                                       "thumbnails", "fail",
-                                       "gnome-thumbnail-factory",
-                                       basename,
-                                       NULL);
-
-          if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
-            {
-              _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED, TRUE);
-              _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID,
-                                                        thumbnail_verify (filename, uri, stat_buf));
-            }
         }
     }
   g_free (basename);
@@ -1651,14 +1676,12 @@ file_is_hidden (const gchar *path,
   if (!g_hash_table_lookup_extended (hidden_cache, dirname,
                                      NULL, (gpointer *) &data))
     {
-      gchar *mydirname;
-
       data = g_new0 (HiddenCacheData, 1);
       data->hidden_files = table = read_hidden_file (dirname);
       data->timestamp_secs = g_get_monotonic_time () / G_USEC_PER_SEC;
 
       g_hash_table_insert (hidden_cache,
-                           mydirname = g_strdup (dirname),
+                           g_strdup (dirname),
                            data);
 
       if (!hidden_cache_source)
@@ -2185,7 +2208,7 @@ get_uint32 (const GFileAttributeValue  *value,
   return TRUE;
 }
 
-#if defined (HAVE_UTIMES) || defined (G_OS_WIN32)
+#if defined (HAVE_UTIMES) || defined (HAVE_UTIMENSAT) || defined (G_OS_WIN32)
 static gboolean
 get_uint64 (const GFileAttributeValue  *value,
 	    guint64                    *val_out,
@@ -2418,6 +2441,26 @@ set_symlink (char                       *filename,
 }
 #endif
 
+#if defined (HAVE_UTIMES) || defined (HAVE_UTIMENSAT) || defined(G_OS_WIN32)
+static int
+lazy_stat (const char  *filename,
+           GStatBuf    *statbuf,
+           gboolean    *called_stat)
+{
+  int res;
+
+  if (*called_stat)
+    return 0;
+
+  res = g_stat (filename, statbuf);
+
+  if (res == 0)
+    *called_stat = TRUE;
+
+  return res;
+}
+#endif
+
 #if defined (G_OS_WIN32)
 /* From
  * https://support.microsoft.com/en-ca/help/167296/how-to-convert-a-unix-time-t-to-a-win32-filetime-or-systemtime
@@ -2505,8 +2548,10 @@ static gboolean
 set_mtime_atime (const char                 *filename,
 		 const GFileAttributeValue  *mtime_value,
 		 const GFileAttributeValue  *mtime_usec_value,
+		 const GFileAttributeValue  *mtime_nsec_value,
 		 const GFileAttributeValue  *atime_value,
 		 const GFileAttributeValue  *atime_usec_value,
+		 const GFileAttributeValue  *atime_nsec_value,
 		 GError                    **error)
 {
   BOOL res;
@@ -2521,6 +2566,8 @@ set_mtime_atime (const char                 *filename,
   FILETIME *p_mtime = NULL;
   FILETIME *p_atime = NULL;
   DWORD gle;
+  GStatBuf statbuf;
+  gboolean got_stat = FALSE;
 
   /* ATIME */
   if (atime_value)
@@ -2528,19 +2575,45 @@ set_mtime_atime (const char                 *filename,
       if (!get_uint64 (atime_value, &val, error))
         return FALSE;
       val_usec = 0;
-      if (atime_usec_value &&
-          !get_uint32 (atime_usec_value, &val_usec, error))
-        return FALSE;
+      val_nsec = 0;
+    }
+  else
+    {
+      if (lazy_stat (filename, &statbuf, &got_stat) == 0)
+	{
+          val = statbuf.st_atime;
+#if defined (HAVE_STRUCT_STAT_ST_ATIMENSEC)
+          val_nsec = statbuf.st_atimensec;
+#elif defined (HAVE_STRUCT_STAT_ST_ATIM_TV_NSEC)
+          val_nsec = statbuf.st_atim.tv_nsec;
+#endif
+	}
+    }
 
-      /* Convert to nanoseconds. Clamp the usec value if it’s going to overflow,
-       * as %G_MAXINT32 will trigger a ‘too big’ error in
-       * _g_win32_unix_time_to_filetime() anyway. */
-      val_nsec = (val_usec > G_MAXINT32 / 1000) ? G_MAXINT32 : (val_usec * 1000);
+  if (atime_usec_value &&
+      !get_uint32 (atime_usec_value, &val_usec, error))
+    return FALSE;
 
+  /* Convert to nanoseconds. Clamp the usec value if it’s going to overflow,
+   * as %G_MAXINT32 will trigger a ‘too big’ error in
+   * _g_win32_unix_time_to_filetime() anyway. */
+  val_nsec = (val_usec > G_MAXINT32 / 1000) ? G_MAXINT32 : (val_usec * 1000);
+
+  if (atime_nsec_value &&
+      !get_uint32 (atime_nsec_value, &val_nsec, error))
+    return FALSE;
+  if (val_nsec > 0)
+    {
       if (!_g_win32_unix_time_to_filetime (val, val_nsec, &atime, error))
         return FALSE;
-      p_atime = &atime;
     }
+  else
+    {
+      if (!_g_win32_unix_time_to_filetime (val, val_usec, &atime, error))
+        return FALSE;
+    }
+
+  p_atime = &atime;
 
   /* MTIME */
   if (mtime_value)
@@ -2548,19 +2621,44 @@ set_mtime_atime (const char                 *filename,
       if (!get_uint64 (mtime_value, &val, error))
 	return FALSE;
       val_usec = 0;
-      if (mtime_usec_value &&
-          !get_uint32 (mtime_usec_value, &val_usec, error))
-        return FALSE;
+      val_nsec = 0;
+    }
+  else
+    {
+      if (lazy_stat (filename, &statbuf, &got_stat) == 0)
+	{
+          val = statbuf.st_mtime;
+#if defined (HAVE_STRUCT_STAT_ST_MTIMENSEC)
+          val_nsec = statbuf.st_mtimensec;
+#elif defined (HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
+          val_nsec = statbuf.st_mtim.tv_nsec;
+#endif
+	}
+    }
 
-      /* Convert to nanoseconds. Clamp the usec value if it’s going to overflow,
-       * as %G_MAXINT32 will trigger a ‘too big’ error in
-       * _g_win32_unix_time_to_filetime() anyway. */
-      val_nsec = (val_usec > G_MAXINT32 / 1000) ? G_MAXINT32 : (val_usec * 1000);
+  if (mtime_usec_value &&
+      !get_uint32 (mtime_usec_value, &val_usec, error))
+    return FALSE;
 
+  /* Convert to nanoseconds. Clamp the usec value if it’s going to overflow,
+   * as %G_MAXINT32 will trigger a ‘too big’ error in
+   * _g_win32_unix_time_to_filetime() anyway. */
+  val_nsec = (val_usec > G_MAXINT32 / 1000) ? G_MAXINT32 : (val_usec * 1000);
+
+  if (mtime_nsec_value &&
+      !get_uint32 (mtime_nsec_value, &val_nsec, error))
+    return FALSE;
+  if (val_nsec > 0)
+    {
       if (!_g_win32_unix_time_to_filetime (val, val_nsec, &mtime, error))
         return FALSE;
-      p_mtime = &mtime;
     }
+  else
+    {
+      if (!_g_win32_unix_time_to_filetime (val, val_usec, &mtime, error))
+        return FALSE;
+    }
+  p_mtime = &mtime;
 
   filename_utf16 = g_utf8_to_utf16 (filename, -1, NULL, NULL, error);
 
@@ -2604,66 +2702,50 @@ set_mtime_atime (const char                 *filename,
 
   return res;
 }
-#elif defined (HAVE_UTIMES)
-static int
-lazy_stat (char        *filename, 
-           struct stat *statbuf, 
-           gboolean    *called_stat)
-{
-  int res;
-
-  if (*called_stat)
-    return 0;
-  
-  res = g_stat (filename, statbuf);
-  
-  if (res == 0)
-    *called_stat = TRUE;
-  
-  return res;
-}
-
-
+#elif defined (HAVE_UTIMES) || defined (HAVE_UTIMENSAT)
 static gboolean
 set_mtime_atime (char                       *filename,
 		 const GFileAttributeValue  *mtime_value,
 		 const GFileAttributeValue  *mtime_usec_value,
+		 const GFileAttributeValue  *mtime_nsec_value,
 		 const GFileAttributeValue  *atime_value,
 		 const GFileAttributeValue  *atime_usec_value,
+		 const GFileAttributeValue  *atime_nsec_value,
 		 GError                    **error)
 {
   int res;
   guint64 val = 0;
-  guint32 val_usec = 0;
-  struct stat statbuf;
+  GStatBuf statbuf;
   gboolean got_stat = FALSE;
-  struct timeval times[2] = { {0, 0}, {0, 0} };
-
+#ifdef HAVE_UTIMENSAT
+  struct timespec times_n[2] = { {0, 0}, {0, 0} };
   /* ATIME */
   if (atime_value)
     {
       if (!get_uint64 (atime_value, &val, error))
 	return FALSE;
-      times[0].tv_sec = val;
+      times_n[0].tv_sec = val;
     }
   else
     {
       if (lazy_stat (filename, &statbuf, &got_stat) == 0)
 	{
-	  times[0].tv_sec = statbuf.st_atime;
+          times_n[0].tv_sec = statbuf.st_atime;
 #if defined (HAVE_STRUCT_STAT_ST_ATIMENSEC)
-	  times[0].tv_usec = statbuf.st_atimensec / 1000;
+          times_n[0].tv_nsec = statbuf.st_atimensec;
 #elif defined (HAVE_STRUCT_STAT_ST_ATIM_TV_NSEC)
-	  times[0].tv_usec = statbuf.st_atim.tv_nsec / 1000;
+          times_n[0].tv_nsec = statbuf.st_atim.tv_nsec;
 #endif
 	}
     }
-  
-  if (atime_usec_value)
+
+  if (atime_nsec_value)
     {
-      if (!get_uint32 (atime_usec_value, &val_usec, error))
-	return FALSE;
-      times[0].tv_usec = val_usec;
+      guint32 val_nsec = 0;
+
+      if (!get_uint32 (atime_nsec_value, &val_nsec, error))
+        return FALSE;
+      times_n[0].tv_nsec = val_nsec;
     }
 
   /* MTIME */
@@ -2671,38 +2753,109 @@ set_mtime_atime (char                       *filename,
     {
       if (!get_uint64 (mtime_value, &val, error))
 	return FALSE;
-      times[1].tv_sec = val;
+      times_n[1].tv_sec = val;
     }
   else
     {
       if (lazy_stat (filename, &statbuf, &got_stat) == 0)
 	{
-	  times[1].tv_sec = statbuf.st_mtime;
 #if defined (HAVE_STRUCT_STAT_ST_MTIMENSEC)
-	  times[1].tv_usec = statbuf.st_mtimensec / 1000;
+          times_n[1].tv_nsec = statbuf.st_mtimensec;
 #elif defined (HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
-	  times[1].tv_usec = statbuf.st_mtim.tv_nsec / 1000;
+          times_n[1].tv_nsec = statbuf.st_mtim.tv_nsec;
 #endif
 	}
     }
-  
+
+  if (mtime_nsec_value)
+    {
+      guint32 val_nsec = 0;
+
+      if (!get_uint32 (mtime_nsec_value, &val_nsec, error))
+        return FALSE;
+      times_n[1].tv_nsec = val_nsec;
+    }
+
+  res = utimensat (AT_FDCWD, filename, times_n, 0);
+
+#else /* HAVE_UTIMES */
+
+  struct timeval times[2] = { {0, 0}, {0, 0} };
+
+  /* ATIME */
+  if (atime_value)
+    {
+      if (!get_uint64 (atime_value, &val, error))
+        return FALSE;
+
+      times[0].tv_sec = val;
+    }
+  else
+    {
+      if (lazy_stat (filename, &statbuf, &got_stat) == 0)
+        {
+          times[0].tv_sec = statbuf.st_atime;
+#if defined (HAVE_STRUCT_STAT_ST_ATIMENSEC)
+          times[0].tv_usec = statbuf.st_atimensec / 1000;
+#elif defined (HAVE_STRUCT_STAT_ST_ATIM_TV_NSEC)
+          times[0].tv_usec = statbuf.st_atim.tv_nsec / 1000;
+#endif
+        }
+    }
+
+  if (atime_usec_value)
+    {
+      guint32 val_usec = 0;
+
+      if (!get_uint32 (atime_usec_value, &val_usec, error))
+        return FALSE;
+
+      times[0].tv_usec = val_usec;
+    }
+
+  /* MTIME */
+  if (mtime_value)
+    {
+      if (!get_uint64 (mtime_value, &val, error))
+        return FALSE;
+
+      times[1].tv_sec = val;
+    }
+  else
+    {
+      if (lazy_stat (filename, &statbuf, &got_stat) == 0)
+        {
+          times[1].tv_sec = statbuf.st_mtime;
+#if defined (HAVE_STRUCT_STAT_ST_MTIMENSEC)
+          times[1].tv_usec = statbuf.st_mtimensec / 1000;
+#elif defined (HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
+          times[1].tv_usec = statbuf.st_mtim.tv_nsec / 1000;
+#endif
+        }
+    }
+
   if (mtime_usec_value)
     {
+      guint32 val_usec = 0;
+
       if (!get_uint32 (mtime_usec_value, &val_usec, error))
-	return FALSE;
+        return FALSE;
+
       times[1].tv_usec = val_usec;
     }
-  
+
   res = utimes (filename, times);
+#endif
+
   if (res == -1)
     {
       int errsv = errno;
 
       g_set_error (error, G_IO_ERROR,
-		   g_io_error_from_errno (errsv),
-		   _("Error setting modification or access time: %s"),
-		   g_strerror (errsv));
-	  return FALSE;
+                   g_io_error_from_errno (errsv),
+                   _("Error setting modification or access time: %s"),
+                   g_strerror (errsv));
+      return FALSE;
     }
   return TRUE;
 }
@@ -2780,15 +2933,19 @@ _g_local_file_info_set_attribute (char                 *filename,
     return set_symlink (filename, &value, error);
 #endif
 
-#if defined (HAVE_UTIMES) || defined (G_OS_WIN32)
+#if defined (HAVE_UTIMES) || defined (HAVE_UTIMENSAT) || defined (G_OS_WIN32)
   else if (strcmp (attribute, G_FILE_ATTRIBUTE_TIME_MODIFIED) == 0)
-    return set_mtime_atime (filename, &value, NULL, NULL, NULL, error);
+    return set_mtime_atime (filename, &value, NULL, NULL, NULL, NULL, NULL, error);
   else if (strcmp (attribute, G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC) == 0)
-    return set_mtime_atime (filename, NULL, &value, NULL, NULL, error);
+    return set_mtime_atime (filename, NULL, &value, NULL, NULL, NULL, NULL, error);
+  else if (strcmp (attribute, G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC) == 0)
+    return set_mtime_atime (filename, NULL, NULL, &value, NULL, NULL, NULL, error);
   else if (strcmp (attribute, G_FILE_ATTRIBUTE_TIME_ACCESS) == 0)
-    return set_mtime_atime (filename, NULL, NULL, &value, NULL, error);
+    return set_mtime_atime (filename, NULL, NULL, NULL, &value, NULL, NULL, error);
   else if (strcmp (attribute, G_FILE_ATTRIBUTE_TIME_ACCESS_USEC) == 0)
-    return set_mtime_atime (filename, NULL, NULL, NULL, &value, error);
+    return set_mtime_atime (filename, NULL, NULL, NULL, NULL, &value, NULL, error);
+  else if (strcmp (attribute, G_FILE_ATTRIBUTE_TIME_ACCESS_NSEC) == 0)
+    return set_mtime_atime (filename, NULL, NULL, NULL, NULL, NULL, &value, error);
 #endif
 
 #ifdef HAVE_XATTR
@@ -2848,8 +3005,8 @@ _g_local_file_info_set_attributes  (char                 *filename,
 #ifdef G_OS_UNIX
   GFileAttributeValue *uid, *gid;
 #endif
-#if defined (HAVE_UTIMES) || defined (G_OS_WIN32)
-  GFileAttributeValue *mtime, *mtime_usec, *atime, *atime_usec;
+#if defined (HAVE_UTIMES) || defined (HAVE_UTIMENSAT) || defined (G_OS_WIN32)
+  GFileAttributeValue *mtime, *mtime_usec, *mtime_nsec, *atime, *atime_usec, *atime_nsec;
 #endif
 #if defined (G_OS_UNIX) || defined (G_OS_WIN32)
   GFileAttributeStatus status;
@@ -2922,19 +3079,21 @@ _g_local_file_info_set_attributes  (char                 *filename,
 	
     }
 
-#if defined (HAVE_UTIMES) || defined (G_OS_WIN32)
+#if defined (HAVE_UTIMES) || defined (HAVE_UTIMENSAT) || defined (G_OS_WIN32)
   /* Group all time settings into one call
    * Change times as the last thing to avoid it changing due to metadata changes
    */
   
   mtime = _g_file_info_get_attribute_value (info, G_FILE_ATTRIBUTE_TIME_MODIFIED);
   mtime_usec = _g_file_info_get_attribute_value (info, G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC);
+  mtime_nsec = _g_file_info_get_attribute_value (info, G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC);
   atime = _g_file_info_get_attribute_value (info, G_FILE_ATTRIBUTE_TIME_ACCESS);
   atime_usec = _g_file_info_get_attribute_value (info, G_FILE_ATTRIBUTE_TIME_ACCESS_USEC);
+  atime_nsec = _g_file_info_get_attribute_value (info, G_FILE_ATTRIBUTE_TIME_ACCESS_NSEC);
 
-  if (mtime || mtime_usec || atime || atime_usec)
+  if (mtime || mtime_usec || mtime_nsec || atime || atime_usec || atime_nsec)
     {
-      if (!set_mtime_atime (filename, mtime, mtime_usec, atime, atime_usec, error))
+      if (!set_mtime_atime (filename, mtime, mtime_usec, mtime_nsec, atime, atime_usec, atime_nsec, error))
 	{
 	  status = G_FILE_ATTRIBUTE_STATUS_ERROR_SETTING;
 	  res = FALSE;
@@ -2948,10 +3107,14 @@ _g_local_file_info_set_attributes  (char                 *filename,
 	mtime->status = status;
       if (mtime_usec)
 	mtime_usec->status = status;
+      if (mtime_nsec)
+	mtime_nsec->status = status;
       if (atime)
 	atime->status = status;
       if (atime_usec)
 	atime_usec->status = status;
+      if (atime_nsec)
+	atime_nsec->status = status;
     }
 #endif
 

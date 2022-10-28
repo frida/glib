@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -142,6 +144,7 @@
 #define g_macro__has_attribute___deprecated__ G_GNUC_CHECK_VERSION (3, 1)
 #define g_macro__has_attribute_may_alias G_GNUC_CHECK_VERSION (3, 3)
 #define g_macro__has_attribute_warn_unused_result G_GNUC_CHECK_VERSION (3, 4)
+#define g_macro__has_attribute_cleanup G_GNUC_CHECK_VERSION (3, 3)
 
 #endif
 
@@ -209,6 +212,9 @@
  * Declaring a function as `noinline` prevents the function from being
  * considered for inlining.
  *
+ * This macro is provided for retro-compatibility and will be eventually
+ * deprecated, but %G_NO_INLINE should be used instead.
+ *
  * The attribute may be placed before the declaration or definition,
  * right before the `static` keyword.
  *
@@ -225,13 +231,10 @@
  * [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-noinline-function-attribute)
  * for more details.
  *
+ * See also: %G_NO_INLINE, %G_ALWAYS_INLINE.
+ *
  * Since: 2.58
  */
-/* Note: We can’t annotate this with GLIB_AVAILABLE_MACRO_IN_2_58 because it’s
- * used within the GLib headers in function declarations which are always
- * evaluated when a header is included. This results in warnings in third party
- * code which includes glib.h, even if the third party code doesn’t use the new
- * macro itself. */
 
 #if g_macro__has_attribute(__pure__)
 #define G_GNUC_PURE __attribute__((__pure__))
@@ -246,9 +249,11 @@
 #endif
 
 #if g_macro__has_attribute(__noinline__)
-#define G_GNUC_NO_INLINE __attribute__ ((__noinline__))
+#define G_GNUC_NO_INLINE __attribute__ ((__noinline__)) \
+  GLIB_AVAILABLE_MACRO_IN_2_58
 #else
-#define G_GNUC_NO_INLINE
+#define G_GNUC_NO_INLINE \
+  GLIB_AVAILABLE_MACRO_IN_2_58
 #endif
 
 /**
@@ -1066,6 +1071,100 @@
   GLIB_AVAILABLE_MACRO_IN_2_68
 #endif
 
+/**
+ * G_ALWAYS_INLINE:
+ *
+ * Expands to the GNU C `always_inline` or MSVC `__forceinline` function
+ * attribute depending on the compiler. It is used for declaring functions
+ * as always inlined, ignoring the compiler optimization levels.
+ *
+ * The attribute may be placed before the declaration or definition,
+ * right before the `static` keyword.
+ *
+ * |[<!-- language="C" -->
+ * G_ALWAYS_INLINE
+ * static int
+ * do_inline_this (void)
+ * {
+ *   ...
+ * }
+ * ]|
+ *
+ * See the
+ * [GNU C documentation](https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html#index-always_005finline-function-attribute)
+ * and the
+ * [MSVC documentation](https://docs.microsoft.com/en-us/visualstudio/misc/inline-inline-forceinline)
+ *
+ * Since: 2.74
+ */
+/* Note: We can’t annotate this with GLIB_AVAILABLE_MACRO_IN_2_74 because it’s
+ * used within the GLib headers in function declarations which are always
+ * evaluated when a header is included. This results in warnings in third party
+ * code which includes glib.h, even if the third party code doesn’t use the new
+ * macro itself. */
+#if g_macro__has_attribute(__always_inline__)
+# if defined (__cplusplus) && __cplusplus >= 201103L
+    /* Use ISO C++11 syntax when the compiler supports it. */
+#   define G_ALWAYS_INLINE [[gnu::always_inline]]
+# else
+#   define G_ALWAYS_INLINE __attribute__ ((__always_inline__))
+# endif
+#elif defined (_MSC_VER)
+  /* Use MSVC specific syntax.  */
+# define G_ALWAYS_INLINE __forceinline
+#else
+# define G_ALWAYS_INLINE /* empty */
+#endif
+
+/**
+ * G_NO_INLINE:
+ *
+ * Expands to the GNU C or MSVC `noinline` function attribute
+ * depending on the compiler. It is used for declaring functions
+ * preventing from being considered for inlining.
+ *
+ * Note that %G_NO_INLINE supersedes the previous %G_GNUC_NO_INLINE
+ * macro, which will eventually be deprecated.
+ * %G_NO_INLINE supports more platforms.
+ *
+ * The attribute may be placed before the declaration or definition,
+ * right before the `static` keyword.
+ *
+ * |[<!-- language="C" -->
+ * G_NO_INLINE
+ * static int
+ * do_not_inline_this (void)
+ * {
+ *   ...
+ * }
+ * ]|
+ *
+ * Since: 2.74
+ */
+/* Note: We can’t annotate this with GLIB_AVAILABLE_MACRO_IN_2_74 because it’s
+ * used within the GLib headers in function declarations which are always
+ * evaluated when a header is included. This results in warnings in third party
+ * code which includes glib.h, even if the third party code doesn’t use the new
+ * macro itself. */
+#if g_macro__has_attribute(__noinline__)
+# if defined (__cplusplus) && __cplusplus >= 201103L
+    /* Use ISO C++11 syntax when the compiler supports it. */
+#   define G_NO_INLINE [[gnu::noinline]]
+# else
+#   define G_NO_INLINE __attribute__ ((__noinline__))
+# endif
+#elif defined (_MSC_VER) && (1200 <= _MSC_VER)
+  /* Use MSVC specific syntax.  */
+# if defined (__cplusplus) && __cplusplus >= 201103L
+    /* Use ISO C++11 syntax when the compiler supports it. */
+#   define G_NO_INLINE [[msvc::noinline]]
+# else
+#   define G_NO_INLINE __declspec (noinline)
+# endif
+#else
+# define G_NO_INLINE /* empty */
+#endif
+
 /*
  * The G_LIKELY and G_UNLIKELY macros let the programmer give hints to 
  * the compiler about the expected result of an expression. Some compilers
@@ -1089,6 +1188,10 @@
 #else
 #define G_LIKELY(expr) (expr)
 #define G_UNLIKELY(expr) (expr)
+#endif
+
+#if __GNUC__ >= 4 && !defined(_WIN32) && !defined(__CYGWIN__)
+#define G_HAVE_GNUC_VISIBILITY 1
 #endif
 
 /* GLIB_CANNOT_IGNORE_DEPRECATIONS is defined above for compilers that do not
@@ -1124,27 +1227,11 @@
 #define G_UNAVAILABLE(maj,min) G_DEPRECATED
 #endif
 
-#ifndef _GLIB_EXTERN
-#define _GLIB_EXTERN extern
-#endif
-
 /* These macros are used to mark deprecated symbols in GLib headers,
  * and thus have to be exposed in installed headers. But please
  * do *not* use them in other projects. Instead, use G_DEPRECATED
  * or define your own wrappers around it.
  */
-
-#ifdef GLIB_DISABLE_DEPRECATION_WARNINGS
-#define GLIB_DEPRECATED _GLIB_EXTERN
-#define GLIB_DEPRECATED_FOR(f) _GLIB_EXTERN
-#define GLIB_UNAVAILABLE(maj,min) _GLIB_EXTERN
-#define GLIB_UNAVAILABLE_STATIC_INLINE(maj,min)
-#else
-#define GLIB_DEPRECATED G_DEPRECATED _GLIB_EXTERN
-#define GLIB_DEPRECATED_FOR(f) G_DEPRECATED_FOR(f) _GLIB_EXTERN
-#define GLIB_UNAVAILABLE(maj,min) G_UNAVAILABLE(maj,min) _GLIB_EXTERN
-#define GLIB_UNAVAILABLE_STATIC_INLINE(maj,min) G_UNAVAILABLE(maj,min)
-#endif
 
 #if !defined(GLIB_DISABLE_DEPRECATION_WARNINGS) && \
     (G_GNUC_CHECK_VERSION(4, 6) ||                 \
@@ -1187,9 +1274,9 @@
 
 #ifndef __GI_SCANNER__
 
-#if defined (__GNUC__) || defined (__clang__)
+#if g_macro__has_attribute(cleanup)
 
-/* these macros are private */
+/* these macros are private; note that gstdio.h also uses _GLIB_CLEANUP */
 #define _GLIB_AUTOPTR_FUNC_NAME(TypeName) glib_autoptr_cleanup_##TypeName
 #define _GLIB_AUTOPTR_CLEAR_FUNC_NAME(TypeName) glib_autoptr_clear_##TypeName
 #define _GLIB_AUTOPTR_TYPENAME(TypeName)  TypeName##_autoptr

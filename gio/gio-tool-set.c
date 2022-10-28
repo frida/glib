@@ -1,6 +1,8 @@
 /*
  * Copyright 2015 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -28,10 +30,12 @@
 
 static char *attr_type = "string";
 static gboolean nofollow_symlinks = FALSE;
+static gboolean delete = FALSE;
 
 static const GOptionEntry entries[] = {
   { "type", 't', 0, G_OPTION_ARG_STRING, &attr_type, N_("Type of the attribute"), N_("TYPE") },
   { "nofollow-symlinks", 'n', 0, G_OPTION_ARG_NONE, &nofollow_symlinks, N_("Don’t follow symbolic links"), NULL },
+  { "delete", 'd', 0, G_OPTION_ARG_NONE, &delete, N_("Unset given attribute"), NULL },
   G_OPTION_ENTRY_NULL
 };
 
@@ -76,12 +80,14 @@ handle_set (int argc, char *argv[], gboolean do_help)
   const char *attribute;
   GFileAttributeType type;
   gpointer value;
+  gpointer value_allocated = NULL;
   gboolean b;
   guint32 uint32;
   gint32 int32;
   guint64 uint64;
   gint64 int64;
   gchar *param;
+  int retval = 0;
 
   g_set_prgname ("gio set");
 
@@ -123,8 +129,15 @@ handle_set (int argc, char *argv[], gboolean do_help)
     }
 
   attribute = argv[2];
+  if (delete)
+    {
+      type = G_FILE_ATTRIBUTE_TYPE_INVALID;
+    }
+  else
+    {
+      type = attribute_type_from_string (attr_type);
+    }
 
-  type = attribute_type_from_string (attr_type);
   if ((argc < 4) && (type != G_FILE_ATTRIBUTE_TYPE_INVALID))
     {
       show_help (context, _("Value not specified"));
@@ -147,7 +160,7 @@ handle_set (int argc, char *argv[], gboolean do_help)
       value = argv[3];
       break;
     case G_FILE_ATTRIBUTE_TYPE_BYTE_STRING:
-      value = hex_unescape (argv[3]);
+      value = value_allocated = hex_unescape (argv[3]);
       break;
     case G_FILE_ATTRIBUTE_TYPE_BOOLEAN:
       b = g_ascii_strcasecmp (argv[3], "true") == 0;
@@ -194,11 +207,11 @@ handle_set (int argc, char *argv[], gboolean do_help)
     {
       print_error ("%s", error->message);
       g_error_free (error);
-      g_object_unref (file);
-      return 1;
+      retval = 1;
     }
 
+  g_clear_pointer (&value_allocated, g_free);
   g_object_unref (file);
 
-  return 0;
+  return retval;
 }

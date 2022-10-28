@@ -3,6 +3,8 @@
 #
 # Copyright © 2018 Endless Mobile, Inc.
 #
+# SPDX-License-Identifier: LGPL-2.1-or-later
+#
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
 # License as published by the Free Software Foundation; either
@@ -247,7 +249,7 @@ file-tail
         value_num,
     ):
         """Assert that out (from runMkenumsWithHeader()) contains a single
-           enum and value matching the given arguments."""
+        enum and value matching the given arguments."""
         subs = dict(
             {
                 "enum_name_camel": enum_name_camel,

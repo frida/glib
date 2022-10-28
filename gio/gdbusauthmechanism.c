@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -299,11 +301,13 @@ _g_dbus_auth_mechanism_client_get_state (GDBusAuthMechanism *mechanism)
 }
 
 gchar *
-_g_dbus_auth_mechanism_client_initiate (GDBusAuthMechanism *mechanism,
-                                        gsize              *out_initial_response_len)
+_g_dbus_auth_mechanism_client_initiate (GDBusAuthMechanism   *mechanism,
+                                        GDBusConnectionFlags  conn_flags,
+                                        gsize                *out_initial_response_len)
 {
   g_return_val_if_fail (G_IS_DBUS_AUTH_MECHANISM (mechanism), NULL);
   return G_DBUS_AUTH_MECHANISM_GET_CLASS (mechanism)->client_initiate (mechanism,
+                                                                       conn_flags,
                                                                        out_initial_response_len);
 }
 

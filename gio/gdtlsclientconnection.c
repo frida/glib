@@ -3,6 +3,8 @@
  * Copyright © 2010 Red Hat, Inc
  * Copyright © 2015 Collabora, Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -63,7 +65,21 @@ g_dtls_client_connection_default_init (GDtlsClientConnectionInterface *iface)
    * ways indicated here will be rejected unless the application
    * overrides the default via #GDtlsConnection::accept-certificate.
    *
+   * GLib guarantees that if certificate verification fails, at least one
+   * flag will be set, but it does not guarantee that all possible flags
+   * will be set. Accordingly, you may not safely decide to ignore any
+   * particular type of error. For example, it would be incorrect to mask
+   * %G_TLS_CERTIFICATE_EXPIRED if you want to allow expired certificates,
+   * because this could potentially be the only error flag set even if
+   * other problems exist with the certificate. Therefore, there is no
+   * safe way to use this property. This is not a horrible problem,
+   * though, because you should not be attempting to ignore validation
+   * errors anyway. If you really must ignore TLS certificate errors,
+   * connect to #GDtlsConnection::accept-certificate.
+   *
    * Since: 2.48
+   *
+   * Deprecated: 2.74: Do not attempt to ignore validation errors.
    */
   g_object_interface_install_property (iface,
                                        g_param_spec_flags ("validation-flags",
@@ -162,14 +178,20 @@ g_dtls_client_connection_new (GDatagramBased      *base_socket,
  *
  * Gets @conn's validation flags
  *
+ * This function does not work as originally designed and is impossible
+ * to use correctly. See #GDtlsClientConnection:validation-flags for more
+ * information.
+ *
  * Returns: the validation flags
  *
  * Since: 2.48
+ *
+ * Deprecated: 2.74: Do not attempt to ignore validation errors.
  */
 GTlsCertificateFlags
 g_dtls_client_connection_get_validation_flags (GDtlsClientConnection *conn)
 {
-  GTlsCertificateFlags flags = 0;
+  GTlsCertificateFlags flags = G_TLS_CERTIFICATE_NO_FLAGS;
 
   g_return_val_if_fail (G_IS_DTLS_CLIENT_CONNECTION (conn), 0);
 
@@ -186,7 +208,13 @@ g_dtls_client_connection_get_validation_flags (GDtlsClientConnection *conn)
  * checks performed when validating a server certificate. By default,
  * %G_TLS_CERTIFICATE_VALIDATE_ALL is used.
  *
+ * This function does not work as originally designed and is impossible
+ * to use correctly. See #GDtlsClientConnection:validation-flags for more
+ * information.
+ *
  * Since: 2.48
+ *
+ * Deprecated: 2.74: Do not attempt to ignore validation errors.
  */
 void
 g_dtls_client_connection_set_validation_flags (GDtlsClientConnection  *conn,

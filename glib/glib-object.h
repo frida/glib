@@ -1,6 +1,8 @@
 /* GObject - GLib Type, Object, Parameter and Signal Library
  * Copyright (C) 1998, 1999, 2000 Tim Janik and Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -20,6 +22,7 @@
 #define __GLIB_GOBJECT_H_INSIDE__
 
 #include <gobject/gbinding.h>
+#include <gobject/gbindinggroup.h>
 #include <gobject/gboxed.h>
 #include <gobject/genums.h>
 #include <gobject/glib-enumtypes.h>
@@ -27,6 +30,7 @@
 #include <gobject/gparam.h>
 #include <gobject/gparamspecs.h>
 #include <gobject/gsignal.h>
+#include <gobject/gsignalgroup.h>
 #include <gobject/gsourceclosure.h>
 #include <gobject/gtype.h>
 #include <gobject/gtypemodule.h>
@@ -38,8 +42,5 @@
 #include <gobject/gobject-autocleanups.h>
 
 #undef __GLIB_GOBJECT_H_INSIDE__
-
-GLIB_AVAILABLE_IN_2_68
-void                            gobject_init                            (void);
 
 #endif /* __GLIB_GOBJECT_H__ */

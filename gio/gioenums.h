@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -26,6 +28,7 @@
 #endif
 
 #include <glib-object.h>
+#include <gio/gio-visibility.h>
 
 G_BEGIN_DECLS
 
@@ -392,7 +395,7 @@ typedef enum {
  *
  * Indicates a hint from the file system whether files should be
  * previewed in a file manager. Returned as the value of the key
- * #G_FILE_ATTRIBUTE_FILESYSTEM_USE_PREVIEW.
+ * %G_FILE_ATTRIBUTE_FILESYSTEM_USE_PREVIEW.
  **/
 typedef enum {
   G_FILESYSTEM_PREVIEW_TYPE_IF_ALWAYS = 0,
@@ -507,6 +510,7 @@ typedef enum {
  *     value, which has this more logical name. Since 2.44.
  * @G_IO_ERROR_NOT_CONNECTED: Transport endpoint is not connected. Since 2.44
  * @G_IO_ERROR_MESSAGE_TOO_LARGE: Message too large. Since 2.48.
+ * @G_IO_ERROR_NO_SUCH_DEVICE: No such device found. Since 2.74
  *
  * Error codes returned by GIO functions.
  *
@@ -522,7 +526,7 @@ typedef enum {
  *   }
  * ]|
  * but should instead treat all unrecognized error codes the same as
- * #G_IO_ERROR_FAILED.
+ * %G_IO_ERROR_FAILED.
  *
  * See also #GPollableReturn for a cheaper way of returning
  * %G_IO_ERROR_WOULD_BLOCK to callers without allocating a #GError.
@@ -575,7 +579,8 @@ typedef enum {
   G_IO_ERROR_BROKEN_PIPE,
   G_IO_ERROR_CONNECTION_CLOSED = G_IO_ERROR_BROKEN_PIPE,
   G_IO_ERROR_NOT_CONNECTED,
-  G_IO_ERROR_MESSAGE_TOO_LARGE
+  G_IO_ERROR_MESSAGE_TOO_LARGE,
+  G_IO_ERROR_NO_SUCH_DEVICE GIO_AVAILABLE_ENUMERATOR_IN_2_74,
 } GIOErrorEnum;
 
 
@@ -973,7 +978,7 @@ typedef enum
  * @G_BUS_NAME_OWNER_FLAGS_NONE: No flags set.
  * @G_BUS_NAME_OWNER_FLAGS_ALLOW_REPLACEMENT: Allow another message bus connection to claim the name.
  * @G_BUS_NAME_OWNER_FLAGS_REPLACE: If another message bus connection owns the name and have
- * specified #G_BUS_NAME_OWNER_FLAGS_ALLOW_REPLACEMENT, then take the name from the other connection.
+ * specified %G_BUS_NAME_OWNER_FLAGS_ALLOW_REPLACEMENT, then take the name from the other connection.
  * @G_BUS_NAME_OWNER_FLAGS_DO_NOT_QUEUE: If another message bus connection owns the name, immediately
  * return an error from g_bus_own_name() rather than entering the waiting queue for that name. (Since 2.54)
  *
@@ -1037,7 +1042,7 @@ typedef enum
   G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START = (1<<2),
   G_DBUS_PROXY_FLAGS_GET_INVALIDATED_PROPERTIES = (1<<3),
   G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START_AT_CONSTRUCTION = (1<<4),
-  G_DBUS_PROXY_FLAGS_NO_MATCH_RULE GLIB_AVAILABLE_ENUMERATOR_IN_2_72 = (1<<5)
+  G_DBUS_PROXY_FLAGS_NO_MATCH_RULE GIO_AVAILABLE_ENUMERATOR_IN_2_72 = (1<<5)
 } GDBusProxyFlags;
 
 /**
@@ -1212,6 +1217,12 @@ typedef enum
  * delayed until g_dbus_connection_start_message_processing() is called.
  * @G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER: When authenticating
  * as a server, require the UID of the peer to be the same as the UID of the server. (Since: 2.68)
+ * @G_DBUS_CONNECTION_FLAGS_CROSS_NAMESPACE: When authenticating, try to use
+ *  protocols that work across a Linux user namespace boundary, even if this
+ *  reduces interoperability with older D-Bus implementations. This currently
+ *  affects client-side `EXTERNAL` authentication, for which this flag makes
+ *  connections to a server in another user namespace succeed, but causes
+ *  a deadlock when connecting to a GDBus server older than 2.73.3. Since: 2.74
  *
  * Flags used when creating a new #GDBusConnection.
  *
@@ -1224,7 +1235,8 @@ typedef enum {
   G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS = (1<<2),
   G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION = (1<<3),
   G_DBUS_CONNECTION_FLAGS_DELAY_MESSAGE_PROCESSING = (1<<4),
-  G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER GLIB_AVAILABLE_ENUMERATOR_IN_2_68 = (1<<5)
+  G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER GIO_AVAILABLE_ENUMERATOR_IN_2_68 = (1<<5),
+  G_DBUS_CONNECTION_FLAGS_CROSS_NAMESPACE GIO_AVAILABLE_ENUMERATOR_IN_2_74 = (1<<6)
 } GDBusConnectionFlags;
 
 /**
@@ -1387,7 +1399,7 @@ typedef enum
   G_DBUS_SERVER_FLAGS_NONE = 0,
   G_DBUS_SERVER_FLAGS_RUN_IN_THREAD = (1<<0),
   G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS = (1<<1),
-  G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER GLIB_AVAILABLE_ENUMERATOR_IN_2_68 = (1<<2)
+  G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER GIO_AVAILABLE_ENUMERATOR_IN_2_68 = (1<<2)
 } GDBusServerFlags;
 
 /**
@@ -1441,6 +1453,7 @@ typedef enum
  * @G_CREDENTIALS_TYPE_SOLARIS_UCRED: The native credentials type is a `ucred_t`. Added in 2.40.
  * @G_CREDENTIALS_TYPE_NETBSD_UNPCBID: The native credentials type is a `struct unpcbid`. Added in 2.42.
  * @G_CREDENTIALS_TYPE_APPLE_XUCRED: The native credentials type is a `struct xucred`. Added in 2.66.
+ * @G_CREDENTIALS_TYPE_WIN32_PID: The native credentials type is a PID `DWORD`. Added in 2.72.
  *
  * Enumeration describing different kinds of native credential types.
  *
@@ -1455,6 +1468,7 @@ typedef enum
   G_CREDENTIALS_TYPE_SOLARIS_UCRED,
   G_CREDENTIALS_TYPE_NETBSD_UNPCBID,
   G_CREDENTIALS_TYPE_APPLE_XUCRED,
+  G_CREDENTIALS_TYPE_WIN32_PID,
 } GCredentialsType;
 
 /**
@@ -1474,7 +1488,9 @@ typedef enum
 
 /**
  * GApplicationFlags:
- * @G_APPLICATION_FLAGS_NONE: Default
+ * @G_APPLICATION_FLAGS_NONE: Default. Deprecated in 2.74, use
+ *   %G_APPLICATION_DEFAULT_FLAGS instead
+ * @G_APPLICATION_DEFAULT_FLAGS: Default flags. Since: 2.74
  * @G_APPLICATION_IS_SERVICE: Run as a service. In this mode, registration
  *      fails if the service is already running, and the application
  *      will initially wait up to 10 seconds for an initial activation
@@ -1516,9 +1532,10 @@ typedef enum
  *
  * Since: 2.28
  **/
-typedef enum
+typedef enum /*< prefix=G_APPLICATION >*/
 {
-  G_APPLICATION_FLAGS_NONE,
+  G_APPLICATION_FLAGS_NONE GIO_DEPRECATED_ENUMERATOR_IN_2_74_FOR(G_APPLICATION_DEFAULT_FLAGS),
+  G_APPLICATION_DEFAULT_FLAGS GIO_AVAILABLE_ENUMERATOR_IN_2_74 = 0,
   G_APPLICATION_IS_SERVICE  =          (1 << 0),
   G_APPLICATION_IS_LAUNCHER =          (1 << 1),
 
@@ -1552,6 +1569,8 @@ typedef enum
  * @G_TLS_ERROR_INAPPROPRIATE_FALLBACK: The TLS handshake failed
  *   because the client sent the fallback SCSV, indicating a protocol
  *   downgrade attack. Since: 2.60
+ * @G_TLS_ERROR_BAD_CERTIFICATE_PASSWORD: The certificate failed
+ *   to load because a password was incorrect. Since: 2.72
  *
  * An error code used with %G_TLS_ERROR in a #GError returned from a
  * TLS-related routine.
@@ -1566,11 +1585,13 @@ typedef enum {
   G_TLS_ERROR_HANDSHAKE,
   G_TLS_ERROR_CERTIFICATE_REQUIRED,
   G_TLS_ERROR_EOF,
-  G_TLS_ERROR_INAPPROPRIATE_FALLBACK
+  G_TLS_ERROR_INAPPROPRIATE_FALLBACK,
+  G_TLS_ERROR_BAD_CERTIFICATE_PASSWORD
 } GTlsError;
 
 /**
  * GTlsCertificateFlags:
+ * @G_TLS_CERTIFICATE_NO_FLAGS: No flags set. Since: 2.74
  * @G_TLS_CERTIFICATE_UNKNOWN_CA: The signing certificate authority is
  *   not known.
  * @G_TLS_CERTIFICATE_BAD_IDENTITY: The certificate does not match the
@@ -1588,14 +1609,21 @@ typedef enum {
  *   flags
  *
  * A set of flags describing TLS certification validation. This can be
- * used to set which validation steps to perform (eg, with
- * g_tls_client_connection_set_validation_flags()), or to describe why
- * a particular certificate was rejected (eg, in
- * #GTlsConnection::accept-certificate).
+ * used to describe why a particular certificate was rejected (for
+ * example, in #GTlsConnection::accept-certificate).
+ *
+ * GLib guarantees that if certificate verification fails, at least one
+ * flag will be set, but it does not guarantee that all possible flags
+ * will be set. Accordingly, you may not safely decide to ignore any
+ * particular type of error. For example, it would be incorrect to mask
+ * %G_TLS_CERTIFICATE_EXPIRED if you want to allow expired certificates,
+ * because this could potentially be the only error flag set even if
+ * other problems exist with the certificate.
  *
  * Since: 2.28
  */
 typedef enum {
+  G_TLS_CERTIFICATE_NO_FLAGS GIO_AVAILABLE_ENUMERATOR_IN_2_74 = 0,
   G_TLS_CERTIFICATE_UNKNOWN_CA    = (1 << 0),
   G_TLS_CERTIFICATE_BAD_IDENTITY  = (1 << 1),
   G_TLS_CERTIFICATE_NOT_ACTIVATED = (1 << 2),
@@ -1631,18 +1659,22 @@ typedef enum {
  * @G_TLS_CHANNEL_BINDING_TLS_SERVER_END_POINT:
  *    [`tls-server-end-point`](https://tools.ietf.org/html/rfc5929#section-4)
  *    binding type
+ * @G_TLS_CHANNEL_BINDING_TLS_EXPORTER:
+ *    [`tls-exporter`](https://www.rfc-editor.org/rfc/rfc9266.html) binding
+ *    type. Since: 2.74
  *
  * The type of TLS channel binding data to retrieve from #GTlsConnection
- * or #GDtlsConnection, as documented by RFC 5929. The
+ * or #GDtlsConnection, as documented by RFC 5929 or RFC 9266. The
  * [`tls-unique-for-telnet`](https://tools.ietf.org/html/rfc5929#section-5)
  * binding type is not currently implemented.
  *
  * Since: 2.66
  */
-GLIB_AVAILABLE_TYPE_IN_2_66
+GIO_AVAILABLE_TYPE_IN_2_66
 typedef enum {
   G_TLS_CHANNEL_BINDING_TLS_UNIQUE,
-  G_TLS_CHANNEL_BINDING_TLS_SERVER_END_POINT
+  G_TLS_CHANNEL_BINDING_TLS_SERVER_END_POINT,
+  G_TLS_CHANNEL_BINDING_TLS_EXPORTER GIO_AVAILABLE_ENUMERATOR_IN_2_74,
 } GTlsChannelBindingType;
 
 /**
@@ -1669,7 +1701,7 @@ typedef enum {
  *
  * Since: 2.66
  */
-GLIB_AVAILABLE_TYPE_IN_2_66
+GIO_AVAILABLE_TYPE_IN_2_66
 typedef enum {
   G_TLS_CHANNEL_BINDING_ERROR_NOT_IMPLEMENTED,
   G_TLS_CHANNEL_BINDING_ERROR_INVALID_STATE,
@@ -1697,7 +1729,7 @@ typedef enum {
   G_TLS_REHANDSHAKE_NEVER,
   G_TLS_REHANDSHAKE_SAFELY,
   G_TLS_REHANDSHAKE_UNSAFELY
-} GTlsRehandshakeMode GLIB_DEPRECATED_TYPE_IN_2_60;
+} GTlsRehandshakeMode GIO_DEPRECATED_TYPE_IN_2_60;
 
 /**
  * GTlsPasswordFlags:
@@ -1977,6 +2009,9 @@ typedef enum /*< flags >*/ {
  *   file descriptors of their parent, unless those descriptors have
  *   been explicitly marked as close-on-exec.  This flag has no effect
  *   over the "standard" file descriptors (stdin, stdout, stderr).
+ * @G_SUBPROCESS_FLAGS_SEARCH_PATH_FROM_ENVP: if path searching is
+ *   needed when spawning the subprocess, use the `PATH` in the launcher
+ *   environment. (Since: 2.72)
  *
  * Flags to define the behaviour of a #GSubprocess.
  *
@@ -1999,7 +2034,8 @@ typedef enum {
   G_SUBPROCESS_FLAGS_STDERR_PIPE           = (1u << 4),
   G_SUBPROCESS_FLAGS_STDERR_SILENCE        = (1u << 5),
   G_SUBPROCESS_FLAGS_STDERR_MERGE          = (1u << 6),
-  G_SUBPROCESS_FLAGS_INHERIT_FDS           = (1u << 7)
+  G_SUBPROCESS_FLAGS_INHERIT_FDS           = (1u << 7),
+  G_SUBPROCESS_FLAGS_SEARCH_PATH_FROM_ENVP = (1u << 8)
 } GSubprocessFlags;
 
 /**

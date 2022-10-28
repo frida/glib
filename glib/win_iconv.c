@@ -19,16 +19,6 @@
  * be used for encoding validation purpose.
  */
 
-/* Use GLib memory allocation */
-#include "gmem.h"
-
-#undef malloc
-#undef calloc
-#undef free
-#define malloc  g_malloc
-#define calloc  g_malloc0_n
-#define free    g_free
-
 /* for WC_NO_BEST_FIT_CHARS */
 #ifndef WINVER
 # define WINVER 0x0500
@@ -2044,7 +2034,8 @@ main(int argc, char **argv)
 
     if (fromcode == NULL || tocode == NULL)
     {
-        printf("usage: %s [-c] -f from-enc -t to-enc [file]\n", argv[0]);
+        printf("usage: %s [-c] -f from-enc -t to-enc [file]\n",
+               (argc > 0) ? argv[0] : "win_iconv");
         return 0;
     }
 

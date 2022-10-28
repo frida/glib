@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -118,57 +120,57 @@ struct _GMountOperationClass
   void (*_g_reserved9) (void);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType             g_mount_operation_get_type      (void) G_GNUC_CONST;
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GMountOperation * g_mount_operation_new           (void);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 const char *  g_mount_operation_get_username      (GMountOperation *op);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_mount_operation_set_username      (GMountOperation *op,
 						   const char      *username);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 const char *  g_mount_operation_get_password      (GMountOperation *op);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_mount_operation_set_password      (GMountOperation *op,
 						   const char      *password);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean      g_mount_operation_get_anonymous     (GMountOperation *op);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_mount_operation_set_anonymous     (GMountOperation *op,
 						   gboolean         anonymous);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 const char *  g_mount_operation_get_domain        (GMountOperation *op);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_mount_operation_set_domain        (GMountOperation *op,
 						   const char      *domain);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GPasswordSave g_mount_operation_get_password_save (GMountOperation *op);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_mount_operation_set_password_save (GMountOperation *op,
 						   GPasswordSave    save);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 int           g_mount_operation_get_choice        (GMountOperation *op);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_mount_operation_set_choice        (GMountOperation *op,
 						   int              choice);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void          g_mount_operation_reply             (GMountOperation *op,
 						   GMountOperationResult result);
-GLIB_AVAILABLE_IN_2_58
+GIO_AVAILABLE_IN_2_58
 gboolean      g_mount_operation_get_is_tcrypt_hidden_volume (GMountOperation *op);
-GLIB_AVAILABLE_IN_2_58
+GIO_AVAILABLE_IN_2_58
 void          g_mount_operation_set_is_tcrypt_hidden_volume (GMountOperation *op,
                                                              gboolean hidden_volume);
-GLIB_AVAILABLE_IN_2_58
+GIO_AVAILABLE_IN_2_58
 gboolean      g_mount_operation_get_is_tcrypt_system_volume (GMountOperation *op);
-GLIB_AVAILABLE_IN_2_58
+GIO_AVAILABLE_IN_2_58
 void          g_mount_operation_set_is_tcrypt_system_volume (GMountOperation *op,
                                                              gboolean system_volume);
-GLIB_AVAILABLE_IN_2_58
+GIO_AVAILABLE_IN_2_58
 guint  g_mount_operation_get_pim           (GMountOperation *op);
-GLIB_AVAILABLE_IN_2_58
+GIO_AVAILABLE_IN_2_58
 void          g_mount_operation_set_pim           (GMountOperation *op,
                                                    guint pim);
 

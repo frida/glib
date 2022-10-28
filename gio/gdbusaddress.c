@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -40,12 +42,12 @@
 #include "gdbusprivate.h"
 #include "gstdio.h"
 
-#ifdef G_OS_UNIX
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <gio/gunixsocketaddress.h>
-#endif
 
 #ifdef G_OS_WIN32
 #include <windows.h>
@@ -66,6 +68,9 @@
  *
  * TCP D-Bus connections are supported, but accessing them via a proxy is
  * currently not supported.
+ *
+ * Since GLib 2.72, `unix:` addresses are supported on Windows with `AF_UNIX`
+ * support (Windows 10).
  */
 
 static gchar *get_session_address_platform_specific (GError **error);
@@ -571,11 +576,7 @@ g_dbus_address_connect (const gchar   *address_entry,
   ret = NULL;
   nonce_file = NULL;
 
-  if (FALSE)
-    {
-    }
-#ifdef G_OS_UNIX
-  else if (g_strcmp0 (transport_name, "unix") == 0)
+  if (g_strcmp0 (transport_name, "unix") == 0)
     {
       const gchar *path;
       const gchar *abstract;
@@ -605,7 +606,6 @@ g_dbus_address_connect (const gchar   *address_entry,
           g_assert_not_reached ();
         }
     }
-#endif
   else if (g_strcmp0 (transport_name, "tcp") == 0 || g_strcmp0 (transport_name, "nonce-tcp") == 0)
     {
       const gchar *s;
@@ -1028,8 +1028,6 @@ g_dbus_address_get_stream_sync (const gchar   *address,
   return ret;
 }
 
-#ifndef GIO_STATIC_COMPILATION
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 /*
@@ -1230,20 +1228,6 @@ get_session_address_dbus_launch (GError **error)
 }
 #endif /* neither G_OS_UNIX nor G_OS_WIN32 */
 
-#else /* !GIO_STATIC_COMPILATION */
-
-static gchar *
-get_session_address_dbus_launch (GError **error)
-{
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Session bus not available for static GIO"));
-  return NULL;
-}
-
-#endif /* GIO_STATIC_COMPILATION */
-
 /* ---------------------------------------------------------------------------------------------------- */
 
 static gchar *
@@ -1251,7 +1235,6 @@ get_session_address_platform_specific (GError **error)
 {
   gchar *ret;
 
-#ifndef GIO_STATIC_COMPILATION
   /* Use XDG_RUNTIME_DIR/bus if it exists and is suitable. This is appropriate
    * for systems using the "a session is a user-session" model described in
    * <http://lists.freedesktop.org/archives/dbus/2015-January/016522.html>,
@@ -1276,15 +1259,6 @@ get_session_address_platform_specific (GError **error)
    * mechanism based on shared memory.
    */
   return get_session_address_dbus_launch (error);
-#else
-  ret = NULL;
-  g_set_error (error,
-               G_IO_ERROR,
-               G_IO_ERROR_FAILED,
-               _("Session bus not available for static GIO"));
-#endif
-
-  return ret;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */

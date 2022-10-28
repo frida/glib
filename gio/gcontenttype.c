@@ -4,6 +4,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -115,7 +117,7 @@ _g_unix_content_type_get_parents (const gchar *type)
   for (i = 0; parents && parents[i] != NULL; i++)
     g_ptr_array_add (array, g_strdup (parents[i]));
 
-  g_free (parents);
+  free (parents);
 
   g_end_ignore_leaks ();
   G_UNLOCK (gio_xdgmime);
@@ -433,7 +435,7 @@ load_comment_for_mime_helper (const char *dir,
   if (!res)
     return NULL;
 
-  context = g_markup_parse_context_new   (&parser, 0, &parse_data, NULL);
+  context = g_markup_parse_context_new (&parser, G_MARKUP_DEFAULT_FLAGS, &parse_data, NULL);
   res = g_markup_parse_context_parse (context, data, len, NULL);
   g_free (data);
   g_markup_parse_context_free (context);
@@ -483,6 +485,7 @@ gchar *
 g_content_type_get_description (const gchar *type)
 {
   static GHashTable *type_comment_cache = NULL;
+  gchar *type_copy = NULL;
   gchar *comment;
 
   g_return_val_if_fail (type != NULL, NULL);
@@ -497,20 +500,25 @@ g_content_type_get_description (const gchar *type)
 
   comment = g_hash_table_lookup (type_comment_cache, type);
   comment = g_strdup (comment);
-  G_UNLOCK (gio_xdgmime);
 
   if (comment != NULL)
-    return comment;
+    {
+      G_UNLOCK (gio_xdgmime);
+      return g_steal_pointer (&comment);
+    }
 
-  comment = load_comment_for_mime (type);
+  type_copy = g_strdup (type);
 
+  G_UNLOCK (gio_xdgmime);
+  comment = load_comment_for_mime (type_copy);
   G_LOCK (gio_xdgmime);
+
   g_hash_table_insert (type_comment_cache,
-                       g_strdup (type),
+                       g_steal_pointer (&type_copy),
                        g_strdup (comment));
   G_UNLOCK (gio_xdgmime);
 
-  return comment;
+  return g_steal_pointer (&comment);
 }
 
 /**
@@ -736,7 +744,7 @@ g_content_type_from_mime_type (const gchar *mime_type)
 
 /**
  * g_content_type_guess:
- * @filename: (nullable): a string, or %NULL
+ * @filename: (nullable) (type filename): a path, or %NULL
  * @data: (nullable) (array length=data_size): a stream of data, or %NULL
  * @data_size: the size of @data
  * @result_uncertain: (out) (optional): return location for the certainty
@@ -780,7 +788,7 @@ g_content_type_guess (const gchar  *filename,
   if (filename)
     {
       i = strlen (filename);
-      if (filename[i - 1] == '/')
+      if (i > 0 && filename[i - 1] == '/')
         {
           name_mimetypes[0] = "inode/directory";
           name_mimetypes[1] = NULL;

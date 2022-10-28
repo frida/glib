@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -192,7 +194,6 @@
 #include "genviron.h"
 #include "gmain.h"
 #include "gmem.h"
-#include "gplatformaudit.h"
 #include "gprintfint.h"
 #include "gtestutils.h"
 #include "gthread.h"
@@ -200,6 +201,10 @@
 #include "gstring.h"
 #include "gpattern.h"
 #include "gthreadprivate.h"
+
+#if defined(__linux__) && !defined(__BIONIC__)
+#include "gjournal-private.h"
+#endif
 
 #ifdef G_OS_UNIX
 #include <unistd.h>
@@ -212,47 +217,6 @@
 
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
-#endif
-
-/* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-
-typedef enum _FILE_INFO_BY_HANDLE_CLASS
-{
-  FileBasicInfo                   = 0,
-  FileStandardInfo                = 1,
-  FileNameInfo                    = 2,
-  FileRenameInfo                  = 3,
-  FileDispositionInfo             = 4,
-  FileAllocationInfo              = 5,
-  FileEndOfFileInfo               = 6,
-  FileStreamInfo                  = 7,
-  FileCompressionInfo             = 8,
-  FileAttributeTagInfo            = 9,
-  FileIdBothDirectoryInfo         = 10,
-  FileIdBothDirectoryRestartInfo  = 11,
-  FileIoPriorityHintInfo          = 12,
-  FileRemoteProtocolInfo          = 13,
-  FileFullDirectoryInfo           = 14,
-  FileFullDirectoryRestartInfo    = 15,
-  FileStorageInfo                 = 16,
-  FileAlignmentInfo               = 17,
-  FileIdInfo                      = 18,
-  FileIdExtdDirectoryInfo         = 19,
-  FileIdExtdDirectoryRestartInfo  = 20,
-  MaximumFileInfoByHandlesClass
-} FILE_INFO_BY_HANDLE_CLASS;
-
-typedef struct _FILE_NAME_INFO
-{
-  DWORD FileNameLength;
-  WCHAR FileName[1];
-} FILE_NAME_INFO;
-
-typedef BOOL (WINAPI fGetFileInformationByHandleEx) (HANDLE,
-                                                     FILE_INFO_BY_HANDLE_CLASS,
-                                                     LPVOID,
-                                                     DWORD);
 #endif
 
 #if defined (_MSC_VER) && (_MSC_VER >=1400)
@@ -567,6 +531,7 @@ static gpointer          fatal_log_data;
 static GLogWriterFunc log_writer_func = g_log_writer_default;
 static gpointer       log_writer_user_data = NULL;
 static GDestroyNotify log_writer_user_data_free = NULL;
+static gboolean       g_log_debug_enabled = FALSE;  /* (atomic) */
 
 /* --- functions --- */
 
@@ -636,7 +601,12 @@ static void
 write_string (FILE        *stream,
 	      const gchar *string)
 {
-  fputs (string, stream);
+  if (fputs (string, stream) == EOF)
+    {
+      /* Something failed, but it's not an error we can handle at glib level
+       * so let's just continue without the compiler blaming us
+       */
+    }
 }
 
 static void
@@ -647,8 +617,12 @@ write_string_sized (FILE        *stream,
   /* Is it nul-terminated? */
   if (length < 0)
     write_string (stream, string);
-  else
-    fwrite (string, 1, length, stream);
+  else if (fwrite (string, 1, length, stream) < (size_t) length)
+    {
+      /* Something failed, but it's not an error we can handle at glib level
+       * so let's just continue without the compiler blaming us
+       */
+    }
 }
 
 static GLogDomain*
@@ -1587,33 +1561,12 @@ win32_is_pipe_tty (int fd)
   wchar_t *name = NULL;
   gint length;
 
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  HANDLE h_kerneldll = NULL;
-  fGetFileInformationByHandleEx *GetFileInformationByHandleEx;
-#endif
-
   h_fd = (HANDLE) _get_osfhandle (fd);
 
   if (h_fd == INVALID_HANDLE_VALUE || GetFileType (h_fd) != FILE_TYPE_PIPE)
     goto done_query;
 
-  /* The following check is available on Vista or later, so on XP, no color support */
   /* mintty uses a pipe, in the form of \{cygwin|msys}-xxxxxxxxxxxxxxxx-ptyN-{from|to}-master */
-
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  h_kerneldll = LoadLibraryW (L"kernel32.dll");
-
-  if (h_kerneldll == NULL)
-    goto done_query;
-
-  GetFileInformationByHandleEx =
-    (fGetFileInformationByHandleEx *) GetProcAddress (h_kerneldll, "GetFileInformationByHandleEx");
-
-  if (GetFileInformationByHandleEx == NULL)
-    goto done_query;
-#endif
 
   info = g_try_malloc (info_size);
 
@@ -1662,12 +1615,6 @@ done_query:
   if (info != NULL)
     g_free (info);
 
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  if (h_kerneldll != NULL)
-    FreeLibrary (h_kerneldll);
-#endif
-
   return result;
 }
 #endif
@@ -1703,6 +1650,12 @@ done_query:
  * specification. It is suggested that custom keys are namespaced according to
  * the code which sets them. For example, custom keys from GLib all have a
  * `GLIB_` prefix.
+ *
+ * Note that keys that expect UTF-8 strings (specifically `"MESSAGE"` and
+ * `"GLIB_DOMAIN"`) must be passed as NUL-terminated UTF-8 strings until GLib
+ * version 2.74.1 because the default log handler did not consider the length of
+ * the `GLogField`. Starting with GLib 2.74.1 this is fixed and
+ * non-NUL-terminated UTF-8 strings can be passed with their correct length.
  *
  * The @log_domain will be converted into a `GLIB_DOMAIN` field. @log_level will
  * be converted into a
@@ -1888,7 +1841,7 @@ g_log_structured (const gchar    *log_domain,
  * contain the text shown to the user.
  *
  * The values in the @fields dictionary are likely to be of type String
- * (#G_VARIANT_TYPE_STRING). Array of bytes (#G_VARIANT_TYPE_BYTESTRING) is also
+ * (%G_VARIANT_TYPE_STRING). Array of bytes (%G_VARIANT_TYPE_BYTESTRING) is also
  * supported. In this case the message is handled as binary and will be forwarded
  * to the log writer as such. The size of the array should not be higher than
  * %G_MAXSSIZE. Otherwise it will be truncated to this size. For other types
@@ -2127,9 +2080,18 @@ g_log_set_writer_func (GLogWriterFunc func,
   g_return_if_fail (func != NULL);
 
   g_mutex_lock (&g_messages_lock);
+
+  if (log_writer_func != g_log_writer_default)
+    {
+      g_mutex_unlock (&g_messages_lock);
+      g_error ("g_log_set_writer_func() called multiple times");
+      return;
+    }
+
   log_writer_func = func;
   log_writer_user_data = user_data;
   log_writer_user_data_free = user_data_free;
+
   g_mutex_unlock (&g_messages_lock);
 }
 
@@ -2248,13 +2210,11 @@ open_journal (void)
 {
   if ((journal_fd = socket (AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0)) < 0)
     return;
-  glib_fd_callbacks->on_fd_opened (journal_fd, "Journal");
 
 #ifndef HAVE_SOCK_CLOEXEC
   if (fcntl (journal_fd, F_SETFD, FD_CLOEXEC) < 0)
     {
       close (journal_fd);
-      glib_fd_callbacks->on_fd_closed (journal_fd, "Journal");
       journal_fd = -1;
     }
 #endif
@@ -2282,27 +2242,10 @@ gboolean
 g_log_writer_is_journald (gint output_fd)
 {
 #if defined(__linux__) && !defined(__BIONIC__)
-  /* FIXME: Use the new journal API for detecting whether we’re writing to the
-   * journal. See: https://github.com/systemd/systemd/issues/2473
-   */
-  union {
-    struct sockaddr_storage storage;
-    struct sockaddr sa;
-    struct sockaddr_un un;
-  } addr;
-  socklen_t addr_len;
-  int err;
-
-  if (output_fd < 0)
-    return FALSE;
-
-  addr_len = sizeof(addr);
-  err = getpeername (output_fd, &addr.sa, &addr_len);
-  if (err == 0 && addr.storage.ss_family == AF_UNIX)
-    return g_str_has_prefix (addr.un.sun_path, "/run/systemd/journal/");
-#endif
-
+  return _g_fd_is_journal (output_fd);
+#else
   return FALSE;
+#endif
 }
 
 static void escape_string (GString *string);
@@ -2340,6 +2283,8 @@ g_log_writer_format_fields (GLogLevelFlags   log_level,
   gsize i;
   const gchar *message = NULL;
   const gchar *log_domain = NULL;
+  gssize message_length = -1;
+  gssize log_domain_length = -1;
   gchar level_prefix[STRING_BUFFER_SIZE];
   GString *gstring;
   gint64 now;
@@ -2353,9 +2298,15 @@ g_log_writer_format_fields (GLogLevelFlags   log_level,
       const GLogField *field = &fields[i];
 
       if (g_strcmp0 (field->key, "MESSAGE") == 0)
-        message = field->value;
+        {
+          message = field->value;
+          message_length = field->length;
+        }
       else if (g_strcmp0 (field->key, "GLIB_DOMAIN") == 0)
-        log_domain = field->value;
+        {
+          log_domain = field->value;
+          log_domain_length = field->length;
+        }
     }
 
   /* Format things. */
@@ -2381,7 +2332,7 @@ g_log_writer_format_fields (GLogLevelFlags   log_level,
 
   if (log_domain != NULL)
     {
-      g_string_append (gstring, log_domain);
+      g_string_append_len (gstring, log_domain, log_domain_length);
       g_string_append_c (gstring, '-');
     }
   g_string_append (gstring, level_prefix);
@@ -2411,7 +2362,7 @@ g_log_writer_format_fields (GLogLevelFlags   log_level,
       GString *msg;
       const gchar *charset;
 
-      msg = g_string_new (message);
+      msg = g_string_new_len (message, message_length);
       escape_string (msg);
 
       if (g_get_console_charset (&charset))
@@ -2717,7 +2668,9 @@ should_drop_message (GLogLevelFlags   log_level,
                      gsize            n_fields)
 {
   /* Disable debug message output unless specified in G_MESSAGES_DEBUG. */
-  if (!(log_level & DEFAULT_LEVELS) && !(log_level >> G_LOG_LEVEL_USER_SHIFT))
+  if (!(log_level & DEFAULT_LEVELS) &&
+      !(log_level >> G_LOG_LEVEL_USER_SHIFT) &&
+      !g_log_get_debug_enabled ())
     {
       const gchar *domains;
       gsize i;
@@ -2949,6 +2902,47 @@ _g_log_writer_fallback (GLogLevelFlags   log_level,
 }
 
 /**
+ * g_log_get_debug_enabled:
+ *
+ * Return whether debug output from the GLib logging system is enabled.
+ *
+ * Note that this should not be used to conditionalise calls to g_debug() or
+ * other logging functions; it should only be used from %GLogWriterFunc
+ * implementations.
+ *
+ * Note also that the value of this does not depend on `G_MESSAGES_DEBUG`; see
+ * the docs for g_log_set_debug_enabled().
+ *
+ * Returns: %TRUE if debug output is enabled, %FALSE otherwise
+ *
+ * Since: 2.72
+ */
+gboolean
+g_log_get_debug_enabled (void)
+{
+  return g_atomic_int_get (&g_log_debug_enabled);
+}
+
+/**
+ * g_log_set_debug_enabled:
+ * @enabled: %TRUE to enable debug output, %FALSE otherwise
+ *
+ * Enable or disable debug output from the GLib logging system for all domains.
+ * This value interacts disjunctively with `G_MESSAGES_DEBUG` — if either of
+ * them would allow a debug message to be outputted, it will be.
+ *
+ * Note that this should not be used from within library code to enable debug
+ * output — it is intended for external use.
+ *
+ * Since: 2.72
+ */
+void
+g_log_set_debug_enabled (gboolean enabled)
+{
+  g_atomic_int_set (&g_log_debug_enabled, enabled);
+}
+
+/**
  * g_return_if_fail_warning: (skip)
  * @log_domain: (nullable): log domain
  * @pretty_function: function containing the assertion
@@ -3174,6 +3168,7 @@ _g_log_fallback_handler (const gchar   *log_domain,
   write_string (stream, level_prefix);
   write_string (stream, ": ");
   write_string (stream, message);
+  write_string (stream, "\n");
 }
 
 static void
@@ -3345,6 +3340,35 @@ g_set_print_handler (GPrintFunc func)
   return old_print_func;
 }
 
+static void
+print_string (FILE        *stream,
+              const gchar *string)
+{
+  const gchar *charset;
+  int ret;
+
+  if (g_get_console_charset (&charset))
+    {
+      /* charset is UTF-8 already */
+      ret = fputs (string, stream);
+    }
+  else
+    {
+      gchar *converted_string = strdup_convert (string, charset);
+
+      ret = fputs (converted_string, stream);
+      g_free (converted_string);
+    }
+
+  /* In case of failure we can just return early, but there's nothing else
+   * we can do at this level
+   */
+  if (ret == EOF)
+    return;
+
+  fflush (stream);
+}
+
 /**
  * g_print:
  * @format: the message format. See the printf() documentation
@@ -3382,20 +3406,8 @@ g_print (const gchar *format,
   if (local_glib_print_func)
     local_glib_print_func (string);
   else
-    {
-      const gchar *charset;
+    print_string (stdout, string);
 
-      if (g_get_console_charset (&charset))
-        fputs (string, stdout); /* charset is UTF-8 already */
-      else
-        {
-          gchar *lstring = strdup_convert (string, charset);
-
-          fputs (lstring, stdout);
-          g_free (lstring);
-        }
-      fflush (stdout);
-    }
   g_free (string);
 }
 
@@ -3461,20 +3473,8 @@ g_printerr (const gchar *format,
   if (local_glib_printerr_func)
     local_glib_printerr_func (string);
   else
-    {
-      const gchar *charset;
+    print_string (stderr, string);
 
-      if (g_get_console_charset (&charset))
-        fputs (string, stderr); /* charset is UTF-8 already */
-      else
-        {
-          gchar *lstring = strdup_convert (string, charset);
-
-          fputs (lstring, stderr);
-          g_free (lstring);
-        }
-      fflush (stderr);
-    }
   g_free (string);
 }
 
@@ -3494,17 +3494,4 @@ g_printf_string_upper_bound (const gchar *format,
 {
   gchar c;
   return _g_vsnprintf (&c, 1, format, args) + 1;
-}
-
-void
-_g_messages_deinit (void)
-{
-#if defined(__linux__) && !defined(__BIONIC__)
-  if (journal_fd != -1)
-    {
-      close (journal_fd);
-      glib_fd_callbacks->on_fd_closed (journal_fd, "Journal");
-      journal_fd = -1;
-    }
-#endif
 }

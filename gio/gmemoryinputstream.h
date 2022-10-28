@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -65,23 +67,23 @@ struct _GMemoryInputStreamClass
 };
 
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType          g_memory_input_stream_get_type      (void) G_GNUC_CONST;
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GInputStream * g_memory_input_stream_new           (void);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GInputStream * g_memory_input_stream_new_from_data (const void         *data,
                                                     gssize              len,
                                                     GDestroyNotify      destroy);
-GLIB_AVAILABLE_IN_2_34
+GIO_AVAILABLE_IN_2_34
 GInputStream * g_memory_input_stream_new_from_bytes (GBytes            *bytes);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void           g_memory_input_stream_add_data      (GMemoryInputStream *stream,
                                                     const void         *data,
                                                     gssize              len,
                                                     GDestroyNotify      destroy);
-GLIB_AVAILABLE_IN_2_34
+GIO_AVAILABLE_IN_2_34
 void           g_memory_input_stream_add_bytes     (GMemoryInputStream     *stream,
 						    GBytes                 *bytes);
 

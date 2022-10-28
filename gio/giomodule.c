@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -45,6 +47,8 @@
 #include "gnotificationbackend.h"
 #include "ginitable.h"
 #include "gnetworkmonitor.h"
+#include "gdebugcontroller.h"
+#include "gdebugcontrollerdbus.h"
 #include "gmemorymonitor.h"
 #include "gmemorymonitorportal.h"
 #include "gmemorymonitordbus.h"
@@ -57,7 +61,7 @@
 #endif
 #include <glib/gstdio.h>
 
-#if defined(G_OS_UNIX) && !defined(HAVE_COCOA)
+#if defined(G_OS_UNIX) && !defined(G_OS_DARWIN)
 #include "gdesktopappinfo.h"
 #endif
 #ifdef HAVE_COCOA
@@ -67,6 +71,10 @@
 #ifdef HAVE_COCOA
 #include <AvailabilityMacros.h>
 #endif
+
+#define __GLIB_H_INSIDE__
+#include "gconstructor.h"
+#undef __GLIB_H_INSIDE__
 
 /**
  * SECTION:giomodule
@@ -422,9 +430,16 @@ is_valid_module_name (const gchar        *basename,
   gboolean result;
 
 #if !defined(G_OS_WIN32) && !defined(G_WITH_CYGWIN)
+  #if defined(G_OS_DARWIN)
+  if (!g_str_has_prefix (basename, "lib") ||
+      !(g_str_has_suffix (basename, ".so") ||
+        g_str_has_suffix (basename, ".dylib")))
+    return FALSE;
+  #else
   if (!g_str_has_prefix (basename, "lib") ||
       !g_str_has_suffix (basename, ".so"))
     return FALSE;
+  #endif
 #else
   if (!g_str_has_suffix (basename, ".dll"))
     return FALSE;
@@ -511,7 +526,7 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
 	  char *line = lines[i];
 	  char *file;
 	  char *colon;
-	  char **extension_points;
+	  char **strv_extension_points;
 
 	  if (line[0] == '#')
 	    continue;
@@ -531,8 +546,8 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
             cache = g_hash_table_new_full (g_str_hash, g_str_equal,
                                            g_free, (GDestroyNotify)g_strfreev);
 
-	  extension_points = g_strsplit (colon, ",", -1);
-	  g_hash_table_insert (cache, file, extension_points);
+	  strv_extension_points = g_strsplit (colon, ",", -1);
+	  g_hash_table_insert (cache, file, strv_extension_points);
 	}
       g_strfreev (lines);
     }
@@ -544,24 +559,24 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
 	  GIOExtensionPoint *extension_point;
 	  GIOModule *module;
 	  gchar *path;
-	  char **extension_points = NULL;
+	  char **strv_extension_points = NULL;
 	  int i;
 
 	  path = g_build_filename (dirname, name, NULL);
 	  module = g_io_module_new (path);
 
           if (cache)
-            extension_points = g_hash_table_lookup (cache, name);
+            strv_extension_points = g_hash_table_lookup (cache, name);
 
-	  if (extension_points != NULL &&
+	  if (strv_extension_points != NULL &&
 	      g_stat (path, &statbuf) == 0 &&
 	      statbuf.st_ctime <= cache_time)
 	    {
 	      /* Lazy load/init the library when first required */
-	      for (i = 0; extension_points[i] != NULL; i++)
+	      for (i = 0; strv_extension_points[i] != NULL; i++)
 		{
 		  extension_point =
-		    g_io_extension_point_register (extension_points[i]);
+		    g_io_extension_point_register (strv_extension_points[i]);
 		  extension_point->lazy_load_modules =
 		    g_list_prepend (extension_point->lazy_load_modules,
 				    module);
@@ -571,13 +586,15 @@ g_io_modules_scan_all_in_directory_with_scope (const char     *dirname,
 	    {
 	      /* Try to load and init types */
 	      if (g_type_module_use (G_TYPE_MODULE (module)))
-		g_type_module_unuse (G_TYPE_MODULE (module)); /* Unload */
+		{
+		  g_type_module_unuse (G_TYPE_MODULE (module)); /* Unload */
+		  /* module must remain alive, because the type system keeps weak refs */
+		  g_ignore_leak (module);
+		}
 	      else
-		{ /* Failure to load */
+		{
 		  g_printerr ("Failed to load module: %s\n", path);
 		  g_object_unref (module);
-		  g_free (path);
-		  continue;
 		}
 	    }
 
@@ -881,6 +898,11 @@ try_implementation (const char           *extension_point,
       if (impl)
         return impl;
 
+      g_debug ("Failed to initialize %s (%s) for %s: %s",
+               g_io_extension_get_name (extension),
+               g_type_name (type),
+               extension_point,
+               error ? error->message : "");
       g_clear_error (&error);
       return NULL;
     }
@@ -976,6 +998,9 @@ _g_io_module_get_default (const gchar         *extension_point,
 
   if (!ep)
     {
+      g_debug ("%s: Failed to find extension point ‘%s’",
+               G_STRFUNC, extension_point);
+      g_warn_if_reached ();
       g_rec_mutex_unlock (&default_modules_lock);
       return NULL;
     }
@@ -1037,15 +1062,17 @@ _g_io_module_get_default (const gchar         *extension_point,
   if (impl != NULL)
     {
       g_assert (extension != NULL);
+      g_debug ("%s: Found default implementation %s (%s) for ‘%s’",
+               G_STRFUNC, g_io_extension_get_name (extension),
+               G_OBJECT_TYPE_NAME (impl), extension_point);
     }
+  else
+    g_debug ("%s: Failed to find default implementation for ‘%s’",
+             G_STRFUNC, extension_point);
 
   return g_steal_pointer (&impl);
 }
 
-G_LOCK_DEFINE_STATIC (registered_extensions);
-G_LOCK_DEFINE_STATIC (loaded_dirs);
-
-extern GType g_fen_file_monitor_get_type (void);
 extern GType g_inotify_file_monitor_get_type (void);
 extern GType g_kqueue_file_monitor_get_type (void);
 extern GType g_win32_file_monitor_get_type (void);
@@ -1064,8 +1091,10 @@ extern GType _g_network_monitor_netlink_get_type (void);
 extern GType _g_network_monitor_nm_get_type (void);
 #endif
 
+extern GType g_debug_controller_dbus_get_type (void);
 extern GType g_memory_monitor_dbus_get_type (void);
 extern GType g_memory_monitor_portal_get_type (void);
+extern GType g_memory_monitor_win32_get_type (void);
 extern GType g_power_profile_monitor_dbus_get_type (void);
 
 #ifdef G_OS_UNIX
@@ -1088,7 +1117,7 @@ extern GType _g_win32_network_monitor_get_type (void);
 
 static HMODULE gio_dll = NULL;
 
-#ifdef DLL_EXPORT
+#ifndef GLIB_STATIC_COMPILATION
 
 BOOL WINAPI DllMain (HINSTANCE hinstDLL,
                      DWORD     fdwReason,
@@ -1108,7 +1137,39 @@ DllMain (HINSTANCE hinstDLL,
   return TRUE;
 }
 
+#elif defined(G_HAS_CONSTRUCTORS) /* && G_PLATFORM_WIN32 && GLIB_STATIC_COMPILATION */
+extern void glib_win32_init (void);
+extern void gobject_win32_init (void);
+
+#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
+#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(giomodule_init_ctor)
 #endif
+
+G_DEFINE_CONSTRUCTOR (giomodule_init_ctor)
+
+static void
+giomodule_init_ctor (void)
+{
+  /* When built dynamically, module initialization is done through DllMain
+   * function which is called when the dynamic library is loaded by the glib
+   * module AFTER loading gobject. So, in dynamic configuration glib and
+   * gobject are always initialized BEFORE gio.
+   *
+   * When built statically, initialization mechanism relies on hooking
+   * functions to the CRT section directly at compilation time. As we don't
+   * control how each compilation unit will be built and in which order, we
+   * obtain the same kind of issue as the "static initialization order fiasco".
+   * In this case, we must ensure explicitly that glib and gobject are always
+   * well initialized BEFORE gio.
+   */
+  glib_win32_init ();
+  gobject_win32_init ();
+  gio_win32_appinfo_init (FALSE);
+}
+
+#else /* G_PLATFORM_WIN32 && GLIB_STATIC_COMPILATION && !G_HAS_CONSTRUCTORS */
+#error Your platform/compiler is missing constructor support
+#endif /* GLIB_STATIC_COMPILATION */
 
 void *
 _g_io_win32_get_module (void)
@@ -1121,21 +1182,17 @@ _g_io_win32_get_module (void)
   return gio_dll;
 }
 
-#endif
+#endif /* G_PLATFORM_WIN32 */
 
 void
 _g_io_modules_ensure_extension_points_registered (void)
 {
-  static gboolean registered_extensions = FALSE;
+  static gsize registered_extensions = FALSE;
   GIOExtensionPoint *ep;
 
-  G_LOCK (registered_extensions);
-  
-  if (!registered_extensions)
+  if (g_once_init_enter (&registered_extensions))
     {
-      registered_extensions = TRUE;
-      
-#if defined(G_OS_UNIX) && !defined(HAVE_COCOA)
+#if defined(G_OS_UNIX) && !defined(G_OS_DARWIN)
 #if !GLIB_CHECK_VERSION (3, 0, 0)
       ep = g_io_extension_point_register (G_DESKTOP_APP_INFO_LOOKUP_EXTENSION_POINT_NAME);
       g_io_extension_point_set_required_type (ep, G_TYPE_DESKTOP_APP_INFO_LOOKUP);
@@ -1175,17 +1232,18 @@ _g_io_modules_ensure_extension_points_registered (void)
       ep = g_io_extension_point_register (G_NOTIFICATION_BACKEND_EXTENSION_POINT_NAME);
       g_io_extension_point_set_required_type (ep, G_TYPE_NOTIFICATION_BACKEND);
 
+      ep = g_io_extension_point_register (G_DEBUG_CONTROLLER_EXTENSION_POINT_NAME);
+      g_io_extension_point_set_required_type (ep, G_TYPE_DEBUG_CONTROLLER);
+
       ep = g_io_extension_point_register (G_MEMORY_MONITOR_EXTENSION_POINT_NAME);
       g_io_extension_point_set_required_type (ep, G_TYPE_MEMORY_MONITOR);
 
       ep = g_io_extension_point_register (G_POWER_PROFILE_MONITOR_EXTENSION_POINT_NAME);
       g_io_extension_point_set_required_type (ep, G_TYPE_POWER_PROFILE_MONITOR);
-    }
-  
-  G_UNLOCK (registered_extensions);
-}
 
-#ifndef GLIB_STATIC_COMPILATION
+      g_once_init_leave (&registered_extensions, TRUE);
+    }
+}
 
 static gchar *
 get_gio_module_dir (void)
@@ -1213,35 +1271,48 @@ get_gio_module_dir (void)
       g_free (install_dir);
 #else
       module_dir = g_strdup (GIO_MODULE_DIR);
+#ifdef G_OS_DARWIN
+#include "TargetConditionals.h"
+#if TARGET_OS_OSX
+#include <dlfcn.h>
+      {
+        g_autofree gchar *path = NULL;
+        g_autofree gchar *possible_dir = NULL;
+        Dl_info info;
+
+        if (dladdr (get_gio_module_dir, &info))
+          {
+            /* Gets path to the PREFIX/lib directory */
+            path = g_path_get_dirname (info.dli_fname);
+            possible_dir = g_build_filename (path, "gio", "modules", NULL);
+            if (g_file_test (possible_dir, G_FILE_TEST_IS_DIR))
+              {
+                g_free (module_dir);
+                module_dir = g_steal_pointer (&possible_dir);
+              }
+          }
+      }
+#endif
+#endif /* G_OS_DARWIN */
 #endif
     }
 
   return module_dir;
 }
 
-#endif /* !GLIB_STATIC_COMPILATION */
-
 void
 _g_io_modules_ensure_loaded (void)
 {
-  static gboolean loaded_dirs = FALSE;
-#ifndef GLIB_STATIC_COMPILATION
-  gboolean is_setuid;
+  static gsize loaded_dirs = FALSE;
   const char *module_path;
-  gchar *module_dir;
   GIOModuleScope *scope;
-#endif
 
   _g_io_modules_ensure_extension_points_registered ();
-  
-  G_LOCK (loaded_dirs);
 
-  if (!loaded_dirs)
+  if (g_once_init_enter (&loaded_dirs))
     {
-      loaded_dirs = TRUE;
-
-#ifndef GLIB_STATIC_COMPILATION
-      is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
+      gboolean is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
+      gchar *module_dir;
 
       scope = g_io_module_scope_new (G_IO_MODULE_SCOPE_BLOCK_DUPLICATES);
 
@@ -1269,21 +1340,17 @@ _g_io_modules_ensure_loaded (void)
       g_free (module_dir);
 
       g_io_module_scope_free (scope);
-#endif
 
       /* Initialize types from built-in "modules" */
       g_type_ensure (g_null_settings_backend_get_type ());
       g_type_ensure (g_memory_settings_backend_get_type ());
       g_type_ensure (g_keyfile_settings_backend_get_type ());
       g_type_ensure (g_power_profile_monitor_dbus_get_type ());
-#if defined(__linux__)
+#if defined(HAVE_INOTIFY_INIT1)
       g_type_ensure (g_inotify_file_monitor_get_type ());
 #endif
 #if defined(HAVE_KQUEUE)
       g_type_ensure (g_kqueue_file_monitor_get_type ());
-#endif
-#if defined(HAVE_FEN)
-      g_type_ensure (g_fen_file_monitor_get_type ());
 #endif
 #ifdef G_OS_WIN32
       g_type_ensure (_g_win32_volume_monitor_get_type ());
@@ -1296,6 +1363,7 @@ _g_io_modules_ensure_loaded (void)
 #endif
 #ifdef G_OS_UNIX
       g_type_ensure (_g_unix_volume_monitor_get_type ());
+      g_type_ensure (g_debug_controller_dbus_get_type ());
       g_type_ensure (g_fdo_notification_backend_get_type ());
       g_type_ensure (g_gtk_notification_backend_get_type ());
       g_type_ensure (g_portal_notification_backend_get_type ());
@@ -1311,6 +1379,7 @@ _g_io_modules_ensure_loaded (void)
 #ifdef G_OS_WIN32
       g_type_ensure (g_win32_notification_backend_get_type ());
       g_type_ensure (_g_winhttp_vfs_get_type ());
+      g_type_ensure (g_memory_monitor_win32_get_type ());
 #endif
       g_type_ensure (_g_local_vfs_get_type ());
       g_type_ensure (_g_dummy_proxy_resolver_get_type ());
@@ -1325,12 +1394,12 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (_g_network_monitor_netlink_get_type ());
       g_type_ensure (_g_network_monitor_nm_get_type ());
 #endif
-#if defined(G_OS_WIN32) && _WIN32_WINNT >= 0x0600
+#ifdef G_OS_WIN32
       g_type_ensure (_g_win32_network_monitor_get_type ());
 #endif
-    }
 
-  G_UNLOCK (loaded_dirs);
+      g_once_init_leave (&loaded_dirs, TRUE);
+    }
 }
 
 static void
@@ -1425,7 +1494,7 @@ g_io_extension_point_set_required_type (GIOExtensionPoint *extension_point,
  * Gets the required type for @extension_point.
  *
  * Returns: the #GType that all implementations must have, 
- *     or #G_TYPE_INVALID if the extension point has no required type
+ *   or %G_TYPE_INVALID if the extension point has no required type
  */
 GType
 g_io_extension_point_get_required_type (GIOExtensionPoint *extension_point)

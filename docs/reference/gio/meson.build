@@ -3,10 +3,7 @@ if get_option('gtk_doc')
   subdir('xml')
 
   ignore_headers = [
-    'fam',
-    'fen',
     'gdbus-2.0',
-    'gvdb',
     'inotify',
     'kqueue',
     'libasyncns',
@@ -38,6 +35,7 @@ if get_option('gtk_doc')
     'ghttpproxy.h',
     'giomodule-priv.h',
     'gioprivate.h',
+    'giowin32-afunix.h',
     'giowin32-priv.h',
     'gio_probes.h',
     'gio_trace.h',
@@ -100,6 +98,7 @@ if get_option('gtk_doc')
     'gwin32volumemonitor.h',
     'thumbnail-verify.h',
     'xdp-dbus.h',
+    'gio-visibility.h',
   ]
 
   sections_files = files('gio-sections-common.txt')
@@ -107,14 +106,11 @@ if get_option('gtk_doc')
   if host_system == 'windows'
     ignore_headers += [
       'gfiledescriptorbased.h',
-      'gunixconnection.h',
-      'gunixcredentialsmessage.h',
       'gunixmounts.h',
       'gunixfdlist.h',
       'gunixfdmessage.h',
       'gunixinputstream.h',
       'gunixoutputstream.h',
-      'gunixsocketaddress.h',
       'gdesktopappinfo.h',
       'gosxappinfo.h',
     ]
@@ -151,16 +147,11 @@ if get_option('gtk_doc')
     configuration: version_conf
   )
 
-  # FIXME: configure_file() does not support more than one file in input
-  # argument. If input argument is omitted then meson checks that all items in
-  # the command array are strings. But if we have an input then extra files
-  # can be passed in command array.
-  # See https://github.com/mesonbuild/meson/issues/5893
   concat_files_helper = find_program('concat-files-helper.py')
   configure_file(
     output : 'gio-sections.txt',
-    input : sections_files[0],
-    command : [concat_files_helper, '@OUTPUT@'] + sections_files,
+    input : sections_files,
+    command : [concat_files_helper, '@OUTPUT@', '@INPUT@'],
   )
 
   configure_file(
@@ -197,7 +188,8 @@ if get_option('gtk_doc')
     mode : 'none',
     dependencies : [libgio_dep, libgobject_dep, libglib_dep],
     src_dir : 'gio',
-    scan_args : gtkdoc_common_scan_args + [
+    scan_args : [
+      '--ignore-decorators=' + ignore_decorators.replace('GLIB', 'GIO'),
       '--rebuild-types',
       '--ignore-headers=' + ' '.join(ignore_headers),
     ],

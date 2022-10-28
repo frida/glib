@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2010 Christian Kellner
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -53,10 +55,10 @@ struct _GFileDescriptorBasedIface
   int (*get_fd) (GFileDescriptorBased *fd_based);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType    g_file_descriptor_based_get_type     (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 int      g_file_descriptor_based_get_fd       (GFileDescriptorBased *fd_based);
 
 G_END_DECLS

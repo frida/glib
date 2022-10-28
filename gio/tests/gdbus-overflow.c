@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -217,13 +219,8 @@ main (int   argc,
 
   if (is_unix)
     {
-      if (g_unix_socket_address_abstract_names_supported ())
-	tmp_address = g_strdup ("unix:tmpdir=/tmp/gdbus-test-");
-      else
-	{
-	  tmpdir = g_dir_make_tmp ("gdbus-test-XXXXXX", NULL);
-	  tmp_address = g_strdup_printf ("unix:tmpdir=%s", tmpdir);
-	}
+      tmpdir = g_dir_make_tmp ("gdbus-test-XXXXXX", NULL);
+      tmp_address = g_strdup_printf ("unix:tmpdir=%s", tmpdir);
     }
   else
     tmp_address = g_strdup ("nonce-tcp:");

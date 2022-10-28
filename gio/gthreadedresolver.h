@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -39,8 +41,21 @@ typedef struct {
 
 } GThreadedResolverClass;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType g_threaded_resolver_get_type (void) G_GNUC_CONST;
+
+/* Used for a private test API */
+#ifdef G_OS_UNIX
+GIO_AVAILABLE_IN_ALL
+GList *g_resolver_records_from_res_query (const gchar      *rrname,
+                                          gint              rrtype,
+                                          const guint8     *answer,
+                                          gssize            len,
+                                          gint              herr,
+                                          GError          **error);
+GIO_AVAILABLE_IN_ALL
+gint g_resolver_record_type_to_rrtype (GResolverRecordType type);
+#endif
 
 G_END_DECLS
 

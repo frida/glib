@@ -18,7 +18,7 @@ pacman --noconfirm -S --needed \
     mingw-w64-$MSYS2_ARCH-gettext \
     mingw-w64-$MSYS2_ARCH-libffi \
     mingw-w64-$MSYS2_ARCH-meson \
-    mingw-w64-$MSYS2_ARCH-pcre \
+    mingw-w64-$MSYS2_ARCH-pcre2 \
     mingw-w64-$MSYS2_ARCH-python3 \
     mingw-w64-$MSYS2_ARCH-python-pip \
     mingw-w64-$MSYS2_ARCH-toolchain \
@@ -31,7 +31,7 @@ CCACHE_BASEDIR="$(pwd)"
 CCACHE_DIR="${CCACHE_BASEDIR}/_ccache"
 export CCACHE_BASEDIR CCACHE_DIR
 
-pip3 install --upgrade --user meson==0.52.0
+pip3 install --upgrade --user meson==0.60.3
 
 PATH="$(cygpath "$USERPROFILE")/.local/bin:$HOME/.local/bin:$PATH"
 CFLAGS="-coverage -ftest-coverage -fprofile-arcs"
@@ -44,7 +44,7 @@ ninja
 
 lcov \
     --quiet \
-    --config-file "${DIR}"/.gitlab-ci/lcovrc \
+    --config-file "${DIR}"/.lcovrc \
     --directory "${DIR}/_build" \
     --capture \
     --initial \
@@ -53,15 +53,9 @@ lcov \
 # FIXME: fix the test suite
 meson test --timeout-multiplier "${MESON_TEST_TIMEOUT_MULTIPLIER}" --no-suite flaky || true
 
-python3 "${DIR}"/.gitlab-ci/meson-junit-report.py \
-        --project-name glib \
-        --job-id "${CI_JOB_NAME}" \
-        --output "${DIR}/_build/${CI_JOB_NAME}-report.xml" \
-        "${DIR}/_build/meson-logs/testlog.json"
-
 lcov \
     --quiet \
-    --config-file "${DIR}"/.gitlab-ci/lcovrc \
+    --config-file "${DIR}"/.lcovrc \
     --directory "${DIR}/_build" \
     --capture \
     --output-file "${DIR}/_coverage/${CI_JOB_NAME}.lcov"

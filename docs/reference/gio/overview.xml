@@ -161,7 +161,7 @@
   <para>
     The GIO model of I/O is stateful: if an application establishes e.g.
     a SFTP connection to a server, it becomes available to all applications
-    in the session; the user does not have to enter his password over
+    in the session; the user does not have to enter their password over
     and over again.
   </para>
   <para>
@@ -279,7 +279,7 @@ excellent book on this topic,
 When using GIO in code that runs with elevated privileges, you have to
 be careful. GIO has extension points whose implementations get loaded
 from modules (executable code in shared objects), which could allow
-an attacker to sneak his own code into your application by tricking it
+an attacker to sneak their own code into your application by tricking it
 into loading the code as a module. However, GIO will never load modules
 from your home directory except when explicitly asked to do so via an
 environment variable.
@@ -390,9 +390,9 @@ Gvfs is also heavily distributed and relies on a session bus to be present.
         This variable can be set to the name of a #GFileMonitor
         implementation to override the default for debugging purposes.
         The #GFileMonitor implementation for local files that is included
-        in GIO on Linux has the name "inotify", others that are built
+        in GIO on Linux has the name <literal>inotify</literal>, others that are built
         are built as modules (depending on the platform) are called
-        "fam" and "fen".
+        <literal>kqueue</literal> and <literal>win32filemonitor</literal>.
       </para><para>
         The special value <literal>help</literal> can be used to print a list of
         available implementations to standard output.
@@ -665,23 +665,7 @@ Gvfs is also heavily distributed and relies on a session bus to be present.
       </para>
       <para>
         GIO uses this extension point internally, to switch between
-        its fam-based and inotify-based file monitoring implementations.
-      </para>
-   </formalpara>
-
-   <formalpara>
-      <title>G_LOCAL_DIRECTORY_MONITOR_EXTENSION_POINT_NAME</title>
-
-      <para>
-        Allows to override the directory monitor implementation for
-        local files. Implementations of this extension point must be
-        derived from #GLocalDirectoryMonitor. GIO uses the implementation
-        with the highest priority that is supported, as determined by the
-        is_supported() vfunc in #GLocalDirectoryMonitorClass.
-      </para>
-      <para>
-        GIO uses this extension point internally, to switch between
-        its fam-based and inotify-based directory monitoring implementations.
+        its kqueue-based and inotify-based file monitoring implementations.
       </para>
    </formalpara>
 

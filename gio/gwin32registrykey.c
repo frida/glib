@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2014 Руслан Ижбулатов <lrn1986@gmail.com>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -2161,7 +2163,6 @@ MuiRegQueryValueExW (HKEY                     hKey,
                      LPDWORD                  lpcbData,
                      const gunichar2 * const *mui_dll_dirs)
 {
-#if _WIN32_WINNT >= 0x0600
   gsize dir_index;
   LSTATUS result = ERROR_PATH_NOT_FOUND;
   DWORD bufsize;
@@ -2230,9 +2231,6 @@ MuiRegQueryValueExW (HKEY                     hKey,
     *lpType = REG_SZ;
 
   return result;
-#else
-  return RegQueryValueExW (hKey, lpValueName, lpReserved, lpType, lpData, lpcbData);
-#endif
 }
 
 /**

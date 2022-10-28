@@ -249,15 +249,15 @@ int
 main (int argc,
       char *argv[])
 {
-  GSocket *socket;
-  GSocketAddress *address;
+  GSocket *socket = NULL;
+  GSocketAddress *address = NULL;
   GError *error = NULL;
   GOptionContext *context;
   GCancellable *cancellable;
-  GIOStream *connection;
-  GInputStream *istream;
-  GOutputStream *ostream;
-  GSocketAddress *src_address;
+  GIOStream *connection = NULL;
+  GInputStream *istream = NULL;
+  GOutputStream *ostream = NULL;
+  GSocketAddress *src_address = NULL;
   GTlsCertificate *certificate = NULL;
   gint i;
 

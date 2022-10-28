@@ -2,6 +2,8 @@
  * Copyright © 2007, 2008 Ryan Lortie
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -29,10 +31,6 @@
 #include <glib/gtypes.h>
 
 #include <string.h>
-
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
 
 
 /* GVariantSerialiser
@@ -1591,6 +1589,9 @@ g_variant_serialised_byteswap (GVariantSerialised serialised)
 gboolean
 g_variant_serialised_is_normal (GVariantSerialised serialised)
 {
+  if (serialised.depth >= G_VARIANT_MAX_RECURSION_DEPTH)
+    return FALSE;
+
   DISPATCH_CASES (serialised.type_info,
 
                   return gvs_/**/,/**/_is_normal (serialised);
@@ -1598,8 +1599,6 @@ g_variant_serialised_is_normal (GVariantSerialised serialised)
                  )
 
   if (serialised.data == NULL)
-    return FALSE;
-  if (serialised.depth >= G_VARIANT_MAX_RECURSION_DEPTH)
     return FALSE;
 
   /* some hard-coded terminal cases */

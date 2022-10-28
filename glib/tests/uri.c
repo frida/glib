@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -349,7 +351,7 @@ test_uri_unescape_string (void)
       { "%0", NULL, NULL },
       { "%ra", NULL, NULL },
       { "%2r", NULL, NULL },
-      { "Timm B\344der", NULL, "Timm B\344der" },
+      { "Timm B\303\244der", NULL, "Timm B\303\244der" },
       { NULL, NULL, NULL },  /* actually a valid test, not a delimiter */
     };
   gsize i;
@@ -477,14 +479,16 @@ test_uri_escape_string (void)
   for (i = 0; i < G_N_ELEMENTS (tests); i++)
     {
       gchar *s = NULL;
+      gchar *escaped = g_strescape (tests[i].unescaped, NULL);
 
-      g_test_message ("Test %" G_GSIZE_FORMAT ": %s", i, tests[i].unescaped);
+      g_test_message ("Test %" G_GSIZE_FORMAT ": %s", i, escaped);
 
       s = g_uri_escape_string (tests[i].unescaped,
                                tests[i].reserved_chars_allowed,
                                tests[i].allow_utf8);
       g_assert_cmpstr (s, ==, tests[i].expected_escaped);
       g_free (s);
+      g_free (escaped);
     }
 }
 
@@ -898,6 +902,19 @@ static const UriRelativeTest relative_tests[] = {
   { "ScHeMe://User:P%61ss@HOST.%63om:1234/path/./from/../to%7d/item%2dobj?qu%65ry=something#fr%61gment",
     "scheme://User:Pass@HOST.com:1234/path/to%7D/item-obj?query=something#fragment",
     { "scheme", "User:Pass", "HOST.com", 1234, "/path/to}/item-obj", "query=something", "fragment" } },
+  /* Test corner cases of remove_dot_segments */
+  { "http:..", "http:",
+    { "http", NULL, NULL, -1, "", NULL, NULL } },
+  { "http:../", "http:",
+    { "http", NULL, NULL, -1, "", NULL, NULL } },
+  { "http:.", "http:",
+    { "http", NULL, NULL, -1, "", NULL, NULL } },
+  { "http:./", "http:",
+    { "http", NULL, NULL, -1, "", NULL, NULL } },
+  { "http:a/..", "http:/",
+    { "http", NULL, NULL, -1, "/", NULL, NULL } },
+  { "http:a/../", "http:/",
+    { "http", NULL, NULL, -1, "/", NULL, NULL } },
 };
 static int num_relative_tests = G_N_ELEMENTS (relative_tests);
 

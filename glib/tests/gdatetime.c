@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2009-2010 Christian Hergert <chris@dronelabs.com>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -48,6 +50,23 @@
   g_assert_cmpint ((S), ==, g_date_time_get_second ((dt))); \
   g_assert_cmpint ((U), ==, g_date_time_get_microsecond ((dt))); \
 } G_STMT_END
+
+static gboolean
+skip_if_running_uninstalled (void)
+{
+  /* If running uninstalled (G_TEST_BUILDDIR is set), skip this test, since we
+   * need the translations to be installed. We can’t mess around with
+   * bindtextdomain() here, as the compiled .gmo files in po/ are not in the
+   * right installed directory hierarchy to be successfully loaded by gettext. */
+  if (g_getenv ("G_TEST_BUILDDIR") != NULL)
+    {
+      g_test_skip ("Skipping due to running uninstalled. "
+                   "This test can only be run when the translations are installed.");
+      return TRUE;
+    }
+
+  return FALSE;
+}
 
 static void
 get_localtime_tm (time_t     time_,
@@ -1585,7 +1604,8 @@ GDateTime *__dt = g_date_time_new_local (2009, 10, 24, 0, 0, 0);\
   TEST_PRINTF ("%B", "October");
   TEST_PRINTF ("%d", "24");
   TEST_PRINTF_DATE (2009, 1, 1, "%d", "01");
-  TEST_PRINTF ("%e", "24"); // fixme
+  TEST_PRINTF ("%e", "24");
+  TEST_PRINTF_DATE (2009, 1, 1, "%e", "\u20071");
   TEST_PRINTF_TIME (10, 10, 1.001, "%f", "001000");
   TEST_PRINTF ("%h", "Oct");
   TEST_PRINTF ("%H", "00");
@@ -1594,11 +1614,11 @@ GDateTime *__dt = g_date_time_new_local (2009, 10, 24, 0, 0, 0);\
   TEST_PRINTF_TIME (12, 0, 0, "%I", "12");
   TEST_PRINTF_TIME (15, 0, 0, "%I", "03");
   TEST_PRINTF ("%j", "297");
-  TEST_PRINTF ("%k", " 0");
+  TEST_PRINTF ("%k", "\u20070");
   TEST_PRINTF_TIME (13, 13, 13, "%k", "13");
   TEST_PRINTF ("%l", "12");
   TEST_PRINTF_TIME (12, 0, 0, "%I", "12");
-  TEST_PRINTF_TIME (13, 13, 13, "%l", " 1");
+  TEST_PRINTF_TIME (13, 13, 13, "%l", "\u20071");
   TEST_PRINTF_TIME (10, 13, 13, "%l", "10");
   TEST_PRINTF ("%m", "10");
   TEST_PRINTF ("%M", "00");
@@ -1650,16 +1670,8 @@ test_non_utf8_printf (void)
 {
   gchar *oldlocale;
 
-  /* If running uninstalled (G_TEST_BUILDDIR is set), skip this test, since we
-   * need the translations to be installed. We can’t mess around with
-   * bindtextdomain() here, as the compiled .gmo files in po/ are not in the
-   * right installed directory hierarchy to be successfully loaded by gettext. */
-  if (g_getenv ("G_TEST_BUILDDIR") != NULL)
-    {
-      g_test_skip ("Skipping due to running uninstalled. "
-                   "This test can only be run when the translations are installed.");
-      return;
-    }
+  if (skip_if_running_uninstalled())
+    return;
 
   oldlocale = g_strdup (setlocale (LC_ALL, NULL));
   setlocale (LC_ALL, "ja_JP.eucjp");
@@ -1682,14 +1694,14 @@ test_non_utf8_printf (void)
    */
   TEST_PRINTF ("%a", "\345\234\237");
   TEST_PRINTF ("%A", "\345\234\237\346\233\234\346\227\245");
-#ifndef __APPLE__ /* OSX just returns the number */
+#ifndef G_OS_DARWIN /* OSX just returns the number */
   TEST_PRINTF ("%b", "10\346\234\210");
 #endif
   TEST_PRINTF ("%B", "10\346\234\210");
   TEST_PRINTF ("%d", "24");
   TEST_PRINTF_DATE (2009, 1, 1, "%d", "01");
   TEST_PRINTF ("%e", "24"); // fixme
-#ifndef __APPLE__ /* OSX just returns the number */
+#ifndef G_OS_DARWIN /* OSX just returns the number */
   TEST_PRINTF ("%h", "10\346\234\210");
 #endif
   TEST_PRINTF ("%H", "00");
@@ -1698,15 +1710,15 @@ test_non_utf8_printf (void)
   TEST_PRINTF_TIME (12, 0, 0, "%I", "12");
   TEST_PRINTF_TIME (15, 0, 0, "%I", "03");
   TEST_PRINTF ("%j", "297");
-  TEST_PRINTF ("%k", " 0");
+  TEST_PRINTF ("%k", "\u20070");
   TEST_PRINTF_TIME (13, 13, 13, "%k", "13");
   TEST_PRINTF ("%l", "12");
   TEST_PRINTF_TIME (12, 0, 0, "%I", "12");
-  TEST_PRINTF_TIME (13, 13, 13, "%l", " 1");
+  TEST_PRINTF_TIME (13, 13, 13, "%l", "\u20071");
   TEST_PRINTF_TIME (10, 13, 13, "%l", "10");
   TEST_PRINTF ("%m", "10");
   TEST_PRINTF ("%M", "00");
-#ifndef __APPLE__ /* OSX returns latin "AM", not japanese */
+#ifndef G_OS_DARWIN /* OSX returns latin "AM", not japanese */
   TEST_PRINTF ("%p", "\345\215\210\345\211\215");
   TEST_PRINTF_TIME (13, 13, 13, "%p", "\345\215\210\345\276\214");
   TEST_PRINTF ("%P", "\345\215\210\345\211\215");
@@ -1719,7 +1731,7 @@ test_non_utf8_printf (void)
   TEST_PRINTF ("%S", "00");
   TEST_PRINTF ("%t", "	");
   TEST_PRINTF ("%u", "6");
-#ifndef __APPLE__ /* OSX returns YYYY/MM/DD in ASCII */
+#ifndef G_OS_DARWIN /* OSX returns YYYY/MM/DD in ASCII */
   TEST_PRINTF ("%x", "2009\345\271\26410\346\234\21024\346\227\245");
 #endif
   TEST_PRINTF ("%X", "00\346\231\20200\345\210\20600\347\247\222");
@@ -1771,7 +1783,7 @@ test_modifiers (void)
   TEST_PRINTF_DATE (2009, 1, 21, "%-d", "21");
   TEST_PRINTF_DATE (2009, 1, 21, "%0d", "21");
 
-  TEST_PRINTF_DATE (2009, 1,  1,  "%e", " 1");
+  TEST_PRINTF_DATE (2009, 1,  1,  "%e", "\u20071");
   TEST_PRINTF_DATE (2009, 1,  1, "%_e", " 1");
   TEST_PRINTF_DATE (2009, 1,  1, "%-e", "1");
   TEST_PRINTF_DATE (2009, 1,  1, "%0e", "01");
@@ -1798,13 +1810,23 @@ test_modifiers (void)
   TEST_PRINTF_TIME (23, 0, 0, "%-I", "11");
   TEST_PRINTF_TIME (23, 0, 0, "%0I", "11");
 
-  TEST_PRINTF_TIME ( 1, 0, 0,  "%k", " 1");
+  TEST_PRINTF_TIME ( 1, 0, 0,  "%k", "\u20071");
   TEST_PRINTF_TIME ( 1, 0, 0, "%_k", " 1");
   TEST_PRINTF_TIME ( 1, 0, 0, "%-k", "1");
   TEST_PRINTF_TIME ( 1, 0, 0, "%0k", "01");
 
+  TEST_PRINTF_TIME ( 1, 0, 0,  "%l", "\u20071");
+  TEST_PRINTF_TIME ( 1, 0, 0, "%_l", " 1");
+  TEST_PRINTF_TIME ( 1, 0, 0, "%-l", "1");
+  TEST_PRINTF_TIME ( 1, 0, 0, "%0l", "01");
+  TEST_PRINTF_TIME (23, 0, 0,  "%l", "11");
+  TEST_PRINTF_TIME (23, 0, 0, "%_l", "11");
+  TEST_PRINTF_TIME (23, 0, 0, "%-l", "11");
+  TEST_PRINTF_TIME (23, 0, 0, "%0l", "11");
+
   oldlocale = g_strdup (setlocale (LC_ALL, NULL));
   setlocale (LC_ALL, "fa_IR.utf-8");
+#ifdef HAVE_LANGINFO_OUTDIGIT
   if (strstr (setlocale (LC_ALL, NULL), "fa_IR") != NULL)
     {
       TEST_PRINTF_TIME (23, 0, 0, "%OH", "\333\262\333\263");    /* '23' */
@@ -1818,6 +1840,9 @@ test_modifiers (void)
     }
   else
     g_test_skip ("locale fa_IR not available, skipping O modifier tests");
+#else
+    g_test_skip ("langinfo not available, skipping O modifier tests");
+#endif
   setlocale (LC_ALL, oldlocale);
   g_free (oldlocale);
 }
@@ -1831,16 +1856,8 @@ test_month_names (void)
 
   g_test_bug ("http://bugzilla.gnome.org/749206");
 
-  /* If running uninstalled (G_TEST_BUILDDIR is set), skip this test, since we
-   * need the translations to be installed. We can’t mess around with
-   * bindtextdomain() here, as the compiled .gmo files in po/ are not in the
-   * right installed directory hierarchy to be successfully loaded by gettext. */
-  if (g_getenv ("G_TEST_BUILDDIR") != NULL)
-    {
-      g_test_skip ("Skipping due to running uninstalled. "
-                   "This test can only be run when the translations are installed.");
-      return;
-    }
+  if (skip_if_running_uninstalled())
+    return;
 
   oldlocale = g_strdup (setlocale (LC_ALL, NULL));
 
@@ -2316,6 +2333,22 @@ test_format_iso8601 (void)
   g_free (p);
   g_date_time_unref (dt);
   g_time_zone_unref (tz);
+
+  tz = g_time_zone_new_utc ();
+  dt = g_date_time_new (tz, 9, 1, 2, 3, 4, 55);
+  p = g_date_time_format_iso8601 (dt);
+  g_assert_cmpstr (p, ==, "0009-01-02T03:04:55Z");
+  g_free (p);
+  g_date_time_unref (dt);
+  g_time_zone_unref (tz);
+
+  tz = g_time_zone_new_utc ();
+  dt = g_date_time_new (tz, 9990, 1, 2, 3, 4, 55.000001);
+  p = g_date_time_format_iso8601 (dt);
+  g_assert_cmpstr (p, ==, "9990-01-02T03:04:55.000001Z");
+  g_free (p);
+  g_date_time_unref (dt);
+  g_time_zone_unref (tz);
 }
 
 typedef struct
@@ -2361,6 +2394,9 @@ check_and_set_locale (int          category,
 static void
 test_format_time_mixed_utf8 (gconstpointer data)
 {
+#ifdef _MSC_VER
+  g_test_skip ("setlocale (LC_MESSAGES) asserts on ucrt");
+#else
   const MixedUtf8TestData *test_data;
   gchar *old_time_locale;
   gchar *old_messages_locale;
@@ -2426,7 +2462,26 @@ test_format_time_mixed_utf8 (gconstpointer data)
   setlocale (LC_MESSAGES, old_messages_locale);
   g_free (old_time_locale);
   g_free (old_messages_locale);
+#endif
 }
+
+#ifdef __linux__
+static gchar *
+str_utf8_replace (const gchar *str,
+                  gunichar     from,
+                  gunichar     to)
+{
+  GString *str_out = g_string_new ("");
+
+  for (; *str != '\0'; str = g_utf8_next_char (str))
+    {
+      gunichar c = g_utf8_get_char (str);
+      g_string_append_unichar (str_out, (c == from) ? to : c);
+    }
+
+  return g_string_free (g_steal_pointer (&str_out), FALSE);
+}
+#endif
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-y2k"
@@ -2445,13 +2500,24 @@ test_strftime (void)
       GDateTime *date_time;
       gchar c_str[1000];
       gchar *dt_str;
+      gchar *dt_str_replaced = NULL, *c_str_replaced = NULL;
 
       date_time = g_date_time_new_from_unix_local (t);
       dt_str = g_date_time_format (date_time, TEST_FORMAT);
       strftime (c_str, sizeof c_str, TEST_FORMAT, localtime (&t));
-      g_assert_cmpstr (c_str, ==, dt_str);
+
+      /* Ensure the comparison is done insensitively to spaces.
+       * g_date_time_format() sometimes uses figure spaces (U+2007) whereas
+       * strftime() currently doesn’t, and that’s fine. */
+      dt_str_replaced = str_utf8_replace (dt_str, 0x2007, 0x20);
+      c_str_replaced = str_utf8_replace  (c_str, 0x2007, 0x20);
+
+      g_assert_cmpstr (c_str_replaced, ==, dt_str_replaced);
+
       g_date_time_unref (date_time);
       g_free (dt_str);
+      g_free (dt_str_replaced);
+      g_free (c_str_replaced);
     }
 #endif
 }
@@ -2463,6 +2529,17 @@ static void
 test_GDateTime_strftime_error_handling (void)
 {
   gchar *oldlocale;
+#ifdef G_OS_WIN32
+  LCID old_lcid;
+#endif
+
+  if (skip_if_running_uninstalled())
+    return;
+
+#ifdef G_OS_WIN32
+  old_lcid = GetThreadLocale ();
+  SetThreadLocale (MAKELCID (MAKELANGID (LANG_GERMAN, SUBLANG_GERMAN), SORT_DEFAULT));
+#endif
 
   oldlocale = g_strdup (setlocale (LC_ALL, NULL));
   setlocale (LC_ALL, "de_DE.utf-8");
@@ -2476,6 +2553,10 @@ test_GDateTime_strftime_error_handling (void)
     g_test_skip ("locale de_DE not available, skipping error handling tests");
   setlocale (LC_ALL, oldlocale);
   g_free (oldlocale);
+
+#ifdef G_OS_WIN32
+  SetThreadLocale (old_lcid);
+#endif
 }
 
 static void
@@ -2916,19 +2997,26 @@ test_identifier (void)
 static void
 test_new_offset (void)
 {
-  const gint32 vectors[] =
+  const struct
     {
-      -10000,
-      -3600,
-      -61,
-      -60,
-      -59,
-      0,
-      59,
-      60,
-      61,
-      3600,
-      10000,
+      gint32 offset;
+      gboolean expected_success;
+    }
+  vectors[] =
+    {
+      { -158400, FALSE },
+      { -10000, TRUE },
+      { -3600, TRUE },
+      { -61, TRUE },
+      { -60, TRUE },
+      { -59, TRUE },
+      { 0, TRUE },
+      { 59, TRUE },
+      { 60, TRUE },
+      { 61, TRUE },
+      { 3600, TRUE },
+      { 10000, TRUE },
+      { 158400, FALSE },
     };
   gsize i;
 
@@ -2936,12 +3024,21 @@ test_new_offset (void)
     {
       GTimeZone *tz = NULL;
 
-      g_test_message ("Vector %" G_GSIZE_FORMAT ": %d", i, vectors[i]);
+      g_test_message ("Vector %" G_GSIZE_FORMAT ": %d", i, vectors[i].offset);
 
-      tz = g_time_zone_new_offset (vectors[i]);
+      tz = g_time_zone_new_offset (vectors[i].offset);
       g_assert_nonnull (tz);
-      g_assert_cmpstr (g_time_zone_get_identifier (tz), !=, "UTC");
-      g_assert_cmpint (g_time_zone_get_offset (tz, 0), ==, vectors[i]);
+
+      if (vectors[i].expected_success)
+        {
+          g_assert_cmpstr (g_time_zone_get_identifier (tz), !=, "UTC");
+          g_assert_cmpint (g_time_zone_get_offset (tz, 0), ==, vectors[i].offset);
+        }
+      else
+        {
+          g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, "UTC");
+        }
+
       g_time_zone_unref (tz);
     }
 }
@@ -2949,6 +3046,7 @@ test_new_offset (void)
 static void
 test_time_zone_parse_rfc8536 (void)
 {
+#ifndef G_OS_WIN32
   const gchar *test_files[] =
     {
       /* Generated with `zic -b slim`; see
@@ -2974,6 +3072,9 @@ test_time_zone_parse_rfc8536 (void)
       g_time_zone_unref (tz);
       g_free (path);
     }
+#else
+  g_test_skip ("RFC 8536 format time zone files are not available on Windows");
+#endif
 }
 
 /* Check GTimeZone instances are cached. */
@@ -3046,6 +3147,10 @@ main (gint   argc,
   /* In glibc, LANGUAGE is used as highest priority guess for category value.
    * Unset it to avoid interference with tests using setlocale and translation. */
   g_unsetenv ("LANGUAGE");
+
+  /* GLib uses CHARSET to allow overriding the character set used for all locale
+   * categories. Unset it to avoid interference with tests. */
+  g_unsetenv ("CHARSET");
 
   g_test_init (&argc, &argv, NULL);
 

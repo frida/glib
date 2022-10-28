@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -1195,7 +1197,7 @@ g_tree_foreach_node (GTree             *tree,
  * GTraverseFunc:
  * @key: a key of a #GTree node
  * @value: the value corresponding to the key
- * @data: user data passed to g_tree_traverse()
+ * @user_data: user data passed to g_tree_traverse()
  *
  * Specifies the type of function passed to g_tree_traverse(). It is
  * passed the key and value of each node, together with the @user_data

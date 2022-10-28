@@ -4,6 +4,8 @@
  * gdataset.c: Generic dataset mechanism, similar to GtkObject data.
  * Copyright (C) 1998 Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -44,6 +46,7 @@
 #include "gtestutils.h"
 #include "gthread.h"
 #include "glib_trace.h"
+#include "galloca.h"
 
 /**
  * SECTION:datasets
@@ -485,6 +488,95 @@ g_data_set_internal (GData	  **datalist,
 
 }
 
+static inline void
+g_data_remove_internal (GData  **datalist,
+                        GQuark  *keys,
+                        gsize    n_keys)
+{
+  GData *d;
+
+  g_datalist_lock (datalist);
+
+  d = G_DATALIST_GET_POINTER (datalist);
+
+  if (d)
+    {
+      GDataElt *old, *data, *data_end;
+      gsize found_keys;
+
+      /* Allocate an array of GDataElt to hold copies of the elements
+       * that are removed from the datalist. Allow enough space for all
+       * the keys; if a key is not found, the corresponding element of
+       * old is not populated, so we initialize them all to NULL to
+       * detect that case. */
+      old = g_newa0 (GDataElt, n_keys);
+
+      data = d->data;
+      data_end = data + d->len;
+      found_keys = 0;
+
+      while (data < data_end && found_keys < n_keys)
+        {
+          gboolean remove = FALSE;
+
+          for (gsize i = 0; i < n_keys; i++)
+            {
+              if (data->key == keys[i])
+                {
+                  old[i] = *data;
+                  remove = TRUE;
+                  break;
+                }
+            }
+
+          if (remove)
+            {
+              GDataElt *data_last = data_end - 1;
+
+              found_keys++;
+
+              if (data < data_last)
+                *data = *data_last;
+
+              data_end--;
+              d->len--;
+
+              /* We don't bother to shrink, but if all data are now gone
+               * we at least free the memory
+               */
+              if (d->len == 0)
+                {
+                  G_DATALIST_SET_POINTER (datalist, NULL);
+                  g_free (d);
+                  break;
+                }
+            }
+          else
+            {
+              data++;
+            }
+        }
+
+      if (found_keys > 0)
+        {
+          g_datalist_unlock (datalist);
+
+          for (gsize i = 0; i < n_keys; i++)
+            {
+              /* If keys[i] was not found, then old[i].destroy is NULL.
+               * Call old[i].destroy() only if keys[i] was found, and
+               * is associated with a destroy notifier: */
+              if (old[i].destroy)
+                old[i].destroy (old[i].data);
+            }
+
+          return;
+        }
+    }
+
+  g_datalist_unlock (datalist);
+}
+
 /**
  * g_dataset_id_set_data_full: (skip)
  * @dataset_location: (not nullable): the location identifying the dataset.
@@ -668,6 +760,29 @@ g_datalist_id_set_data_full (GData	  **datalist,
     }
 
   g_data_set_internal (datalist, key_id, data, destroy_func, NULL);
+}
+
+/**
+ * g_datalist_id_remove_multiple:
+ * @datalist: a datalist
+ * @keys: (array length=n_keys): keys to remove
+ * @n_keys: length of @keys, must be <= 16
+ *
+ * Removes multiple keys from a datalist.
+ *
+ * This is more efficient than calling g_datalist_id_remove_data()
+ * multiple times in a row.
+ *
+ * Since: 2.74
+ */
+void
+g_datalist_id_remove_multiple (GData  **datalist,
+                               GQuark  *keys,
+                               gsize    n_keys)
+{
+  g_return_if_fail (n_keys <= 16);
+
+  g_data_remove_internal (datalist, keys, n_keys);
 }
 
 /**
@@ -901,7 +1016,7 @@ g_datalist_id_dup_data (GData          **datalist,
  * If the previous value was replaced then ownership of the
  * old value (@oldval) is passed to the caller, including
  * the registered destroy notify for it (passed out in @old_destroy).
- * Its up to the caller to free this as he wishes, which may
+ * Its up to the caller to free this as they wish, which may
  * or may not include using @old_destroy as sometimes replacement
  * should not destroy the object in the normal way.
  *

@@ -4,6 +4,8 @@
  * giounix.c: IO Channels using unix file descriptors
  * Copyright 1998 Owen Taylor
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -398,7 +400,7 @@ g_io_unix_set_flags (GIOChannel *channel,
 static GIOFlags
 g_io_unix_get_flags (GIOChannel *channel)
 {
-  GIOFlags flags = 0;
+  GIOFlags flags = G_IO_FLAG_NONE;
   glong fcntl_flags;
   GIOUnixChannel *unix_channel = (GIOUnixChannel *) channel;
 

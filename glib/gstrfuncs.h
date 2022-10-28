@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -30,9 +32,12 @@
 #endif
 
 #include <stdarg.h>
+#include <string.h>
+
 #include <glib/gmacros.h>
 #include <glib/gtypes.h>
 #include <glib/gerror.h>
+#include <glib/gmem.h>
 
 G_BEGIN_DECLS
 
@@ -135,11 +140,49 @@ gchar *               g_strrstr_len    (const gchar  *haystack,
 					const gchar  *needle);
 
 GLIB_AVAILABLE_IN_ALL
-gboolean              g_str_has_suffix (const gchar  *str,
-					const gchar  *suffix);
+gboolean             (g_str_has_suffix) (const gchar *str,
+                                         const gchar *suffix);
 GLIB_AVAILABLE_IN_ALL
-gboolean              g_str_has_prefix (const gchar  *str,
-					const gchar  *prefix);
+gboolean             (g_str_has_prefix) (const gchar *str,
+                                         const gchar *prefix);
+
+#if G_GNUC_CHECK_VERSION (2, 0)
+
+/* A note on the 'x + !x' terms: These are added to workaround a false
+ * warning in gcc 10< which is ignoring the check 'x != NULL' that is
+ * set outside of the G_GNUC_EXTENSION scope. Without 'x + !x' it
+ * would complain that x may be NULL where strlen() and memcmp()
+ * both require non-null arguments. */
+
+#define g_str_has_prefix(STR, PREFIX)                                   \
+  ((STR != NULL && PREFIX != NULL && __builtin_constant_p (PREFIX)) ?   \
+   G_GNUC_EXTENSION ({                                                  \
+       const char *const __str = STR;                                   \
+       const char *const __prefix = PREFIX;                             \
+       const size_t __str_len = strlen (__str + !__str);                \
+       const size_t __prefix_len = strlen (__prefix + !__prefix);       \
+       (__str_len >= __prefix_len) ?                                    \
+         memcmp (__str + !__str,                                        \
+                 __prefix + !__prefix, __prefix_len) == 0 : FALSE;      \
+     })                                                                 \
+   :                                                                    \
+   (g_str_has_prefix) (STR, PREFIX))
+
+#define g_str_has_suffix(STR, SUFFIX)                                   \
+  ((STR != NULL && SUFFIX != NULL && __builtin_constant_p (SUFFIX)) ?   \
+   G_GNUC_EXTENSION ({                                                  \
+       const char *const __str = STR;                                   \
+       const char *const __suffix = SUFFIX;                             \
+       const size_t __str_len = strlen (__str + !__str);                \
+       const size_t __suffix_len = strlen (__suffix + !__suffix);       \
+       (__str_len >= __suffix_len) ?                                    \
+         memcmp (__str + !__str + __str_len - __suffix_len,             \
+                 __suffix + !__suffix, __suffix_len) == 0 : FALSE;      \
+     })                                                                 \
+   :                                                                    \
+   (g_str_has_suffix) (STR, SUFFIX))
+
+#endif /* G_GNUC_CHECK_VERSION (2, 0) */
 
 /* String to/from double conversion functions */
 
@@ -360,6 +403,51 @@ gboolean              g_ascii_string_to_unsigned   (const gchar  *str,
                                                     guint64       max,
                                                     guint64      *out_num,
                                                     GError      **error);
+
+/**
+ * g_set_str: (skip)
+ * @str_pointer: (inout) (not optional) (nullable): a pointer to either a string or %NULL
+ * @new_str: (nullable): a string to assign to @str_pointer, or %NULL
+ *
+ * Updates a pointer to a string to a copy of @new_str. The previous string
+ * pointed to by @str_pointer will be freed with g_free().
+ *
+ * @str_pointer must not be %NULL, but can point to a %NULL value.
+ *
+ * One convenient usage of this function is in implementing property settings:
+ * |[
+ *   void
+ *   foo_set_bar (Foo        *foo,
+ *                const char *new_bar)
+ *   {
+ *     g_return_if_fail (IS_FOO (foo));
+ *
+ *     if (g_set_str (&foo->bar, new_bar))
+ *       g_object_notify (foo, "bar");
+ *   }
+ * ]|
+ *
+ * Returns: %TRUE if the value of @str_pointer changed, %FALSE otherwise
+ *
+ * Since: 2.76
+ */
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_76
+static inline gboolean
+g_set_str (char       **str_pointer,
+           const char  *new_str)
+{
+  char *copy;
+
+  if (*str_pointer == new_str ||
+      (*str_pointer && new_str && strcmp (*str_pointer, new_str) == 0))
+    return FALSE;
+
+  copy = g_strdup (new_str);
+  g_free (*str_pointer);
+  *str_pointer = copy;
+
+  return TRUE;
+}
 
 G_END_DECLS
 

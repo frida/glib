@@ -2,6 +2,8 @@
  *
  * Copyright © 2011 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -346,7 +348,7 @@ g_resource_find_overlay (const gchar    *path,
       if (envvar != NULL)
         {
           gchar **parts;
-          gint i, j;
+          gint j;
 
           parts = g_strsplit (envvar, G_SEARCHPATH_SEPARATOR_S, 0);
 
@@ -414,7 +416,7 @@ g_resource_find_overlay (const gchar    *path,
           /* We go out of the way to avoid malloc() in the normal case
            * where the environment variable is not set.
            */
-          static const gchar * const empty_strv[0 + 1];
+          static const gchar *const empty_strv[0 + 1] = { 0 };
           result = empty_strv;
         }
 
@@ -1441,10 +1443,13 @@ g_static_resource_fini (GStaticResource *static_resource)
 
   register_lazy_static_resources_unlocked ();
 
-  resource = g_atomic_pointer_get (&static_resource->resource);
+  resource = g_atomic_pointer_exchange (&static_resource->resource, NULL);
   if (resource)
     {
-      g_atomic_pointer_set (&static_resource->resource, NULL);
+      /* There should be at least two references to the resource now: one for
+       * static_resource->resource, and one in the registered_resources list. */
+      g_assert (g_atomic_int_get (&resource->ref_count) >= 2);
+
       g_resources_unregister_unlocked (resource);
       g_resource_unref (resource);
     }

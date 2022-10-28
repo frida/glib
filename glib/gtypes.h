@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -32,6 +34,10 @@
 #include <glibconfig.h>
 #include <glib/gmacros.h>
 #include <glib/gversionmacros.h>
+
+/* Must be included after the 3 headers above */
+#include <glib/glib-visibility.h>
+
 #include <time.h>
 
 G_BEGIN_DECLS
@@ -110,6 +116,27 @@ typedef gint            (*GCompareDataFunc)     (gconstpointer  a,
 						 gpointer       user_data);
 typedef gboolean        (*GEqualFunc)           (gconstpointer  a,
                                                  gconstpointer  b);
+
+/**
+ * GEqualFuncFull:
+ * @a: a value
+ * @b: a value to compare with
+ * @user_data: user data provided by the caller
+ *
+ * Specifies the type of a function used to test two values for
+ * equality. The function should return %TRUE if both values are equal
+ * and %FALSE otherwise.
+ *
+ * This is a version of #GEqualFunc which provides a @user_data closure from
+ * the caller.
+ *
+ * Returns: %TRUE if @a = @b; %FALSE otherwise
+ * Since: 2.74
+ */
+typedef gboolean        (*GEqualFuncFull)       (gconstpointer  a,
+                                                 gconstpointer  b,
+                                                 gpointer       user_data);
+
 typedef void            (*GDestroyNotify)       (gpointer       data);
 typedef void            (*GFunc)                (gpointer       data,
                                                  gpointer       user_data);
@@ -121,7 +148,7 @@ typedef void            (*GHFunc)               (gpointer       key,
 /**
  * GCopyFunc:
  * @src: (not nullable): A pointer to the data which should be copied
- * @data: Additional data
+ * @user_data: Additional data
  *
  * A function of this signature is used to copy the node data
  * when doing a deep-copy of a tree.
@@ -131,7 +158,7 @@ typedef void            (*GHFunc)               (gpointer       key,
  * Since: 2.4
  */
 typedef gpointer	(*GCopyFunc)            (gconstpointer  src,
-                                                 gpointer       data);
+                                                 gpointer       user_data);
 /**
  * GFreeFunc:
  * @data: a data pointer
@@ -145,7 +172,7 @@ typedef void            (*GFreeFunc)            (gpointer       data);
 /**
  * GTranslateFunc:
  * @str: the untranslated string
- * @data: user data specified when installing the function, e.g.
+ * @user_data: user data specified when installing the function, e.g.
  *  in g_option_group_set_translate_func()
  * 
  * The type of functions which are used to translate user-visible
@@ -155,7 +182,7 @@ typedef void            (*GFreeFunc)            (gpointer       data);
  *  The returned string is owned by GLib and must not be freed.
  */
 typedef const gchar *   (*GTranslateFunc)       (const gchar   *str,
-						 gpointer       data);
+						 gpointer       user_data);
 
 
 /* Define some mathematical constants that aren't available
@@ -424,56 +451,62 @@ typedef const gchar *   (*GTranslateFunc)       (const gchar   *str,
 /* https://bugzilla.gnome.org/show_bug.cgi?id=769104 */
 #if __GNUC__ >= 5 && !defined(__INTEL_COMPILER)
 #define _GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS
-#elif g_macro__has_builtin(__builtin_uadd_overflow)
+#elif g_macro__has_builtin(__builtin_add_overflow)
 #define _GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS
 #endif
 #endif
 
+#ifdef _GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS
+
 #define g_uint_checked_add(dest, a, b) \
-    _GLIB_CHECKED_ADD_U32(dest, a, b)
+    (!__builtin_add_overflow(a, b, dest))
 #define g_uint_checked_mul(dest, a, b) \
-    _GLIB_CHECKED_MUL_U32(dest, a, b)
+    (!__builtin_mul_overflow(a, b, dest))
 
 #define g_uint64_checked_add(dest, a, b) \
-    _GLIB_CHECKED_ADD_U64(dest, a, b)
+    (!__builtin_add_overflow(a, b, dest))
 #define g_uint64_checked_mul(dest, a, b) \
-    _GLIB_CHECKED_MUL_U64(dest, a, b)
+    (!__builtin_mul_overflow(a, b, dest))
 
-#if GLIB_SIZEOF_SIZE_T == 8
 #define g_size_checked_add(dest, a, b) \
-    _GLIB_CHECKED_ADD_U64(dest, a, b)
+    (!__builtin_add_overflow(a, b, dest))
 #define g_size_checked_mul(dest, a, b) \
-    _GLIB_CHECKED_MUL_U64(dest, a, b)
-#else
-#define g_size_checked_add(dest, a, b) \
-    _GLIB_CHECKED_ADD_U32(dest, a, b)
-#define g_size_checked_mul(dest, a, b) \
-    _GLIB_CHECKED_MUL_U32(dest, a, b)
-#endif
+    (!__builtin_mul_overflow(a, b, dest))
+
+#else  /* !_GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS */
 
 /* The names of the following inlines are private.  Use the macro
  * definitions above.
  */
-#ifdef _GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS
-static inline gboolean _GLIB_CHECKED_ADD_U32 (guint32 *dest, guint32 a, guint32 b) {
-  return !__builtin_uadd_overflow(a, b, dest); }
-static inline gboolean _GLIB_CHECKED_MUL_U32 (guint32 *dest, guint32 a, guint32 b) {
-  return !__builtin_umul_overflow(a, b, dest); }
-static inline gboolean _GLIB_CHECKED_ADD_U64 (guint64 *dest, guint64 a, guint64 b) {
-  G_STATIC_ASSERT(sizeof (unsigned long long) == sizeof (guint64));
-  return !__builtin_uaddll_overflow(a, b, (unsigned long long *) dest); }
-static inline gboolean _GLIB_CHECKED_MUL_U64 (guint64 *dest, guint64 a, guint64 b) {
-  return !__builtin_umulll_overflow(a, b, (unsigned long long *) dest); }
-#else
-static inline gboolean _GLIB_CHECKED_ADD_U32 (guint32 *dest, guint32 a, guint32 b) {
+static inline gboolean _GLIB_CHECKED_ADD_UINT (guint *dest, guint a, guint b) {
   *dest = a + b; return *dest >= a; }
-static inline gboolean _GLIB_CHECKED_MUL_U32 (guint32 *dest, guint32 a, guint32 b) {
+static inline gboolean _GLIB_CHECKED_MUL_UINT (guint *dest, guint a, guint b) {
   *dest = a * b; return !a || *dest / a == b; }
-static inline gboolean _GLIB_CHECKED_ADD_U64 (guint64 *dest, guint64 a, guint64 b) {
+static inline gboolean _GLIB_CHECKED_ADD_UINT64 (guint64 *dest, guint64 a, guint64 b) {
   *dest = a + b; return *dest >= a; }
-static inline gboolean _GLIB_CHECKED_MUL_U64 (guint64 *dest, guint64 a, guint64 b) {
+static inline gboolean _GLIB_CHECKED_MUL_UINT64 (guint64 *dest, guint64 a, guint64 b) {
   *dest = a * b; return !a || *dest / a == b; }
-#endif
+static inline gboolean _GLIB_CHECKED_ADD_SIZE (gsize *dest, gsize a, gsize b) {
+  *dest = a + b; return *dest >= a; }
+static inline gboolean _GLIB_CHECKED_MUL_SIZE (gsize *dest, gsize a, gsize b) {
+  *dest = a * b; return !a || *dest / a == b; }
+
+#define g_uint_checked_add(dest, a, b) \
+    _GLIB_CHECKED_ADD_UINT(dest, a, b)
+#define g_uint_checked_mul(dest, a, b) \
+    _GLIB_CHECKED_MUL_UINT(dest, a, b)
+
+#define g_uint64_checked_add(dest, a, b) \
+    _GLIB_CHECKED_ADD_UINT64(dest, a, b)
+#define g_uint64_checked_mul(dest, a, b) \
+    _GLIB_CHECKED_MUL_UINT64(dest, a, b)
+
+#define g_size_checked_add(dest, a, b) \
+    _GLIB_CHECKED_ADD_SIZE(dest, a, b)
+#define g_size_checked_mul(dest, a, b) \
+    _GLIB_CHECKED_MUL_SIZE(dest, a, b)
+
+#endif  /* !_GLIB_HAVE_BUILTIN_OVERFLOW_CHECKS */
 
 /* IEEE Standard 754 Single Precision Storage Format (gfloat):
  *
@@ -554,28 +587,5 @@ typedef gint grefcount;
 typedef gint gatomicrefcount;  /* should be accessed only using atomics */
 
 G_END_DECLS
-
-/* We prefix variable declarations so they can
- * properly get exported in Windows DLLs.
- */
-#ifndef GLIB_VAR
-#  ifdef G_PLATFORM_WIN32
-#    ifdef GLIB_STATIC_COMPILATION
-#      define GLIB_VAR extern
-#    else /* !GLIB_STATIC_COMPILATION */
-#      ifdef GLIB_COMPILATION
-#        ifdef DLL_EXPORT
-#          define GLIB_VAR extern __declspec(dllexport)
-#        else /* !DLL_EXPORT */
-#          define GLIB_VAR extern
-#        endif /* !DLL_EXPORT */
-#      else /* !GLIB_COMPILATION */
-#        define GLIB_VAR extern __declspec(dllimport)
-#      endif /* !GLIB_COMPILATION */
-#    endif /* !GLIB_STATIC_COMPILATION */
-#  else /* !G_PLATFORM_WIN32 */
-#    define GLIB_VAR _GLIB_EXTERN
-#  endif /* !G_PLATFORM_WIN32 */
-#endif /* GLIB_VAR */
 
 #endif /* __G_TYPES_H__ */

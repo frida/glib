@@ -1109,8 +1109,10 @@ test_destroy_target_object (void)
   sender = g_object_new (test_get_type (), NULL);
   target1 = g_object_new (test_get_type (), NULL);
   target2 = g_object_new (test_get_type (), NULL);
-  g_signal_connect_object (sender, "simple", G_CALLBACK (simple_handler1), target1, 0);
-  g_signal_connect_object (sender, "simple", G_CALLBACK (simple_handler2), target2, 0);
+  g_signal_connect_object (sender, "simple", G_CALLBACK (simple_handler1),
+                           target1, G_CONNECT_DEFAULT);
+  g_signal_connect_object (sender, "simple", G_CALLBACK (simple_handler2),
+                           target2, G_CONNECT_DEFAULT);
   g_signal_emit_by_name (sender, "simple");
   g_object_unref (sender);
 }
@@ -1544,13 +1546,13 @@ test_signal_disconnect_wrong_object (void)
                                 NULL);
 
   /* disconnect from the wrong object (same type), should warn */
-  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_WARNING,
+  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_CRITICAL,
                          "*: instance '*' has no handler with id '*'");
   g_signal_handler_disconnect (object2, signal_id);
   g_test_assert_expected_messages ();
 
   /* and from an object of the wrong type */
-  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_WARNING,
+  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_CRITICAL,
                          "*: instance '*' has no handler with id '*'");
   g_signal_handler_disconnect (object3, signal_id);
   g_test_assert_expected_messages ();
@@ -1584,7 +1586,7 @@ test_clear_signal_handler (void)
   if (g_test_undefined ())
     {
       handler = g_random_int_range (0x01, 0xFF);
-      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING,
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
                              "*instance '* has no handler with id *'");
       g_clear_signal_handler (&handler, test_obj);
       g_assert_cmpuint (handler, ==, 0);
@@ -1638,9 +1640,9 @@ test_lookup_invalid (void)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
-  g_test_trap_assert_stderr ("*WARNING*unable to look up invalid signal name*");
+  g_test_trap_assert_stderr ("*CRITICAL*unable to look up invalid signal name*");
 }
 
 static void
@@ -1755,7 +1757,7 @@ test_signals_invalid_name (gconstpointer test_data)
       return;
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*g_signal_is_valid_name (signal_name)*");
 }

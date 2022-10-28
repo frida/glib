@@ -4,6 +4,8 @@
  * giochannel.c: IO Channel abstraction
  * Copyright 1998 Owen Taylor
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -593,7 +595,7 @@ g_io_channel_purge (GIOChannel *channel)
  * @condition: conditions to watch for
  *
  * Creates a #GSource that's dispatched when @condition is met for the 
- * given @channel. For example, if condition is #G_IO_IN, the source will 
+ * given @channel. For example, if condition is %G_IO_IN, the source will
  * be dispatched when there's data available for reading.
  *
  * The callback function invoked by the #GSource should be added with
@@ -677,7 +679,7 @@ g_io_add_watch_full (GIOChannel    *channel,
  * GIOFunc:
  * @source: the #GIOChannel event source
  * @condition: the condition which has been satisfied
- * @data: user data set in g_io_add_watch() or g_io_add_watch_full()
+ * @user_data: user data set in g_io_add_watch() or g_io_add_watch_full()
  *
  * Specifies the type of function passed to g_io_add_watch() or
  * g_io_add_watch_full(), which is called when the requested condition
@@ -944,6 +946,7 @@ g_io_channel_get_line_term (GIOChannel *channel,
  **/
 /**
  * GIOFlags:
+ * @G_IO_FLAG_NONE: no special flags set. Since: 2.74
  * @G_IO_FLAG_APPEND: turns on append mode, corresponds to %O_APPEND
  *     (see the documentation of the UNIX open() syscall)
  * @G_IO_FLAG_NONBLOCK: turns on nonblocking mode, corresponds to
@@ -1180,8 +1183,8 @@ g_io_channel_seek_position (GIOChannel  *channel,
  * Flushes the write buffer for the GIOChannel.
  *
  * Returns: the status of the operation: One of
- *   #G_IO_STATUS_NORMAL, #G_IO_STATUS_AGAIN, or
- *   #G_IO_STATUS_ERROR.
+ *   %G_IO_STATUS_NORMAL, %G_IO_STATUS_AGAIN, or
+ *   %G_IO_STATUS_ERROR.
  **/
 GIOStatus
 g_io_channel_flush (GIOChannel	*channel,

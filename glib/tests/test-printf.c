@@ -639,7 +639,7 @@ test_positional_params2 (void)
       g_assert_cmpint (res, ==, 7);
       return;
     }
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stdout ("a b\n   ab\nabcabc\n");
 }
@@ -674,7 +674,7 @@ test_percent2 (void)
       g_assert_cmpint (res, ==, 1);
       return;
     }
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stdout ("*%*");
 }
@@ -858,13 +858,15 @@ _Pragma ("GCC diagnostic pop")
 static void
 test_64bit2 (void)
 {
-  g_test_trap_subprocess ("/printf/test-64bit/subprocess/base", 0, 0);
+  g_test_trap_subprocess ("/printf/test-64bit/subprocess/base", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stdout ("123456\n-123456\n123456\n"
                              "361100\n0361100\n1e240\n"
                              "0x1e240\n1E240\n");
 #ifdef G_OS_WIN32
-  g_test_trap_subprocess ("/printf/test-64bit/subprocess/win32", 0, 0);
+  g_test_trap_subprocess ("/printf/test-64bit/subprocess/win32", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
   g_test_trap_assert_stdout ("123456\n-123456\n123456\n"
                              "361100\n0361100\n1e240\n"
@@ -893,6 +895,52 @@ test_upper_bound (void)
 
   res = upper_bound ("bla %s %d: %g\n", "bla", 123, 0.123);
   g_assert_cmpint (res, ==, 20);
+}
+
+#if !defined(G_OS_DARWIN) && !defined(__FreeBSD__)
+static gint test_vasprintf_va (gchar       **string,
+                               const gchar  *format,
+                               ...) G_GNUC_PRINTF (2, 3);
+
+/* Wrapper around g_vasprintf() which takes varargs */
+static gint
+test_vasprintf_va (gchar       **string,
+                   const gchar  *format,
+                   ...)
+{
+  va_list args;
+  gint len;
+
+  va_start (args, format);
+  len = g_vasprintf (string, format, args);
+  va_end (args);
+
+  return len;
+}
+#endif  /* !defined(G_OS_DARWIN) && !defined(__FreeBSD__) */
+
+static void
+test_vasprintf_invalid_format_placeholder (void)
+{
+#if !defined(G_OS_DARWIN) && !defined(__FreeBSD__)
+  gint len = 0;
+  gchar *buf = "some non-null string";
+#endif
+
+  g_test_summary ("Test error handling for invalid format placeholder in g_vasprintf()");
+
+#if !defined(G_OS_DARWIN) && !defined(__FreeBSD__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat"
+#pragma GCC diagnostic ignored "-Wformat-extra-args"
+  len = test_vasprintf_va (&buf, "%l", "nope");
+#pragma GCC diagnostic pop
+
+  g_assert_cmpint (len, ==, -1);
+  g_assert_null (buf);
+#else
+  g_test_skip ("vasprintf() placeholder checks on BSDs are less strict");
+#endif
 }
 
 int
@@ -934,6 +982,8 @@ main (int   argc,
 
   g_test_add_func ("/sprintf/test-positional-params", test_positional_params3);
   g_test_add_func ("/sprintf/upper-bound", test_upper_bound);
+
+  g_test_add_func ("/vasprintf/invalid-format-placeholder", test_vasprintf_invalid_format_placeholder);
 
   return g_test_run();
 }

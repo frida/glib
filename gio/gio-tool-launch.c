@@ -1,6 +1,8 @@
 /*
  * Copyright 2020 Frederic Martinsons
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -21,7 +23,7 @@
 
 #include <gio/gio.h>
 
-#if defined(G_OS_UNIX) && !defined(HAVE_COCOA)
+#if defined(G_OS_UNIX) && !defined(G_OS_DARWIN)
 #include <gio/gdesktopappinfo.h>
 #endif
 
@@ -38,7 +40,7 @@ handle_launch (int argc, char *argv[], gboolean do_help)
 {
   GOptionContext *context;
   GError *error = NULL;
-#if defined(G_OS_UNIX) && !defined(HAVE_COCOA)
+#if defined(G_OS_UNIX) && !defined(G_OS_DARWIN)
   int i;
   GAppInfo *app = NULL;
   GAppLaunchContext *app_context = NULL;
@@ -81,7 +83,7 @@ handle_launch (int argc, char *argv[], gboolean do_help)
 
   g_option_context_free (context);
 
-#if !defined(G_OS_UNIX) || defined(HAVE_COCOA)
+#if !defined(G_OS_UNIX) || defined(G_OS_DARWIN)
   print_error (_("The launch command is not currently supported on this platform"));
   retval = 1;
 #else

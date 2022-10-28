@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -107,7 +109,7 @@ usage (gint *argc, gchar **argv[], gboolean use_stdout)
   g_option_context_set_help_enabled (o, FALSE);
   /* Ignore parsing result */
   g_option_context_parse (o, argc, argv, NULL);
-  program_name = g_path_get_basename ((*argv)[0]);
+  program_name = (*argc > 0) ? g_path_get_basename ((*argv)[0]) : g_strdup ("gdbus-tool");
   s = g_strdup_printf (_("Commands:\n"
                          "  help         Shows this information\n"
                          "  introspect   Introspect a remote object\n"
@@ -141,6 +143,7 @@ modify_argv0_for_command (gint *argc, gchar **argv[], const gchar *command)
    *  2. save old argv[0] and restore later
    */
 
+  g_assert (*argc > 1);
   g_assert (g_strcmp0 ((*argv)[1], command) == 0);
   remove_arg (1, argc, argv);
 
@@ -887,6 +890,7 @@ static gchar *opt_call_dest = NULL;
 static gchar *opt_call_object_path = NULL;
 static gchar *opt_call_method = NULL;
 static gint opt_call_timeout = -1;
+static gboolean opt_call_interactive = FALSE;
 
 static const GOptionEntry call_entries[] =
 {
@@ -894,6 +898,7 @@ static const GOptionEntry call_entries[] =
   { "object-path", 'o', 0, G_OPTION_ARG_STRING, &opt_call_object_path, N_("Object path to invoke method on"), NULL},
   { "method", 'm', 0, G_OPTION_ARG_STRING, &opt_call_method, N_("Method and interface name"), NULL},
   { "timeout", 't', 0, G_OPTION_ARG_INT, &opt_call_timeout, N_("Timeout in seconds"), NULL},
+  { "interactive", 'i', 0, G_OPTION_ARG_NONE, &opt_call_interactive, N_("Allow interactive authorization"), NULL},
   G_OPTION_ENTRY_NULL
 };
 
@@ -925,6 +930,7 @@ handle_call (gint        *argc,
   gboolean skip_dashes;
   guint parm;
   guint n;
+  GDBusCallFlags flags;
 
   ret = FALSE;
   c = NULL;
@@ -1204,6 +1210,11 @@ handle_call (gint        *argc,
 
   if (parameters != NULL)
     parameters = g_variant_ref_sink (parameters);
+
+  flags = G_DBUS_CALL_FLAGS_NONE;
+  if (opt_call_interactive)
+    flags |= G_DBUS_CALL_FLAGS_ALLOW_INTERACTIVE_AUTHORIZATION;
+
 #ifdef G_OS_UNIX
   result = g_dbus_connection_call_with_unix_fd_list_sync (c,
                                                           opt_call_dest,
@@ -1212,7 +1223,7 @@ handle_call (gint        *argc,
                                                           method_name,
                                                           parameters,
                                                           NULL,
-                                                          G_DBUS_CALL_FLAGS_NONE,
+                                                          flags,
                                                           opt_call_timeout > 0 ? opt_call_timeout * 1000 : opt_call_timeout,
                                                           fd_list,
                                                           NULL,
@@ -1226,7 +1237,7 @@ handle_call (gint        *argc,
 					method_name,
 					parameters,
 					NULL,
-					G_DBUS_CALL_FLAGS_NONE,
+					flags,
 					opt_call_timeout > 0 ? opt_call_timeout * 1000 : opt_call_timeout,
 					NULL,
 					&error);
@@ -1239,19 +1250,19 @@ handle_call (gint        *argc,
         {
           if (in_signature_types->len > 0)
             {
-              GString *s;
-              s = g_string_new (NULL);
+              GString *str;
+              str = g_string_new (NULL);
 
               for (n = 0; n < in_signature_types->len; n++)
                 {
                   GVariantType *type = in_signature_types->pdata[n];
-                  g_string_append_len (s,
+                  g_string_append_len (str,
                                        g_variant_type_peek_string (type),
                                        g_variant_type_get_string_length (type));
                 }
 
-              g_printerr ("(According to introspection data, you need to pass '%s')\n", s->str);
-              g_string_free (s, TRUE);
+              g_printerr ("(According to introspection data, you need to pass '%s')\n", str->str);
+              g_string_free (str, TRUE);
             }
           else
             g_printerr ("(According to introspection data, you need to pass no arguments)\n");
@@ -1523,7 +1534,6 @@ dump_interface (GDBusConnection          *c,
         }
       else
         {
-          guint n;
           for (n = 0; o->properties != NULL && o->properties[n] != NULL; n++)
             {
               result = g_dbus_connection_call_sync (c,
@@ -2441,8 +2451,6 @@ main (gint argc, gchar *argv[])
 #ifdef G_OS_WIN32
   gchar *tmp;
 #endif
-
-  glib_init ();
 
   setlocale (LC_ALL, "");
   textdomain (GETTEXT_PACKAGE);

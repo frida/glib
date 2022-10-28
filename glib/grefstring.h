@@ -2,6 +2,8 @@
  *
  * Copyright 2018  Emmanuele Bassi
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -16,8 +18,7 @@
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __G_REFSTRING_H__
-#define __G_REFSTRING_H__
+#pragma once
 
 #include "gmem.h"
 #include "gmacros.h"
@@ -56,5 +57,3 @@ gsize   g_ref_string_length     (char       *str);
 typedef char GRefString;
 
 G_END_DECLS
-
-#endif /* __G_REFSTRING_H__ */

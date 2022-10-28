@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -172,7 +174,7 @@ g_file_monitor_class_init (GFileMonitorClass *klass)
    * that the %G_FILE_MONITOR_WATCH_MOVES flag is not in use.
    *
    * If using the deprecated flag %G_FILE_MONITOR_SEND_MOVED flag and @event_type is
-   * #G_FILE_MONITOR_EVENT_MOVED, @file will be set to a #GFile containing the
+   * %G_FILE_MONITOR_EVENT_MOVED, @file will be set to a #GFile containing the
    * old path, and @other_file will be set to a #GFile containing the new path.
    *
    * In all the other cases, @other_file will be set to #NULL.

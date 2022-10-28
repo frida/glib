@@ -3,6 +3,8 @@
  *  Copyright 2000, 2003 Red Hat, Inc.
  *  Copyright 2007, 2008 Ryan Lortie <desrt@desrt.ca>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -1032,7 +1034,7 @@ emit_start_element (GMarkupParseContext  *context,
    */
   if ((context->flags & G_MARKUP_IGNORE_QUALIFIED) && strchr (current_element (context), ':'))
     {
-      static const GMarkupParser ignore_parser;
+      static const GMarkupParser ignore_parser = { 0 };
       g_markup_parse_context_push (context, &ignore_parser, NULL);
       clear_attributes (context);
       return;
@@ -2528,7 +2530,7 @@ g_markup_vprintf_escaped (const gchar *format,
 
   /* Use them to format the arguments
    */
-  G_VA_COPY (args2, args);
+  va_copy (args2, args);
 
   output1 = g_strdup_vprintf (format1->str, args);
 

@@ -24,20 +24,10 @@
 /* Specification.  */
 #include "localcharset.h"
 
-#include "glib/glib.h"
-
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-
-/* Use GLib memory allocation */
-#undef malloc
-#undef realloc
-#undef free
-#define malloc  g_malloc
-#define realloc g_realloc
-#define free    g_free
 
 #if defined _WIN32 || defined __WIN32__
 # define WIN32_NATIVE
@@ -122,8 +112,6 @@ _g_locale_get_charset_aliases (void)
   if (cp == NULL)
     {
 #if !(defined VMS || defined WIN32_NATIVE || defined __CYGWIN__)
-      cp = "";
-#if 0
       FILE *fp;
       const char *dir;
       const char *base = "charset.alias";
@@ -218,7 +206,6 @@ _g_locale_get_charset_aliases (void)
       if (file_name != NULL)
 	free (file_name);
 
-#endif
 #else
 
 # if defined VMS

@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -51,9 +53,7 @@
 #include <io.h>
 #endif
 
-#ifdef G_OS_UNIX
 #include "gunixsocketaddress.h"
-#endif
 
 #include "glibintl.h"
 
@@ -630,7 +630,7 @@ g_dbus_server_start (GDBusServer *server)
                                                          G_CALLBACK (on_run),
                                                          g_object_ref (server),
                                                          (GClosureNotify) g_object_unref,
-                                                         0  /* flags */);
+                                                         G_CONNECT_DEFAULT);
   g_socket_service_start (G_SOCKET_SERVICE (server->listener));
   server->active = TRUE;
   g_object_notify (G_OBJECT (server), "active");
@@ -672,8 +672,6 @@ g_dbus_server_stop (GDBusServer *server)
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
-
-#ifdef G_OS_UNIX
 
 static gint
 random_ascii (void)
@@ -727,14 +725,7 @@ try_unix (GDBusServer  *server,
       for (n = 0; n < 8; n++)
         g_string_append_c (s, random_ascii ());
 
-      /* prefer abstract namespace if available for tmpdir: addresses
-       * abstract namespace is disallowed for dir: addresses */
-      if (tmpdir != NULL && g_unix_socket_address_abstract_names_supported ())
-        address = g_unix_socket_address_new_with_type (s->str,
-                                                       -1,
-                                                       G_UNIX_SOCKET_ADDRESS_ABSTRACT);
-      else
-        address = g_unix_socket_address_new (s->str);
+      address = g_unix_socket_address_new (s->str);
       g_string_free (s, TRUE);
 
       local_error = NULL;
@@ -823,7 +814,6 @@ try_unix (GDBusServer  *server,
     }
   return ret;
 }
-#endif
 
 /* ---------------------------------------------------------------------------------------------------- */
 
@@ -927,12 +917,12 @@ try_tcp (GDBusServer  *server,
       bytes_remaining = 16;
       while (bytes_remaining > 0)
         {
-          gssize ret;
+          gssize size;
           int errsv;
 
-          ret = write (fd, server->nonce + bytes_written, bytes_remaining);
+          size = write (fd, server->nonce + bytes_written, bytes_remaining);
           errsv = errno;
-          if (ret == -1)
+          if (size == -1)
             {
               if (errsv == EINTR)
                 goto again;
@@ -944,8 +934,8 @@ try_tcp (GDBusServer  *server,
                            g_strerror (errsv));
               goto out;
             }
-          bytes_written += ret;
-          bytes_remaining -= ret;
+          bytes_written += size;
+          bytes_remaining -= size;
         }
       if (!g_close (fd, error))
         goto out;
@@ -1142,10 +1132,8 @@ initable_init (GInitable     *initable,
           if (FALSE)
             {
             }
-#ifdef G_OS_UNIX
           else if (g_strcmp0 (transport_name, "unix") == 0)
             ret = try_unix (server, address_entry, key_value_pairs, &this_error);
-#endif
           else if (g_strcmp0 (transport_name, "tcp") == 0)
             ret = try_tcp (server, address_entry, key_value_pairs, FALSE, &this_error);
           else if (g_strcmp0 (transport_name, "nonce-tcp") == 0)

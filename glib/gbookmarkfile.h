@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2005-2006 Emmanuele Bassi
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -81,6 +83,9 @@ GLIB_AVAILABLE_IN_ALL
 GBookmarkFile *g_bookmark_file_new                 (void);
 GLIB_AVAILABLE_IN_ALL
 void           g_bookmark_file_free                (GBookmarkFile  *bookmark);
+
+GLIB_AVAILABLE_IN_2_76
+GBookmarkFile *g_bookmark_file_copy                (GBookmarkFile  *bookmark);
 
 GLIB_AVAILABLE_IN_ALL
 gboolean       g_bookmark_file_load_from_file      (GBookmarkFile  *bookmark,

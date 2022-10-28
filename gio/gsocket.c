@@ -5,6 +5,8 @@
  * Copyright © 2009 Red Hat, Inc
  * Copyright © 2015 Collabora, Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -77,8 +79,7 @@
 #include "gioprivate.h"
 
 #ifdef G_OS_WIN32
-/* For Windows XP runtime compatibility, but use the system's if_nametoindex() if available */
-#include "gwin32networking.h"
+#include "giowin32-afunix.h"
 #endif
 
 /**
@@ -464,10 +465,9 @@ g_socket_details_from_fd (GSocket *socket)
   int value, family;
   int errsv;
 
+  memset (&address, 0, sizeof (address));
+
   fd = socket->priv->fd;
-
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-
   if (!g_socket_get_option (socket, SOL_SOCKET, SO_TYPE, &value, NULL))
     {
       errsv = get_socket_errno ();
@@ -600,10 +600,7 @@ g_socket (gint     domain,
   fd = socket (domain, type | SOCK_CLOEXEC, protocol);
   errsv = errno;
   if (fd != -1)
-    {
-      glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-      return fd;
-    }
+    return fd;
 
   /* It's possible that libc has SOCK_CLOEXEC but the kernel does not */
   if (fd < 0 && (errsv == EINVAL || errsv == EPROTOTYPE))
@@ -619,8 +616,6 @@ g_socket (gint     domain,
       errno = errsv;
       return -1;
     }
-
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
 
 #ifndef G_OS_WIN32
   {
@@ -927,6 +922,19 @@ static void
 g_socket_class_init (GSocketClass *klass)
 {
   GObjectClass *gobject_class G_GNUC_UNUSED = G_OBJECT_CLASS (klass);
+
+#ifdef SIGPIPE
+  /* There is no portable, thread-safe way to avoid having the process
+   * be killed by SIGPIPE when calling send() or sendmsg(), so we are
+   * forced to simply ignore the signal process-wide.
+   *
+   * Even if we ignore it though, gdb will still stop if the app
+   * receives a SIGPIPE, which can be confusing and annoying. So when
+   * possible, we also use MSG_NOSIGNAL / SO_NOSIGPIPE elsewhere to
+   * prevent the signal from occurring at all.
+   */
+  signal (SIGPIPE, SIG_IGN);
+#endif
 
   gobject_class->finalize = g_socket_finalize;
   gobject_class->constructed = g_socket_constructed;
@@ -2216,63 +2224,6 @@ g_socket_bind (GSocket         *socket,
 }
 
 #ifdef G_OS_WIN32
-
-#ifndef HAVE_IF_NAMETOINDEX
-static guint
-if_nametoindex (const gchar *iface)
-{
-  PIP_ADAPTER_ADDRESSES addresses = NULL, p;
-  gulong addresses_len = 0;
-  guint idx = 0;
-  DWORD res;
-
-  if (ws2funcs.pIfNameToIndex != NULL)
-    return ws2funcs.pIfNameToIndex (iface);
-
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, NULL, &addresses_len);
-  if (res != NO_ERROR && res != ERROR_BUFFER_OVERFLOW)
-    {
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
-    }
-
-  addresses = g_malloc (addresses_len);
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, addresses, &addresses_len);
-
-  if (res != NO_ERROR)
-    {
-      g_free (addresses);
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
-    }
-
-  p = addresses;
-  while (p)
-    {
-      if (strcmp (p->AdapterName, iface) == 0)
-        {
-          idx = p->IfIndex;
-          break;
-        }
-      p = p->Next;
-    }
-
-  if (p == NULL)
-    errno = ENXIO;
-
-  g_free (addresses);
-
-  return idx;
-}
-#define HAVE_IF_NAMETOINDEX 1
-#endif
-
 static gulong
 g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
 {
@@ -2281,7 +2232,7 @@ g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
   unsigned int malloc_iterations = 0;
   PIP_ADAPTER_ADDRESSES addr_buf = NULL, eth_adapter;
   wchar_t *wchar_name_or_ip = NULL;
-  gulong ip_result;
+  gulong ip_result = 0;
   NET_IFINDEX if_index;
 
   /*
@@ -2300,8 +2251,7 @@ g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
    */
 
   /* Step 1: Check if string is an IP address: */
-  ip_result = inet_addr (name_or_ip);
-  if (ip_result != INADDR_NONE)
+  if (inet_pton (AF_INET, name_or_ip, &ip_result) == 1)
     return ip_result;  /* Success, IP address string was given directly */
 
   /*
@@ -2658,8 +2608,12 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
             S_ADDR_FIELD(mc_req_src) = iface_addr->sin_addr.s_addr;
 #endif  /* defined(G_OS_WIN32) && defined (HAVE_IF_NAMETOINDEX) */
           }
+
+        g_assert (g_inet_address_get_native_size (group) == sizeof (mc_req_src.imr_multiaddr));
         memcpy (&mc_req_src.imr_multiaddr, g_inet_address_to_bytes (group),
                 g_inet_address_get_native_size (group));
+
+        g_assert (g_inet_address_get_native_size (source_specific) == sizeof (mc_req_src.imr_sourceaddr));
         memcpy (&mc_req_src.imr_sourceaddr,
                 g_inet_address_to_bytes (source_specific),
                 g_inet_address_get_native_size (source_specific));
@@ -2982,7 +2936,6 @@ g_socket_accept (GSocket       *socket,
 #else
       close (ret);
 #endif
-      glib_fd_callbacks->on_fd_closed (ret, "GSocket");
     }
   else
     new_socket->priv->protocol = socket->priv->protocol;
@@ -3779,9 +3732,6 @@ g_socket_close (GSocket  *socket,
 		       socket_strerror (errsv));
 	  return FALSE;
 	}
-
-      glib_fd_callbacks->on_fd_closed (socket->priv->fd, "GSocket");
-
       break;
     }
 
@@ -3944,7 +3894,7 @@ update_condition_unlocked (GSocket *socket)
 
   if (socket->priv->current_events & FD_CLOSE)
     {
-      int r, errsv, buffer;
+      int r, errsv = NO_ERROR, buffer;
 
       r = recv (socket->priv->fd, &buffer, sizeof (buffer), MSG_PEEK);
       if (r < 0)
@@ -4058,7 +4008,10 @@ socket_source_dispatch (GSource     *source,
   gboolean ret;
 
 #ifdef G_OS_WIN32
-  events = update_condition (socket_source->socket);
+  if ((socket_source->pollfd.revents & G_IO_NVAL) != 0)
+    events = G_IO_NVAL;
+  else
+    events = update_condition (socket_source->socket);
 #else
   if (g_socket_is_closed (socket_source->socket))
     {
@@ -4631,8 +4584,7 @@ G_STMT_START { \
       _msg->msg_control = NULL; \
     else \
       { \
-        _msg->msg_control = g_alloca (_msg->msg_controllen); \
-        memset (_msg->msg_control, '\0', _msg->msg_controllen); \
+        _msg->msg_control = g_alloca0 (_msg->msg_controllen); \
       } \
  \
     cmsg = CMSG_FIRSTHDR (_msg); \
@@ -6117,10 +6069,22 @@ g_socket_get_credentials (GSocket   *socket,
       {
         if (cred.cr_version == XUCRED_VERSION)
           {
+            pid_t pid;
+            socklen_t optlen = sizeof (pid);
+
             ret = g_credentials_new ();
             g_credentials_set_native (ret,
                                       G_CREDENTIALS_NATIVE_TYPE,
                                       &cred);
+
+#ifdef LOCAL_PEERPID
+            if (getsockopt (socket->priv->fd,
+                            SOL_LOCAL,
+                            LOCAL_PEERPID,
+                            &pid,
+                            &optlen) == 0)
+              _g_credentials_set_local_peerid (ret, pid);
+#endif
           }
         else
           {
@@ -6176,6 +6140,23 @@ g_socket_get_credentials (GSocket   *socket,
                                   G_CREDENTIALS_TYPE_SOLARIS_UCRED,
                                   ucred);
         ucred_free (ucred);
+      }
+  }
+#elif G_CREDENTIALS_USE_WIN32_PID
+  {
+    DWORD peerid, drc;
+
+    if (WSAIoctl (socket->priv->fd, SIO_AF_UNIX_GETPEERPID,
+                  NULL, 0U,
+                  &peerid, sizeof(peerid),
+                  /* Windows bug: always 0 https://github.com/microsoft/WSL/issues/4676 */
+                  &drc,
+                  NULL, NULL) == 0)
+      {
+        ret = g_credentials_new ();
+        g_credentials_set_native (ret,
+                                  G_CREDENTIALS_TYPE_WIN32_PID,
+                                  &peerid);
       }
   }
 #else

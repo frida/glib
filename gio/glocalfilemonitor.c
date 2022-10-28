@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -348,7 +350,6 @@ g_file_monitor_source_handle_event (GFileMonitorSource *fms,
                                     gint64              event_time)
 {
   gboolean interesting = TRUE;
-  GFileMonitor *instance = NULL;
 
   g_assert (!child || is_basename (child));
   g_assert (!rename_to || is_basename (rename_to));
@@ -359,9 +360,24 @@ g_file_monitor_source_handle_event (GFileMonitorSource *fms,
 
   g_mutex_lock (&fms->lock);
 
-  /* monitor is already gone -- don't bother */
-  instance = g_weak_ref_get (&fms->instance_ref);
-  if (instance == NULL)
+  /* NOTE:
+   *
+   * We process events even if the file monitor has already been disposed.
+   * The reason is that we must not take a reference to the instance here as
+   * destroying it from the event handling thread will lead to a deadlock when
+   * taking the lock in _ih_sub_cancel.
+   *
+   * This results in seemingly-unbounded growth of the `event_queue` with the
+   * calls to `g_file_monitor_source_queue_event()`. However, each of those sets
+   * the ready time on the #GSource, which means that it will be dispatched in
+   * a subsequent iteration of the #GMainContext it’s attached to. At that
+   * point, `g_file_monitor_source_dispatch()` will return %FALSE, and this will
+   * trigger finalisation of the source. That will clear the `event_queue`.
+   *
+   * If the source is no longer attached, this will return early to prevent
+   * unbounded queueing.
+   */
+  if (g_source_is_destroyed ((GSource *) fms))
     {
       g_mutex_unlock (&fms->lock);
       return TRUE;
@@ -406,7 +422,7 @@ g_file_monitor_source_handle_event (GFileMonitorSource *fms,
       g_assert (!other && rename_to);
       if (fms->flags & (G_FILE_MONITOR_WATCH_MOVES | G_FILE_MONITOR_SEND_MOVED))
         {
-          GFile *other;
+          GFile *other_file;
           const gchar *dirname;
           gchar *allocated_dirname = NULL;
           GFileMonitorEvent event;
@@ -421,11 +437,11 @@ g_file_monitor_source_handle_event (GFileMonitorSource *fms,
               dirname = allocated_dirname;
             }
 
-          other = g_local_file_new_from_dirname_and_basename (dirname, rename_to);
+          other_file = g_local_file_new_from_dirname_and_basename (dirname, rename_to);
           g_file_monitor_source_file_changes_done (fms, rename_to);
-          g_file_monitor_source_send_event (fms, event, child, other);
+          g_file_monitor_source_send_event (fms, event, child, other_file);
 
-          g_object_unref (other);
+          g_object_unref (other_file);
           g_free (allocated_dirname);
         }
       else
@@ -452,7 +468,6 @@ g_file_monitor_source_handle_event (GFileMonitorSource *fms,
   g_file_monitor_source_update_ready_time (fms);
 
   g_mutex_unlock (&fms->lock);
-  g_clear_object (&instance);
 
   return interesting;
 }
@@ -599,9 +614,9 @@ g_file_monitor_source_dispose (GFileMonitorSource *fms)
 
   g_file_monitor_source_update_ready_time (fms);
 
-  g_mutex_unlock (&fms->lock);
-
   g_source_destroy ((GSource *) fms);
+
+  g_mutex_unlock (&fms->lock);
 }
 
 static void
@@ -794,7 +809,8 @@ g_local_file_monitor_start (GLocalFileMonitor *local_monitor,
 
       local_monitor->mount_monitor = g_unix_mount_monitor_get ();
       g_signal_connect_object (local_monitor->mount_monitor, "mounts-changed",
-                               G_CALLBACK (g_local_file_monitor_mounts_changed), local_monitor, 0);
+                               G_CALLBACK (g_local_file_monitor_mounts_changed), local_monitor,
+                               G_CONNECT_DEFAULT);
 #endif
     }
 
@@ -909,7 +925,7 @@ g_local_file_monitor_new_in_worker (const gchar           *pathname,
     {
       if (callback)
         g_signal_connect_data (monitor, "changed", G_CALLBACK (callback),
-                               user_data, destroy_user_data, 0  /* flags */);
+                               user_data, destroy_user_data, G_CONNECT_DEFAULT);
 
       g_local_file_monitor_start (monitor, pathname, is_directory, flags, GLIB_PRIVATE_CALL(g_get_worker_context) ());
     }

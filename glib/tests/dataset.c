@@ -179,13 +179,13 @@ test_dataset_id (void)
   g_assert (ret == NULL);
 }
 
-static GData *list;
+static GData *global_list;
 
 static void
 free_one (gpointer data)
 {
   /* recurse */
-  g_datalist_clear (&list);
+  g_datalist_clear (&global_list);
 }
 
 static void
@@ -194,15 +194,15 @@ test_datalist_clear (void)
   /* Need to use a subprocess because it will deadlock if it fails */
   if (g_test_subprocess ())
     {
-      g_datalist_init (&list);
-      g_datalist_set_data_full (&list, "one", GINT_TO_POINTER (1), free_one);
-      g_datalist_set_data_full (&list, "two", GINT_TO_POINTER (2), NULL);
-      g_datalist_clear (&list);
-      g_assert (list == NULL);
+      g_datalist_init (&global_list);
+      g_datalist_set_data_full (&global_list, "one", GINT_TO_POINTER (1), free_one);
+      g_datalist_set_data_full (&global_list, "two", GINT_TO_POINTER (2), NULL);
+      g_datalist_clear (&global_list);
+      g_assert (global_list == NULL);
       return;
     }
 
-  g_test_trap_subprocess (NULL, 500000, 0);
+  g_test_trap_subprocess (NULL, 500000, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
 }
 
@@ -250,6 +250,75 @@ test_datalist_id (void)
   g_datalist_clear (&list);
 }
 
+static void
+test_datalist_id_remove_multiple (void)
+{
+  /* Test that g_datalist_id_remove_multiple() removes all the keys it
+   * is given. */
+  GData *list = NULL;
+  GQuark one = g_quark_from_static_string ("one");
+  GQuark two = g_quark_from_static_string ("two");
+  GQuark three = g_quark_from_static_string ("three");
+  GQuark keys[] = {
+    one,
+    two,
+    three,
+  };
+
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/2672");
+
+  g_datalist_init (&list);
+  g_datalist_id_set_data (&list, one, GINT_TO_POINTER (1));
+  g_datalist_id_set_data (&list, two, GINT_TO_POINTER (2));
+  g_datalist_id_set_data (&list, three, GINT_TO_POINTER (3));
+
+  destroy_count = 0;
+  g_datalist_foreach (&list, (GDataForeachFunc) notify, NULL);
+  g_assert_cmpint (destroy_count, ==, 3);
+
+  g_datalist_id_remove_multiple (&list, keys, G_N_ELEMENTS (keys));
+
+  destroy_count = 0;
+  g_datalist_foreach (&list, (GDataForeachFunc) notify, NULL);
+  g_assert_cmpint (destroy_count, ==, 0);
+}
+
+static void
+destroy_func (gpointer data)
+{
+  destroy_count++;
+  g_assert_cmpint (GPOINTER_TO_INT (data), ==, destroy_count);
+}
+
+static void
+test_datalist_id_remove_multiple_destroy_order (void)
+{
+  /* Test that destroy-funcs are called in the order that the keys are
+   * specified, not the order that they are found in the datalist. */
+  GData *list = NULL;
+  GQuark one = g_quark_from_static_string ("one");
+  GQuark two = g_quark_from_static_string ("two");
+  GQuark three = g_quark_from_static_string ("three");
+  GQuark keys[] = {
+    one,
+    two,
+    three,
+  };
+
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/2672");
+
+  g_datalist_init (&list);
+
+  g_datalist_id_set_data_full (&list, two, GINT_TO_POINTER (2), destroy_func);
+  g_datalist_id_set_data_full (&list, three, GINT_TO_POINTER (3), destroy_func);
+  g_datalist_id_set_data_full (&list, one, GINT_TO_POINTER (1), destroy_func);
+
+  destroy_count = 0;
+  g_datalist_id_remove_multiple (&list, keys, G_N_ELEMENTS (keys));
+  /* This verifies that destroy_func() was called three times: */
+  g_assert_cmpint (destroy_count, ==, 3);
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -265,6 +334,9 @@ main (int argc, char *argv[])
   g_test_add_func ("/datalist/basic", test_datalist_basic);
   g_test_add_func ("/datalist/id", test_datalist_id);
   g_test_add_func ("/datalist/recursive-clear", test_datalist_clear);
+  g_test_add_func ("/datalist/id-remove-multiple", test_datalist_id_remove_multiple);
+  g_test_add_func ("/datalist/id-remove-multiple-destroy-order",
+                   test_datalist_id_remove_multiple_destroy_order);
 
   return g_test_run ();
 }

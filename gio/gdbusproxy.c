@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -593,11 +595,15 @@ g_dbus_proxy_class_init (GDBusProxyClass *klass)
    *
    * Emitted when a signal from the remote object and interface that @proxy is for, has been received.
    *
+   * Since 2.72 this signal supports detailed connections. You can connect to
+   * the detailed signal `g-signal::x` in order to receive callbacks only when
+   * signal `x` is received from the remote object.
+   *
    * Since: 2.26
    */
   signals[SIGNAL_SIGNAL] = g_signal_new (I_("g-signal"),
                                          G_TYPE_DBUS_PROXY,
-                                         G_SIGNAL_RUN_LAST | G_SIGNAL_MUST_COLLECT,
+                                         G_SIGNAL_RUN_LAST | G_SIGNAL_DETAILED | G_SIGNAL_MUST_COLLECT,
                                          G_STRUCT_OFFSET (GDBusProxyClass, g_signal),
                                          NULL,
                                          NULL,
@@ -890,7 +896,7 @@ on_signal_received (GDBusConnection *connection,
 
   g_signal_emit (proxy,
                  signals[SIGNAL_SIGNAL],
-                 0,
+                 g_quark_try_string (signal_name),
                  sender_name,
                  signal_name,
                  parameters);

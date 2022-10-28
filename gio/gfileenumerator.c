@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -721,7 +723,7 @@ g_file_enumerator_get_container (GFileEnumerator *enumerator)
  * directory of @enumerator.  This function is primarily intended to be used
  * inside loops with g_file_enumerator_next_file().
  *
- * To use this, #G_FILE_ATTRIBUTE_STANDARD_NAME must have been listed in the
+ * To use this, %G_FILE_ATTRIBUTE_STANDARD_NAME must have been listed in the
  * attributes list used when creating the #GFileEnumerator.
  *
  * This is a convenience method that's equivalent to:

@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -857,11 +859,12 @@ GFileAttributeInfoList *
 g_file_attribute_info_list_ref (GFileAttributeInfoList *list)
 {
   GFileAttributeInfoListPriv *priv = (GFileAttributeInfoListPriv *)list;
+  int old_ref_count;
 
   g_return_val_if_fail (list != NULL, NULL);
-  g_return_val_if_fail (priv->ref_count > 0, NULL);
 
-  g_atomic_int_inc (&priv->ref_count);
+  old_ref_count = g_atomic_int_add (&priv->ref_count, 1);
+  g_return_val_if_fail (old_ref_count > 0, NULL);
 
   return list;
 }

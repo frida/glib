@@ -1,6 +1,8 @@
 /*
  * Copyright © 2013 Canonical Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -437,8 +439,6 @@ app_list_actions (gchar **args)
 int
 main (int argc, char **argv)
 {
-  glib_init ();
-
   setlocale (LC_ALL, "");
   textdomain (GETTEXT_PACKAGE);
   bindtextdomain (GETTEXT_PACKAGE, GLIB_LOCALE_DIR);

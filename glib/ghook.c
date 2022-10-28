@@ -4,6 +4,8 @@
  * GHook: Callback maintenance functions
  * Copyright (C) 1998 Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -582,7 +584,7 @@ g_hook_list_invoke_check (GHookList *hook_list,
 /**
  * GHookCheckMarshaller:
  * @hook: a #GHook
- * @marshal_data: user data
+ * @user_data: user data
  *
  * Defines the type of function used by g_hook_list_marshal_check().
  *
@@ -634,7 +636,7 @@ g_hook_list_marshal_check (GHookList	       *hook_list,
 /**
  * GHookMarshaller:
  * @hook: a #GHook
- * @marshal_data: user data
+ * @user_data: user data
  *
  * Defines the type of function used by g_hook_list_marshal().
  */
@@ -791,7 +793,7 @@ g_hook_get (GHookList *hook_list,
 /**
  * GHookFindFunc:
  * @hook: a #GHook
- * @data: user data passed to g_hook_find_func()
+ * @user_data: user data passed to g_hook_find_func()
  *
  * Defines the type of the function passed to g_hook_find().
  *

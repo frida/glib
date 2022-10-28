@@ -4,6 +4,8 @@
  * GQueue: Double ended queue implementation, piggy backed on GList.
  * Copyright (C) 1998 Tim Janik
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -41,7 +43,7 @@
  *
  * To create a new GQueue, use g_queue_new().
  *
- * To initialize a statically-allocated GQueue, use #G_QUEUE_INIT or
+ * To initialize a statically-allocated GQueue, use %G_QUEUE_INIT or
  * g_queue_init().
  *
  * To add elements, use g_queue_push_head(), g_queue_push_head_link(),
@@ -118,7 +120,7 @@ g_queue_free_full (GQueue        *queue,
  *
  * A statically-allocated #GQueue must be initialized with this function
  * before it can be used. Alternatively you can initialize it with
- * #G_QUEUE_INIT. It is not necessary to initialize queues created with
+ * %G_QUEUE_INIT. It is not necessary to initialize queues created with
  * g_queue_new().
  *
  * Since: 2.14

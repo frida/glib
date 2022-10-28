@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -613,7 +615,7 @@ g_drive_poll_for_media_finish (GDrive        *drive,
  *
  * Gets the identifier of the given kind for @drive. The only
  * identifier currently available is
- * #G_DRIVE_IDENTIFIER_KIND_UNIX_DEVICE.
+ * %G_DRIVE_IDENTIFIER_KIND_UNIX_DEVICE.
  *
  * Returns: (nullable) (transfer full): a newly allocated string containing the
  *     requested identifier, or %NULL if the #GDrive

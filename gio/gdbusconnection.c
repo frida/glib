@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -278,22 +280,6 @@ call_destroy_notify (GMainContext  *context,
   g_source_set_static_name (idle_source, "[gio] call_destroy_notify_data_in_idle");
   g_source_attach (idle_source, context);
   g_source_unref (idle_source);
-}
-
-/* ---------------------------------------------------------------------------------------------------- */
-
-static gboolean
-_g_strv_has_string (const gchar* const *haystack,
-                    const gchar        *needle)
-{
-  guint n;
-
-  for (n = 0; haystack != NULL && haystack[n] != NULL; n++)
-    {
-      if (g_strcmp0 (haystack[n], needle) == 0)
-        return TRUE;
-    }
-  return FALSE;
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -2583,6 +2569,7 @@ initable_init (GInitable     *initable,
       connection->auth = _g_dbus_auth_new (connection->stream);
       connection->guid = _g_dbus_auth_run_client (connection->auth,
                                                   connection->authentication_observer,
+                                                  connection->flags,
                                                   get_offered_capabilities_max (connection),
                                                   &connection->capabilities,
                                                   cancellable,
@@ -5268,7 +5255,7 @@ obj_message_func (GDBusConnection *connection,
  * #GVariant of incorrect type.
  *
  * If an existing callback is already registered at @object_path and
- * @interface_name, then @error is set to #G_IO_ERROR_EXISTS.
+ * @interface_name, then @error is set to %G_IO_ERROR_EXISTS.
  *
  * GDBus automatically implements the standard D-Bus interfaces
  * org.freedesktop.DBus.Properties, org.freedesktop.DBus.Introspectable
@@ -5977,11 +5964,11 @@ g_dbus_connection_call_internal (GDBusConnection        *connection,
     }
   else
     {
-      GDBusMessageFlags flags;
+      GDBusMessageFlags msg_flags;
 
-      flags = g_dbus_message_get_flags (message);
-      flags |= G_DBUS_MESSAGE_FLAGS_NO_REPLY_EXPECTED;
-      g_dbus_message_set_flags (message, flags);
+      msg_flags = g_dbus_message_get_flags (message);
+      msg_flags |= G_DBUS_MESSAGE_FLAGS_NO_REPLY_EXPECTED;
+      g_dbus_message_set_flags (message, msg_flags);
 
       g_dbus_connection_send_message (connection,
                                       message,
@@ -6544,7 +6531,7 @@ handle_subtree_introspect (GDBusConnection *connection,
 
       /* Assert existence of object if we are not dynamic */
       if (!(es->flags & G_DBUS_SUBTREE_FLAGS_DISPATCH_TO_UNENUMERATED_NODES) &&
-          !_g_strv_has_string ((const gchar * const *) children, requested_node))
+          !g_strv_contains ((const gchar * const *) children, requested_node))
         goto out;
     }
   else
@@ -6675,7 +6662,7 @@ handle_subtree_method_invocation (GDBusConnection *connection,
                                             es->object_path,
                                             es->user_data);
 
-          exists = _g_strv_has_string ((const gchar * const *) children, requested_node);
+          exists = g_strv_contains ((const gchar * const *) children, requested_node);
           g_strfreev (children);
 
           if (!exists)
@@ -6930,7 +6917,7 @@ subtree_message_func (GDBusConnection *connection,
  *
  * When handling remote calls into any node in the subtree, first the
  * @enumerate function is used to check if the node exists. If the node exists
- * or the #G_DBUS_SUBTREE_FLAGS_DISPATCH_TO_UNENUMERATED_NODES flag is set
+ * or the %G_DBUS_SUBTREE_FLAGS_DISPATCH_TO_UNENUMERATED_NODES flag is set
  * the @introspection function is used to check if the node supports the
  * requested method. If so, the @dispatch function is used to determine
  * where to dispatch the call. The collected #GDBusInterfaceVTable and
@@ -6942,7 +6929,7 @@ subtree_message_func (GDBusConnection *connection,
  * of the thread you are calling this method from.
  *
  * If an existing subtree is already registered at @object_path or
- * then @error is set to #G_IO_ERROR_EXISTS.
+ * then @error is set to %G_IO_ERROR_EXISTS.
  *
  * Note that it is valid to register regular objects (using
  * g_dbus_connection_register_object()) in a subtree registered with
@@ -7382,6 +7369,9 @@ get_uninitialized_connection (GBusType       bus_type,
       ret = g_object_new (G_TYPE_DBUS_CONNECTION,
                           "address", address,
                           "flags", G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT |
+#ifdef __linux__
+                                   G_DBUS_CONNECTION_FLAGS_CROSS_NAMESPACE |
+#endif
                                    G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION,
                           "exit-on-close", TRUE,
                           NULL);
@@ -7450,7 +7440,9 @@ _g_bus_forget_singleton (GBusType bus_type)
  * callers of g_bus_get() and g_bus_get_sync() for @bus_type. In the
  * event that you need a private message bus connection, use
  * g_dbus_address_get_for_bus_sync() and
- * g_dbus_connection_new_for_address().
+ * g_dbus_connection_new_for_address() with
+ * G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT and
+ * G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION flags.
  *
  * Note that the returned #GDBusConnection object will (usually) have
  * the #GDBusConnection:exit-on-close property set to %TRUE.
@@ -7569,7 +7561,9 @@ g_bus_get (GBusType             bus_type,
  * callers of g_bus_get() and g_bus_get_sync() for @bus_type. In the
  * event that you need a private message bus connection, use
  * g_dbus_address_get_for_bus_sync() and
- * g_dbus_connection_new_for_address().
+ * g_dbus_connection_new_for_address() with
+ * G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT and
+ * G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION flags.
  *
  * Note that the returned #GDBusConnection object will (usually) have
  * the #GDBusConnection:exit-on-close property set to %TRUE.

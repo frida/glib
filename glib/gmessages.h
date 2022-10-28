@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -248,6 +250,12 @@ void            g_log_writer_default_set_use_stderr (gboolean use_stderr);
 GLIB_AVAILABLE_IN_2_68
 gboolean        g_log_writer_default_would_drop (GLogLevelFlags  log_level,
                                                  const char     *log_domain);
+
+/* G_MESSAGES_DEBUG enablement */
+GLIB_AVAILABLE_IN_2_72
+gboolean         g_log_get_debug_enabled       (void);
+GLIB_AVAILABLE_IN_2_72
+void             g_log_set_debug_enabled       (gboolean         enabled);
 
 /**
  * G_DEBUG_HERE:

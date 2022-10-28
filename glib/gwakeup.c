@@ -1,6 +1,8 @@
 /*
  * Copyright © 2011 Canonical Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -26,7 +28,6 @@
  * (and at all other use sites).
  */
 #ifdef GLIB_COMPILATION
-#include "gplatformaudit.h"
 #include "gtypes.h"
 #include "gpoll.h"
 #else
@@ -66,10 +67,6 @@
 #include "gmessages.h"
 #include "giochannel.h"
 #include "gwin32.h"
-#endif
-
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
 #endif
 
 GWakeup *
@@ -117,43 +114,8 @@ g_wakeup_free (GWakeup *wakeup)
 #include "glib-unix.h"
 #include <fcntl.h>
 
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
-
 #if defined (HAVE_EVENTFD)
 #include <sys/eventfd.h>
-#elif defined (__linux__)
-# include <sys/syscall.h>
-# ifndef __NR_eventfd
-#  if defined (__i386__)
-#   define __NR_eventfd 323
-#  elif defined (__x86_64__)
-#   define __NR_eventfd 284
-#  elif defined (__arm__)
-#   define __NR_eventfd (__NR_SYSCALL_BASE + 351)
-#  elif defined (__mips__)
-#   if _MIPS_SIM == _MIPS_SIM_ABI32
-#    define __NR_eventfd 4319
-#   elif _MIPS_SIM == _MIPS_SIM_ABI64
-#    define __NR_eventfd 5278
-#   elif _MIPS_SIM == _MIPS_SIM_NABI32
-#    define __NR_eventfd 6282
-#   else
-#    error Unexpected MIPS ABI
-#   endif
-#  else
-#   error Please implement for your architecture
-#  endif
-# endif
-# ifndef EFD_CLOEXEC
-#  define EFD_CLOEXEC 0x80000
-# endif
-# ifndef EFD_NONBLOCK
-#  define EFD_NONBLOCK 0x800
-# endif
-# define eventfd g_try_eventfd
-static int g_try_eventfd (unsigned int count, int flags);
 #endif
 
 struct _GWakeup
@@ -181,7 +143,7 @@ g_wakeup_new (void)
   wakeup = g_slice_new (GWakeup);
 
   /* try eventfd first, if we think we can */
-#if defined (__linux__)
+#if defined (HAVE_EVENTFD)
 #ifndef TEST_EVENTFD_FALLBACK
   wakeup->fds[0] = eventfd (0, EFD_CLOEXEC | EFD_NONBLOCK);
 #else
@@ -190,7 +152,6 @@ g_wakeup_new (void)
 
   if (wakeup->fds[0] != -1)
     {
-      glib_fd_callbacks->on_fd_opened (wakeup->fds[0], "GWakeup");
       wakeup->fds[1] = -1;
       return wakeup;
     }
@@ -200,9 +161,6 @@ g_wakeup_new (void)
 
   if (!g_unix_open_pipe (wakeup->fds, FD_CLOEXEC, &error))
     g_error ("Creating pipes for GWakeup: %s", error->message);
-
-  glib_fd_callbacks->on_fd_opened (wakeup->fds[0], "GWakeup");
-  glib_fd_callbacks->on_fd_opened (wakeup->fds[1], "GWakeup");
 
   if (!g_unix_set_fd_nonblocking (wakeup->fds[0], TRUE, &error) ||
       !g_unix_set_fd_nonblocking (wakeup->fds[1], TRUE, &error))
@@ -308,26 +266,11 @@ void
 g_wakeup_free (GWakeup *wakeup)
 {
   close (wakeup->fds[0]);
-  glib_fd_callbacks->on_fd_closed (wakeup->fds[0], "GWakeup");
 
   if (wakeup->fds[1] != -1)
-    {
-      close (wakeup->fds[1]);
-      glib_fd_callbacks->on_fd_closed (wakeup->fds[1], "GWakeup");
-    }
+    close (wakeup->fds[1]);
 
   g_slice_free (GWakeup, wakeup);
 }
-
-#if defined (__linux__) && !defined (HAVE_EVENTFD)
-
-static int
-g_try_eventfd (unsigned int count,
-               int flags)
-{
-  return syscall (__NR_eventfd, count, flags);
-}
-
-#endif
 
 #endif /* !_WIN32 */

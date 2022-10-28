@@ -1,4 +1,4 @@
-FROM fedora:33
+FROM fedora:34
 
 RUN dnf -y install \
     bindfs \
@@ -8,7 +8,6 @@ RUN dnf -y install \
     elfutils-libelf-devel \
     findutils \
     fuse \
-    gamin-devel \
     gcc \
     gcc-c++ \
     gettext \
@@ -44,7 +43,7 @@ RUN dnf -y install \
     mingw64-zlib \
     ncurses-compat-libs \
     ninja-build \
-    pcre-devel \
+    pcre2-devel \
     python3 \
     python3-pip \
     python3-wheel \
@@ -58,7 +57,7 @@ RUN dnf -y install \
 WORKDIR /opt
 COPY cross_file_mingw64.txt /opt
 
-RUN pip3 install meson==0.52.0
+RUN pip3 install meson==0.60.3
 
 ARG HOST_USER_ID=5555
 ENV HOST_USER_ID ${HOST_USER_ID}

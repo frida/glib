@@ -2,6 +2,8 @@
  *
  * Copyright 2019 Руслан Ижбулатов
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -353,7 +355,6 @@ _g_win32_extract_executable (const gunichar2  *commandline,
               gchar *dllpart_utf8;
               gchar *dllpart_utf8_folded;
               gchar *function_utf8;
-              gboolean folded;
               const gunichar2 *space = g_utf16_wchr (function_begin, L' ');
 
               if (space)

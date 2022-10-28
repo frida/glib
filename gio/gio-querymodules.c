@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -19,7 +21,8 @@
  */
 
 #include "config.h"
-#include "giomodule.h"
+
+#include <gio/gio.h>
 #include "giomodule-priv.h"
 
 #include <gstdio.h>
@@ -32,9 +35,15 @@ static gboolean
 is_valid_module_name (const gchar *basename)
 {
 #if !defined(G_OS_WIN32) && !defined(G_WITH_CYGWIN)
+  #if defined(G_OS_DARWIN)
+  return g_str_has_prefix (basename, "lib") &&
+         (g_str_has_suffix (basename, ".so") ||
+          g_str_has_suffix (basename, ".dylib"));
+  #else
   return
     g_str_has_prefix (basename, "lib") &&
     g_str_has_suffix (basename, ".so");
+  #endif
 #else
   return g_str_has_suffix (basename, ".dll");
 #endif
@@ -161,9 +170,7 @@ main (gint   argc,
 {
   int i;
 
-  glib_init ();
-
-  if (argc == 1)
+  if (argc <= 1)
     {
       g_print ("Usage: gio-querymodules <directory1> [<directory2> ...]\n");
       g_print ("Will update giomodule.cache in the listed directories\n");

@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -551,25 +553,17 @@ _g_list_remove_link (GList *list,
 
   if (link->prev)
     {
-#ifndef G_DISABLE_CHECKS
       if (link->prev->next == link)
         link->prev->next = link->next;
       else
         g_warning ("corrupted double-linked list detected");
-#else
-      link->prev->next = link->next;
-#endif
     }
   if (link->next)
     {
-#ifndef G_DISABLE_CHECKS
       if (link->next->prev == link)
         link->next->prev = link->prev;
       else
         g_warning ("corrupted double-linked list detected");
-#else
-      link->next->prev = link->prev;
-#endif
     }
 
   if (link == list)

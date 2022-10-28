@@ -1,6 +1,8 @@
 /*
  * Copyright © 2009-10 Sam Thursfield
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -91,7 +93,7 @@
 
 #include "gregistrysettingsbackend.h"
 #include "gsettingsbackend.h"
-#include "giomodule.h"
+#include "giomodule-priv.h"
 
 #include <windows.h>
 
@@ -177,6 +179,7 @@ typedef struct {
 G_DEFINE_TYPE_WITH_CODE (GRegistryBackend,
                          g_registry_backend,
                          G_TYPE_SETTINGS_BACKEND,
+                         _g_io_modules_ensure_extension_points_registered ();
                          g_io_extension_point_implement (G_SETTINGS_BACKEND_EXTENSION_POINT_NAME,
                                                          g_define_type_id, "registry", 90))
 
@@ -1200,7 +1203,7 @@ g_registry_backend_get_writable (GSettingsBackend *backend,
   GRegistryBackend *self = G_REGISTRY_BACKEND (backend);
   gchar *path_name;
   gunichar2 *path_namew;
-  gchar *value_name;
+  gchar *value_name = NULL;
   HKEY hpath;
   LONG result;
 
@@ -1495,14 +1498,14 @@ registry_cache_update (GRegistryBackend *self,
       child_item->readable = TRUE;
       if (changed && event != NULL)
         {
-          gchar *item;
+          gchar *item_path;
 
           if (partial_key_name == NULL)
-            item = g_strdup (buffer);
+            item_path = g_strdup (buffer);
           else
-            item = g_build_path ("/", partial_key_name, buffer, NULL);
+            item_path = g_build_path ("/", partial_key_name, buffer, NULL);
 
-          g_ptr_array_add (event->items, item);
+          g_ptr_array_add (event->items, item_path);
         }
 
       g_free (buffer);

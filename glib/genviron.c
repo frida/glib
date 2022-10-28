@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1998  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -88,7 +90,7 @@ g_environ_find (gchar       **envp,
  * Returns the value of the environment variable @variable in the
  * provided list @envp.
  *
- * Returns: (type filename): the value of the environment variable, or %NULL if
+ * Returns: (type filename) (nullable): the value of the environment variable, or %NULL if
  *     the environment variable is not set in @envp. The returned
  *     string is owned by @envp, and will be freed if @variable is
  *     set or unset again.
@@ -242,7 +244,7 @@ g_environ_unsetenv (gchar       **envp,
  * On Windows, in case the environment variable's value contains
  * references to other environment variables, they are expanded.
  *
- * Returns: (type filename): the value of the environment variable, or %NULL if
+ * Returns: (type filename) (nullable): the value of the environment variable, or %NULL if
  *     the environment variable is not found. The returned string
  *     may be overwritten by the next call to g_getenv(), g_setenv()
  *     or g_unsetenv().

@@ -2,6 +2,8 @@
  *
  * Copyright 2018, Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -37,12 +39,6 @@
 #define HAVE_O_CLOEXEC 1
 #endif
 
-#ifndef O_NOFOLLOW
-#define O_NOFOLLOW 0
-#else
-#define HAVE_O_NOFOLLOW 1
-#endif
-
 #ifndef O_PATH
 #define O_PATH 0
 #endif
@@ -50,7 +46,6 @@
 static GXdpTrash *
 ensure_trash_portal (void)
 {
-#ifdef HAVE_O_NOFOLLOW
   static GXdpTrash *trash = NULL;
 
   if (g_once_init_enter (&trash))
@@ -71,9 +66,6 @@ ensure_trash_portal (void)
     }
 
   return trash;
-#else
-  return NULL;
-#endif
 }
 
 gboolean
@@ -99,8 +91,12 @@ g_trash_portal_trash_file (GFile   *file,
 
   fd = g_open (path, O_RDWR | O_CLOEXEC | O_NOFOLLOW);
   if (fd == -1 && errno == EISDIR)
-    /* If it is a directory, fall back to O_PATH */
-    fd = g_open (path, O_PATH | O_CLOEXEC | O_RDONLY | O_NOFOLLOW);
+    /* If it is a directory, fall back to O_PATH.
+     * Remove O_NOFOLLOW since
+     * a) we know it is a directory, not a symlink, and
+     * b) the portal reject this combination
+     */
+    fd = g_open (path, O_PATH | O_CLOEXEC | O_RDONLY);
 
   errsv = errno;
 

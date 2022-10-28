@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -1043,17 +1045,17 @@ signal_cb (GDBusConnection *connection,
     {
       if (g_strcmp0 (signal_name, "PropertiesChanged") == 0)
         {
-          const gchar *interface_name;
+          const gchar *properties_interface_name;
           GVariant *changed_properties;
           const gchar **invalidated_properties;
 
           g_variant_get (parameters,
                          "(&s@a{sv}^a&s)",
-                         &interface_name,
+                         &properties_interface_name,
                          &changed_properties,
                          &invalidated_properties);
 
-          interface = g_dbus_object_get_interface (G_DBUS_OBJECT (object_proxy), interface_name);
+          interface = g_dbus_object_get_interface (G_DBUS_OBJECT (object_proxy), properties_interface_name);
           if (interface != NULL)
             {
               GVariantIter property_iter;
@@ -1454,7 +1456,7 @@ initable_init (GInitable     *initable,
                             G_CALLBACK (on_notify_g_name_owner),
                             weak_ref_new (G_OBJECT (manager)),
                             (GClosureNotify) weak_ref_free,
-                            0  /* flags */);
+                            G_CONNECT_DEFAULT);
 
   manager->priv->signal_signal_id =
       g_signal_connect_data (manager->priv->control_proxy,
@@ -1462,7 +1464,7 @@ initable_init (GInitable     *initable,
                             G_CALLBACK (on_control_proxy_g_signal),
                             weak_ref_new (G_OBJECT (manager)),
                             (GClosureNotify) weak_ref_free,
-                            0  /* flags */);
+                            G_CONNECT_DEFAULT);
 
   manager->priv->name_owner = g_dbus_proxy_get_name_owner (manager->priv->control_proxy);
   if (manager->priv->name_owner == NULL && manager->priv->name != NULL)

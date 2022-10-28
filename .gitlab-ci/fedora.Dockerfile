@@ -1,4 +1,4 @@
-FROM fedora:33
+FROM fedora:34
 
 RUN dnf -y update \
  && dnf -y install \
@@ -11,9 +11,9 @@ RUN dnf -y update \
     elfutils-libelf-devel \
     findutils \
     fuse \
-    gamin-devel \
     gcc \
     gcc-c++ \
+    gdb \
     gettext \
     git \
     glibc-devel \
@@ -43,7 +43,7 @@ RUN dnf -y update \
     libxslt \
     ncurses-compat-libs \
     ninja-build \
-    pcre-devel \
+    pcre2-devel \
     "python3-dbusmock >= 0.18.3-2" \
     python3-pip \
     python3-pygments \
@@ -74,7 +74,10 @@ RUN dnf -y update \
     make \
  && dnf clean all
 
-RUN pip3 install meson==0.52.1
+RUN pip3 install meson==0.60.3
+
+COPY install-gitlab-cobertura-tools.sh .
+RUN ./install-gitlab-cobertura-tools.sh
 
 # Set /etc/machine-id as it’s needed for some D-Bus tests
 RUN systemd-machine-id-setup
@@ -85,6 +88,9 @@ RUN sed -i -e 's/# %wheel/%wheel/' -e '0,/%wheel/{s/%wheel/# %wheel/}' /etc/sudo
 ARG HOST_USER_ID=5555
 ENV HOST_USER_ID ${HOST_USER_ID}
 RUN useradd -u $HOST_USER_ID -G wheel -ms /bin/bash user
+
+COPY android-ndk.sh .
+RUN ./android-ndk.sh
 
 USER user
 WORKDIR /home/user

@@ -2,6 +2,8 @@
  * 
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -271,12 +273,10 @@ g_cancellable_reset (GCancellable *cancellable)
       g_cond_wait (&cancellable_cond, &cancellable_mutex);
     }
 
-  if (g_atomic_int_get (&priv->cancelled))
+  if (g_atomic_int_exchange (&priv->cancelled, FALSE))
     {
       if (priv->wakeup)
         GLIB_PRIVATE_CALL (g_wakeup_acknowledge) (priv->wakeup);
-
-      g_atomic_int_set (&priv->cancelled, FALSE);
     }
 
   g_mutex_unlock (&cancellable_mutex);
@@ -495,13 +495,12 @@ g_cancellable_cancel (GCancellable *cancellable)
 
   g_mutex_lock (&cancellable_mutex);
 
-  if (g_atomic_int_get (&priv->cancelled))
+  if (g_atomic_int_exchange (&priv->cancelled, TRUE))
     {
       g_mutex_unlock (&cancellable_mutex);
       return;
     }
 
-  g_atomic_int_set (&priv->cancelled, TRUE);
   priv->cancelled_running = TRUE;
 
   if (priv->wakeup)
@@ -587,7 +586,7 @@ g_cancellable_connect (GCancellable   *cancellable,
       id = g_signal_connect_data (cancellable, "cancelled",
                                   callback, data,
                                   (GClosureNotify) data_destroy_func,
-                                  0);
+                                  G_CONNECT_DEFAULT);
 
       g_mutex_unlock (&cancellable_mutex);
     }

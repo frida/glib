@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2018 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -22,8 +24,6 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdio.h>
-
-#include "glib/glib-private.h"
 
 #include "gdbus-tests.h"
 
@@ -869,7 +869,7 @@ check_bar_proxy (FooiGenBar *proxy,
                 "s", "a string",
                 "o", "/a/path",
                 "g", "asig",
-                "ay", g_variant_new_parsed ("[byte 0x65, 0x67]"),
+                "ay", "eg",
                 "as", array_of_strings,
                 "ao", array_of_objpaths,
                 "ag", g_variant_new_parsed ("[@g 'ass', 'git']"),
@@ -1304,18 +1304,6 @@ static gpointer
 check_proxies_in_thread (gpointer user_data)
 {
   GMainLoop *loop = user_data;
-#ifdef _GLIB_ADDRESS_SANITIZER
-
-  /* Silence "Not available before 2.38" when using old API */
-  G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-  g_test_incomplete ("FIXME: Leaks a GWeakRef, see glib#2312");
-  G_GNUC_END_IGNORE_DEPRECATIONS
-
-  (void) check_thread_proxies;
-  (void) check_authorize_proxy;
-  (void) check_bat_proxy;
-  (void) check_bar_proxy;
-#else
   GMainContext *thread_context;
   GMainLoop *thread_loop;
   GError *error;
@@ -1382,9 +1370,14 @@ check_proxies_in_thread (gpointer user_data)
   g_object_unref (thread_proxy_1);
   g_object_unref (thread_proxy_2);
 
+  /* Wait for the proxy signals to all be unsubscribed. */
+  while (g_main_context_iteration (thread_context, FALSE))
+    {
+      /* Nothing needs to be done here */
+    }
+
   g_main_loop_unref (thread_loop);
   g_main_context_unref (thread_context);
-#endif
 
   /* this breaks out of the loop in main() (below) */
   g_main_loop_quit (loop);

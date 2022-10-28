@@ -3,6 +3,8 @@
  * Copyright © 2012, 2013 Red Hat, Inc.
  * Copyright © 2012, 2013 Canonical Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -61,7 +63,10 @@
  * As a matter of principle, #GSubprocess has no API that accepts
  * shell-style space-separated strings.  It will, however, match the
  * typical shell behaviour of searching the PATH for executables that do
- * not contain a directory separator in their name.
+ * not contain a directory separator in their name. By default, the `PATH`
+ * of the current process is used.  You can specify
+ * %G_SUBPROCESS_FLAGS_SEARCH_PATH_FROM_ENVP to use the `PATH` of the
+ * launcher environment instead.
  *
  * #GSubprocess attempts to have a very simple API for most uses (ie:
  * spawning a subprocess with arguments and support for most typical
@@ -380,7 +385,7 @@ initable_init (GInitable     *initable,
   /* argv0 has no '/' in it?  We better do a PATH lookup. */
   if (strchr (self->argv[0], G_DIR_SEPARATOR) == NULL)
     {
-      if (self->launcher && self->launcher->path_from_envp)
+      if (self->launcher && self->launcher->flags & G_SUBPROCESS_FLAGS_SEARCH_PATH_FROM_ENVP)
         spawn_flags |= G_SPAWN_SEARCH_PATH_FROM_ENVP;
       else
         spawn_flags |= G_SPAWN_SEARCH_PATH;
@@ -751,7 +756,9 @@ g_subprocess_wait_async (GSubprocess         *subprocess,
        * see the cancellation in the _finish().
        */
       if (cancellable)
-        g_signal_connect_object (cancellable, "cancelled", G_CALLBACK (g_subprocess_wait_cancelled), task, 0);
+        g_signal_connect_object (cancellable, "cancelled",
+                                 G_CALLBACK (g_subprocess_wait_cancelled),
+                                 task, G_CONNECT_DEFAULT);
 
       subprocess->pending_waits = g_slist_prepend (subprocess->pending_waits, task);
       task = NULL;

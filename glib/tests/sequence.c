@@ -122,7 +122,7 @@ check_integrity (SequenceInfo *info)
 {
   GList *list;
   GSequenceIter *iter;
-  int i;
+  unsigned int i;
 
   g_sequence_check (info->sequence);
 
@@ -149,6 +149,7 @@ check_integrity (SequenceInfo *info)
       i++;
     }
 
+  g_assert_cmpuint (i, ==, info->n_items);
   g_assert (info->n_items == g_queue_get_length (info->queue));
   g_assert ((guint) g_sequence_get_length (info->sequence) == info->n_items);
 }
@@ -544,8 +545,6 @@ run_random_tests (gconstpointer d)
           break;
         case GET_ITER_AT_POS:
           {
-            int i;
-
             g_assert (g_queue_get_length (seq->queue) == (guint) g_sequence_get_length (seq->sequence));
 
             for (i = 0; i < 10; ++i)
@@ -660,7 +659,6 @@ run_random_tests (gconstpointer d)
           break;
         case INSERT_SORTED:
           {
-            int i;
             dump_info (seq);
 
             g_sequence_sort (seq->sequence, compare_items, NULL);
@@ -683,7 +681,6 @@ run_random_tests (gconstpointer d)
           break;
         case INSERT_SORTED_ITER:
           {
-            int i;
             dump_info (seq);
 
             g_sequence_sort (seq->sequence, compare_items, NULL);
@@ -710,8 +707,6 @@ run_random_tests (gconstpointer d)
           break;
         case SORT_CHANGED:
           {
-            int i;
-
             g_sequence_sort (seq->sequence, compare_items, NULL);
             g_queue_sort (seq->queue, compare_iters, NULL);
 
@@ -737,8 +732,6 @@ run_random_tests (gconstpointer d)
           break;
         case SORT_CHANGED_ITER:
           {
-            int i;
-
             g_sequence_sort (seq->sequence, compare_items, NULL);
             g_queue_sort (seq->queue, compare_iters, NULL);
 
@@ -765,8 +758,6 @@ run_random_tests (gconstpointer d)
           break;
         case REMOVE:
           {
-            int i;
-
             for (i = 0; i < N_TIMES; ++i)
               {
                 GList *link;
@@ -958,7 +949,6 @@ run_random_tests (gconstpointer d)
             if (!g_sequence_iter_is_end (iter))
               {
                 Item *item;
-                int i;
 
                 check_integrity (seq);
 

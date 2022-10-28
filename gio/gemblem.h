@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008 Clemens N. Buss <cebuzz@gmail.com>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -43,17 +45,17 @@ G_BEGIN_DECLS
 typedef struct _GEmblem        GEmblem;
 typedef struct _GEmblemClass   GEmblemClass;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType          g_emblem_get_type        (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GEmblem       *g_emblem_new             (GIcon         *icon);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GEmblem       *g_emblem_new_with_origin (GIcon         *icon,
                                          GEmblemOrigin  origin);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GIcon         *g_emblem_get_icon        (GEmblem       *emblem);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GEmblemOrigin  g_emblem_get_origin      (GEmblem       *emblem);
 
 G_END_DECLS

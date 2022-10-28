@@ -2,6 +2,8 @@
  *
  * Copyright © 2010 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -143,6 +145,19 @@ g_tls_connection_class_init (GTlsConnectionClass *klass)
    * If no certificate database is set, then the default database will be
    * used. See g_tls_backend_get_default_database().
    *
+   * When using a non-default database, #GTlsConnection must fall back to using
+   * the #GTlsDatabase to perform certificate verification using
+   * g_tls_database_verify_chain(), which means certificate verification will
+   * not be able to make use of TLS session context. This may be less secure.
+   * For example, if you create your own #GTlsDatabase that just wraps the
+   * default #GTlsDatabase, you might expect that you have not changed anything,
+   * but this is not true because you may have altered the behavior of
+   * #GTlsConnection by causing it to use g_tls_database_verify_chain(). See the
+   * documentation of g_tls_database_verify_chain() for more details on specific
+   * security checks that may not be performed. Accordingly, setting a
+   * non-default database is discouraged except for specialty applications with
+   * unusual security requirements.
+   *
    * Since: 2.30
    */
   g_object_class_install_property (gobject_class, PROP_DATABASE,
@@ -248,6 +263,14 @@ g_tls_connection_class_init (GTlsConnectionClass *klass)
    * #GTlsConnection::accept-certificate overrode the default
    * behavior.
    *
+   * GLib guarantees that if certificate verification fails, at least
+   * one error will be set, but it does not guarantee that all possible
+   * errors will be set. Accordingly, you may not safely decide to
+   * ignore any particular type of error. For example, it would be
+   * incorrect to mask %G_TLS_CERTIFICATE_EXPIRED if you want to allow
+   * expired certificates, because this could potentially be the only
+   * error flag set even if other problems exist with the certificate.
+   *
    * Since: 2.28
    */
   g_object_class_install_property (gobject_class, PROP_PEER_CERTIFICATE_ERRORS,
@@ -338,6 +361,15 @@ g_tls_connection_class_init (GTlsConnectionClass *klass)
    * certificate to be accepted despite @errors, return %TRUE from the
    * signal handler. Otherwise, if no handler accepts the certificate,
    * the handshake will fail with %G_TLS_ERROR_BAD_CERTIFICATE.
+   *
+   * GLib guarantees that if certificate verification fails, this signal
+   * will be emitted with at least one error will be set in @errors, but
+   * it does not guarantee that all possible errors will be set.
+   * Accordingly, you may not safely decide to ignore any particular
+   * type of error. For example, it would be incorrect to ignore
+   * %G_TLS_CERTIFICATE_EXPIRED if you want to allow expired
+   * certificates, because this could potentially be the only error flag
+   * set even if other problems exist with the certificate.
    *
    * For a server-side connection, @peer_cert is the certificate
    * presented by the client, if this was requested via the server's
@@ -469,6 +501,9 @@ g_tls_connection_get_use_system_certdb (GTlsConnection *conn)
  * #GTlsConnection::accept-certificate will always be emitted on
  * client-side connections, unless that bit is not set in
  * #GTlsClientConnection:validation-flags).
+ *
+ * There are nonintuitive security implications when using a non-default
+ * database. See #GTlsConnection:database for details.
  *
  * Since: 2.30
  */
@@ -654,6 +689,8 @@ g_tls_connection_get_peer_certificate (GTlsConnection *conn)
  * Gets the errors associated with validating @conn's peer's
  * certificate, after the handshake has completed or failed. (It is
  * not set during the emission of #GTlsConnection::accept-certificate.)
+ *
+ * See #GTlsConnection:peer-certificate-errors for more information.
  *
  * Returns: @conn's peer's certificate errors
  *

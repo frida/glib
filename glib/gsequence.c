@@ -2,6 +2,8 @@
  * Copyright (C) 2002, 2003, 2004, 2005, 2006, 2007
  * Soeren Sandmann (sandmann@daimi.au.dk)
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -83,7 +85,7 @@
  * GSequenceIterCompareFunc:
  * @a: a #GSequenceIter
  * @b: a #GSequenceIter
- * @data: user data
+ * @user_data: user data
  *
  * A #GSequenceIterCompareFunc is a function used to compare iterators.
  * It must return zero if the iterators compare equal, a negative value
@@ -608,7 +610,7 @@ g_sequence_move_range (GSequenceIter *dest,
                        GSequenceIter *begin,
                        GSequenceIter *end)
 {
-  GSequence *src_seq, *end_seq, *dest_seq;
+  GSequence *src_seq, *end_seq, *dest_seq = NULL;
   GSequenceNode *first;
 
   g_return_if_fail (begin != NULL);

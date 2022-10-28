@@ -2,6 +2,8 @@
  *
  * Copyright 2014-2018 Jan-Michael Brummer <jan.brummer@tabos.org>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -19,8 +21,6 @@
  */
 
 #include "config.h"
-
-#if _WIN32_WINNT >= 0x0600
 
 #include <errno.h>
 
@@ -339,5 +339,3 @@ g_win32_network_monitor_initable_iface_init (GInitableIface *iface)
 
   iface->init = g_win32_network_monitor_initable_init;
 }
-
-#endif

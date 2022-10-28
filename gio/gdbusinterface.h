@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -64,16 +66,16 @@ struct _GDBusInterfaceIface
   GDBusObject          *(*dup_object) (GDBusInterface      *interface_);
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType                 g_dbus_interface_get_type         (void) G_GNUC_CONST;
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GDBusInterfaceInfo   *g_dbus_interface_get_info         (GDBusInterface      *interface_);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GDBusObject          *g_dbus_interface_get_object       (GDBusInterface      *interface_);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 void                  g_dbus_interface_set_object       (GDBusInterface      *interface_,
                                                          GDBusObject         *object);
-GLIB_AVAILABLE_IN_2_32
+GIO_AVAILABLE_IN_2_32
 GDBusObject          *g_dbus_interface_dup_object       (GDBusInterface      *interface_);
 
 G_END_DECLS

@@ -2,6 +2,8 @@
  * Copyright © 2010 Codethink Limited
  * Copyright © 2010 Novell, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -683,6 +685,8 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
         g_warning ("Failed to read %s: %s", path, error->message);
       g_clear_error (&error);
     }
+  else
+    g_debug ("Loading default settings from %s", path);
 
   g_free (path);
 
@@ -702,6 +706,8 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
       char **lines;
       gsize i;
 
+      g_debug ("Loading locks from %s", path);
+
       lines = g_strsplit (contents, "\n", 0);
       for (i = 0; lines[i]; i++)
         {
@@ -712,6 +718,7 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
               continue;
             }
 
+          g_debug ("Locking key %s", line);
           g_hash_table_add (kfsb->system_locks, g_steal_pointer (&line));
         }
 

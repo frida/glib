@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2009 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -389,6 +391,9 @@ g_zlib_decompressor_convert (GConverter *converter,
                                         data->gzheader.time);
       g_file_info_set_attribute_uint32 (data->file_info,
                                         G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC,
+                                        0);
+      g_file_info_set_attribute_uint32 (data->file_info,
+                                        G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC,
                                         0);
 
       if (data->filename[0] != '\0')

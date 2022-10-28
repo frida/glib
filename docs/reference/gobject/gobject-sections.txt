@@ -129,6 +129,9 @@ G_DEFINE_BOXED_TYPE
 G_DEFINE_BOXED_TYPE_WITH_CODE
 G_DEFINE_POINTER_TYPE
 G_DEFINE_POINTER_TYPE_WITH_CODE
+G_DEFINE_ENUM_VALUE
+G_DEFINE_ENUM_TYPE
+G_DEFINE_FLAGS_TYPE
 
 <SUBSECTION Private>
 G_TYPE_FUNDAMENTAL_SHIFT
@@ -182,9 +185,6 @@ G_TYPE_RESERVED_GLIB_LAST
 G_TYPE_RESERVED_BSE_FIRST
 G_TYPE_RESERVED_BSE_LAST
 G_TYPE_RESERVED_USER_FIRST
-
-<SUBSECTION Private>
-GOBJECT_VAR
 </SECTION>
 
 <SECTION>
@@ -417,6 +417,7 @@ G_TYPE_OPTION_GROUP
 G_TYPE_URI
 G_TYPE_TREE
 G_TYPE_PATTERN_SPEC
+G_TYPE_BOOKMARK_FILE
 
 <SUBSECTION Standard>
 G_TYPE_IS_BOXED
@@ -453,6 +454,7 @@ g_option_group_get_type
 g_uri_get_type
 g_tree_get_type
 g_pattern_spec_get_type
+g_bookmark_file_get_type
 </SECTION>
 
 <SECTION>
@@ -531,6 +533,7 @@ g_param_spec_get_default_value
 g_param_value_set_default
 g_param_value_defaults
 g_param_value_validate
+g_param_value_is_valid
 g_param_value_convert
 g_param_values_cmp
 g_param_spec_is_valid_name
@@ -813,6 +816,7 @@ g_param_spec_types
 <INCLUDE>glib-object.h,gobject/gvaluecollector.h</INCLUDE>
 GTypeCValue
 G_VALUE_COLLECT_INIT
+G_VALUE_COLLECT_INIT2
 G_VALUE_COLLECT
 G_VALUE_COLLECT_SKIP
 G_VALUE_LCOPY
@@ -1005,4 +1009,45 @@ G_IS_BINDING
 <SUBSECTION Private>
 g_binding_flags_get_type
 g_binding_get_type
+</SECTION>
+
+<SECTION>
+<FILE>gbindinggroup</FILE>
+GBindingGroup
+g_binding_group_new
+g_binding_group_dup_source
+g_binding_group_set_source
+g_binding_group_bind
+g_binding_group_bind_full
+g_binding_group_bind_with_closures
+<SUBSECTION Standard>
+G_TYPE_BINDING_GROUP
+G_TYPE_BINDING_GROUP_CLASS
+G_BINDING_GROUP
+G_IS_BINDING_GROUP
+<SUBSECTION Private>
+g_binding_group_get_type
+</SECTION>
+
+<SECTION>
+<FILE>gsignalgroup</FILE>
+GSignalGroup
+g_signal_group_block
+g_signal_group_connect
+g_signal_group_connect_after
+g_signal_group_connect_data
+g_signal_group_connect_object
+g_signal_group_connect_swapped
+g_signal_group_connect_closure
+g_signal_group_dup_target
+g_signal_group_get_type
+g_signal_group_new
+g_signal_group_set_target
+g_signal_group_unblock
+<SUBSECTION Standard>
+G_IS_SIGNAL_GROUP
+G_SIGNAL_GROUP
+G_TYPE_SIGNAL_GROUP
+<SUBSECTION Private>
+g_signal_group_get_type
 </SECTION>

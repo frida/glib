@@ -1,6 +1,8 @@
 /* GIO default value tests
  * Copyright (C) 2013 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -190,6 +192,9 @@ main (int argc, char **argv)
 
   g_setenv ("GIO_USE_VFS", "local", TRUE);
   g_setenv ("GSETTINGS_BACKEND", "memory", TRUE);
+
+  /* Disable deprecation warnings when we poke at deprecated properties */
+  g_setenv ("G_ENABLE_DIAGNOSTIC", "0", TRUE);
 
   g_test_init (&argc, &argv, NULL);
 

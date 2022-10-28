@@ -1,6 +1,8 @@
 /* GObject - GLib Type, Object, Parameter and Signal Library
  * Copyright (C) 2000-2001 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -30,10 +32,6 @@
 #include "gvalue.h"
 #include "gvaluearray.h"
 #include "gvaluecollector.h"
-
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
 
 
 /**
@@ -168,6 +166,7 @@ G_DEFINE_BOXED_TYPE (GDateTime, g_date_time, g_date_time_ref, g_date_time_unref)
 G_DEFINE_BOXED_TYPE (GTimeZone, g_time_zone, g_time_zone_ref, g_time_zone_unref)
 G_DEFINE_BOXED_TYPE (GKeyFile, g_key_file, g_key_file_ref, g_key_file_unref)
 G_DEFINE_BOXED_TYPE (GMappedFile, g_mapped_file, g_mapped_file_ref, g_mapped_file_unref)
+G_DEFINE_BOXED_TYPE (GBookmarkFile, g_bookmark_file, g_bookmark_file_copy, g_bookmark_file_free)
 
 G_DEFINE_BOXED_TYPE (GMainLoop, g_main_loop, g_main_loop_ref, g_main_loop_unref)
 G_DEFINE_BOXED_TYPE (GMainContext, g_main_context, g_main_context_ref, g_main_context_unref)
@@ -290,7 +289,7 @@ boxed_proxy_lcopy_value (const GValue *value,
  * Boxed type handling functions have to be provided to copy and free
  * opaque boxed structures of this type.
  *
- * For the general case, it is recommended to use #G_DEFINE_BOXED_TYPE 
+ * For the general case, it is recommended to use G_DEFINE_BOXED_TYPE()
  * instead of calling g_boxed_type_register_static() directly. The macro 
  * will create the appropriate `*_get_type()` function for the boxed type.
  *

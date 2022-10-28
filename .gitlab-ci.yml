@@ -10,15 +10,13 @@ cache:
     - _ccache/
 
 variables:
-  FEDORA_IMAGE: "registry.gitlab.gnome.org/gnome/glib/fedora:v12"
-  COVERITY_IMAGE: "registry.gitlab.gnome.org/gnome/glib/coverity:v2"
-  DEBIAN_IMAGE: "registry.gitlab.gnome.org/gnome/glib/debian-stable:v9"
-  ANDROID_IMAGE: "registry.gitlab.gnome.org/gnome/glib/android-ndk:v5"
-  MINGW_IMAGE: "registry.gitlab.gnome.org/gnome/glib/mingw:v4"
+  FEDORA_IMAGE: "registry.gitlab.gnome.org/gnome/glib/fedora:v19"
+  COVERITY_IMAGE: "registry.gitlab.gnome.org/gnome/glib/coverity:v7"
+  DEBIAN_IMAGE: "registry.gitlab.gnome.org/gnome/glib/debian-stable:v13"
+  MINGW_IMAGE: "registry.gitlab.gnome.org/gnome/glib/mingw:v9"
   MESON_TEST_TIMEOUT_MULTIPLIER: 2
   G_MESSAGES_DEBUG: all
-  MESON_COMMON_OPTIONS_NO_WARNING: "--buildtype debug --wrap-mode=nodownload"
-  MESON_COMMON_OPTIONS: "${MESON_COMMON_OPTIONS_NO_WARNING} --fatal-meson-warnings"
+  MESON_COMMON_OPTIONS: "--buildtype debug --wrap-mode=nodownload --fatal-meson-warnings"
 
 .only-default:
   only:
@@ -26,19 +24,29 @@ variables:
   except:
     - tags
 
-.build:
-  extends: .only-default
-  before_script:
-    - bash .gitlab-ci/show-execution-environment.sh
-    - cp -r $HOME/subprojects/* subprojects/
+# Some jobs run on CI runners which don’t have good isolation between CI jobs,
+# and don’t have much available resource. Limit those jobs to only ones on the
+# origin repository (GNOME/glib), rather than people’s forks. Code in the origin
+# repository can be trusted.
+.only-origin:
+  only:
+    - branches@GNOME/glib
+  except:
+    - tags
 
 # Some jobs take a long time and are unlikely to find failures (or will find
 # failures which are not merge-blockers to fix), so they’re executed on a weekly
 # schedule in order to save CI resources and speed up branch pipelines.
-.build-only-schedules:
-  extends: .build
+.only-schedules:
   only:
     - schedules
+  except:
+    - tags
+
+.build-linux:
+  before_script:
+    - bash .gitlab-ci/show-execution-environment.sh
+    - cp -r $HOME/subprojects/* subprojects/
 
 style-check-diff:
   extends: .only-default
@@ -47,30 +55,33 @@ style-check-diff:
   allow_failure: true
   script:
     - .gitlab-ci/run-style-check-diff.sh
-    - .gitlab-ci/run-shellcheck.sh
-    - .gitlab-ci/run-black.sh
-    - .gitlab-ci/run-flake8.sh
+    - .gitlab-ci/run-check-todos.sh
 
-check-todos:
+sh-and-py-check:
   extends: .only-default
   image: $DEBIAN_IMAGE
   stage: style-check
-  allow_failure: true
+  allow_failure: false
   script:
-    - .gitlab-ci/run-check-todos.sh
+    - .gitlab-ci/run-shellcheck.sh
+    - .gitlab-ci/run-black.sh
+    - .gitlab-ci/run-flake8.sh
+  only:
+    changes:
+      - "**/*.py"
+      - "**/*.sh"
 
 fedora-x86_64:
-  extends: .build
+  extends:
+    - .build-linux
+    - .only-default
   image: $FEDORA_IMAGE
   stage: build
   needs: []
   variables:
     CFLAGS: "-coverage -ftest-coverage -fprofile-arcs"
   script:
-    # FIXME: Cannot use MESON_COMMON_OPTIONS here because meson warns about gtkdoc
-    # feature fully functional in 0.54, but we only depend on 0.52. So we cannot build
-    # with --fatal-meson-warnings.
-    - meson ${MESON_COMMON_OPTIONS_NO_WARNING}
+    - meson ${MESON_COMMON_OPTIONS}
             --werror
             --default-library=both
             --prefix=$HOME/glib-installed
@@ -78,20 +89,20 @@ fedora-x86_64:
             --libdir=lib
             -Dsystemtap=true
             -Ddtrace=true
-            -Dfam=true
             -Dinstalled_tests=true
             -Dgtk_doc=true
             _build
     - ninja -C _build
     - mkdir -p _coverage
-    - lcov --config-file .gitlab-ci/lcovrc --directory _build --capture --initial --output-file "_coverage/${CI_JOB_NAME}-baseline.lcov"
+    - lcov --config-file .lcovrc --directory _build --capture --initial --output-file "_coverage/${CI_JOB_NAME}-baseline.lcov"
     - .gitlab-ci/run-tests.sh
-    - lcov --config-file .gitlab-ci/lcovrc --directory _build --capture --output-file "_coverage/${CI_JOB_NAME}.lcov"
+    - lcov --config-file .lcovrc --directory _build --capture --output-file "_coverage/${CI_JOB_NAME}.lcov"
   artifacts:
     reports:
-      junit: "_build/${CI_JOB_NAME}-report.xml"
+      junit: "_build/meson-logs/testlog.junit.xml"
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - "_build/config.h"
       - "_build/glib/glibconfig.h"
@@ -105,11 +116,12 @@ fedora-x86_64:
       - "_build/docs/reference/gio/gio-undeclared.txt"
       - "_build/docs/reference/gio/gio-undocumented.txt"
       - "_build/docs/reference/gio/gio-unused.txt"
-      - "_build/${CI_JOB_NAME}-report.xml"
       - "_coverage"
 
 debian-stable-x86_64:
-  extends: .build
+  extends:
+    - .build-linux
+    - .only-default
   image: $DEBIAN_IMAGE
   stage: build
   needs: []
@@ -122,24 +134,25 @@ debian-stable-x86_64:
             --libdir=lib
             -Dsystemtap=true
             -Ddtrace=true
-            -Dfam=true
             -Dinstalled_tests=true
             _build
     - ninja -C _build
     - .gitlab-ci/run-tests.sh
   artifacts:
     reports:
-      junit: "_build/${CI_JOB_NAME}-report.xml"
+      junit: "_build/meson-logs/testlog.junit.xml"
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - "_build/config.h"
       - "_build/glib/glibconfig.h"
       - "_build/meson-logs"
-      - "_build/${CI_JOB_NAME}-report.xml"
 
 installed-tests:
-  extends: .build-only-schedules
+  extends:
+    - .build-linux
+    - .only-schedules
   image: $FEDORA_IMAGE
   stage: build
   needs: []
@@ -148,7 +161,6 @@ installed-tests:
     - meson ${MESON_COMMON_OPTIONS}
             --werror
             --prefix=/usr --libdir=/usr/lib64
-            -Dfam=true
             -Dinstalled_tests=true
             -Ddefault_library=both
             -Ddtrace=false
@@ -158,24 +170,6 @@ installed-tests:
     # Remove old headers, possibly present in current installation
     - sudo rm -f /usr/include/glib-2.0/glib/gurifuncs.h
     - sudo chown -R `id -un`:`id -gn` _build/
-    # FIXME Install newer xdg-desktop-portal with
-    # GMemoryMonitor support, see:
-    # https://github.com/flatpak/xdg-desktop-portal/pull/365
-    - git clone --branch 1.6.0 --depth 1 --no-tags https://github.com/flatpak/xdg-desktop-portal.git
-    - cd xdg-desktop-portal
-    - ./autogen.sh --prefix=/usr --libdir=/usr/lib64 --disable-libportal --disable-dependency-tracking
-    - make
-    - sudo make install
-    - cd ..
-    # FIXME install newer gobject-introspection
-    # with GMemoryMonitor support, see:
-    # https://gitlab.gnome.org/GNOME/gobject-introspection/merge_requests/193
-    - git clone --single-branch --depth 1 --no-tags https://gitlab.gnome.org/GNOME/gobject-introspection.git
-    - cd gobject-introspection
-    - /usr/bin/meson _build --prefix=/usr --libdir=/usr/lib64
-    - ninja -C _build
-    - sudo ninja -C _build install
-    - cd ..
     # Work-around https://gitlab.gnome.org/GNOME/gnome-desktop-testing/merge_requests/2
     - mkdir -p _build/installed-tests-report/logs/
     - GLIB_TEST_COMPILATION=1 gnome-desktop-testing-runner
@@ -186,6 +180,7 @@ installed-tests:
   artifacts:
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - "_build/config.h"
       - "_build/glib/glibconfig.h"
@@ -193,7 +188,9 @@ installed-tests:
       - "_build/installed-tests-report/"
 
 G_DISABLE_ASSERT:
-  extends: .build-only-schedules
+  extends:
+    - .build-linux
+    - .only-schedules
   image: $FEDORA_IMAGE
   stage: build
   needs: []
@@ -202,7 +199,6 @@ G_DISABLE_ASSERT:
             --werror
             -Dsystemtap=true
             -Ddtrace=true
-            -Dfam=true
             -Dinstalled_tests=true
             -Dglib_assert=false
             _build
@@ -210,79 +206,74 @@ G_DISABLE_ASSERT:
     - bash -x ./.gitlab-ci/run-tests.sh
   artifacts:
     reports:
-      junit: "_build/${CI_JOB_NAME}-report.xml"
+      junit: "_build/meson-logs/testlog.junit.xml"
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - "_build/config.h"
       - "_build/glib/glibconfig.h"
       - "_build/meson-logs"
-      - "_build/${CI_JOB_NAME}-report.xml"
 
 valgrind:
-  extends: .build-only-schedules
+  extends:
+    - .build-linux
+    - .only-schedules
   image: $FEDORA_IMAGE
   stage: analysis
   needs: []
   variables:
-    MESON_TEST_TIMEOUT_MULTIPLIER: 10
+    MESON_TEST_TIMEOUT_MULTIPLIER: 15
   script:
     - meson ${MESON_COMMON_OPTIONS}
             --werror
             -Dsystemtap=true
             -Ddtrace=true
-            -Dfam=true
             -Dinstalled_tests=true
             _build
     - ninja -C _build
+    # Valgrind doesn’t work when the soft FD limit is set too high
+    # See https://gitlab.gnome.org/GNOME/glib/-/merge_requests/2710
+    - ulimit -Sn 1024
     - bash -x ./.gitlab-ci/run-tests.sh
-                 --log-file _build/meson-logs/testlog-valgrind.json
-                 --wrap "valgrind --tool=memcheck --error-exitcode=1 --track-origins=yes --leak-check=full --leak-resolution=high --num-callers=50 --show-leak-kinds=definite,possible --show-error-list=yes --suppressions=${CI_PROJECT_DIR}/glib.supp"
-                 --no-suite no-valgrind
+                 --setup valgrind
                  --no-suite slow
-  # FIXME: Remove this when we have zero valgrind leaks.
-  # https://gitlab.gnome.org/GNOME/glib/issues/333
-  allow_failure: true
   artifacts:
     reports:
-      junit: "_build/${CI_JOB_NAME}-report.xml"
+      junit: "_build/meson-logs/testlog-valgrind.junit.xml"
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - "_build/config.h"
       - "_build/glib/glibconfig.h"
       - "_build/meson-logs"
 
-.cross-template: &cross-template
-  extends: .build
+.cross-build-linux:
+  extends: .build-linux
   stage: build
   needs: []
   artifacts:
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - "_build/meson-logs"
 
-cross-android_api21_arm64:
-  <<: *cross-template
-  image: $ANDROID_IMAGE
+cross-android_arm64:
+  extends:
+    - .cross-build-linux
+    - .only-default
+  image: $FEDORA_IMAGE
   script:
     # FIXME: add --werror
-    # We use -Diconv=auto to test that we successfully detect that iconv is not
-    # provided by android api 21, and detect the external iconv instead.
-    - meson ${MESON_COMMON_OPTIONS} --cross-file=/opt/cross_file_android_arm64_21.txt -Diconv=auto _build
-    - ninja -C _build
-
-cross-android_api28_arm64:
-  <<: *cross-template
-  image: $ANDROID_IMAGE
-  script:
-    # FIXME: add --werror
-    - meson ${MESON_COMMON_OPTIONS} --cross-file=/opt/cross_file_android_arm64_28.txt _build
+    - meson ${MESON_COMMON_OPTIONS} --cross-file=.gitlab-ci/cross_file_android_arm64_31.txt _build
     - ninja -C _build
 
 cross-mingw64:
-  <<: *cross-template
+  extends:
+    - .cross-build-linux
+    - .only-default
   image: $MINGW_IMAGE
   script:
     # FIXME: Add --werror
@@ -290,12 +281,12 @@ cross-mingw64:
     - ninja -C _build
   artifacts:
     reports:
-      junit: "_build/${env:CI_JOB_NAME}-report.xml"
+      junit: "_build/meson-logs/testlog.junit.xml"
     name: "glib-${env:CI_JOB_NAME}-${env:CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - _build/meson-logs
-      - "_build/${env:CI_JOB_NAME}-report.xml"
       - _build/glib/libglib-2.0-0.dll
       - _build/gio/libgio-2.0-0.dll
       - _build/gmodule/libgmodule-2.0-0.dll
@@ -317,12 +308,12 @@ msys2-mingw32:
     - C:\msys64\usr\bin\bash -lc "bash -x ./.gitlab-ci/test-msys2.sh"
   artifacts:
     reports:
-      junit: "_build/${env:CI_JOB_NAME}-report.xml"
+      junit: "_build/meson-logs/testlog.junit.xml"
     name: "glib-${env:CI_JOB_NAME}-${env:CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - _build/meson-logs
-      - "_build/${env:CI_JOB_NAME}-report.xml"
       - _coverage/
 
 vs2017-x64:
@@ -332,25 +323,55 @@ vs2017-x64:
     - win32-ps
   needs: []
   script:
-    - .gitlab-ci/test-msvc.bat
+    # FIXME: These should use --wrap-mode=nodownload but the Windows CI machines
+    # aren’t currently set up for that.
+    - .gitlab-ci/test-msvc.bat ${MESON_COMMON_OPTIONS}
+                               --wrap-mode=default
+                               --python.platlibdir=C:\Python37\site-packages
+                               --python.purelibdir=C:\Python37\site-packages
   artifacts:
     reports:
-      junit: "_build/${env:CI_JOB_NAME}-report.xml"
+      junit: "_build/meson-logs/testlog.junit.xml"
     name: "glib-${env:CI_JOB_NAME}-${env:CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - _build/meson-logs
-      - "_build/${env:CI_JOB_NAME}-report.xml"
       - _build/glib/libglib-2.0-0.dll
       - _build/gio/libgio-2.0-0.dll
       - _build/gmodule/libgmodule-2.0-0.dll
       - _build/gthread/libgthread-2.0-0.dll
       - _build/gobject/libgobject-2.0-0.dll
 
-freebsd-12-x86_64:
+vs2017-x64-static:
+  extends: .only-default
   stage: build
-  only:
-    - branches@GNOME/glib
+  tags:
+    - win32-ps
+  needs: []
+  script:
+    # FIXME: These should use --wrap-mode=nodownload but the Windows CI machines
+    # aren’t currently set up for that.
+    - .gitlab-ci/test-msvc.bat ${MESON_COMMON_OPTIONS}
+                               --wrap-mode=default
+                               --default-library=static
+                               --python.platlibdir=C:\Python37\site-packages
+                               --python.purelibdir=C:\Python37\site-packages
+  artifacts:
+    reports:
+      junit: "_build/meson-logs/testlog.junit.xml"
+    name: "glib-${env:CI_JOB_NAME}-${env:CI_COMMIT_REF_NAME}"
+    when: always
+    expire_in: 1 week
+    paths:
+      - _build/meson-logs
+
+freebsd-12-x86_64:
+  # The FreeBSD 13 build is run on each commit, so the FreeBSD 12 build can be
+  # run less regularly to save CI resources. The chance of a regression on
+  # FreeBSD 12 and not FreeBSD 13 is tiny.
+  extends: .only-schedules
+  stage: build
   tags:
     # To run a FreeBSD builder, install gitlab-runner package and start both
     # gitlab-runner and dbus service because we need /var/lib/dbus/machine-id.
@@ -372,30 +393,26 @@ freebsd-12-x86_64:
     - bash .gitlab-ci/show-execution-environment.sh
   script:
     # We cannot use -Wl,--no-undefined because GLib uses 'environ' variable.
-    # FreeBSD iconv doesn't handle transliteration, so we use (external) GNU libiconv here.
     # FreeBSD supports xattr, but its API is different from Linux xattr.
     # FIXME: extattr(2) support: https://gitlab.gnome.org/GNOME/glib/issues/1404
     # localstatedir is needed for access to /var/lib/dbus/machine-id
-    - meson ${MESON_COMMON_OPTIONS} --localstatedir=/var -Db_lundef=false -Diconv=external -Dxattr=false _build
+    - meson ${MESON_COMMON_OPTIONS} --localstatedir=/var -Db_lundef=false -Dxattr=false _build
     - ninja -C _build
     - bash -x ./.gitlab-ci/run-tests.sh
-  except:
-    - tags
   artifacts:
     reports:
-      junit: "_build/${CI_JOB_NAME}-report.xml"
+      junit: "_build/meson-logs/testlog.junit.xml"
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - "_build/config.h"
       - "_build/glib/glibconfig.h"
       - "_build/meson-logs"
-      - "_build/${CI_JOB_NAME}-report.xml"
 
 freebsd-13-x86_64:
+  extends: .only-origin
   stage: build
-  only:
-    - branches@GNOME/glib
   tags:
     - freebsd-13
   needs: []
@@ -406,37 +423,38 @@ freebsd-13-x86_64:
   before_script:
     - bash .gitlab-ci/show-execution-environment.sh
   script:
-    - meson ${MESON_COMMON_OPTIONS} --localstatedir=/var -Db_lundef=false -Diconv=external -Dxattr=false _build
+    - meson ${MESON_COMMON_OPTIONS} --localstatedir=/var -Db_lundef=false -Dxattr=false _build
     - ninja -C _build
     - bash -x ./.gitlab-ci/run-tests.sh
-  except:
-    - tags
   artifacts:
     reports:
-      junit: "_build/${CI_JOB_NAME}-report.xml"
+      junit: "_build/meson-logs/testlog.junit.xml"
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - "_build/config.h"
       - "_build/glib/glibconfig.h"
       - "_build/meson-logs"
-      - "_build/${CI_JOB_NAME}-report.xml"
 
 macos:
-  extends: .only-default
+  extends: .only-origin
   stage: build
-  only:
-    - branches@GNOME/glib
   tags:
     - macos
   needs: []
+  variables:
+    GIT_SUBMODULE_STRATEGY: normal
+    # libpcre2 gets built as a subproject, but the default Clang options on
+    # macOS limit string lengths to 4095B — pcre2_error.c has a string of length
+    # 4380B
+    CFLAGS: '-Wno-overlength-strings'
   before_script:
     - bash .gitlab-ci/show-execution-environment.sh
-    - pip3 install --user meson==0.52.0
+    - pip3 install --user meson==0.60.1
     - pip3 install --user ninja
     - export PATH=/Users/gitlabrunner/Library/Python/3.7/bin:$PATH
   script:
-    # FIXME: Add --werror
     # FIXME: Use --wrap-mode=default so we download dependencies each time,
     # until the macOS runner is a VM where we can use a pre-made image which
     # already contains the dependencies. See:
@@ -444,20 +462,20 @@ macos:
     #  - https://gitlab.gnome.org/Infrastructure/Infrastructure/issues/225
     - meson ${MESON_COMMON_OPTIONS}
             --wrap-mode=default
+            --werror
             _build
     - ninja -C _build
-    # FIXME: Multiple unit tests currently fails
-    - .gitlab-ci/run-tests.sh || true
+    - .gitlab-ci/run-tests.sh
   artifacts:
     reports:
-      junit: "_build/${CI_JOB_NAME}-report.xml"
+      junit: "_build/meson-logs/testlog.junit.xml"
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - "_build/config.h"
       - "_build/glib/glibconfig.h"
       - "_build/meson-logs"
-      - "_build/${CI_JOB_NAME}-report.xml"
 
 coverage:
   extends: .only-default
@@ -466,8 +484,15 @@ coverage:
   needs: ['fedora-x86_64', 'msys2-mingw32']
   artifacts:
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
+    expire_in: 1 week
+    expose_as: 'Coverage Report'
     paths:
-      - _coverage/
+      - _coverage/coverage/index.html
+      - _coverage
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: _coverage/*-cobertura/cobertura-*.xml
   before_script:
     - bash .gitlab-ci/show-execution-environment.sh
   script:
@@ -475,7 +500,9 @@ coverage:
   coverage: '/^\s+lines\.+:\s+([\d.]+\%)\s+/'
 
 scan-build:
-  extends: .build-only-schedules
+  extends:
+    - .build-linux
+    - .only-schedules
   image: $FEDORA_IMAGE
   stage: analysis
   needs: []
@@ -488,18 +515,20 @@ scan-build:
             --libdir=lib
             -Dsystemtap=true
             -Ddtrace=true
-            -Dfam=true
             -Dinstalled_tests=true
             _scan_build
     - ninja -C _scan_build scan-build
   artifacts:
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - "_scan_build/meson-logs/scanbuild"
 
 coverity:
-  extends: .build-only-schedules
+  extends:
+    - .build-linux
+    - .only-schedules
   image: $COVERITY_IMAGE
   stage: analysis
   needs: []
@@ -515,7 +544,6 @@ coverity:
             --libdir=lib
             -Dsystemtap=true
             -Ddtrace=true
-            -Dfam=true
             -Dinstalled_tests=true
             _coverity_build
     - $HOME/cov-analysis-linux64-*/bin/cov-build --dir cov-int ninja -C _coverity_build
@@ -527,6 +555,7 @@ coverity:
   artifacts:
     name: "glib-${CI_JOB_NAME}-${CI_COMMIT_REF_NAME}"
     when: always
+    expire_in: 1 week
     paths:
       - "cov-int/build-log.txt"
 
@@ -547,10 +576,12 @@ dist-job:
   only:
     - tags
   script:
-    # FIXME: Cannot use MESON_COMMON_OPTIONS here because meson warns about gtkdoc
-    # feature fully functional in 0.54, but we only depend on 0.52. So we cannot build
-    # with --fatal-meson-warnings.
-    - meson ${MESON_COMMON_OPTIONS_NO_WARNING} --buildtype release -Dgtk_doc=true -Dman=true _build
+    # Ignore extra git security checks as we don't care in CI.
+    - git config --global --add safe.directory "${PWD}"
+    - git submodule update --init
+    - for m in $(git submodule foreach -q 'echo $path'); do git config --global --add safe.directory "${PWD}/${m}"; done
+    - meson subprojects download
+    - meson ${MESON_COMMON_OPTIONS} --buildtype release -Dgtk_doc=true -Dman=true _build
     - cd _build
     - ninja dist
     - ninja glib-doc gobject-doc gio-doc

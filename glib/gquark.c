@@ -4,6 +4,8 @@
  *
  * gquark.c: Functions for dealing with quarks and interned strings
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -58,6 +60,7 @@ void
 g_quark_init (void)
 {
   g_assert (quark_seq_id == 0);
+  quark_ht = g_hash_table_new (g_str_hash, g_str_equal);
   quarks = g_new (gchar*, QUARK_BLOCK_SIZE);
   quarks[0] = NULL;
   quark_seq_id = 1;
@@ -140,8 +143,7 @@ g_quark_try_string (const gchar *string)
     return 0;
 
   G_LOCK (quark_global);
-  if (quark_ht != NULL)
-    quark = GPOINTER_TO_UINT (g_hash_table_lookup (quark_ht, string));
+  quark = GPOINTER_TO_UINT (g_hash_table_lookup (quark_ht, string));
   G_UNLOCK (quark_global);
 
   return quark;
@@ -182,8 +184,7 @@ quark_from_string (const gchar *string,
 {
   GQuark quark = 0;
 
-  if (quark_ht != NULL)
-    quark = GPOINTER_TO_UINT (g_hash_table_lookup (quark_ht, string));
+  quark = GPOINTER_TO_UINT (g_hash_table_lookup (quark_ht, string));
 
   if (!quark)
     {
@@ -305,8 +306,6 @@ quark_new (gchar *string)
 
   quark = quark_seq_id;
   g_atomic_pointer_set (&quarks[quark], string);
-  if (quark_ht == NULL)
-    quark_ht = g_hash_table_new (g_str_hash, g_str_equal);
   g_hash_table_insert (quark_ht, string, GUINT_TO_POINTER (quark));
   g_atomic_int_inc (&quark_seq_id);
 

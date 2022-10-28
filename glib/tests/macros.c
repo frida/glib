@@ -2,6 +2,8 @@
  *
  * Copyright © 2018 Endless Mobile, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -18,7 +20,18 @@
  * Author: Philip Withnall <withnall@endlessm.com>
  */
 
+#include "config.h"
+
 #include <glib.h>
+
+#if defined (__APPLE__) || defined (HAVE_COCOA) || defined (HAVE_CARBON)
+# ifndef G_OS_UNIX
+  G_STATIC_ASSERT (FALSE);
+# endif
+# ifndef G_OS_DARWIN
+  G_STATIC_ASSERT (FALSE);
+# endif
+#endif
 
 /* Test that G_STATIC_ASSERT_EXPR can be used as an expression */
 static void

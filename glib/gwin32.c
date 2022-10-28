@@ -2,6 +2,8 @@
  * Copyright (C) 1995-1998  Peter Mattis, Spencer Kimball and Josh MacDonald
  * Copyright (C) 1998-1999  Tor Lillqvist
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -31,6 +33,7 @@
 
 #include "glibconfig.h"
 
+#include <glib/gstdio.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -39,6 +42,7 @@
 #include <fcntl.h>
 
 #define STRICT			/* Strict typing, please */
+#include <winsock2.h>
 #include <windows.h>
 #undef STRICT
 #ifndef G_WITH_CYGWIN
@@ -491,6 +495,48 @@ G_GNUC_END_IGNORE_DEPRECATIONS
   return dirname;
 }
 
+/*
+ * private API to call Windows's RtlGetVersion(), which may need to be called
+ * via GetProcAddress()
+ */
+gboolean
+_g_win32_call_rtl_version (OSVERSIONINFOEXW *info)
+{
+  static OSVERSIONINFOEXW result;
+  static gsize inited = 0;
+
+  g_return_val_if_fail (info != NULL, FALSE);
+
+  if (g_once_init_enter (&inited))
+    {
+#if WINAPI_FAMILY != MODERN_API_FAMILY
+      /* For non-modern UI Apps, use the LoadLibraryW()/GetProcAddress() thing */
+      typedef NTSTATUS (WINAPI fRtlGetVersion) (PRTL_OSVERSIONINFOEXW);
+
+      fRtlGetVersion *RtlGetVersion;
+      HMODULE hmodule = LoadLibraryW (L"ntdll.dll");
+      g_return_val_if_fail (hmodule != NULL, FALSE);
+
+      RtlGetVersion = (fRtlGetVersion *) GetProcAddress (hmodule, "RtlGetVersion");
+      g_return_val_if_fail (RtlGetVersion != NULL, FALSE);
+#endif
+
+      memset (&result, 0, sizeof (OSVERSIONINFOEXW));
+      result.dwOSVersionInfoSize = sizeof (OSVERSIONINFOEXW);
+
+      RtlGetVersion (&result);
+
+#if WINAPI_FAMILY != MODERN_API_FAMILY
+      FreeLibrary (hmodule);
+#endif
+      g_once_init_leave (&inited, TRUE);
+    }
+
+  *info = result;
+
+  return TRUE;
+}
+
 /**
  * g_win32_check_windows_version:
  * @major: major version of Windows
@@ -526,31 +572,13 @@ g_win32_check_windows_version (const gint major,
   gboolean is_ver_checked = FALSE;
   gboolean is_type_checked = FALSE;
 
-#if WINAPI_FAMILY != MODERN_API_FAMILY
-  /* For non-modern UI Apps, use the LoadLibraryW()/GetProcAddress() thing */
-  typedef NTSTATUS (WINAPI fRtlGetVersion) (PRTL_OSVERSIONINFOEXW);
-
-  fRtlGetVersion *RtlGetVersion;
-  HMODULE hmodule;
-#endif
   /* We Only Support Checking for XP or later */
   g_return_val_if_fail (major >= 5 && (major <= 6 || major == 10), FALSE);
   g_return_val_if_fail ((major >= 5 && minor >= 1) || major >= 6, FALSE);
 
   /* Check for Service Pack Version >= 0 */
   g_return_val_if_fail (spver >= 0, FALSE);
-
-#if WINAPI_FAMILY != MODERN_API_FAMILY
-  hmodule = LoadLibraryW (L"ntdll.dll");
-  g_return_val_if_fail (hmodule != NULL, FALSE);
-
-  RtlGetVersion = (fRtlGetVersion *) GetProcAddress (hmodule, "RtlGetVersion");
-  g_return_val_if_fail (RtlGetVersion != NULL, FALSE);
-#endif
-
-  memset (&osverinfo, 0, sizeof (OSVERSIONINFOEXW));
-  osverinfo.dwOSVersionInfoSize = sizeof (OSVERSIONINFOEXW);
-  RtlGetVersion (&osverinfo);
+  g_return_val_if_fail (_g_win32_call_rtl_version (&osverinfo), FALSE);
 
   /* check the OS and Service Pack Versions */
   if (osverinfo.dwMajorVersion > (DWORD) major)
@@ -587,10 +615,6 @@ g_win32_check_windows_version (const gint major,
             break;
         }
     }
-
-#if WINAPI_FAMILY != MODERN_API_FAMILY
-  FreeLibrary (hmodule);
-#endif
 
   return is_ver_checked && is_type_checked;
 }
@@ -785,8 +809,6 @@ g_win32_get_command_line (void)
   return result;
 }
 
-#ifdef G_OS_WIN32
-
 /* Binary compatibility versions. Not for newly compiled code. */
 
 _GLIB_EXTERN gchar *g_win32_get_package_installation_directory_utf8    (const gchar *package,
@@ -817,11 +839,6 @@ G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 G_GNUC_END_IGNORE_DEPRECATIONS
 }
 
-#endif
-
-#ifdef G_OS_WIN32
-#if 0
-
 /* This function looks up two environment
  * variables, G_WIN32_ALLOC_CONSOLE and G_WIN32_ATTACH_CONSOLE.
  * G_WIN32_ALLOC_CONSOLE, if set to 1, makes the process
@@ -839,7 +856,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
  * attached to a process, from DllMain().
  */
 void
-_g_console_win32_init (void)
+g_console_win32_init (void)
 {
   struct
     {
@@ -1252,7 +1269,7 @@ parse_catch_list (const wchar_t *catch_buffer,
 }
 
 void
-_g_crash_handler_win32_init (void)
+g_crash_handler_win32_init (void)
 {
   wchar_t      debugger_env[DEBUGGER_BUFFER_SIZE];
 #define CATCH_BUFFER_SIZE 1024
@@ -1309,7 +1326,7 @@ _g_crash_handler_win32_init (void)
 }
 
 void
-_g_crash_handler_win32_deinit (void)
+g_crash_handler_win32_deinit (void)
 {
   if (WinVEH_handle != NULL)
     RemoveVectoredExceptionHandler (WinVEH_handle);
@@ -1317,5 +1334,231 @@ _g_crash_handler_win32_deinit (void)
   WinVEH_handle = NULL;
 }
 
-#endif
-#endif
+/**
+ * g_win32_find_helper_executable_path:
+ * @executable_name: (transfer none): name of the helper executable to find
+ * (something like gspawn-win64-helper.exe or gdbus.exe for example).
+ * @dll_handle: handle of the DLL to use as searching base path. Pass NULL
+ * to take current process executable as searching base path.
+ *
+ * Find an external executable path and name starting in the same folder
+ * as a specified DLL or current process executable path. Helper executables
+ * (like gspawn-win64-helper.exe, gspawn-win64-helper-console.exe or
+ * gdbus.exe for example) are generally installed in the same folder as the
+ * corresponding DLL file.
+ *
+ * So, if package has been correctly installed, with a dynamic build of GLib,
+ * the helper executable should be in the same directory as the corresponding
+ * DLL file and searching should be straightforward.
+ *
+ * But if built statically, DLL handle is not available and we have to start
+ * searching from the directory holding current executable. It may be very
+ * different from the directory containing the helper program. In order to
+ * find the right helper program automatically in all common situations, we
+ * use this pattern:
+ *
+ * current directory
+ *             |-- ???
+ *             |-- bin
+ *             |    |-- ???
+ *             |-- lib
+ *             |    |-- ???
+ *             |-- glib
+ *             |    |-- ???
+ *             |-- gio
+ *                  |-- ???
+ *
+ * starting at base searching path (DLL or current executable directory) and
+ * getting up until the root path. If we cannot still find the helper program,
+ * we'll rely on PATH as the last resort.
+ *
+ * Returns: (transfer full) (type filename) (nullable): the helper executable
+ * path and name in the GLib filename encoding or NULL in case of error. It
+ * should be deallocated with g_free().
+ */
+gchar *
+g_win32_find_helper_executable_path (const gchar *executable_name, void *dll_handle)
+{
+  static const gchar *const subdirs[] = { "", "bin", "lib", "glib", "gio" };
+  static const gsize nb_subdirs = G_N_ELEMENTS (subdirs);
+
+  DWORD module_path_len;
+  wchar_t module_path[MAX_PATH + 2] = { 0 };
+  gchar *base_searching_path;
+  gchar *p;
+  gchar *executable_path;
+  gsize i;
+
+  g_return_val_if_fail (executable_name && *executable_name, NULL);
+
+  module_path_len = GetModuleFileNameW (dll_handle, module_path, MAX_PATH + 1);
+  /* The > MAX_PATH check prevents truncated module path usage */
+  if (module_path_len == 0 || module_path_len > MAX_PATH)
+    return NULL;
+
+  base_searching_path = g_utf16_to_utf8 (module_path, -1, NULL, NULL, NULL);
+  if (base_searching_path == NULL)
+    return NULL;
+
+  p = strrchr (base_searching_path, G_DIR_SEPARATOR);
+  if (p == NULL)
+    {
+      g_free (base_searching_path);
+      return NULL;
+    }
+  *p = '\0';
+
+  for (;;)
+    {
+      /* Search in subdirectories */
+      for (i = 0; i < nb_subdirs; ++i)
+        {
+          /* As this function is exclusively used on Windows, the
+           * executable_path is always an absolute path. At worse, when
+           * reaching the root of the filesystem, base_searching_path may
+           * equal something like "[Drive letter]:" but never "/" like on
+           * Linux or Mac.
+           * For the peace of mind we still assert this, just in case that
+           * one day someone tries to use this function on Linux or Mac.
+           */
+          executable_path = g_build_filename (base_searching_path, subdirs[i], executable_name, NULL);
+          g_assert (g_path_is_absolute (executable_path));
+          if (g_file_test (executable_path, G_FILE_TEST_IS_REGULAR))
+            break;
+
+          g_free (executable_path);
+          executable_path = NULL;
+        }
+
+      if (executable_path != NULL)
+        break;
+
+      /* Let's get one directory level up */
+      p = strrchr (base_searching_path, G_DIR_SEPARATOR);
+      if (p == NULL)
+        break;
+
+      *p = '\0';
+    }
+  g_free (base_searching_path);
+
+  if (executable_path == NULL)
+    {
+      /* Search in system PATH */
+      executable_path = g_find_program_in_path (executable_name);
+      if (executable_path == NULL)
+        executable_path = g_strdup (executable_name);
+    }
+
+  return executable_path;
+}
+
+/*
+ * g_win32_handle_is_socket:
+ * @h: a win32 HANDLE
+ *
+ * Returns: %TRUE if the handle is a `SOCKET`.
+ */
+gboolean
+g_win32_handle_is_socket (HANDLE h)
+{
+  int option = 0;
+  int optlen = sizeof (option);
+
+  /* according to: https://stackoverflow.com/a/50981652/1277510, this is reasonable */
+  if (getsockopt ((SOCKET) h, SOL_SOCKET, SO_DEBUG, (char *) &option, &optlen) == SOCKET_ERROR)
+    return FALSE;
+
+  return TRUE;
+}
+
+/*
+ * g_win32_reopen_noninherited:
+ * @fd: (transfer full): A file descriptor
+ * @mode: _open_osfhandle flags
+ * @error: A location to return an error of type %G_FILE_ERROR
+ *
+ * Reopen the given @fd with `_O_NOINHERIT`.
+ *
+ * The @fd is closed on success.
+ *
+ * Returns: (transfer full): The new file-descriptor, or -1 on error.
+ */
+int
+g_win32_reopen_noninherited (int fd,
+                             int mode,
+                             GError **error)
+{
+  HANDLE h;
+  HANDLE duph;
+  int dupfd, errsv;
+
+  h = (HANDLE) _get_osfhandle (fd);
+  errsv = errno;
+
+  if (h == INVALID_HANDLE_VALUE)
+    {
+      const char *emsg = g_strerror (errsv);
+      g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
+                   "_get_osfhandle() failed: %s", emsg);
+      return -1;
+    }
+
+  if (g_win32_handle_is_socket (h))
+    {
+      WSAPROTOCOL_INFO info;
+
+      if (WSADuplicateSocket ((SOCKET) h,
+                              GetCurrentProcessId (),
+                              &info))
+        {
+          gchar *emsg = g_win32_error_message (WSAGetLastError ());
+          g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
+                       "WSADuplicateSocket() failed: %s", emsg);
+          g_free (emsg);
+          return -1;
+        }
+
+      duph = (HANDLE) WSASocket (FROM_PROTOCOL_INFO,
+                                 FROM_PROTOCOL_INFO,
+                                 FROM_PROTOCOL_INFO,
+                                 &info, 0, 0);
+      if (duph == (HANDLE) INVALID_SOCKET)
+        {
+          gchar *emsg = g_win32_error_message (WSAGetLastError ());
+          g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
+                       "WSASocket() failed: %s", emsg);
+          g_free (emsg);
+          return -1;
+        }
+    }
+  else if (DuplicateHandle (GetCurrentProcess (), h,
+                            GetCurrentProcess (), &duph,
+                            0, FALSE, DUPLICATE_SAME_ACCESS) == 0)
+    {
+      char *emsg = g_win32_error_message (GetLastError ());
+      g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
+                   "DuplicateHandle() failed: %s", emsg);
+      g_free (emsg);
+      return -1;
+    }
+
+  /* the duph ownership is transferred to dupfd */
+  dupfd = _open_osfhandle ((gintptr) duph, mode | _O_NOINHERIT);
+  if (dupfd < 0)
+    {
+      g_set_error_literal (error, G_FILE_ERROR, G_FILE_ERROR_FAILED,
+                           "_open_osfhandle() failed");
+      CloseHandle (duph);
+      return -1;
+    }
+
+  if (!g_close (fd, error))
+    {
+      /* ignore extra errors in this case */
+      g_close (dupfd, NULL);
+      return -1;
+    }
+
+  return dupfd;
+}

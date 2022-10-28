@@ -1,6 +1,8 @@
 /*
  * Copyright 2011 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -23,10 +25,11 @@ test_types (void)
   const gint * const *cspp;
   guint u, u2;
   gint s, s2;
-  gpointer vp, vp2;
-  const char *vp_str;
+  gpointer vp, vp2, cp;
+  const char *vp_str, *vp_str2;
   const char *volatile vp_str_vol;
   const char *str = "Hello";
+  const char *old_str;
   int *ip, *ip2;
   gsize gs, gs2;
   gboolean res;
@@ -40,6 +43,10 @@ test_types (void)
   res = g_atomic_int_compare_and_exchange (&u, 6, 7);
   g_assert_false (res);
   g_assert_cmpint (u, ==, 5);
+  res = g_atomic_int_compare_and_exchange_full (&u, 6, 7, &u2);
+  g_assert_false (res);
+  g_assert_cmpint (u, ==, 5);
+  g_assert_cmpint (u2, ==, 5);
   g_atomic_int_add (&u, 1);
   g_assert_cmpint (u, ==, 6);
   g_atomic_int_inc (&u);
@@ -56,6 +63,9 @@ test_types (void)
   u2 = g_atomic_int_xor (&u, 4);
   g_assert_cmpint (u2, ==, 12);
   g_assert_cmpint (u, ==, 8);
+  u2 = g_atomic_int_exchange (&u, 55);
+  g_assert_cmpint (u2, ==, 8);
+  g_assert_cmpint (u, ==, 55);
 
   g_atomic_int_set (&s, 5);
   s2 = g_atomic_int_get (&s);
@@ -63,6 +73,11 @@ test_types (void)
   res = g_atomic_int_compare_and_exchange (&s, 6, 7);
   g_assert_false (res);
   g_assert_cmpint (s, ==, 5);
+  s2 = 0;
+  res = g_atomic_int_compare_and_exchange_full (&s, 6, 7, &s2);
+  g_assert_false (res);
+  g_assert_cmpint (s, ==, 5);
+  g_assert_cmpint (s2, ==, 5);
   g_atomic_int_add (&s, 1);
   g_assert_cmpint (s, ==, 6);
   g_atomic_int_inc (&s);
@@ -79,20 +94,42 @@ test_types (void)
   s2 = (gint) g_atomic_int_xor (&s, 4);
   g_assert_cmpint (s2, ==, 12);
   g_assert_cmpint (s, ==, 8);
+  s2 = g_atomic_int_exchange (&s, 55);
+  g_assert_cmpint (s2, ==, 8);
+  g_assert_cmpint (s, ==, 55);
 
   g_atomic_pointer_set (&vp, 0);
   vp2 = g_atomic_pointer_get (&vp);
   g_assert_true (vp2 == 0);
   res = g_atomic_pointer_compare_and_exchange (&vp, &s, &s);
   g_assert_false (res);
+  cp = &s;
+  res = g_atomic_pointer_compare_and_exchange_full (&vp, &s, &s, &cp);
+  g_assert_false (res);
+  g_assert_null (cp);
   g_assert_true (vp == 0);
   res = g_atomic_pointer_compare_and_exchange (&vp, NULL, NULL);
   g_assert_true (res);
   g_assert_true (vp == 0);
+  g_assert_null (g_atomic_pointer_exchange (&vp, &s));
+  g_assert_true (vp == &s);
+  res = g_atomic_pointer_compare_and_exchange_full (&vp, &s, NULL, &cp);
+  g_assert_true (res);
+  g_assert_true (cp == &s);
 
   g_atomic_pointer_set (&vp_str, NULL);
   res = g_atomic_pointer_compare_and_exchange (&vp_str, NULL, str);
   g_assert_true (res);
+  g_assert_cmpstr (g_atomic_pointer_exchange (&vp_str, NULL), ==, str);
+  g_assert_null (vp_str);
+  res = g_atomic_pointer_compare_and_exchange_full (&vp_str, NULL, str, &vp_str2);
+  g_assert_true (res);
+  g_assert_cmpstr (vp_str, ==, str);
+  g_assert_null (vp_str2);
+  res = g_atomic_pointer_compare_and_exchange_full (&vp_str, (char *) str, NULL, &vp_str2);
+  g_assert_true (res);
+  g_assert_null (vp_str);
+  g_assert_true (vp_str2 == str);
 
   /* Note that atomic variables should almost certainly not be marked as
    * `volatile` — see http://isvolatileusefulwiththreads.in/c/. This test exists
@@ -100,8 +137,15 @@ test_types (void)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wincompatible-pointer-types"
   g_atomic_pointer_set (&vp_str_vol, NULL);
+  g_atomic_pointer_set (&vp_str, str);
   res = g_atomic_pointer_compare_and_exchange (&vp_str_vol, NULL, str);
   g_assert_true (res);
+  g_assert_cmpstr (g_atomic_pointer_exchange (&vp_str, NULL), ==, str);
+  g_assert_null (vp_str);
+
+  res = g_atomic_pointer_compare_and_exchange_full (&vp_str_vol, str, NULL, &old_str);
+  g_assert_true (res);
+  g_assert_true (old_str == str);
 #pragma GCC diagnostic pop
 
   g_atomic_pointer_set (&ip, 0);
@@ -111,6 +155,16 @@ test_types (void)
   g_assert_true (res);
   g_assert_true (ip == 0);
 
+  res = g_atomic_pointer_compare_and_exchange_full (&ip, NULL, &s, &ip2);
+  g_assert_true (res);
+  g_assert_true (ip == &s);
+  g_assert_cmpuint ((gsize) ip2, ==, 0);
+
+  res = g_atomic_pointer_compare_and_exchange_full (&ip, NULL, NULL, &ip2);
+  g_assert_false (res);
+  g_assert_true (ip == &s);
+  g_assert_true (ip2 == &s);
+
   g_atomic_pointer_set (&gs, 0);
   vp2 = (gpointer) g_atomic_pointer_get (&gs);
   gs2 = (gsize) vp2;
@@ -118,6 +172,10 @@ test_types (void)
   res = g_atomic_pointer_compare_and_exchange (&gs, NULL, (gsize) NULL);
   g_assert_true (res);
   g_assert_cmpuint (gs, ==, 0);
+  res = g_atomic_pointer_compare_and_exchange_full (&gs, (gsize) NULL, (gsize) NULL, &gs2);
+  g_assert_true (res);
+  g_assert_cmpuint (gs, ==, 0);
+  g_assert_cmpuint (gs2, ==, 0);
   gs2 = (gsize) g_atomic_pointer_add (&gs, 5);
   g_assert_cmpuint (gs2, ==, 0);
   g_assert_cmpuint (gs, ==, 5);
@@ -130,6 +188,9 @@ test_types (void)
   gs2 = g_atomic_pointer_xor (&gs, 4);
   g_assert_cmpuint (gs2, ==, 12);
   g_assert_cmpuint (gs, ==, 8);
+  vp_str2 = g_atomic_pointer_exchange (&vp_str, str);
+  g_assert_cmpstr (vp_str, ==, str);
+  g_assert_null (vp_str2);
 
   g_assert_cmpint (g_atomic_int_get (csp), ==, s);
   g_assert_true (g_atomic_pointer_get ((const gint **) cspp) == csp);
@@ -138,6 +199,8 @@ test_types (void)
 #undef g_atomic_int_set
 #undef g_atomic_int_get
 #undef g_atomic_int_compare_and_exchange
+#undef g_atomic_int_compare_and_exchange_full
+#undef g_atomic_int_exchange
 #undef g_atomic_int_add
 #undef g_atomic_int_inc
 #undef g_atomic_int_and
@@ -147,6 +210,8 @@ test_types (void)
 #undef g_atomic_pointer_set
 #undef g_atomic_pointer_get
 #undef g_atomic_pointer_compare_and_exchange
+#undef g_atomic_pointer_compare_and_exchange_full
+#undef g_atomic_pointer_exchange
 #undef g_atomic_pointer_add
 #undef g_atomic_pointer_and
 #undef g_atomic_pointer_or
@@ -158,6 +223,11 @@ test_types (void)
   res = g_atomic_int_compare_and_exchange ((gint*)&u, 6, 7);
   g_assert_false (res);
   g_assert_cmpint (u, ==, 5);
+  u2 = 0;
+  res = g_atomic_int_compare_and_exchange_full ((gint*)&u, 6, 7, (gint*) &u2);
+  g_assert_false (res);
+  g_assert_cmpuint (u, ==, 5);
+  g_assert_cmpuint (u2, ==, 5);
   g_atomic_int_add ((gint*)&u, 1);
   g_assert_cmpint (u, ==, 6);
   g_atomic_int_inc ((gint*)&u);
@@ -173,6 +243,9 @@ test_types (void)
   g_assert_cmpint (u, ==, 12);
   u2 = g_atomic_int_xor (&u, 4);
   g_assert_cmpint (u2, ==, 12);
+  u2 = g_atomic_int_exchange ((gint*) &u, 55);
+  g_assert_cmpint (u2, ==, 8);
+  g_assert_cmpint (u, ==, 55);
 
   g_atomic_int_set (&s, 5);
   s2 = g_atomic_int_get (&s);
@@ -180,6 +253,11 @@ test_types (void)
   res = g_atomic_int_compare_and_exchange (&s, 6, 7);
   g_assert_false (res);
   g_assert_cmpint (s, ==, 5);
+  s2 = 0;
+  res = g_atomic_int_compare_and_exchange_full (&s, 6, 7, &s2);
+  g_assert_false (res);
+  g_assert_cmpint (s, ==, 5);
+  g_assert_cmpint (s2, ==, 5);
   g_atomic_int_add (&s, 1);
   g_assert_cmpint (s, ==, 6);
   g_atomic_int_inc (&s);
@@ -201,6 +279,9 @@ G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 G_GNUC_END_IGNORE_DEPRECATIONS
   g_assert_cmpint (s2, ==, 8);
   g_assert_cmpint (s, ==, 9);
+  s2 = g_atomic_int_exchange (&s, 55);
+  g_assert_cmpint (s2, ==, 9);
+  g_assert_cmpint (s, ==, 55);
 
   g_atomic_pointer_set (&vp, 0);
   vp2 = g_atomic_pointer_get (&vp);
@@ -208,20 +289,47 @@ G_GNUC_END_IGNORE_DEPRECATIONS
   res = g_atomic_pointer_compare_and_exchange (&vp, &s, &s);
   g_assert_false (res);
   g_assert_true (vp == 0);
+  res = g_atomic_pointer_compare_and_exchange_full (&vp, &s, &s, &cp);
+  g_assert_false (res);
+  g_assert_null (vp);
+  g_assert_null (cp);
   res = g_atomic_pointer_compare_and_exchange (&vp, NULL, NULL);
   g_assert_true (res);
   g_assert_true (vp == 0);
+  res = g_atomic_pointer_compare_and_exchange_full (&vp, NULL, NULL, &cp);
+  g_assert_true (res);
+  g_assert_null (vp);
+  g_assert_null (cp);
+  g_assert_null (g_atomic_pointer_exchange (&vp, &s));
+  g_assert_true (vp == &s);
 
   g_atomic_pointer_set (&vp_str, NULL);
   res = g_atomic_pointer_compare_and_exchange (&vp_str, NULL, (char *) str);
   g_assert_true (res);
+  g_assert_cmpstr (g_atomic_pointer_exchange (&vp_str, NULL), ==, str);
+  g_assert_null (vp_str);
+  res = g_atomic_pointer_compare_and_exchange_full (&vp_str, NULL, (char *) str, &cp);
+  g_assert_true (res);
+  g_assert_cmpstr (vp_str, ==, str);
+  g_assert_null (cp);
+  res = g_atomic_pointer_compare_and_exchange_full (&vp_str, (char *) str, NULL, &cp);
+  g_assert_true (res);
+  g_assert_null (vp_str);
+  g_assert_true (cp == str);
 
   /* Note that atomic variables should almost certainly not be marked as
    * `volatile` — see http://isvolatileusefulwiththreads.in/c/. This test exists
    * to make sure that we don’t warn when built against older third party code. */
   g_atomic_pointer_set (&vp_str_vol, NULL);
+  g_atomic_pointer_set (&vp_str, (char *) str);
   res = g_atomic_pointer_compare_and_exchange (&vp_str_vol, NULL, (char *) str);
   g_assert_true (res);
+  g_assert_cmpstr (g_atomic_pointer_exchange (&vp_str, NULL), ==, str);
+  g_assert_null (vp_str);
+
+  res = g_atomic_pointer_compare_and_exchange_full ((char **) &vp_str_vol, (char *) str, NULL, &old_str);
+  g_assert_true (res);
+  g_assert_true (old_str == str);
 
   g_atomic_pointer_set (&ip, 0);
   ip2 = g_atomic_pointer_get (&ip);
@@ -230,6 +338,16 @@ G_GNUC_END_IGNORE_DEPRECATIONS
   g_assert_true (res);
   g_assert_true (ip == 0);
 
+  res = g_atomic_pointer_compare_and_exchange_full (&ip, NULL, (gpointer) 1, &cp);
+  g_assert_true (res);
+  g_assert_cmpint ((gsize) ip, ==, 1);
+  g_assert_cmpuint ((gsize) cp, ==, 0);
+
+  res = g_atomic_pointer_compare_and_exchange_full (&ip, NULL, NULL, &cp);
+  g_assert_false (res);
+  g_assert_cmpuint ((gsize) ip, ==, 1);
+  g_assert_cmpuint ((gsize) cp, ==, 1);
+
   g_atomic_pointer_set (&gs, 0);
   vp = g_atomic_pointer_get (&gs);
   gs2 = (gsize) vp;
@@ -237,6 +355,10 @@ G_GNUC_END_IGNORE_DEPRECATIONS
   res = g_atomic_pointer_compare_and_exchange (&gs, NULL, NULL);
   g_assert_true (res);
   g_assert_cmpuint (gs, ==, 0);
+  res = g_atomic_pointer_compare_and_exchange_full (&gs, NULL, NULL, &cp);
+  g_assert_true (res);
+  g_assert_cmpuint (gs, ==, 0);
+  g_assert_cmpuint ((gsize) cp, ==, 0);
   gs2 = (gsize) g_atomic_pointer_add (&gs, 5);
   g_assert_cmpuint (gs2, ==, 0);
   g_assert_cmpuint (gs, ==, 5);
@@ -249,6 +371,10 @@ G_GNUC_END_IGNORE_DEPRECATIONS
   gs2 = g_atomic_pointer_xor (&gs, 4);
   g_assert_cmpuint (gs2, ==, 12);
   g_assert_cmpuint (gs, ==, 8);
+  vp2 = g_atomic_pointer_exchange (&gs, NULL);
+  gs2 = (gsize) vp2;
+  g_assert_cmpuint (gs2, ==, 8);
+  g_assert_null ((gpointer) gs);
 
   g_assert_cmpint (g_atomic_int_get (csp), ==, s);
   g_assert_true (g_atomic_pointer_get (cspp) == csp);

@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2006-2007 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -76,22 +78,22 @@ struct _GSeekableIface
   /* TODO: Async seek/truncate */
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType    g_seekable_get_type     (void) G_GNUC_CONST;
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 goffset  g_seekable_tell         (GSeekable     *seekable);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_seekable_can_seek     (GSeekable     *seekable);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_seekable_seek         (GSeekable     *seekable,
 				  goffset        offset,
 				  GSeekType      type,
 				  GCancellable  *cancellable,
 				  GError       **error);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_seekable_can_truncate (GSeekable     *seekable);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean g_seekable_truncate     (GSeekable     *seekable,
 				  goffset        offset,
 				  GCancellable  *cancellable,

@@ -28,10 +28,23 @@
 #endif
 
 #include <locale.h>
+#include <stdio.h>
 
 #include "glib.h"
 
 #include "glib/gunidecomp.h"
+
+#ifdef G_OS_WIN32
+#include <windows.h>
+#endif
+
+static void
+save_and_clear_env (const char  *name,
+                    char       **save)
+{
+  *save = g_strdup (g_getenv (name));
+  g_unsetenv (name);
+}
 
 /* Test that g_unichar_validate() returns the correct value for various
  * ASCII and Unicode alphabetic, numeric, and other, codepoints. */
@@ -341,7 +354,9 @@ test_unichar_script (void)
     { G_UNICODE_SCRIPT_OLD_UYGHUR,             0x10F70 },
     { G_UNICODE_SCRIPT_TANGSA,                 0x16A70 },
     { G_UNICODE_SCRIPT_TOTO,                   0x1E290 },
-    { G_UNICODE_SCRIPT_VITHKUQI,               0x10570 }
+    { G_UNICODE_SCRIPT_VITHKUQI,               0x10570 },
+    { G_UNICODE_SCRIPT_KAWI,                   0x11F00 },
+    { G_UNICODE_SCRIPT_NAG_MUNDARI,            0x1E4D0 },
   };
   for (i = 0; i < G_N_ELEMENTS (examples); i++)
     g_assert_cmpint (g_unichar_get_script (examples[i].c), ==, examples[i].script);
@@ -480,14 +495,28 @@ test_turkish_strupdown (void)
                     "\xcc\x87"  /* COMBINING DOT ABOVE (U+307) */
                     "\xc4\xb1"  /* LATIN SMALL LETTER DOTLESS I (U+131) */
                     "\xc4\xb0"; /* LATIN CAPITAL LETTER I WITH DOT ABOVE (U+130) */
+  char *oldlocale;
+  char *old_lc_all, *old_lc_messages, *old_lang;
+#ifdef G_OS_WIN32
+  LCID old_lcid;
+#endif
 
-  char *oldlocale = g_strdup (setlocale (LC_ALL, "tr_TR"));
+  /* interferes with g_win32_getlocale() */
+  save_and_clear_env ("LC_ALL", &old_lc_all);
+  save_and_clear_env ("LC_MESSAGES", &old_lc_messages);
+  save_and_clear_env ("LANG", &old_lang);
 
+  oldlocale = g_strdup (setlocale (LC_ALL, "tr_TR"));
   if (oldlocale == NULL)
     {
       g_test_skip ("locale tr_TR not available");
       return;
     }
+
+#ifdef G_OS_WIN32
+  old_lcid = GetThreadLocale ();
+  SetThreadLocale (MAKELCID (MAKELANGID (LANG_TURKISH, SUBLANG_TURKISH_TURKEY), SORT_DEFAULT));
+#endif
 
   str_up = g_utf8_strup (str, strlen (str));
   str_down = g_utf8_strdown (str, strlen (str));
@@ -507,7 +536,19 @@ test_turkish_strupdown (void)
   g_free (str_down);
 
   setlocale (LC_ALL, oldlocale);
+#ifdef G_OS_WIN32
+  SetThreadLocale (old_lcid);
+#endif
   g_free (oldlocale);
+  if (old_lc_all)
+    g_setenv ("LC_ALL", old_lc_all, TRUE);
+  if (old_lc_messages)
+    g_setenv ("LC_MESSAGES", old_lc_messages, TRUE);
+  if (old_lang)
+    g_setenv ("LANG", old_lang, TRUE);
+  g_free (old_lc_all);
+  g_free (old_lc_messages);
+  g_free (old_lang);
 }
 
 /* Test that g_utf8_casefold() returns the correct value for various
@@ -533,6 +574,132 @@ test_casefold (void)
   /* Tricky, comparing two unicode strings with an ASCII function */
   g_assert_cmpstr (str_casefold, ==, "aazz09x;\357\275\201\357\275\201");
   g_free (str_casefold);
+}
+
+static void
+test_casemap_and_casefold (void)
+{
+  FILE *infile;
+  char buffer[1024];
+  char **strings;
+  char *filename;
+  const char *locale;
+  const char *test;
+  const char *expected;
+  char *convert;
+  char *current_locale = setlocale (LC_CTYPE, NULL);
+  char *old_lc_all, *old_lc_messages, *old_lang;
+#ifdef G_OS_WIN32
+  LCID old_lcid;
+
+  old_lcid = GetThreadLocale ();
+#endif
+
+  /* interferes with g_win32_getlocale() */
+  save_and_clear_env ("LC_ALL", &old_lc_all);
+  save_and_clear_env ("LC_MESSAGES", &old_lc_messages);
+  save_and_clear_env ("LANG", &old_lang);
+
+  filename = g_test_build_filename (G_TEST_DIST, "casemap.txt", NULL);
+  infile = fopen (filename, "r");
+  g_assert (infile != NULL);
+
+  while (fgets (buffer, sizeof (buffer), infile))
+    {
+      if (buffer[0] == '#')
+        continue;
+
+      strings = g_strsplit (buffer, "\t", -1);
+      locale = strings[0];
+      if (!locale[0])
+        locale = "C";
+
+      if (strcmp (locale, current_locale) != 0)
+        {
+          setlocale (LC_CTYPE, locale);
+          current_locale = setlocale (LC_CTYPE, NULL);
+
+          if (strncmp (current_locale, locale, 2) != 0)
+            {
+              g_test_message ("Cannot set locale to %s, skipping", locale);
+              goto next;
+            }
+        }
+
+#ifdef G_OS_WIN32
+      if (strstr (locale, "lt_LT"))
+        SetThreadLocale (MAKELCID (MAKELANGID (LANG_LITHUANIAN, SUBLANG_LITHUANIAN), SORT_DEFAULT));
+      else if (strstr (locale, "tr_TR"))
+        SetThreadLocale (MAKELCID (MAKELANGID (LANG_TURKISH, SUBLANG_TURKISH_TURKEY), SORT_DEFAULT));
+      else
+        SetThreadLocale (old_lcid);
+#endif
+
+      test = strings[1];
+
+      /* gen-casemap-txt.py uses an empty string when a single
+       * character doesn't have an equivalent in a particular case;
+       * since that behavior is nonsense for multicharacter strings,
+       * it would make more sense to put the expected result ... the
+       * original character unchanged. But for now, we just work
+       * around it here and take the empty string to mean "same as
+       * original"
+       */
+
+      convert = g_utf8_strup (test, -1);
+      expected = strings[4][0] ? strings[4] : test;
+      g_assert_cmpstr (convert, ==, expected);
+      g_free (convert);
+
+      convert = g_utf8_strdown (test, -1);
+      expected = strings[2][0] ? strings[2] : test;
+      g_assert_cmpstr (convert, ==, expected);
+      g_free (convert);
+
+    next:
+      g_strfreev (strings);
+    }
+
+  fclose (infile);
+
+  g_free (filename);
+  filename = g_test_build_filename (G_TEST_DIST, "casefold.txt", NULL);
+
+  infile = fopen (filename, "r");
+  g_assert (infile != NULL);
+
+  while (fgets (buffer, sizeof (buffer), infile))
+    {
+      if (buffer[0] == '#')
+        continue;
+
+      buffer[strlen (buffer) - 1] = '\0';
+      strings = g_strsplit (buffer, "\t", -1);
+
+      test = strings[0];
+
+      convert = g_utf8_casefold (test, -1);
+      g_assert_cmpstr (convert, ==, strings[1]);
+      g_free (convert);
+
+      g_strfreev (strings);
+    }
+
+  fclose (infile);
+  g_free (filename);
+
+  if (old_lc_all)
+    g_setenv ("LC_ALL", old_lc_all, TRUE);
+  if (old_lc_messages)
+    g_setenv ("LC_MESSAGES", old_lc_messages, TRUE);
+  if (old_lang)
+    g_setenv ("LANG", old_lang, TRUE);
+  g_free (old_lc_all);
+  g_free (old_lc_messages);
+  g_free (old_lang);
+#ifdef G_OS_WIN32
+  SetThreadLocale (old_lcid);
+#endif
 }
 
 /* Test that g_unichar_ismark() returns the correct value for various
@@ -909,6 +1076,11 @@ test_zerowidth (void)
   g_assert_false (g_unichar_iszerowidth (G_UNICODE_LAST_CHAR + 1));
   g_assert_false (g_unichar_iszerowidth (G_UNICODE_LAST_CHAR_PART1));
   g_assert_false (g_unichar_iszerowidth (G_UNICODE_LAST_CHAR_PART1 + 1));
+
+  /* Hangul Jamo Extended-B block, containing jungseong and jongseong for
+   * Old Korean */
+  g_assert_true (g_unichar_iszerowidth (0xD7B0));
+  g_assert_true (g_unichar_iszerowidth (0xD7FB));
 }
 
 /* Test that g_unichar_istitle() returns the correct value for various
@@ -1488,6 +1660,7 @@ test_iso15924 (void)
   } data[] = {
     { G_UNICODE_SCRIPT_COMMON,             "Zyyy" },
     { G_UNICODE_SCRIPT_INHERITED,          "Zinh" },
+    { G_UNICODE_SCRIPT_MATH,               "Zmth" },
     { G_UNICODE_SCRIPT_ARABIC,             "Arab" },
     { G_UNICODE_SCRIPT_ARMENIAN,           "Armn" },
     { G_UNICODE_SCRIPT_BENGALI,            "Beng" },
@@ -1677,7 +1850,11 @@ test_iso15924 (void)
     { G_UNICODE_SCRIPT_OLD_UYGHUR,             "Ougr" },
     { G_UNICODE_SCRIPT_TANGSA,                 "Tnsa" },
     { G_UNICODE_SCRIPT_TOTO,                   "Toto" },
-    { G_UNICODE_SCRIPT_VITHKUQI,               "Vith" }
+    { G_UNICODE_SCRIPT_VITHKUQI,               "Vith" },
+
+    /* Unicode 15.0 additions */
+    { G_UNICODE_SCRIPT_KAWI,                   "Kawi" },
+    { G_UNICODE_SCRIPT_NAG_MUNDARI,            "Nagm" },
   };
   guint i;
 
@@ -1702,6 +1879,7 @@ test_iso15924 (void)
                            data[i].four_letter_code[2],
                            data[i].four_letter_code[3]);
 
+      g_test_message ("Testing script %s (code %u)", data[i].four_letter_code, code);
       g_assert_cmphex (g_unicode_script_to_iso15924 (data[i].script), ==, code);
       g_assert_cmpint (g_unicode_script_from_iso15924 (code), ==, data[i].script);
     }
@@ -1720,6 +1898,7 @@ main (int   argc,
   g_test_add_func ("/unicode/break-type", test_unichar_break_type);
   g_test_add_func ("/unicode/canonical-decomposition", test_canonical_decomposition);
   g_test_add_func ("/unicode/casefold", test_casefold);
+  g_test_add_func ("/unicode/casemap_and_casefold", test_casemap_and_casefold);
   g_test_add_func ("/unicode/cases", test_cases);
   g_test_add_func ("/unicode/character-type", test_unichar_character_type);
   g_test_add_func ("/unicode/cntrl", test_cntrl);

@@ -2,6 +2,8 @@
  * Copyright © 2008 Ryan Lortie
  * Copyright © 2010 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -812,8 +814,8 @@ g_variant_type_info_get (const GVariantType *type)
 
       index = type_char - 'b';
       g_assert (G_N_ELEMENTS (g_variant_type_info_basic_table) == 24);
-      g_assert (0 <= index);
-      g_assert (index < 24);
+      g_assert_cmpint (0, <=, index);
+      g_assert_cmpint (index, <, 24);
 
       info = g_variant_type_info_basic_table + index;
       g_variant_type_info_check (info, 0);

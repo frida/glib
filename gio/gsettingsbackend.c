@@ -2,6 +2,8 @@
  * Copyright © 2009, 2010 Codethink Limited
  * Copyright © 2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -60,7 +62,7 @@ static gboolean g_settings_has_backend;
  * non-strictly-typed data that is stored in a hierarchy. To implement
  * an alternative storage backend for #GSettings, you need to implement
  * the #GSettingsBackend interface and then make it implement the
- * extension point #G_SETTINGS_BACKEND_EXTENSION_POINT_NAME.
+ * extension point %G_SETTINGS_BACKEND_EXTENSION_POINT_NAME.
  *
  * The interface defines methods for reading and writing values, a
  * method for determining if writing of certain values will fail

@@ -20,7 +20,7 @@ int main ()
   return 0;
 }'''
 
-if cc_can_run
+if meson.can_run_host_binaries()
   run_result = cc.run(printf_flag_grouping_test,
       name : 'printf supports the grouping flag')
   gl_cv_func_printf_flag_grouping = run_result.compiled() and run_result.returncode() == 0

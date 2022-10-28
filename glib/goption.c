@@ -3,6 +3,8 @@
  *  Copyright (C) 1999, 2003 Red Hat Software
  *  Copyright (C) 2004       Anders Carlsson <andersca@gnome.org>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -336,7 +338,7 @@ G_DEFINE_QUARK (g-option-context-error-quark, g_option_error)
  * The @parameter_string can serve multiple purposes. It can be used
  * to add descriptions for "rest" arguments, which are not parsed by
  * the #GOptionContext, typically something like "FILES" or
- * "FILE1 FILE2...". If you are using #G_OPTION_REMAINING for
+ * "FILE1 FILE2...". If you are using %G_OPTION_REMAINING for
  * collecting "rest" arguments, GLib handles this automatically by
  * using the @arg_description of the corresponding #GOptionEntry in
  * the usage summary.
@@ -2113,8 +2115,7 @@ g_option_context_parse (GOptionContext   *context,
                   gboolean has_h_entry = context_has_h_entry (context);
                   arg = (*argv)[i] + 1;
                   arg_length = strlen (arg);
-                  nulled_out = g_newa (gboolean, arg_length);
-                  memset (nulled_out, 0, arg_length * sizeof (gboolean));
+                  nulled_out = g_newa0 (gboolean, arg_length);
                   for (j = 0; j < arg_length; j++)
                     {
                       if (context->help_enabled && (arg[j] == '?' ||

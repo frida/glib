@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 2001 Matthias Clasen <matthiasc@poet.de>
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -32,7 +34,7 @@ typedef struct {
   gboolean valid;
 } Test;
 
-Test test[] = {
+static Test global_test[] = {
   /* some tests to check max_len handling */
   /* length 1 */
   { "abcde", -1, 5, TRUE },
@@ -364,10 +366,10 @@ main (int argc, char *argv[])
 
   g_test_init (&argc, &argv, NULL);
 
-  for (i = 0; test[i].text; i++)
+  for (i = 0; global_test[i].text; i++)
     {
       path = g_strdup_printf ("/utf8/validate/%d", i);
-      g_test_add_data_func (path, &test[i], do_test);
+      g_test_add_data_func (path, &global_test[i], do_test);
       g_free (path);
     }
 

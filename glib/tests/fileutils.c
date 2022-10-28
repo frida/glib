@@ -68,8 +68,229 @@ check_string (gchar *str, const gchar *expected)
 }
 
 static void
+test_paths (void)
+{
+  struct
+  {
+    gchar *filename;
+    gchar *dirname;
+  } dirname_checks[] = {
+    { "/", "/" },
+    { "////", "/" },
+    { ".////", "." },
+    { "../", ".." },
+    { "..////", ".." },
+    { "a/b", "a" },
+    { "a/b/", "a/b" },
+    { "c///", "c" },
+#ifdef G_OS_WIN32
+    { "\\", "\\" },
+    { ".\\\\\\\\", "." },
+    { "..\\", ".." },
+    { "..\\\\\\\\", ".." },
+    { "a\\b", "a" },
+    { "a\\b/", "a\\b" },
+    { "a/b\\", "a/b" },
+    { "c\\\\/", "c" },
+    { "//\\", "/" },
+#endif
+#ifdef G_WITH_CYGWIN
+    { "//server/share///x", "//server/share" },
+#endif
+    { ".", "." },
+    { "..", "." },
+    { "", "." },
+  };
+  const guint n_dirname_checks = G_N_ELEMENTS (dirname_checks);
+  struct
+  {
+    gchar *filename;
+    gchar *without_root;
+  } skip_root_checks[] = {
+    { "/", "" },
+    { "//", "" },
+    { "/foo", "foo" },
+    { "//foo", "foo" },
+    { "a/b", NULL },
+#ifdef G_OS_WIN32
+    { "\\", "" },
+    { "\\foo", "foo" },
+    { "\\\\server\\foo", "" },
+    { "\\\\server\\foo\\bar", "bar" },
+    { "a\\b", NULL },
+#endif
+#ifdef G_WITH_CYGWIN
+    { "//server/share///x", "//x" },
+#endif
+    { ".", NULL },
+    { "", NULL },
+  };
+  const guint n_skip_root_checks = G_N_ELEMENTS (skip_root_checks);
+  struct
+  {
+    gchar *cwd;
+    gchar *relative_path;
+    gchar *canonical_path;
+  } canonicalize_filename_checks[] = {
+#ifndef G_OS_WIN32
+    { "/etc", "../usr/share", "/usr/share" },
+    { "/", "/foo/bar", "/foo/bar" },
+    { "/usr/bin", "../../foo/bar", "/foo/bar" },
+    { "/", "../../foo/bar", "/foo/bar" },
+    { "/double//dash", "../../foo/bar", "/foo/bar" },
+    { "/usr/share/foo", ".././././bar", "/usr/share/bar" },
+    { "/foo/bar", "../bar/./.././bar", "/foo/bar" },
+    { "/test///dir", "../../././foo/bar", "/foo/bar" },
+    { "/test///dir", "../../././/foo///bar", "/foo/bar" },
+    { "/etc", "///triple/slash", "/triple/slash" },
+    { "/etc", "//double/slash", "//double/slash" },
+    { "///triple/slash", ".", "/triple/slash" },
+    { "//double/slash", ".", "//double/slash" },
+    { "/cwd/../with/./complexities/", "./hello", "/with/complexities/hello" },
+    { "/", ".dot-dir", "/.dot-dir" },
+    { "/cwd", "..", "/" },
+    { "/etc", "hello/..", "/etc" },
+    { "/etc", "hello/../", "/etc" },
+    { "/", "..", "/" },
+    { "/", "../", "/" },
+    { "/", "/..", "/" },
+    { "/", "/../", "/" },
+    { "/", ".", "/" },
+    { "/", "./", "/" },
+    { "/", "/.", "/" },
+    { "/", "/./", "/" },
+    { "/", "///usr/../usr", "/usr" },
+#else
+    { "/etc", "../usr/share", "\\usr\\share" },
+    { "/", "/foo/bar", "\\foo\\bar" },
+    { "/usr/bin", "../../foo/bar", "\\foo\\bar" },
+    { "/", "../../foo/bar", "\\foo\\bar" },
+    { "/double//dash", "../../foo/bar", "\\foo\\bar" },
+    { "/usr/share/foo", ".././././bar", "\\usr\\share\\bar" },
+    { "/foo/bar", "../bar/./.././bar", "\\foo\\bar" },
+    { "/test///dir", "../../././foo/bar", "\\foo\\bar" },
+    { "/test///dir", "../../././/foo///bar", "\\foo\\bar" },
+    { "/etc", "///triple/slash", "\\triple\\slash" },
+    { "/etc", "//double/slash", "//double/slash" },
+    { "///triple/slash", ".", "\\triple\\slash" },
+    { "//double/slash", ".", "//double/slash\\" },
+    { "/cwd/../with/./complexities/", "./hello", "\\with\\complexities\\hello" },
+    { "/", ".dot-dir", "\\.dot-dir" },
+    { "/cwd", "..", "\\" },
+    { "/etc", "hello/..", "\\etc" },
+    { "/etc", "hello/../", "\\etc" },
+    { "/", "..", "\\" },
+    { "/", "../", "\\" },
+    { "/", "/..", "\\" },
+    { "/", "/../", "\\" },
+    { "/", ".", "\\" },
+    { "/", "./", "\\" },
+    { "/", "/.", "\\" },
+    { "/", "/./", "\\" },
+    { "/", "///usr/../usr", "\\usr" },
+
+    { "\\etc", "..\\usr\\share", "\\usr\\share" },
+    { "\\", "\\foo\\bar", "\\foo\\bar" },
+    { "\\usr\\bin", "..\\..\\foo\\bar", "\\foo\\bar" },
+    { "\\", "..\\..\\foo\\bar", "\\foo\\bar" },
+    { "\\double\\\\dash", "..\\..\\foo\\bar", "\\foo\\bar" },
+    { "\\usr\\share\\foo", "..\\.\\.\\.\\bar", "\\usr\\share\\bar" },
+    { "\\foo\\bar", "..\\bar\\.\\..\\.\\bar", "\\foo\\bar" },
+    { "\\test\\\\\\dir", "..\\..\\.\\.\\foo\\bar", "\\foo\\bar" },
+    { "\\test\\\\\\dir", "..\\..\\.\\.\\\\foo\\\\\\bar", "\\foo\\bar" },
+    { "\\etc", "\\\\\\triple\\slash", "\\triple\\slash" },
+    { "\\etc", "\\\\double\\slash", "\\\\double\\slash" },
+    { "\\\\\\triple\\slash", ".", "\\triple\\slash" },
+    { "\\\\double\\slash", ".", "\\\\double\\slash\\" },
+    { "\\cwd\\..\\with\\.\\complexities\\", ".\\hello", "\\with\\complexities\\hello" },
+    { "\\", ".dot-dir", "\\.dot-dir" },
+    { "\\cwd", "..", "\\" },
+    { "\\etc", "hello\\..", "\\etc" },
+    { "\\etc", "hello\\..\\", "\\etc" },
+    { "\\", "..", "\\" },
+    { "\\", "..\\", "\\" },
+    { "\\", "\\..", "\\" },
+    { "\\", "\\..\\", "\\" },
+    { "\\", ".", "\\" },
+    { "\\", ".\\", "\\" },
+    { "\\", "\\.", "\\" },
+    { "\\", "\\.\\", "\\" },
+    { "\\", "\\\\\\usr\\..\\usr", "\\usr" },
+#endif
+  };
+  const guint n_canonicalize_filename_checks = G_N_ELEMENTS (canonicalize_filename_checks);
+  gchar *string;
+  guint i;
+
+  string = g_path_get_basename (G_DIR_SEPARATOR_S "foo" G_DIR_SEPARATOR_S "dir" G_DIR_SEPARATOR_S);
+  g_assert_cmpstr (string, ==, "dir");
+  g_free (string);
+  string = g_path_get_basename (G_DIR_SEPARATOR_S "foo" G_DIR_SEPARATOR_S "file");
+  g_assert_cmpstr (string, ==, "file");
+  g_free (string);
+
+#ifdef G_OS_WIN32
+  string = g_path_get_basename ("/foo/dir/");
+  g_assert_cmpstr (string, ==, "dir");
+  g_free (string);
+  string = g_path_get_basename ("/foo/file");
+  g_assert_cmpstr (string, ==, "file");
+  g_free (string);
+#endif
+
+  for (i = 0; i < n_dirname_checks; i++)
+    {
+      gchar *dirname = g_path_get_dirname (dirname_checks[i].filename);
+      g_assert_cmpstr (dirname, ==, dirname_checks[i].dirname);
+      g_free (dirname);
+    }
+
+  for (i = 0; i < n_skip_root_checks; i++)
+    {
+      const gchar *skipped = g_path_skip_root (skip_root_checks[i].filename);
+      if ((skipped && !skip_root_checks[i].without_root) ||
+          (!skipped && skip_root_checks[i].without_root) ||
+          ((skipped && skip_root_checks[i].without_root) &&
+           strcmp (skipped, skip_root_checks[i].without_root)))
+        {
+          g_error ("failed for \"%s\"==\"%s\" (returned: \"%s\")",
+                   skip_root_checks[i].filename,
+                   (skip_root_checks[i].without_root ? skip_root_checks[i].without_root : "<NULL>"),
+                   (skipped ? skipped : "<NULL>"));
+        }
+    }
+
+  for (i = 0; i < n_canonicalize_filename_checks; i++)
+    {
+      gchar *canonical_path =
+          g_canonicalize_filename (canonicalize_filename_checks[i].relative_path,
+                                   canonicalize_filename_checks[i].cwd);
+      g_assert_cmpstr (canonical_path, ==,
+                       canonicalize_filename_checks[i].canonical_path);
+      g_free (canonical_path);
+    }
+
+  {
+    const gchar *relative_path = "./";
+    gchar *canonical_path = g_canonicalize_filename (relative_path, NULL);
+    gchar *cwd = g_get_current_dir ();
+    g_assert_cmpstr (canonical_path, ==, cwd);
+    g_free (cwd);
+    g_free (canonical_path);
+  }
+}
+
+static void
 test_build_path (void)
 {
+  if (g_test_undefined ())
+    {
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      g_assert_null (g_build_path (NULL, "x", "y", NULL));
+      g_test_assert_expected_messages ();
+    }
+
 /*  check_string (g_build_path ("", NULL), "");*/
   check_string (g_build_path ("", "", NULL), "");
   check_string (g_build_path ("", "x", NULL), "x");
@@ -255,7 +476,6 @@ test_build_pathv (void)
 static void
 test_build_filename (void)
 {
-/*  check_string (g_build_filename (NULL), "");*/
   check_string (g_build_filename (S, NULL), S);
   check_string (g_build_filename (S"x", NULL), S"x");
   check_string (g_build_filename ("x"S, NULL), "x"S);
@@ -503,14 +723,14 @@ test_mkdir_with_parents_1 (const gchar *base)
 static void
 test_mkdir_with_parents (void)
 {
-  gchar *cwd;
+  gchar *cwd, *new_path;
   if (g_test_verbose())
     g_printerr ("checking g_mkdir_with_parents() in subdir ./hum/");
   test_mkdir_with_parents_1 ("hum");
   g_remove ("hum");
   if (g_test_verbose())
     g_printerr ("checking g_mkdir_with_parents() in subdir ./hii///haa/hee/");
-  test_mkdir_with_parents_1 ("hii///haa/hee");
+  test_mkdir_with_parents_1 ("./hii///haa/hee///");
   g_remove ("hii/haa/hee");
   g_remove ("hii/haa");
   g_remove ("hii");
@@ -518,7 +738,23 @@ test_mkdir_with_parents (void)
   if (g_test_verbose())
     g_printerr ("checking g_mkdir_with_parents() in cwd: %s", cwd);
   test_mkdir_with_parents_1 (cwd);
+
+  new_path = g_build_filename (cwd, "new", NULL);
+  g_assert_cmpint (g_mkdir_with_parents (new_path, 0), ==, 0);
+  g_assert_cmpint (g_rmdir (new_path), ==, 0);
+  g_free (new_path);
   g_free (cwd);
+
+  g_assert_cmpint (g_mkdir_with_parents ("./test", 0), ==, 0);
+  g_assert_cmpint (g_mkdir_with_parents ("./test", 0), ==, 0);
+  g_remove ("./test");
+
+#ifndef G_OS_WIN32
+  g_assert_cmpint (g_mkdir_with_parents ("/usr/b/c", 0), ==, -1);
+  /* EPERM or EROFS may be returned if the filesystem as a whole is read-only */
+  if (errno != EPERM && errno != EROFS)
+    g_assert_cmpint (errno, ==, EACCES);
+#endif
 
   g_assert_cmpint (g_mkdir_with_parents (NULL, 0), ==, -1);
   g_assert_cmpint (errno, ==, EINVAL);
@@ -577,7 +813,7 @@ check_cap_dac_override (const char *tmpdir)
   inside = g_build_filename (dac_denies_write, "inside", NULL);
 
   g_assert_no_errno (mkdir (dac_denies_write, S_IRWXU));
-  g_assert_no_errno (chmod (dac_denies_write, 0));
+  g_assert_no_errno (g_chmod (dac_denies_write, 0));
 
   if (mkdir (inside, S_IRWXU) == 0)
     {
@@ -594,7 +830,7 @@ check_cap_dac_override (const char *tmpdir)
       have_cap = FALSE;
     }
 
-  g_assert_no_errno (chmod (dac_denies_write, S_IRWXU));
+  g_assert_no_errno (g_chmod (dac_denies_write, S_IRWXU));
   g_assert_no_errno (rmdir (dac_denies_write));
 
   if (safe_tmpdir != NULL)
@@ -694,8 +930,14 @@ test_format_size_for_display (void)
   check_string (g_format_size (1000ULL * 1000 * 1000 * 1000 * 1000 * 1000), "1.0\302\240EB");
 
   check_string (g_format_size_full (0, G_FORMAT_SIZE_IEC_UNITS), "0 bytes");
+  check_string (g_format_size_full (0, G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_VALUE), "0");
+  check_string (g_format_size_full (0, G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_UNIT), "bytes");
   check_string (g_format_size_full (1, G_FORMAT_SIZE_IEC_UNITS), "1 byte");
+  check_string (g_format_size_full (1, G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_VALUE), "1");
+  check_string (g_format_size_full (1, G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_UNIT), "byte");
   check_string (g_format_size_full (2, G_FORMAT_SIZE_IEC_UNITS), "2 bytes");
+  check_string (g_format_size_full (2, G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_VALUE), "2");
+  check_string (g_format_size_full (2, G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_UNIT), "bytes");
 
   check_string (g_format_size_full (2048ULL, G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240KiB");
   check_string (g_format_size_full (2048ULL * 1024, G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240MiB");
@@ -707,11 +949,19 @@ test_format_size_for_display (void)
   check_string (g_format_size_full (238472938, G_FORMAT_SIZE_IEC_UNITS), "227.4\302\240MiB");
   check_string (g_format_size_full (238472938, G_FORMAT_SIZE_DEFAULT), "238.5\302\240MB");
   check_string (g_format_size_full (238472938, G_FORMAT_SIZE_LONG_FORMAT), "238.5\302\240MB (238472938 bytes)");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_VALUE), "227.4");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_UNIT), "MiB");
 
 
   check_string (g_format_size_full (0, G_FORMAT_SIZE_BITS), "0 bits");
+  check_string (g_format_size_full (0, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_VALUE), "0");
+  check_string (g_format_size_full (0, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_UNIT), "bits");
   check_string (g_format_size_full (1, G_FORMAT_SIZE_BITS), "1 bit");
+  check_string (g_format_size_full (1, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_VALUE), "1");
+  check_string (g_format_size_full (1, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_UNIT), "bit");
   check_string (g_format_size_full (2, G_FORMAT_SIZE_BITS), "2 bits");
+  check_string (g_format_size_full (2, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_VALUE), "2");
+  check_string (g_format_size_full (2, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_UNIT), "bits");
 
   check_string (g_format_size_full (2000ULL, G_FORMAT_SIZE_BITS), "2.0\302\240kb");
   check_string (g_format_size_full (2000ULL * 1000, G_FORMAT_SIZE_BITS), "2.0\302\240Mb");
@@ -722,11 +972,19 @@ test_format_size_for_display (void)
 
   check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS), "238.5\302\240Mb");
   check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_LONG_FORMAT), "238.5\302\240Mb (238472938 bits)");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_VALUE), "238.5");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_ONLY_UNIT), "Mb");
 
 
   check_string (g_format_size_full (0, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "0 bits");
+  check_string (g_format_size_full (0, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_VALUE), "0");
+  check_string (g_format_size_full (0, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_UNIT), "bits");
   check_string (g_format_size_full (1, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "1 bit");
+  check_string (g_format_size_full (1, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_VALUE), "1");
+  check_string (g_format_size_full (1, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_UNIT), "bit");
   check_string (g_format_size_full (2, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2 bits");
+  check_string (g_format_size_full (2, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_VALUE), "2");
+  check_string (g_format_size_full (2, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_UNIT), "bits");
 
   check_string (g_format_size_full (2048ULL, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Kib");
   check_string (g_format_size_full (2048ULL * 1024, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "2.0\302\240Mib");
@@ -737,11 +995,15 @@ test_format_size_for_display (void)
 
   check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS), "227.4\302\240Mib");
   check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_LONG_FORMAT), "227.4\302\240Mib (238472938 bits)");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_VALUE), "227.4");
+  check_string (g_format_size_full (238472938, G_FORMAT_SIZE_BITS | G_FORMAT_SIZE_IEC_UNITS | G_FORMAT_SIZE_ONLY_UNIT), "Mib");
 }
 
 static void
 test_file_errors (void)
 {
+  g_assert_cmpint (g_file_error_from_errno (-1), ==, G_FILE_ERROR_FAILED);
+
 #ifdef EEXIST
   g_assert_cmpint (g_file_error_from_errno (EEXIST), ==, G_FILE_ERROR_EXIST);
 #endif
@@ -819,7 +1081,34 @@ test_file_errors (void)
 static void
 test_basename (void)
 {
+  const gchar *path = "/path/to/a/file/deep/down.sh";
+  const gchar *b;
+
+  if (g_test_undefined ())
+    {
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      g_assert_null (g_basename (NULL));
+      g_test_assert_expected_messages ();
+    }
+
+  b = g_basename (path);
+
+  g_assert_cmpstr (b, ==, "down.sh");
+}
+
+static void
+test_get_basename (void)
+{
   gchar *b;
+
+  if (g_test_undefined ())
+    {
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      g_assert_null (g_path_get_basename (NULL));
+      g_test_assert_expected_messages ();
+    }
 
   b = g_path_get_basename ("");
   g_assert_cmpstr (b, ==, ".");
@@ -832,6 +1121,75 @@ test_basename (void)
   b = g_path_get_basename ("/a/b/c/d");
   g_assert_cmpstr (b, ==, "d");
   g_free (b);
+}
+
+static void
+test_dirname (void)
+{
+  gsize i;
+  struct {
+    const gchar *filename;
+    const gchar *dirname;
+  } dirname_checks[] = {
+    { "/", "/" },
+    { "////", "/" },
+    { ".////", "." },
+    { ".", "." },
+    { "..", "." },
+    { "../", ".." },
+    { "..////", ".." },
+    { "", "." },
+    { "a/b", "a" },
+    { "a/b/", "a/b" },
+    { "c///", "c" },
+    { "/a/b", "/a" },
+    { "/a/b/", "/a/b" },
+#ifdef G_OS_WIN32
+    { "\\", "\\" },
+    { ".\\\\\\\\", "." },
+    { ".\\/\\/", "." },
+    { ".", "." },
+    { "..", "." },
+    { "..\\", ".." },
+    { "..\\\\\\\\", ".." },
+    { "..\\//\\", ".." },
+    { "", "." },
+    { "a\\b", "a" },
+    { "a\\b\\", "a\\b" },
+    { "\\a\\b", "\\a" },
+    { "\\a\\b\\", "\\a\\b" },
+    { "c\\\\\\", "c" },
+    { "c/\\\\", "c" },
+    { "a:", "a:." },
+    { "a:foo", "a:." },
+    { "a:foo\\bar", "a:foo" },
+    { "a:/foo", "a:/" },
+    { "a:/foo/bar", "a:/foo" },
+    { "a:/", "a:/" },
+    { "a://", "a:/" },
+    { "a:\\foo", "a:\\" },
+    { "a:\\", "a:\\" },
+    { "a:\\\\", "a:\\" },
+    { "a:\\/", "a:\\" },
+#endif
+  };
+
+  if (g_test_undefined ())
+    {
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      g_assert_null (g_path_get_dirname (NULL));
+      g_test_assert_expected_messages ();
+    }
+
+  for (i = 0; i < G_N_ELEMENTS (dirname_checks); i++)
+    {
+      gchar *dirname;
+
+      dirname = g_path_get_dirname (dirname_checks[i].filename);
+      g_assert_cmpstr (dirname, ==, dirname_checks[i].dirname);
+      g_free (dirname);
+    }
 }
 
 static void
@@ -901,14 +1259,68 @@ test_file_open_tmp (void)
   g_assert_null (name);
   g_assert_error (error, G_FILE_ERROR, G_FILE_ERROR_FAILED);
   g_clear_error (&error);
+
+  error = NULL;
+  name = NULL;
+  fd = g_file_open_tmp ("zap" G_DIR_SEPARATOR_S "barXXXXXX", &name, &error);
+  g_assert_cmpint (fd, ==, -1);
+
+  g_clear_error (&error);
+  g_free (name);
+
+#ifdef G_OS_WIN32
+  name = NULL;
+  fd = g_file_open_tmp ("zap/barXXXXXX", &name, &error);
+  g_assert_cmpint (fd, ==, -1);
+
+  g_clear_error (&error);
+  g_free (name);
+#endif
+
+  name = NULL;
+  fd = g_file_open_tmp ("zapXXXXXX", &name, &error);
+  g_assert_cmpint (fd, !=, -1);
+
+  close (fd);
+  g_clear_error (&error);
+  remove (name);
+  g_free (name);
+
+  name = NULL;
+  fd = g_file_open_tmp (NULL, &name, &error);
+  g_assert_cmpint (fd, !=, -1);
+
+  close (fd);
+  g_clear_error (&error);
+  remove (name);
+  g_free (name);
 }
 
 static void
 test_mkstemp (void)
 {
-  gchar *name;
   gint fd;
+  gint result;
+  gchar *name;
+  char chars[62];
+  char template[32];
+  const char hello[] = "Hello, World";
+  const gsize hellolen = sizeof (hello) - 1;
 
+  if (g_test_undefined ())
+    {
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      g_assert_cmpint (g_mkstemp (NULL), ==, -1);
+      g_test_assert_expected_messages ();
+    }
+
+  /* Expect to fail if no 'XXXXXX' is given */
+  name = g_strdup ("test");
+  g_assert_cmpint (g_mkstemp (name), ==, -1);
+  g_free (name);
+
+  /* Test normal case */
   name = g_strdup ("testXXXXXXtest"),
   fd = g_mkstemp (name);
   g_assert_cmpint (fd, !=, -1);
@@ -917,17 +1329,48 @@ test_mkstemp (void)
   close (fd);
   g_free (name);
 
-  name = g_strdup ("testYYYYYYtest"),
-  fd = g_mkstemp (name);
-  g_assert_cmpint (fd, ==, -1);
-  g_free (name);
+  /* g_mkstemp() must not work if template doesn't contain XXXXXX */
+  strcpy (template, "foobar");
+  g_assert_cmpint (g_mkstemp (template), ==, -1);
+
+  /* g_mkstemp() must not work if template doesn't contain six X */
+  strcpy (template, "foobarXXX");
+  g_assert_cmpint (g_mkstemp (template), ==, -1);
+
+  strcpy (template, "fooXXXXXX");
+  fd = g_mkstemp (template);
+  g_assert_cmpint (fd, !=, -1);
+  result = write (fd, hello, hellolen);
+  g_assert_cmpint (result, !=, -1);
+  g_assert_cmpint (result, ==, hellolen);
+
+  lseek (fd, 0, 0);
+  result = read (fd, chars, sizeof (chars));
+  g_assert_cmpint (result, !=, -1);
+  g_assert_cmpint (result, ==, hellolen);
+
+  chars[result] = '\0';
+  g_assert_cmpstr (chars, ==, hello);
+
+  close (fd);
+  remove (template);
+
+  /* Check that is does not work for "fooXXXXXX.pdf" */
+  strcpy (template, "fooXXXXXX.pdf");
+  fd = g_mkstemp (template);
+  g_assert_cmpint (fd, !=, -1);
+
+  close (fd);
+  remove (template);
 }
 
 static void
 test_mkdtemp (void)
 {
-  gchar *name;
+  gint fd;
   gchar *ret;
+  gchar *name;
+  char template[32];
 
   name = g_strdup ("testXXXXXXtest"),
   ret = g_mkdtemp (name);
@@ -939,6 +1382,111 @@ test_mkdtemp (void)
   name = g_strdup ("testYYYYYYtest"),
   ret = g_mkdtemp (name);
   g_assert_null (ret);
+  g_free (name);
+
+  strcpy (template, "foodir");
+  g_assert_null (g_mkdtemp (template));
+
+  strcpy (template, "foodir");
+  g_assert_null (g_mkdtemp (template));
+
+  strcpy (template, "fooXXXXXX");
+  ret = g_mkdtemp (template);
+  g_assert_nonnull (ret);
+  g_assert_true (ret == template);
+  g_assert_false (g_file_test (template, G_FILE_TEST_IS_REGULAR));
+  g_assert_true (g_file_test (template, G_FILE_TEST_IS_DIR));
+
+  strcat (template, "/abc");
+  fd = g_open (template, O_WRONLY | O_CREAT, 0600);
+  g_assert_cmpint (fd, !=, -1);
+  close (fd);
+  g_assert_true (g_file_test (template, G_FILE_TEST_IS_REGULAR));
+  g_assert_cmpint (g_unlink (template), !=, -1);
+
+  template[9] = '\0';
+  g_assert_cmpint (g_rmdir (template), !=, -1);
+
+  strcpy (template, "fooXXXXXX.dir");
+  g_assert_nonnull (g_mkdtemp (template));
+  g_assert_true (g_file_test (template, G_FILE_TEST_IS_DIR));
+  g_rmdir (template);
+}
+
+static void
+test_get_contents (void)
+{
+  FILE *f;
+  gsize len;
+  gchar *contents;
+  GError *error = NULL;
+  const gchar *text = "abcdefghijklmnopqrstuvwxyz";
+  const gchar *filename = "file-test-get-contents";
+  gsize bytes_written;
+
+  f = g_fopen (filename, "w");
+  bytes_written = fwrite (text, 1, strlen (text), f);
+  g_assert_cmpint (bytes_written, ==, strlen (text));
+  fclose (f);
+
+  if (g_test_undefined ())
+    {
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      g_assert_false (g_file_get_contents (NULL, &contents, &len, &error));
+      g_test_assert_expected_messages ();
+
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      g_assert_false (g_file_get_contents (filename, NULL, &len, &error));
+      g_test_assert_expected_messages ();
+    }
+
+  g_assert_true (g_file_test (filename, G_FILE_TEST_IS_REGULAR));
+
+  g_assert_true (g_file_get_contents (filename, &contents, &len, &error));
+  g_assert_cmpstr (text, ==, contents);
+  g_assert_no_error (error);
+
+  g_free (contents);
+  g_remove (filename);
+}
+
+static void
+test_file_test (void)
+{
+  GError *error = NULL;
+  gboolean result;
+  gchar *name;
+  gint fd;
+
+  if (g_test_undefined ())
+    {
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      result = g_file_test (NULL, G_FILE_TEST_EXISTS);
+      g_assert_false (result);
+      g_test_assert_expected_messages ();
+    }
+
+  fd = g_file_open_tmp (NULL, &name, &error);
+  g_assert_no_error (error);
+  g_assert_cmpint (write (fd, "a", 1), ==, 1);
+  g_assert_cmpint (g_fsync (fd), ==, 0);
+  close (fd);
+
+#ifndef G_OS_WIN32
+  result = g_file_test (name, G_FILE_TEST_IS_SYMLINK);
+  g_assert_false (result);
+
+  g_assert_no_errno (symlink (name, "symlink"));
+  result = g_file_test ("symlink", G_FILE_TEST_IS_SYMLINK);
+  g_assert_true (result);
+  unlink ("symlink");
+#endif
+
+  /* Cleaning */
+  g_remove (name);
   g_free (name);
 }
 
@@ -954,7 +1502,7 @@ test_set_contents (void)
 
   fd = g_file_open_tmp (NULL, &name, &error);
   g_assert_no_error (error);
-  write (fd, "a", 1);
+  g_assert_cmpint (write (fd, "a", 1), ==, 1);
   g_assert_cmpint (g_fsync (fd), ==, 0);
   close (fd);
 
@@ -1012,8 +1560,11 @@ test_set_contents_full (void)
       { EXISTING_FILE_REGULAR, 0644, FALSE, TRUE, 0 },
 #ifndef G_OS_WIN32
       { EXISTING_FILE_SYMLINK, 0644, FALSE, TRUE, 0 },
-#endif
       { EXISTING_FILE_DIRECTORY, 0644, FALSE, FALSE, G_FILE_ERROR_ISDIR },
+#else
+      /* on win32, _wopen returns EACCES if path is a directory */
+      { EXISTING_FILE_DIRECTORY, 0644, FALSE, FALSE, G_FILE_ERROR_ACCES },
+#endif
     };
   gsize i;
 
@@ -1044,7 +1595,7 @@ test_set_contents_full (void)
 
                 fd = g_file_open_tmp (NULL, &file_name, &error);
                 g_assert_no_error (error);
-                write (fd, "a", 1);
+                g_assert_cmpint (write (fd, "a", 1), ==, 1);
                 g_assert_no_errno (g_fsync (fd));
                 close (fd);
 
@@ -1116,7 +1667,17 @@ test_set_contents_full (void)
               g_assert_no_errno (g_lstat (set_contents_name, &statbuf));
 
               if (tests[i].existing_file == EXISTING_FILE_NONE)
-                g_assert_cmpint (statbuf.st_mode & ~S_IFMT, ==, tests[i].new_mode);
+                {
+                  int mode = statbuf.st_mode & ~S_IFMT;
+                  int new_mode = tests[i].new_mode;
+#ifdef G_OS_WIN32
+                  /* on windows, group and others perms handling is different */
+                  /* only check the rwx user permissions */
+                  mode &= (_S_IREAD|_S_IWRITE|_S_IEXEC);
+                  new_mode &= (_S_IREAD|_S_IWRITE|_S_IEXEC);
+#endif
+                  g_assert_cmpint (mode, ==, new_mode);
+                }
 
 #ifndef G_OS_WIN32
               if (tests[i].existing_file == EXISTING_FILE_SYMLINK)
@@ -1167,10 +1728,27 @@ test_set_contents_full_read_only_file (void)
    * existing file permissions. */
   fd = g_file_open_tmp (NULL, &file_name, &error);
   g_assert_no_error (error);
-  write (fd, "a", 1);
+  g_assert_cmpint (write (fd, "a", 1), ==, 1);
   g_assert_no_errno (g_fsync (fd));
   close (fd);
-  g_assert_no_errno (chmod (file_name, 0200));
+  g_assert_no_errno (g_chmod (file_name, 0400)); /* S_IREAD */
+
+  if (g_test_undefined ())
+    {
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      ret = g_file_set_contents_full (NULL, "b", 1,
+                                      G_FILE_SET_CONTENTS_NONE, 0644, &error);
+      g_assert_false (ret);
+      g_test_assert_expected_messages ();
+
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      ret = g_file_set_contents_full (file_name, NULL, 1,
+                                      G_FILE_SET_CONTENTS_NONE, 0644, &error);
+      g_assert_false (ret);
+      g_test_assert_expected_messages ();
+    }
 
   /* Set the file contents */
   ret = g_file_set_contents_full (file_name, "b", 1, G_FILE_SET_CONTENTS_NONE, 0644, &error);
@@ -1196,6 +1774,8 @@ test_set_contents_full_read_only_file (void)
 static void
 test_set_contents_full_read_only_directory (void)
 {
+#ifndef G_OS_WIN32
+/* windows mostly ignores read-only flagged directories, chmod doesn't work */
   GFileSetContentsFlags flags_mask =
       G_FILE_SET_CONTENTS_ONLY_EXISTING |
       G_FILE_SET_CONTENTS_DURABLE |
@@ -1222,11 +1802,11 @@ test_set_contents_full_read_only_directory (void)
       file_name = g_build_filename (dir_name, "file", NULL);
       fd = g_open (file_name, O_CREAT | O_RDWR, 0644);
       g_assert_cmpint (fd, >=, 0);
-      write (fd, "a", 1);
+      g_assert_cmpint (write (fd, "a", 1), ==, 1);
       g_assert_no_errno (g_fsync (fd));
       close (fd);
 
-      g_assert_no_errno (chmod (dir_name, 0));
+      g_assert_no_errno (g_chmod (dir_name, 0));
 
       /* Set the file contents */
       ret = g_file_set_contents_full (file_name, "b", 1, flags, 0644, &error);
@@ -1249,6 +1829,9 @@ test_set_contents_full_read_only_directory (void)
       g_free (file_name);
       g_free (dir_name);
     }
+#else
+  g_test_skip ("Windows doesn’t support read-only directories in the same way as Unix");
+#endif
 }
 
 static void
@@ -1257,12 +1840,27 @@ test_read_link (void)
 #ifdef HAVE_READLINK
 #ifdef G_OS_UNIX
   int ret;
-  const gchar *oldpath;
+  FILE *file;
   gchar *cwd;
+  gchar *data;
   gchar *newpath;
   gchar *badpath;
   gchar *path;
   GError *error = NULL;
+  const gchar *oldpath;
+  const gchar *filename = "file-test-data";
+  const gchar *link1 = "file-test-link1";
+  const gchar *link2 = "file-test-link2";
+  const gchar *link3 = "file-test-link3";
+
+  if (g_test_undefined ())
+    {
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      newpath = g_file_read_link (NULL, &error);
+      g_assert_null (newpath);
+      g_test_assert_expected_messages ();
+    }
 
   cwd = g_get_current_dir ();
 
@@ -1295,6 +1893,42 @@ test_read_link (void)
   g_free (newpath);
   g_free (badpath);
 
+  file = fopen (filename, "w");
+  g_assert_nonnull (file);
+  fclose (file);
+
+  g_assert_no_errno (symlink (filename, link1));
+  g_assert_no_errno (symlink (link1, link2));
+
+  error = NULL;
+  data = g_file_read_link (link1, &error);
+  g_assert_nonnull (data);
+  g_assert_cmpstr (data, ==, filename);
+  g_assert_no_error (error);
+  g_free (data);
+
+  error = NULL;
+  data = g_file_read_link (link2, &error);
+  g_assert_nonnull (data);
+  g_assert_cmpstr (data, ==, link1);
+  g_assert_no_error (error);
+  g_free (data);
+
+  error = NULL;
+  data = g_file_read_link (link3, &error);
+  g_assert_null (data);
+  g_assert_error (error, G_FILE_ERROR, G_FILE_ERROR_NOENT);
+  g_error_free (error);
+
+  error = NULL;
+  data = g_file_read_link (filename, &error);
+  g_assert_null (data);
+  g_assert_error (error, G_FILE_ERROR, G_FILE_ERROR_INVAL);
+  g_error_free (error);
+
+  remove (filename);
+  remove (link1);
+  remove (link2);
 #endif
 #else
   g_test_skip ("Symbolic links not supported");
@@ -1819,6 +2453,81 @@ test_win32_zero_terminate_symlink (void)
 
 #endif
 
+static void
+assert_fd_was_closed (int fd)
+{
+  /* We can't tell a fd was really closed without behaving as though it
+   * was still valid */
+  if (g_test_undefined ())
+    {
+      int result = g_fsync (fd);
+      int errsv = errno;
+
+      g_assert_cmpint (result, !=, 0);
+      g_assert_cmpint (errsv, ==, EBADF);
+    }
+}
+
+static void
+test_clear_fd (void)
+{
+  char *name = NULL;
+  GError *error = NULL;
+  int fd;
+  int copy_of_fd;
+
+#ifdef g_autofree
+  g_test_summary ("Test g_clear_fd() and g_autofd");
+#else
+  g_test_summary ("Test g_clear_fd() (g_autofd unsupported by this compiler)");
+#endif
+
+  /* g_clear_fd() normalizes any negative number to -1 */
+  fd = -23;
+  g_clear_fd (&fd, &error);
+  g_assert_cmpint (fd, ==, -1);
+  g_assert_no_error (error);
+
+  /* Nothing special about g_file_open_tmp, it's just a convenient way
+   * to get an open fd */
+  fd = g_file_open_tmp (NULL, &name, &error);
+  g_assert_cmpint (fd, !=, -1);
+  g_assert_no_error (error);
+  g_assert_nonnull (name);
+  copy_of_fd = fd;
+  g_clear_fd (&fd, &error);
+  g_assert_cmpint (fd, ==, -1);
+  g_assert_no_error (error);
+  assert_fd_was_closed (copy_of_fd);
+  g_unlink (name);
+  g_free (name);
+
+  /* g_clear_fd() is idempotent */
+  g_clear_fd (&fd, &error);
+  g_assert_cmpint (fd, ==, -1);
+  g_assert_no_error (error);
+
+#ifdef g_autofree
+  fd = g_file_open_tmp (NULL, &name, &error);
+  g_assert_cmpint (fd, !=, -1);
+  g_assert_no_error (error);
+  g_assert_nonnull (name);
+
+    {
+      g_autofd int close_me = fd;
+      g_autofd int was_never_set = -42;
+
+      /* This avoids clang warnings about the variables being unused */
+      g_test_message ("Will be closed by autocleanup: %d, %d",
+                      close_me, was_never_set);
+    }
+
+  assert_fd_was_closed (fd);
+  g_unlink (name);
+  g_free (name);
+#endif
+}
+
 int
 main (int   argc,
       char *argv[])
@@ -1830,6 +2539,7 @@ main (int   argc,
   g_test_add_func ("/fileutils/stdio-win32-pathstrip", test_win32_pathstrip);
   g_test_add_func ("/fileutils/stdio-win32-zero-terminate-symlink", test_win32_zero_terminate_symlink);
 #endif
+  g_test_add_func ("/fileutils/paths", test_paths);
   g_test_add_func ("/fileutils/build-path", test_build_path);
   g_test_add_func ("/fileutils/build-pathv", test_build_pathv);
   g_test_add_func ("/fileutils/build-filename", test_build_filename);
@@ -1839,10 +2549,14 @@ main (int   argc,
   g_test_add_func ("/fileutils/format-size-for-display", test_format_size_for_display);
   g_test_add_func ("/fileutils/errors", test_file_errors);
   g_test_add_func ("/fileutils/basename", test_basename);
+  g_test_add_func ("/fileutils/get-basename", test_get_basename);
+  g_test_add_func ("/fileutils/dirname", test_dirname);
   g_test_add_func ("/fileutils/dir-make-tmp", test_dir_make_tmp);
   g_test_add_func ("/fileutils/file-open-tmp", test_file_open_tmp);
+  g_test_add_func ("/fileutils/file-test", test_file_test);
   g_test_add_func ("/fileutils/mkstemp", test_mkstemp);
   g_test_add_func ("/fileutils/mkdtemp", test_mkdtemp);
+  g_test_add_func ("/fileutils/get-contents", test_get_contents);
   g_test_add_func ("/fileutils/set-contents", test_set_contents);
   g_test_add_func ("/fileutils/set-contents-full", test_set_contents_full);
   g_test_add_func ("/fileutils/set-contents-full/read-only-file", test_set_contents_full_read_only_file);
@@ -1850,6 +2564,7 @@ main (int   argc,
   g_test_add_func ("/fileutils/read-link", test_read_link);
   g_test_add_func ("/fileutils/stdio-wrappers", test_stdio_wrappers);
   g_test_add_func ("/fileutils/fopen-modes", test_fopen_modes);
+  g_test_add_func ("/fileutils/clear-fd", test_clear_fd);
 
   return g_test_run ();
 }

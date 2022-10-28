@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -46,6 +48,8 @@ G_BEGIN_DECLS
  * A set of functions used to perform memory allocation. The same #GMemVTable must
  * be used for all allocations in the same program; a call to g_mem_set_vtable(),
  * if it exists, should be prior to any use of GLib.
+ *
+ * This functions related to this has been deprecated in 2.46, and no longer work.
  */
 typedef struct _GMemVTable GMemVTable;
 
@@ -108,6 +112,17 @@ GLIB_AVAILABLE_IN_ALL
 gpointer g_try_realloc_n  (gpointer	 mem,
 			   gsize	 n_blocks,
 			   gsize	 n_block_bytes) G_GNUC_WARN_UNUSED_RESULT;
+
+GLIB_AVAILABLE_IN_2_72
+gpointer g_aligned_alloc  (gsize         n_blocks,
+                           gsize         n_block_bytes,
+                           gsize         alignment) G_GNUC_WARN_UNUSED_RESULT G_GNUC_ALLOC_SIZE2(1,2);
+GLIB_AVAILABLE_IN_2_72
+gpointer g_aligned_alloc0 (gsize         n_blocks,
+                           gsize         n_block_bytes,
+                           gsize         alignment) G_GNUC_WARN_UNUSED_RESULT G_GNUC_ALLOC_SIZE2(1,2);
+GLIB_AVAILABLE_IN_2_72
+void     g_aligned_free   (gpointer      mem);
 
 #if defined(glib_typeof) && GLIB_VERSION_MAX_ALLOWED >= GLIB_VERSION_2_58
 #define g_clear_pointer(pp, destroy)                     \
@@ -368,9 +383,6 @@ struct _GMemVTable {
   gpointer (*malloc)      (gsize    n_bytes);
   gpointer (*realloc)     (gpointer mem,
 			   gsize    n_bytes);
-  /* optional; set to NULL if not supported */
-  gpointer (*memalign)    (gsize    alignment,
-			   gsize    size);
   void     (*free)        (gpointer mem);
   /* optional; set to NULL if not used ! */
   gpointer (*calloc)      (gsize    n_blocks,
@@ -379,10 +391,9 @@ struct _GMemVTable {
   gpointer (*try_realloc) (gpointer mem,
 			   gsize    n_bytes);
 };
-GLIB_VAR GMemVTable	*glib_mem_table;
-GLIB_AVAILABLE_IN_ALL
+GLIB_DEPRECATED_IN_2_46
 void	 g_mem_set_vtable (GMemVTable	*vtable);
-GLIB_AVAILABLE_IN_ALL
+GLIB_DEPRECATED_IN_2_46
 gboolean g_mem_is_system_malloc (void);
 
 GLIB_VAR gboolean g_mem_gc_friendly;

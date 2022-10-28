@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -1086,6 +1088,33 @@ g_hash_table_new_full (GHashFunc      hash_func,
 }
 
 /**
+ * g_hash_table_new_similar:
+ * @other_hash_table: (not nullable) (transfer none): Another #GHashTable
+ *
+ * Creates a new #GHashTable like g_hash_table_new_full() with a reference
+ * count of 1.
+ *
+ * It inherits the hash function, the key equal function, the key destroy function,
+ * as well as the value destroy function, from @other_hash_table.
+ *
+ * The returned hash table will be empty; it will not contain the keys
+ * or values from @other_hash_table.
+ *
+ * Returns: (transfer full) (not nullable): a new #GHashTable
+ * Since: 2.72
+ */
+GHashTable *
+g_hash_table_new_similar (GHashTable *other_hash_table)
+{
+  g_return_val_if_fail (other_hash_table, NULL);
+
+  return g_hash_table_new_full (other_hash_table->hash_func,
+                                other_hash_table->key_equal_func,
+                                other_hash_table->key_destroy_func,
+                                other_hash_table->value_destroy_func);
+}
+
+/**
  * g_hash_table_iter_init:
  * @iter: an uninitialized #GHashTableIter
  * @hash_table: a #GHashTable
@@ -1805,10 +1834,16 @@ g_hash_table_steal (GHashTable    *hash_table,
  *
  * If found, the stolen key and value are removed from the hash table without
  * calling the key and value destroy functions, and ownership is transferred to
- * the caller of this method; as with g_hash_table_steal().
+ * the caller of this method, as with g_hash_table_steal(). That is the case
+ * regardless whether @stolen_key or @stolen_value output parameters are
+ * requested.
  *
  * You can pass %NULL for @lookup_key, provided the hash and equal functions
  * of @hash_table are %NULL-safe.
+ *
+ * The dictionary implementation optimizes for having all values identical to
+ * their keys, for example by using g_hash_table_add(). When stealing both the
+ * key and the value from such a dictionary, the value will be %NULL.
  *
  * Returns: %TRUE if the key was found in the #GHashTable
  * Since: 2.58
@@ -2294,8 +2329,8 @@ g_hash_table_get_values (GHashTable *hash_table)
  * Returns: %TRUE if the two keys match
  */
 gboolean
-g_str_equal (gconstpointer v1,
-             gconstpointer v2)
+(g_str_equal) (gconstpointer v1,
+               gconstpointer v2)
 {
   const gchar *string1 = v1;
   const gchar *string2 = v2;
@@ -2461,7 +2496,9 @@ g_int64_equal (gconstpointer v1,
 guint
 g_int64_hash (gconstpointer v)
 {
-  return (guint) *(const gint64*) v;
+  const guint64 *bits = v;
+
+  return (guint) ((*bits >> 32) ^ (*bits & 0xffffffffU));
 }
 
 /**
@@ -2502,5 +2539,8 @@ g_double_equal (gconstpointer v1,
 guint
 g_double_hash (gconstpointer v)
 {
-  return (guint) *(const gdouble*) v;
+  /* Same as g_int64_hash() */
+  const guint64 *bits = v;
+
+  return (guint) ((*bits >> 32) ^ (*bits & 0xffffffffU));
 }

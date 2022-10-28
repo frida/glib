@@ -7,6 +7,7 @@ typedef struct _TestObject {
   gint foo;
   gboolean bar;
   gchar *baz;
+  GVariant *var;  /* (nullable) (owned) */
   gchar *quux;
 } TestObject;
 
@@ -14,7 +15,7 @@ typedef struct _TestObjectClass {
   GObjectClass parent_class;
 } TestObjectClass;
 
-enum { PROP_0, PROP_FOO, PROP_BAR, PROP_BAZ, PROP_QUUX, N_PROPERTIES };
+enum { PROP_0, PROP_FOO, PROP_BAR, PROP_BAZ, PROP_VAR, PROP_QUUX, N_PROPERTIES };
 
 static GParamSpec *properties[N_PROPERTIES] = { NULL, };
 
@@ -64,6 +65,27 @@ test_object_set_baz (TestObject  *obj,
 }
 
 static void
+test_object_set_var (TestObject *obj,
+                     GVariant   *var)
+{
+  GVariant *new_var = NULL;
+
+  if (var == NULL || obj->var == NULL ||
+      !g_variant_equal (var, obj->var))
+    {
+      /* Note: We deliberately don’t sink @var here, to make sure that
+       * properties_set_property_variant_floating() is testing that GObject
+       * internally sinks variants. */
+      new_var = g_variant_ref (var);
+      g_clear_pointer (&obj->var, g_variant_unref);
+      obj->var = g_steal_pointer (&new_var);
+
+      g_assert (properties[PROP_VAR] != NULL);
+      g_object_notify_by_pspec (G_OBJECT (obj), properties[PROP_VAR]);
+    }
+}
+
+static void
 test_object_set_quux (TestObject  *obj,
                       const gchar *quux)
 {
@@ -83,6 +105,7 @@ test_object_finalize (GObject *gobject)
   TestObject *self = (TestObject *) gobject;
 
   g_free (self->baz);
+  g_clear_pointer (&self->var, g_variant_unref);
   g_free (self->quux);
 
   /* When the ref_count of an object is zero it is still
@@ -104,8 +127,7 @@ test_object_set_property (GObject *gobject,
   TestObject *tobj = (TestObject *) gobject;
 
   g_assert_cmpint (prop_id, !=, 0);
-  g_assert_cmpint (prop_id, !=, N_PROPERTIES);
-  g_assert (pspec == properties[prop_id]);
+  g_assert_true (prop_id < N_PROPERTIES && pspec == properties[prop_id]);
 
   switch (prop_id)
     {
@@ -119,6 +141,10 @@ test_object_set_property (GObject *gobject,
 
     case PROP_BAZ:
       test_object_set_baz (tobj, g_value_get_string (value));
+      break;
+
+    case PROP_VAR:
+      test_object_set_var (tobj, g_value_get_variant (value));
       break;
 
     case PROP_QUUX:
@@ -139,8 +165,7 @@ test_object_get_property (GObject *gobject,
   TestObject *tobj = (TestObject *) gobject;
 
   g_assert_cmpint (prop_id, !=, 0);
-  g_assert_cmpint (prop_id, !=, N_PROPERTIES);
-  g_assert (pspec == properties[prop_id]);
+  g_assert_true (prop_id < N_PROPERTIES && pspec == properties[prop_id]);
 
   switch (prop_id)
     {
@@ -154,6 +179,10 @@ test_object_get_property (GObject *gobject,
 
     case PROP_BAZ:
       g_value_set_string (value, tobj->baz);
+      break;
+
+    case PROP_VAR:
+      g_value_set_variant (value, tobj->var);
       break;
 
     case PROP_QUUX:
@@ -173,22 +202,32 @@ test_object_class_init (TestObjectClass *klass)
   properties[PROP_FOO] = g_param_spec_int ("foo", "Foo", "Foo",
                                            -1, G_MAXINT,
                                            0,
-                                           G_PARAM_READWRITE);
+                                           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
   properties[PROP_BAR] = g_param_spec_boolean ("bar", "Bar", "Bar",
                                                FALSE,
-                                               G_PARAM_READWRITE);
+                                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
   properties[PROP_BAZ] = g_param_spec_string ("baz", "Baz", "Baz",
                                               NULL,
                                               G_PARAM_READWRITE);
-  properties[PROP_QUUX] = g_param_spec_string ("quux", "quux", "quux",
-                                               NULL,
-                                               G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY);
+  properties[PROP_VAR] = g_param_spec_variant ("var", "Var", "Var",
+                                               G_VARIANT_TYPE_STRING, NULL,
+                                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   gobject_class->set_property = test_object_set_property;
   gobject_class->get_property = test_object_get_property;
   gobject_class->finalize = test_object_finalize;
 
-  g_object_class_install_properties (gobject_class, N_PROPERTIES, properties);
+  g_object_class_install_properties (gobject_class, N_PROPERTIES - 1, properties);
+
+  /* We intentionally install this property separately, to test
+   * that that works, and that property lookup works regardless
+   * how the property was installed.
+   */
+  properties[PROP_QUUX] = g_param_spec_string ("quux", "quux", "quux",
+                                               NULL,
+                                               G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY);
+
+  g_object_class_install_property (gobject_class, PROP_QUUX, properties[PROP_QUUX]);
 }
 
 static void
@@ -205,11 +244,132 @@ properties_install (void)
 {
   TestObject *obj = g_object_new (test_object_get_type (), NULL);
   GParamSpec *pspec;
+  char *name;
 
   g_assert (properties[PROP_FOO] != NULL);
 
   pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (obj), "foo");
   g_assert (properties[PROP_FOO] == pspec);
+
+  name = g_strdup ("bar");
+  pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (obj), name);
+  g_assert (properties[PROP_BAR] == pspec);
+  g_free (name);
+
+  pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (obj), "baz");
+  g_assert (properties[PROP_BAZ] == pspec);
+
+  pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (obj), "var");
+  g_assert (properties[PROP_VAR] == pspec);
+
+  pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (obj), "quux");
+  g_assert (properties[PROP_QUUX] == pspec);
+
+  g_object_unref (obj);
+}
+
+typedef struct {
+  GObject parent_instance;
+  int value[16];
+} ManyProps;
+
+typedef GObjectClass ManyPropsClass;
+
+static GParamSpec *props[16];
+
+GType many_props_get_type (void) G_GNUC_CONST;
+
+G_DEFINE_TYPE(ManyProps, many_props, G_TYPE_OBJECT)
+
+static void
+many_props_init (ManyProps *self)
+{
+}
+
+static void
+get_prop (GObject    *object,
+          guint       prop_id,
+          GValue     *value,
+          GParamSpec *pspec)
+{
+  ManyProps *mp = (ManyProps *) object;
+
+  if (prop_id > 0 && prop_id < 13)
+    g_value_set_int (value, mp->value[prop_id]);
+  else
+    G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+}
+
+static void
+set_prop (GObject      *object,
+          guint         prop_id,
+          const GValue *value,
+          GParamSpec   *pspec)
+{
+  ManyProps *mp = (ManyProps *) object;
+
+  if (prop_id > 0 && prop_id < 13)
+    mp->value[prop_id] = g_value_get_int (value);
+  else
+    G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
+}
+
+static void
+many_props_class_init (ManyPropsClass *class)
+{
+  G_OBJECT_CLASS (class)->get_property = get_prop;
+  G_OBJECT_CLASS (class)->set_property = set_prop;
+
+  props[1] = g_param_spec_int ("one", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[2] = g_param_spec_int ("two", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[3] = g_param_spec_int ("three", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[4] = g_param_spec_int ("four", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[5] = g_param_spec_int ("five", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[6] = g_param_spec_int ("six", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[7] = g_param_spec_int ("seven", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[8] = g_param_spec_int ("eight", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[9] = g_param_spec_int ("nine", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[10] = g_param_spec_int ("ten", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[11] = g_param_spec_int ("eleven", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  props[12] = g_param_spec_int ("twelve", NULL, NULL,
+                               0, G_MAXINT, 0,
+                               G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+  g_object_class_install_properties (G_OBJECT_CLASS (class), 12, props);
+}
+
+static void
+properties_install_many (void)
+{
+  ManyProps *obj = g_object_new (many_props_get_type (), NULL);
+  GParamSpec *pspec;
+
+  pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (obj), "one");
+  g_assert (props[1] == pspec);
+
+  pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (obj), "ten");
+  g_assert (props[10] == pspec);
 
   g_object_unref (obj);
 }
@@ -457,9 +617,9 @@ properties_testv_with_invalid_property_type (void)
 
       g_object_unref (test_obj);
     }
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
-  g_test_trap_assert_stderr ("*WARNING*foo*gint*gchararray*");
+  g_test_trap_assert_stderr ("*CRITICAL*foo*gint*gchararray*");
 }
 
 
@@ -495,7 +655,7 @@ properties_testv_with_invalid_property_names (void)
       g_object_unref (test_obj);
     }
 
-  g_test_trap_subprocess (NULL, 0, 0);
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*CRITICAL*g_object_new_is_valid_property*boo*");
 }
@@ -587,6 +747,34 @@ properties_get_property (void)
 }
 
 static void
+properties_set_property_variant_floating (void)
+{
+  TestObject *test_obj = NULL;
+  GVariant *owned_floating_variant = NULL;
+  GVariant *floating_variant_ptr = NULL;
+  GVariant *got_variant = NULL;
+
+  g_test_summary ("Test that setting a property to a floating variant consumes the reference");
+
+  test_obj = (TestObject *) g_object_new (test_object_get_type (), NULL);
+
+  owned_floating_variant = floating_variant_ptr = g_variant_new_string ("this variant has only one floating ref");
+  g_assert_true (g_variant_is_floating (floating_variant_ptr));
+
+  g_object_set (test_obj, "var", g_steal_pointer (&owned_floating_variant), NULL);
+
+  /* This assumes that the GObject implementation refs, rather than copies and destroys, the incoming variant */
+  g_assert_false (g_variant_is_floating (floating_variant_ptr));
+
+  g_object_get (test_obj, "var", &got_variant, NULL);
+  g_assert_false (g_variant_is_floating (got_variant));
+  g_assert_cmpvariant (got_variant, floating_variant_ptr);
+
+  g_variant_unref (got_variant);
+  g_object_unref (test_obj);
+}
+
+static void
 properties_testv_notify_queue (void)
 {
   TestObject *test_obj;
@@ -639,10 +827,12 @@ main (int argc, char *argv[])
   g_test_init (&argc, &argv, NULL);
 
   g_test_add_func ("/properties/install", properties_install);
+  g_test_add_func ("/properties/install-many", properties_install_many);
   g_test_add_func ("/properties/notify", properties_notify);
   g_test_add_func ("/properties/notify-queue", properties_notify_queue);
   g_test_add_func ("/properties/construct", properties_construct);
   g_test_add_func ("/properties/get-property", properties_get_property);
+  g_test_add_func ("/properties/set-property/variant/floating", properties_set_property_variant_floating);
 
   g_test_add_func ("/properties/testv_with_no_properties",
       properties_testv_with_no_properties);

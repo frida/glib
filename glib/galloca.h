@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -30,6 +32,7 @@
 #endif
 
 #include <glib/gtypes.h>
+#include <string.h>
 
 #if defined(__BIONIC__) && defined (GLIB_HAVE_ALLOCA_H)
 # include <alloca.h>
@@ -94,6 +97,22 @@ G_END_DECLS
  * Returns: space for @size bytes, allocated on the stack
  */
 #define g_alloca(size)		 alloca (size)
+
+/**
+ * g_alloca0:
+ * @size: number of bytes to allocate.
+ *
+ * Wraps g_alloca() and initializes allocated memory to zeroes.
+ * If @size is `0` it returns %NULL.
+ *
+ * Note that the @size argument will be evaluated multiple times.
+ *
+ * Returns: (nullable) (transfer full): space for @size bytes, allocated on the stack
+ *
+ * Since: 2.72
+ */
+#define g_alloca0(size)  ((size) == 0 ? NULL : memset (g_alloca (size), 0, (size)))
+
 /**
  * g_newa:
  * @struct_type: Type of memory chunks to be allocated
@@ -110,5 +129,19 @@ G_END_DECLS
  * Returns: Pointer to stack space for @n_structs chunks of type @struct_type
  */
 #define g_newa(struct_type, n_structs)	((struct_type*) g_alloca (sizeof (struct_type) * (gsize) (n_structs)))
+
+/**
+ * g_newa0:
+ * @struct_type: the type of the elements to allocate.
+ * @n_structs: the number of elements to allocate.
+ *
+ * Wraps g_alloca0() in a more typesafe manner.
+ *
+ * Returns: (nullable) (transfer full): Pointer to stack space for @n_structs
+ *   chunks of type @struct_type
+ *
+ * Since: 2.72
+ */
+#define g_newa0(struct_type, n_structs)  ((struct_type*) g_alloca0 (sizeof (struct_type) * (gsize) (n_structs)))
 
 #endif /* __G_ALLOCA_H__ */

@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -220,7 +222,7 @@ test_non_socket (void)
 
   /* This is #ifdef G_OS_UNIX anyway, so just use g_test_trap_fork() */
   G_GNUC_BEGIN_IGNORE_DEPRECATIONS;
-  if (!g_test_trap_fork (0, 0))
+  if (!g_test_trap_fork (0, G_TEST_TRAP_DEFAULT))
     {
       /* parent */
       g_object_unref (streams[0]);
@@ -293,7 +295,7 @@ main (int   argc,
 {
   gint ret;
 
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   g_test_add_func ("/gdbus/non-socket", test_non_socket);
 

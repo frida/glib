@@ -2,6 +2,8 @@
  * Copyright (C) 1997-1999, 2000-2001 Tim Janik and Red Hat, Inc.
  * Copyright © 2010 Christian Persch
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -386,12 +388,8 @@ value_collect_variant (GValue	  *value,
 {
   if (!collect_values[0].v_pointer)
     value->data[0].v_pointer = NULL;
-  else if (collect_flags & G_VALUE_NOCOPY_CONTENTS)
-    {
-      value->data[0].v_pointer = collect_values[0].v_pointer;
-      value->data[1].v_uint = G_VALUE_NOCOPY_CONTENTS;
-    }
   else
+    /* never honour G_VALUE_NOCOPY_CONTENTS for ref-counted types */
     value->data[0].v_pointer = g_variant_ref_sink (collect_values[0].v_pointer);
 
   return NULL;

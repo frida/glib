@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997, 2002  Peter Mattis, Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -24,10 +26,6 @@
 
 #include "gprintf.h"
 #include "gprintfint.h"
-
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
 
 
 /**
@@ -299,7 +297,8 @@ g_vsnprintf (gchar	 *string,
 
 /**
  * g_vasprintf:
- * @string: (not optional) (nullable): the return location for the newly-allocated string.
+ * @string: (not optional) (nullable): the return location for the newly-allocated string,
+ *   which will be %NULL if (and only if) this function fails
  * @format: (not nullable): a standard printf() format string, but notice
  *          [string precision pitfalls][string-precision]
  * @args: the list of arguments to insert in the output.
@@ -316,7 +315,7 @@ g_vsnprintf (gchar	 *string,
  *
  * `glib/gprintf.h` must be explicitly included in order to use this function.
  *
- * Returns: the number of bytes printed.
+ * Returns: the number of bytes printed, or `-1` on failure
  *
  * Since: 2.4
  **/
@@ -343,7 +342,14 @@ g_vasprintf (gchar      **string,
     if (len < 0)
       {
         if (saved_errno == ENOMEM)
-          g_error ("%s: failed to allocate memory", G_STRLOC);
+          {
+            /* Try and print a message to be a bit helpful, but stick to the
+             * bare minimum to avoid any code path which could try and fail to
+             * allocate additional memory. */
+            fputs (G_STRLOC, stderr);
+            fputs (": failed to allocate memory\n", stderr);
+            g_abort ();
+          }
         else
           *string = NULL;
       }
@@ -354,12 +360,18 @@ g_vasprintf (gchar      **string,
   {
     va_list args2;
 
-    G_VA_COPY (args2, args);
+    va_copy (args2, args);
 
     *string = g_new (gchar, g_printf_string_upper_bound (format, args));
 
     len = _g_vsprintf (*string, format, args2);
     va_end (args2);
+
+    if (len < 0)
+      {
+        g_free (*string);
+        *string = NULL;
+      }
   }
 #endif
 

@@ -1,6 +1,8 @@
 /*
  * Copyright © 2011 Canonical Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -19,7 +21,6 @@
 
 #include "config.h"
 
-#include "glib.h"
 #include "glib-init.h"
 #include "gmacros.h"
 #include "gtypes.h"
@@ -88,7 +89,24 @@ G_STATIC_ASSERT (sizeof (void *) == GLIB_SIZEOF_VOID_P);
 G_STATIC_ASSERT (sizeof (gintptr) == sizeof (void *));
 G_STATIC_ASSERT (sizeof (guintptr) == sizeof (void *));
 
+G_STATIC_ASSERT (sizeof (short) == sizeof (gshort));
+G_STATIC_ASSERT (G_MINSHORT == SHRT_MIN);
+G_STATIC_ASSERT (G_MAXSHORT == SHRT_MAX);
+G_STATIC_ASSERT (sizeof (unsigned short) == sizeof (gushort));
+G_STATIC_ASSERT (G_MAXUSHORT == USHRT_MAX);
+
+G_STATIC_ASSERT (sizeof (int) == sizeof (gint));
+G_STATIC_ASSERT (G_MININT == INT_MIN);
+G_STATIC_ASSERT (G_MAXINT == INT_MAX);
+G_STATIC_ASSERT (sizeof (unsigned int) == sizeof (guint));
+G_STATIC_ASSERT (G_MAXUINT == UINT_MAX);
+
 G_STATIC_ASSERT (sizeof (long) == GLIB_SIZEOF_LONG);
+G_STATIC_ASSERT (sizeof (long) == sizeof (glong));
+G_STATIC_ASSERT (G_MINLONG == LONG_MIN);
+G_STATIC_ASSERT (G_MAXLONG == LONG_MAX);
+G_STATIC_ASSERT (sizeof (unsigned long) == sizeof (gulong));
+G_STATIC_ASSERT (G_MAXULONG == ULONG_MAX);
 
 G_STATIC_ASSERT (G_HAVE_GINT64 == 1);
 
@@ -98,10 +116,16 @@ G_STATIC_ASSERT (sizeof (size_t) == GLIB_SIZEOF_SIZE_T);
 G_STATIC_ASSERT (sizeof (size_t) == GLIB_SIZEOF_SSIZE_T);
 G_STATIC_ASSERT (sizeof (gsize) == GLIB_SIZEOF_SSIZE_T);
 G_STATIC_ASSERT (sizeof (gsize) == sizeof (size_t));
+G_STATIC_ASSERT (G_MAXSIZE == SIZE_MAX);
 /* Again this is size_t not ssize_t, because ssize_t is POSIX, not C99 */
 G_STATIC_ASSERT (sizeof (gssize) == sizeof (size_t));
 G_STATIC_ASSERT (G_ALIGNOF (gsize) == G_ALIGNOF (size_t));
 G_STATIC_ASSERT (G_ALIGNOF (gssize) == G_ALIGNOF (size_t));
+/* We assume that GSIZE_TO_POINTER is reversible by GPOINTER_TO_SIZE
+ * without losing information.
+ * However, we do not assume that GPOINTER_TO_SIZE can store an arbitrary
+ * pointer in a gsize (known to be false on CHERI). */
+G_STATIC_ASSERT (sizeof (size_t) <= sizeof (void *));
 
 /* goffset is always 64-bit, even if off_t is only 32-bit
  * (compiling without large-file-support on 32-bit) */
@@ -117,6 +141,9 @@ G_STATIC_ASSERT (sizeof (gintptr) == sizeof (intptr_t));
 G_STATIC_ASSERT (sizeof (guintptr) == sizeof (uintptr_t));
 G_STATIC_ASSERT (G_ALIGNOF (gintptr) == G_ALIGNOF (intptr_t));
 G_STATIC_ASSERT (G_ALIGNOF (guintptr) == G_ALIGNOF (uintptr_t));
+/* True by definition */
+G_STATIC_ASSERT (sizeof (gintptr) >= sizeof (void *));
+G_STATIC_ASSERT (sizeof (guintptr) >= sizeof (void *));
 
 G_STATIC_ASSERT (sizeof (gint8) == sizeof (int8_t));
 G_STATIC_ASSERT (sizeof (guint8) == sizeof (uint8_t));
@@ -144,9 +171,7 @@ G_STATIC_ASSERT (G_ALIGNOF (guint64) == G_ALIGNOF (uint64_t));
  * This variable is %TRUE if the `G_DEBUG` environment variable
  * includes the key `gc-friendly`.
  */
-#ifndef GLIB_DIET
 gboolean g_mem_gc_friendly = FALSE;
-#endif
 
 GLogLevelFlags g_log_msg_prefix = G_LOG_LEVEL_ERROR | G_LOG_LEVEL_WARNING |
                                   G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_DEBUG;
@@ -269,8 +294,6 @@ g_parse_debug_string  (const gchar     *string,
   return result;
 }
 
-#ifndef GLIB_DIET
-
 static guint
 g_parse_debug_envvar (const gchar     *envvar,
                       const GDebugKey *keys,
@@ -297,12 +320,9 @@ g_parse_debug_envvar (const gchar     *envvar,
   return g_parse_debug_string (value, keys, n_keys);
 }
 
-#endif
-
 static void
 g_messages_prefixed_init (void)
 {
-#ifndef GLIB_DIET
   const GDebugKey keys[] = {
     { "error", G_LOG_LEVEL_ERROR },
     { "critical", G_LOG_LEVEL_CRITICAL },
@@ -313,13 +333,11 @@ g_messages_prefixed_init (void)
   };
 
   g_log_msg_prefix = g_parse_debug_envvar ("G_MESSAGES_PREFIXED", keys, G_N_ELEMENTS (keys), g_log_msg_prefix);
-#endif
 }
 
 static void
 g_debug_init (void)
 {
-#ifndef GLIB_DIET
   const GDebugKey keys[] = {
     { "gc-friendly", 1 },
     {"fatal-warnings",  G_LOG_LEVEL_WARNING | G_LOG_LEVEL_CRITICAL },
@@ -332,159 +350,86 @@ g_debug_init (void)
   g_log_always_fatal |= flags & G_LOG_LEVEL_MASK;
 
   g_mem_gc_friendly = flags & 1;
-#endif
 }
-
-static void
-glib_perform_init (void)
-{
-#ifdef G_OS_WIN32
-# if 0
-  _g_crash_handler_win32_init ();
-# endif
-  _g_clock_win32_init ();
-#endif
-  _g_thread_init ();
-  g_messages_prefixed_init ();
-  g_debug_init ();
-  g_quark_init ();
-#ifdef G_OS_WIN32
-#if 0
-  _g_console_win32_init ();
-#endif
-#endif
-}
-
-#ifdef G_OS_WIN32
-HMODULE glib_dll;
-#endif
-
-#define G_MAX_N_XTORS 16
-
-extern void _proxy_libintl_deinit (void);
-
-static gboolean glib_initialized = FALSE;
-
-static GXtorFunc constructors[G_MAX_N_XTORS];
-static gint num_constructors = 0;
-
-static GXtorFunc destructors[G_MAX_N_XTORS];
-static gint num_destructors = 0;
-
-#define G_XTORS_CLEAR(x)                         \
-  G_STMT_START{                                  \
-  num_ ## x = 0;                                 \
-  }G_STMT_END
-#define G_XTORS_APPEND(x, f)                     \
-  G_STMT_START{                                  \
-  g_assert (num_ ## x < G_MAX_N_XTORS);          \
-  x[(num_ ## x)++] = f;                          \
-  }G_STMT_END
 
 void
 glib_init (void)
 {
-  gint i;
+  static gboolean glib_inited;
 
-  if (glib_initialized)
-    return;
-  glib_initialized = TRUE;
-
-  glib_perform_init ();
-
-  for (i = 0; i != num_constructors; i++)
-    constructors[i] ();
-  G_XTORS_CLEAR (constructors);
-}
-
-void
-glib_shutdown (void)
-{
-  _g_thread_pool_shutdown ();
-  _g_main_shutdown ();
-}
-
-void
-glib_deinit (void)
-{
-  gint i;
-
-  if (!glib_initialized)
+  if (glib_inited)
     return;
 
-  glib_shutdown ();
+  glib_inited = TRUE;
 
-  for (i = num_destructors - 1; i >= 0; i--)
-    destructors[i] ();
-  G_XTORS_CLEAR (destructors);
-
-  _g_main_deinit ();
-  _g_strfuncs_deinit ();
-
-  glib_initialized = FALSE;
-
-#ifdef G_OS_WIN32
-# ifdef THREADS_WIN32
-  _g_thread_win32_process_detach ();
-# endif
-# if 0
-  _g_crash_handler_win32_deinit ();
-# endif
-#endif
-
-  _g_thread_deinit ();
-  _g_slice_deinit ();
-  _g_messages_deinit ();
-#ifdef GLIB_STATIC_COMPILATION
-  _proxy_libintl_deinit ();
-#endif
+  g_messages_prefixed_init ();
+  g_debug_init ();
+  g_quark_init ();
+  g_error_init ();
 }
+
+#ifdef G_PLATFORM_WIN32
+
+HMODULE glib_dll = NULL;
+void glib_win32_init (void);
 
 void
-_glib_register_constructor (GXtorFunc constructor)
+glib_win32_init (void)
 {
-  if (glib_initialized)
-    constructor ();
-  else
-    G_XTORS_APPEND (constructors, constructor);
+  /* May be called more than once in static compilation mode */
+  static gboolean win32_already_init = FALSE;
+  if (!win32_already_init)
+    {
+      win32_already_init = TRUE;
+
+      g_crash_handler_win32_init ();
+#ifdef THREADS_WIN32
+      g_thread_win32_init ();
+#endif
+
+      g_clock_win32_init ();
+      glib_init ();
+      /* must go after glib_init */
+      g_console_win32_init ();
+    }
 }
 
-void
-_glib_register_destructor (GXtorFunc destructor)
+static void
+glib_win32_deinit (gboolean detach_thread)
 {
-  G_XTORS_APPEND (destructors, destructor);
+#ifdef THREADS_WIN32
+  if (detach_thread)
+    g_thread_win32_process_detach ();
+#endif
+  g_crash_handler_win32_deinit ();
 }
 
-#ifdef G_OS_WIN32
+#ifndef GLIB_STATIC_COMPILATION
 
-# if defined (_MSC_VER)
-static void WINAPI
-glib_tls_callback (HINSTANCE hinstDLL,
-                   DWORD     fdwReason,
-                   LPVOID    lpvReserved)
-# elif defined (GLIB_STATIC_COMPILATION)
-BOOL WINAPI
-glib_dll_main (HINSTANCE hinstDLL,
-               DWORD     fdwReason,
-               LPVOID    lpvReserved)
-# else
+BOOL WINAPI DllMain (HINSTANCE hinstDLL,
+                     DWORD     fdwReason,
+                     LPVOID    lpvReserved);
+
 BOOL WINAPI
 DllMain (HINSTANCE hinstDLL,
          DWORD     fdwReason,
          LPVOID    lpvReserved)
-# endif
 {
   switch (fdwReason)
     {
     case DLL_PROCESS_ATTACH:
       glib_dll = hinstDLL;
+      glib_win32_init ();
       break;
 
     case DLL_THREAD_DETACH:
-# ifdef THREADS_WIN32
-      if (glib_initialized)
-        _g_thread_win32_thread_detach ();
-# endif
+#ifdef THREADS_WIN32
+      g_thread_win32_thread_detach ();
+#endif
+      break;
+
+    case DLL_PROCESS_DETACH:
+      glib_win32_deinit (lpvReserved == NULL);
       break;
 
     default:
@@ -492,31 +437,50 @@ DllMain (HINSTANCE hinstDLL,
       ;
     }
 
-# ifndef _MSC_VER
   return TRUE;
-# endif
 }
 
-# ifdef _MSC_VER
-#  if GLIB_SIZEOF_VOID_P == 8
-#   pragma comment (linker, "/INCLUDE:_tls_used")
-#   pragma comment (linker, "/INCLUDE:_xl_b")
-#   pragma const_seg(".CRT$XLB")
-    EXTERN_C const
-#  else
-#   pragma comment (linker, "/INCLUDE:__tls_used")
-#   pragma comment (linker, "/INCLUDE:__xl_b")
-#   pragma data_seg(".CRT$XLB")
-    EXTERN_C
-#  endif
-
-PIMAGE_TLS_CALLBACK _xl_b = glib_tls_callback;
-
-#  if GLIB_SIZEOF_VOID_P == 8
-#   pragma const_seg()
-#  else
-#   pragma data_seg()
-#  endif
-# endif
-
+#elif defined(G_HAS_CONSTRUCTORS) /* && G_PLATFORM_WIN32 && GLIB_STATIC_COMPILATION */
+#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
+#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(glib_init_ctor)
 #endif
+#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
+#pragma G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(glib_init_dtor)
+#endif
+
+G_DEFINE_CONSTRUCTOR (glib_init_ctor)
+
+static void
+glib_init_ctor (void)
+{
+  glib_win32_init ();
+}
+
+G_DEFINE_DESTRUCTOR (glib_init_dtor)
+
+static void
+glib_init_dtor (void)
+{
+  glib_win32_deinit (FALSE);
+}
+
+#else /* G_PLATFORM_WIN32 && GLIB_STATIC_COMPILATION && !G_HAS_CONSTRUCTORS */
+#error Your platform/compiler is missing constructor support
+#endif /* GLIB_STATIC_COMPILATION */
+
+#elif defined(G_HAS_CONSTRUCTORS) /* && !G_PLATFORM_WIN32 */
+
+#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
+#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(glib_init_ctor)
+#endif
+G_DEFINE_CONSTRUCTOR(glib_init_ctor)
+
+static void
+glib_init_ctor (void)
+{
+  glib_init ();
+}
+
+#else /* !G_PLATFORM_WIN32 && !G_HAS_CONSTRUCTORS */
+# error Your platform/compiler is missing constructor support
+#endif /* G_PLATFORM_WIN32 */

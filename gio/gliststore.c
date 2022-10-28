@@ -2,6 +2,8 @@
  * Copyright 2015 Lars Uebernickel
  * Copyright 2015 Ryan Lortie
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -62,6 +64,7 @@ enum
 {
   PROP_0,
   PROP_ITEM_TYPE,
+  PROP_N_ITEMS,
   N_PROPERTIES
 };
 
@@ -69,6 +72,8 @@ static void g_list_store_iface_init (GListModelInterface *iface);
 
 G_DEFINE_TYPE_WITH_CODE (GListStore, g_list_store, G_TYPE_OBJECT,
                          G_IMPLEMENT_INTERFACE (G_TYPE_LIST_MODEL, g_list_store_iface_init));
+
+static GParamSpec *properties[N_PROPERTIES] = { NULL, };
 
 static void
 g_list_store_items_changed (GListStore *store,
@@ -85,6 +90,8 @@ g_list_store_items_changed (GListStore *store,
     }
 
   g_list_model_items_changed (G_LIST_MODEL (store), position, removed, added);
+  if (removed != added)
+    g_object_notify_by_pspec (G_OBJECT (store), properties[PROP_N_ITEMS]);
 }
 
 static void
@@ -109,6 +116,10 @@ g_list_store_get_property (GObject    *object,
     {
     case PROP_ITEM_TYPE:
       g_value_set_gtype (value, store->item_type);
+      break;
+
+    case PROP_N_ITEMS:
+      g_value_set_uint (value, g_sequence_get_length (store->items));
       break;
 
     default:
@@ -153,9 +164,22 @@ g_list_store_class_init (GListStoreClass *klass)
    *
    * Since: 2.44
    **/
-  g_object_class_install_property (object_class, PROP_ITEM_TYPE,
+  properties[PROP_ITEM_TYPE] =
     g_param_spec_gtype ("item-type", "", "", G_TYPE_OBJECT,
-                        G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+                        G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
+
+  /**
+   * GListStore:n-items:
+   *
+   * The number of items contained in this list store.
+   *
+   * Since: 2.74
+   **/
+  properties[PROP_N_ITEMS] =
+    g_param_spec_uint ("n-items", "", "", 0, G_MAXUINT, 0,
+                       G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
+
+  g_object_class_install_properties (object_class, N_PROPERTIES, properties);
 }
 
 static GType
@@ -495,6 +519,14 @@ g_list_store_splice (GListStore *store,
   g_list_store_items_changed (store, position, n_removals, n_additions);
 }
 
+static gboolean
+simple_equal (gconstpointer a,
+              gconstpointer b,
+              gpointer equal_func)
+{
+  return ((GEqualFunc) equal_func) (a, b);
+}
+
 /**
  * g_list_store_find_with_equal_func:
  * @store: a #GListStore
@@ -503,7 +535,7 @@ g_list_store_splice (GListStore *store,
  * @position: (out) (optional): the first position of @item, if it was found.
  *
  * Looks up the given @item in the list store by looping over the items and
- * comparing them with @compare_func until the first occurrence of @item which
+ * comparing them with @equal_func until the first occurrence of @item which
  * matches. If @item was not found, then @position will not be set, and this
  * method will return %FALSE.
  *
@@ -517,6 +549,35 @@ g_list_store_find_with_equal_func (GListStore *store,
                                    gpointer    item,
                                    GEqualFunc  equal_func,
                                    guint      *position)
+{
+  g_return_val_if_fail (equal_func != NULL, FALSE);
+
+  return g_list_store_find_with_equal_func_full (store, item, simple_equal,
+                                                 equal_func, position);
+}
+
+/**
+ * g_list_store_find_with_equal_func_full:
+ * @store: a #GListStore
+ * @item: (type GObject): an item
+ * @equal_func: (scope call): A custom equality check function
+ * @user_data: (closure): user data for @equal_func
+ * @position: (out) (optional): the first position of @item, if it was found.
+ *
+ * Like g_list_store_find_with_equal_func() but with an additional @user_data
+ * that is passed to @equal_func.
+ *
+ * Returns: Whether @store contains @item. If it was found, @position will be
+ * set to the position where @item occurred for the first time.
+ *
+ * Since: 2.74
+ */
+gboolean
+g_list_store_find_with_equal_func_full (GListStore     *store,
+                                        gpointer        item,
+                                        GEqualFuncFull  equal_func,
+                                        gpointer        user_data,
+                                        guint          *position)
 {
   GSequenceIter *iter, *begin, *end;
 
@@ -536,7 +597,7 @@ g_list_store_find_with_equal_func (GListStore *store,
       gpointer iter_item;
 
       iter_item = g_sequence_get (iter);
-      if (equal_func (iter_item, item))
+      if (equal_func (iter_item, item, user_data))
         {
           if (position)
             *position = g_sequence_iter_get_position (iter);

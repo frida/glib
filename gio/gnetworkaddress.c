@@ -5,6 +5,8 @@
  * Copyright (C) 2008 Red Hat, Inc.
  * Copyright (C) 2018 Igalia S.L.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -961,6 +963,8 @@ got_ipv6_addresses (GObject      *source_object,
   addresses = g_resolver_lookup_by_name_with_flags_finish (resolver, result, &error);
   if (!error)
     g_network_address_address_enumerator_add_addresses (addr_enum, g_steal_pointer (&addresses), resolver);
+  else
+    g_debug ("IPv6 DNS error: %s", error->message);
 
   /* If ipv4 was first and waiting on us it can stop waiting */
   if (addr_enum->wait_source)
@@ -1015,6 +1019,8 @@ got_ipv4_addresses (GObject      *source_object,
   addresses = g_resolver_lookup_by_name_with_flags_finish (resolver, result, &error);
   if (!error)
     g_network_address_address_enumerator_add_addresses (addr_enum, g_steal_pointer (&addresses), resolver);
+  else
+    g_debug ("IPv4 DNS error: %s", error->message);
 
   if (addr_enum->wait_source)
     {

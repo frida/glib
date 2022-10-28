@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -51,7 +53,6 @@
 
 #include "gstrfuncs.h"
 
-#include "glib-init.h"
 #include "gprintf.h"
 #include "gprintfint.h"
 #include "glibintl.h"
@@ -318,22 +319,17 @@ static const guint16 ascii_table_data[256] = {
 
 const guint16 * const g_ascii_table = ascii_table_data;
 
-#if !defined (GLIB_STATIC_COMPILATION) && \
-    defined (HAVE_NEWLOCALE) && \
-    defined (HAVE_USELOCALE) && \
-    defined (HAVE_STRTOD_L) && \
-    defined (HAVE_STRTOULL_L) && \
-    defined (HAVE_STRTOLL_L)
+#if defined(HAVE_NEWLOCALE) && \
+    defined(HAVE_USELOCALE)
 #define USE_XLOCALE 1
 #endif
 
 #ifdef USE_XLOCALE
-static locale_t C_locale = NULL;
-
 static locale_t
 get_C_locale (void)
 {
   static gsize initialized = FALSE;
+  static locale_t C_locale = NULL;
 
   if (g_once_init_enter (&initialized))
     {
@@ -734,7 +730,7 @@ gdouble
 g_ascii_strtod (const gchar *nptr,
                 gchar      **endptr)
 {
-#ifdef USE_XLOCALE
+#if defined(USE_XLOCALE) && defined(HAVE_STRTOD_L)
 
   g_return_val_if_fail (nptr != NULL, 0);
 
@@ -912,7 +908,7 @@ g_ascii_strtod (const gchar *nptr,
  * the string back using g_ascii_strtod() gives the same machine-number
  * (on machines with IEEE compatible 64bit doubles). It is
  * guaranteed that the size of the resulting string will never
- * be larger than @G_ASCII_DTOSTR_BUF_SIZE bytes, including the terminating
+ * be larger than %G_ASCII_DTOSTR_BUF_SIZE bytes, including the terminating
  * nul character, which is always added.
  *
  * Returns: The pointer to the buffer with the converted string.
@@ -933,13 +929,16 @@ g_ascii_dtostr (gchar       *buffer,
  * @buffer: A buffer to place the resulting string in
  * @buf_len: The length of the buffer.
  * @format: The printf()-style format to use for the
- *          code to use for converting.
+ *   code to use for converting
  * @d: The #gdouble to convert
  *
  * Converts a #gdouble to a string, using the '.' as
  * decimal point. To format the number you pass in
  * a printf()-style format string. Allowed conversion
  * specifiers are 'e', 'E', 'f', 'F', 'g' and 'G'.
+ *
+ * The @format must just be a single format specifier
+ * starting with `%`, expecting a #gdouble argument.
  *
  * The returned buffer is guaranteed to be nul-terminated.
  *
@@ -956,6 +955,10 @@ g_ascii_formatd (gchar       *buffer,
 {
 #ifdef USE_XLOCALE
   locale_t old_locale;
+
+  g_return_val_if_fail (buffer != NULL, NULL);
+  g_return_val_if_fail (format[0] == '%', NULL);
+  g_return_val_if_fail (strpbrk (format + 1, "'l%") == NULL, NULL);
 
   old_locale = uselocale (get_C_locale ());
    _g_snprintf (buffer, buf_len, format, d);
@@ -1047,7 +1050,7 @@ g_ascii_formatd (gchar       *buffer,
 #define TOUPPER(c)              (ISLOWER (c) ? (c) - 'a' + 'A' : (c))
 #define TOLOWER(c)              (ISUPPER (c) ? (c) - 'A' + 'a' : (c))
 
-#ifndef USE_XLOCALE
+#if !defined(USE_XLOCALE) || !defined(HAVE_STRTOULL_L) || !defined(HAVE_STRTOLL_L)
 
 static guint64
 g_parse_long_long (const gchar  *nptr,
@@ -1172,7 +1175,7 @@ g_parse_long_long (const gchar  *nptr,
     }
   return 0;
 }
-#endif /* !USE_XLOCALE */
+#endif /* !defined(USE_XLOCALE) || !defined(HAVE_STRTOULL_L) || !defined(HAVE_STRTOLL_L) */
 
 /**
  * g_ascii_strtoull:
@@ -1213,7 +1216,7 @@ g_ascii_strtoull (const gchar *nptr,
                   gchar      **endptr,
                   guint        base)
 {
-#ifdef USE_XLOCALE
+#if defined(USE_XLOCALE) && defined(HAVE_STRTOULL_L)
   return strtoull_l (nptr, endptr, base, get_C_locale ());
 #else
   gboolean negative;
@@ -1260,7 +1263,7 @@ g_ascii_strtoll (const gchar *nptr,
                  gchar      **endptr,
                  guint        base)
 {
-#ifdef USE_XLOCALE
+#if defined(USE_XLOCALE) && defined(HAVE_STRTOLL_L)
   return strtoll_l (nptr, endptr, base, get_C_locale ());
 #else
   gboolean negative;
@@ -1310,7 +1313,7 @@ g_ascii_strtoll (const gchar *nptr,
  * ]|
  *
  * Returns: a UTF-8 string describing the error code. If the error code
- *     is unknown, it returns a string like "unknown error (<code>)".
+ *     is unknown, it returns a string like "Unknown error: <code>".
  */
 const gchar *
 g_strerror (gint errnum)
@@ -1332,8 +1335,9 @@ g_strerror (gint errnum)
   if (!msg)
     {
       gchar buf[1024];
-#ifndef GLIB_DIET
       GError *error = NULL;
+#if defined(HAVE_STRERROR_R) && !defined(STRERROR_R_CHAR_P)
+      int ret;
 #endif
 
 #if defined(G_OS_WIN32)
@@ -1344,29 +1348,31 @@ g_strerror (gint errnum)
 #  if defined(STRERROR_R_CHAR_P)
       msg = strerror_r (errnum, buf, sizeof (buf));
 #  else
-      (void) strerror_r (errnum, buf, sizeof (buf));
-      msg = buf;
+      ret = strerror_r (errnum, buf, sizeof (buf));
+      if (ret == 0 || ret == EINVAL)
+        msg = buf;
 #  endif /* HAVE_STRERROR_R */
 #else
       g_strlcpy (buf, strerror (errnum), sizeof (buf));
       msg = buf;
 #endif
-#ifndef GLIB_DIET
+
+      if (!msg)
+        {
+          G_UNLOCK (errors);
+
+          errno = saved_errno;
+          return NULL;
+        }
+
       if (!g_get_console_charset (NULL))
         {
           msg = g_locale_to_utf8 (msg, -1, NULL, NULL, &error);
-#ifndef G_DISABLE_CHECKS
           if (error)
             g_print ("%s\n", error->message);
-#endif
-          g_clear_error (&error);
         }
       else if (msg == (const gchar *)buf)
         msg = g_strdup (buf);
-#else
-      g_assert (msg == (const gchar *)buf);
-      msg = g_strdup (buf);
-#endif
 
       g_hash_table_insert (errors, GINT_TO_POINTER (errnum), (char *) msg);
     }
@@ -2039,7 +2045,7 @@ g_strncasecmp (const gchar *s1,
  * g_strdelimit:
  * @string: the string to convert
  * @delimiters: (nullable): a string containing the current delimiters,
- *     or %NULL to use the standard delimiters defined in #G_STR_DELIMITERS
+ *     or %NULL to use the standard delimiters defined in %G_STR_DELIMITERS
  * @new_delimiter: the new delimiter character
  *
  * Converts any delimiter characters in @string to @new_delimiter.
@@ -2419,9 +2425,15 @@ g_strsplit (const gchar *string,
   g_return_val_if_fail (delimiter[0] != '\0', NULL);
 
   if (max_tokens < 1)
-    max_tokens = G_MAXINT;
+    {
+      max_tokens = G_MAXINT;
+      string_list = g_ptr_array_new ();
+    }
+  else
+    {
+      string_list = g_ptr_array_new_full (max_tokens + 1, NULL);
+    }
 
-  string_list = g_ptr_array_new ();
   remainder = string;
   s = strstr (remainder, delimiter);
   if (s)
@@ -2916,9 +2928,8 @@ g_strrstr_len (const gchar *haystack,
  *
  * Since: 2.2
  */
-gboolean
-g_str_has_suffix (const gchar *str,
-                  const gchar *suffix)
+gboolean (g_str_has_suffix) (const gchar *str,
+                             const gchar *suffix)
 {
   gsize str_len;
   gsize suffix_len;
@@ -2946,9 +2957,8 @@ g_str_has_suffix (const gchar *str,
  *
  * Since: 2.2
  */
-gboolean
-g_str_has_prefix (const gchar *str,
-                  const gchar *prefix)
+gboolean (g_str_has_prefix) (const gchar *str,
+                             const gchar *prefix)
 {
   g_return_val_if_fail (str != NULL, FALSE);
   g_return_val_if_fail (prefix != NULL, FALSE);
@@ -3504,14 +3514,6 @@ g_ascii_string_to_unsigned (const gchar  *str,
   if (out_num != NULL)
     *out_num = number;
   return TRUE;
-}
-
-void
-_g_strfuncs_deinit (void)
-{
-#ifdef USE_XLOCALE
-  g_clear_pointer (&C_locale, freelocale);
-#endif
 }
 
 G_DEFINE_QUARK (g-number-parser-error-quark, g_number_parser_error)

@@ -149,6 +149,9 @@ test_g_file_info_modification_time (void)
   GFileInfo *info = NULL;
   GDateTime *dt = NULL, *dt_usecs = NULL, *dt_new = NULL, *dt_new_usecs = NULL;
   GTimeSpan ts;
+  gboolean nsecs_supported;
+  gint usecs;
+  guint32 nsecs;
   GError *error = NULL;
 
   g_test_summary ("Test that getting the modification time of a file works.");
@@ -181,6 +184,24 @@ test_g_file_info_modification_time (void)
   g_assert_cmpint (ts, >=, 0);
   g_assert_cmpint (ts, <, G_USEC_PER_SEC);
 
+  /* Try again with nanosecond precision. */
+  g_clear_object (&info);
+  info = g_file_query_info (file,
+                            G_FILE_ATTRIBUTE_TIME_MODIFIED "," G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC "," G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC,
+                            G_FILE_QUERY_INFO_NONE,
+                            NULL, &error);
+  g_assert_no_error (error);
+
+  nsecs_supported = g_file_info_has_attribute (info, G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC);
+  if (nsecs_supported)
+    {
+      usecs = g_date_time_get_microsecond (dt_usecs);
+      nsecs = g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC);
+
+      g_assert_cmpuint (nsecs, >=, usecs * 1000);
+      g_assert_cmpuint (nsecs, <, (usecs + 1) * 1000);
+    }
+
   /* Try round-tripping the modification time. */
   dt_new = g_date_time_add (dt_usecs, G_USEC_PER_SEC + 50);
   g_file_info_set_modification_date_time (info, dt_new);
@@ -188,6 +209,41 @@ test_g_file_info_modification_time (void)
   dt_new_usecs = g_file_info_get_modification_date_time (info);
   ts = g_date_time_difference (dt_new_usecs, dt_new);
   g_assert_cmpint (ts, ==, 0);
+
+  /* Setting the modification time with usec-precision should have cleared nsecs. */
+  g_assert_cmpuint (g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC), ==, 0);
+
+  /* Try setting the modification time with nsec-precision and it should set the
+   * usecs too. */
+  if (nsecs_supported)
+    {
+      gint new_usecs;
+      guint32 new_nsecs;
+      GDateTime *new_dt_usecs = NULL;
+
+      g_file_set_attribute_uint32 (file, G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC, nsecs + 100,
+                                   G_FILE_QUERY_INFO_NONE, NULL, &error);
+      g_assert_no_error (error);
+
+      g_clear_object (&info);
+      info = g_file_query_info (file,
+                                G_FILE_ATTRIBUTE_TIME_MODIFIED "," G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC "," G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC,
+                                G_FILE_QUERY_INFO_NONE,
+                                NULL, &error);
+      g_assert_no_error (error);
+
+      new_dt_usecs = g_file_info_get_modification_date_time (info);
+      g_assert_nonnull (new_dt_usecs);
+
+      new_usecs = g_date_time_get_microsecond (new_dt_usecs);
+      new_nsecs = g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC);
+
+      g_assert_cmpuint (new_nsecs, ==, nsecs + 100);
+      g_assert_cmpuint (new_nsecs, >=, new_usecs * 1000);
+      g_assert_cmpuint (new_nsecs, <, (new_usecs + 1) * 1000);
+
+      g_date_time_unref (new_dt_usecs);
+    }
 
   /* Clean up. */
   g_clear_object (&io_stream);
@@ -210,6 +266,9 @@ test_g_file_info_access_time (void)
   GDateTime *dt = NULL, *dt_usecs = NULL, *dt_new = NULL, *dt_new_usecs = NULL,
             *dt_before_epoch = NULL, *dt_before_epoch_returned = NULL;
   GTimeSpan ts;
+  gboolean nsecs_supported;
+  gint usecs;
+  guint32 nsecs;
   GError *error = NULL;
 
   g_test_summary ("Test that getting the access time of a file works.");
@@ -222,6 +281,15 @@ test_g_file_info_access_time (void)
                             G_FILE_QUERY_INFO_NONE,
                             NULL, &error);
   g_assert_no_error (error);
+
+  if (!g_file_info_has_attribute (info, G_FILE_ATTRIBUTE_TIME_ACCESS))
+    {
+      g_test_skip ("Skipping testing access time as it’s not supported by the kernel");
+      g_file_delete (file, NULL, NULL);
+      g_clear_object (&file);
+      g_clear_object (&info);
+      return;
+    }
 
   /* Check the access time is retrievable. */
   dt = g_file_info_get_access_date_time (info);
@@ -239,8 +307,26 @@ test_g_file_info_access_time (void)
   g_assert_nonnull (dt_usecs);
 
   ts = g_date_time_difference (dt_usecs, dt);
-  g_assert_cmpint (ts, >, 0);
+  g_assert_cmpint (ts, >=, 0);
   g_assert_cmpint (ts, <, G_USEC_PER_SEC);
+
+  /* Try again with nanosecond precision. */
+  g_clear_object (&info);
+  info = g_file_query_info (file,
+                            G_FILE_ATTRIBUTE_TIME_ACCESS "," G_FILE_ATTRIBUTE_TIME_ACCESS_USEC "," G_FILE_ATTRIBUTE_TIME_ACCESS_NSEC,
+                            G_FILE_QUERY_INFO_NONE,
+                            NULL, &error);
+  g_assert_no_error (error);
+
+  nsecs_supported = g_file_info_has_attribute (info, G_FILE_ATTRIBUTE_TIME_ACCESS_NSEC);
+  if (nsecs_supported)
+    {
+      usecs = g_date_time_get_microsecond (dt_usecs);
+      nsecs = g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_ACCESS_NSEC);
+
+      g_assert_cmpuint (nsecs, >=, usecs * 1000);
+      g_assert_cmpuint (nsecs, <, (usecs + 1) * 1000);
+    }
 
   /* Try round-tripping the access time. */
   dt_new = g_date_time_add (dt_usecs, G_USEC_PER_SEC + 50);
@@ -256,6 +342,41 @@ test_g_file_info_access_time (void)
   dt_before_epoch_returned = g_file_info_get_access_date_time (info);
   ts = g_date_time_difference (dt_before_epoch, dt_before_epoch_returned);
   g_assert_cmpint (ts, ==, 0);
+
+  /* Setting the access time with usec-precision should have cleared nsecs. */
+  g_assert_cmpuint (g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_ACCESS_NSEC), ==, 0);
+
+  /* Try setting the access time with nsec-precision and it should set the
+   * usecs too. */
+  if (nsecs_supported)
+    {
+      gint new_usecs;
+      guint32 new_nsecs;
+      GDateTime *new_dt_usecs = NULL;
+
+      g_file_set_attribute_uint32 (file, G_FILE_ATTRIBUTE_TIME_ACCESS_NSEC, nsecs + 100,
+                                   G_FILE_QUERY_INFO_NONE, NULL, &error);
+      g_assert_no_error (error);
+
+      g_clear_object (&info);
+      info = g_file_query_info (file,
+                                G_FILE_ATTRIBUTE_TIME_ACCESS "," G_FILE_ATTRIBUTE_TIME_ACCESS_USEC "," G_FILE_ATTRIBUTE_TIME_ACCESS_NSEC,
+                                G_FILE_QUERY_INFO_NONE,
+                                NULL, &error);
+      g_assert_no_error (error);
+
+      new_dt_usecs = g_file_info_get_access_date_time (info);
+      g_assert_nonnull (new_dt_usecs);
+
+      new_usecs = g_date_time_get_microsecond (new_dt_usecs);
+      new_nsecs = g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_ACCESS_NSEC);
+
+      g_assert_cmpuint (new_nsecs, ==, nsecs + 100);
+      g_assert_cmpuint (new_nsecs, >=, new_usecs * 1000);
+      g_assert_cmpuint (new_nsecs, <, (new_usecs + 1) * 1000);
+
+      g_date_time_unref (new_dt_usecs);
+    }
 
   /* Clean up. */
   g_clear_object (&io_stream);
@@ -280,6 +401,9 @@ test_g_file_info_creation_time (void)
   GDateTime *dt = NULL, *dt_usecs = NULL, *dt_new = NULL, *dt_new_usecs = NULL,
             *dt_before_epoch = NULL, *dt_before_epoch_returned = NULL;
   GTimeSpan ts;
+  gboolean nsecs_supported;
+  gint usecs;
+  guint32 nsecs;
   GError *error = NULL;
 
   g_test_summary ("Test that getting the creation time of a file works.");
@@ -293,16 +417,18 @@ test_g_file_info_creation_time (void)
                             NULL, &error);
   g_assert_no_error (error);
 
-  /* Check the creation time is retrievable. */
-  dt = g_file_info_get_creation_date_time (info);
-  if (!dt)
+  if (!g_file_info_has_attribute (info, G_FILE_ATTRIBUTE_TIME_CREATED))
     {
       g_test_skip ("Skipping testing creation time as it’s not supported by the kernel");
+      g_clear_object (&io_stream);
       g_file_delete (file, NULL, NULL);
       g_clear_object (&file);
       g_clear_object (&info);
       return;
     }
+
+  /* Check the creation time is retrievable. */
+  dt = g_file_info_get_creation_date_time (info);
 
   /* Try again with microsecond precision. */
   g_clear_object (&info);
@@ -316,8 +442,26 @@ test_g_file_info_creation_time (void)
   g_assert_nonnull (dt_usecs);
 
   ts = g_date_time_difference (dt_usecs, dt);
-  g_assert_cmpint (ts, >, 0);
+  g_assert_cmpint (ts, >=, 0);
   g_assert_cmpint (ts, <, G_USEC_PER_SEC);
+
+  /* Try again with nanosecond precision. */
+  g_clear_object (&info);
+  info = g_file_query_info (file,
+                            G_FILE_ATTRIBUTE_TIME_CREATED "," G_FILE_ATTRIBUTE_TIME_CREATED_USEC "," G_FILE_ATTRIBUTE_TIME_CREATED_NSEC,
+                            G_FILE_QUERY_INFO_NONE,
+                            NULL, &error);
+  g_assert_no_error (error);
+
+  nsecs_supported = g_file_info_has_attribute (info, G_FILE_ATTRIBUTE_TIME_CREATED_NSEC);
+  if (nsecs_supported)
+    {
+      usecs = g_date_time_get_microsecond (dt_usecs);
+      nsecs = g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_CREATED_NSEC);
+
+      g_assert_cmpuint (nsecs, >=, usecs * 1000);
+      g_assert_cmpuint (nsecs, <, (usecs + 1) * 1000);
+    }
 
   /* Try round-tripping the creation time. */
   dt_new = g_date_time_add (dt_usecs, G_USEC_PER_SEC + 50);
@@ -333,6 +477,49 @@ test_g_file_info_creation_time (void)
   dt_before_epoch_returned = g_file_info_get_creation_date_time (info);
   ts = g_date_time_difference (dt_before_epoch, dt_before_epoch_returned);
   g_assert_cmpint (ts, ==, 0);
+
+  /* Setting the creation time with usec-precision should have cleared nsecs. */
+  g_assert_cmpuint (g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_CREATED_NSEC), ==, 0);
+
+  /* Try setting the creation time with nsec-precision and it should set the
+   * usecs too. */
+  if (nsecs_supported)
+    {
+      gint new_usecs;
+      guint32 new_nsecs;
+      GDateTime *new_dt_usecs = NULL;
+
+      /* This can fail on some platforms, even if reading CREATED_NSEC works */
+      g_file_set_attribute_uint32 (file, G_FILE_ATTRIBUTE_TIME_CREATED_NSEC, nsecs + 100,
+                                   G_FILE_QUERY_INFO_NONE, NULL, &error);
+      if (error == NULL)
+        {
+          g_clear_object (&info);
+          info = g_file_query_info (file,
+                                    G_FILE_ATTRIBUTE_TIME_CREATED "," G_FILE_ATTRIBUTE_TIME_CREATED_USEC "," G_FILE_ATTRIBUTE_TIME_CREATED_NSEC,
+                                    G_FILE_QUERY_INFO_NONE,
+                                    NULL, &error);
+          g_assert_no_error (error);
+
+          new_dt_usecs = g_file_info_get_creation_date_time (info);
+          g_assert_nonnull (new_dt_usecs);
+
+          new_usecs = g_date_time_get_microsecond (new_dt_usecs);
+          new_nsecs = g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_CREATED_NSEC);
+
+          g_assert_cmpuint (new_nsecs, ==, nsecs + 100);
+          g_assert_cmpuint (new_nsecs, >=, new_usecs * 1000);
+          g_assert_cmpuint (new_nsecs, <, (new_usecs + 1) * 1000);
+
+          g_date_time_unref (new_dt_usecs);
+        }
+      else
+        {
+          if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED))
+            g_clear_error (&error);
+          g_assert_no_error (error);
+        }
+    }
 
   /* Clean up. */
   g_clear_object (&io_stream);
@@ -654,7 +841,11 @@ test_internal_enhanced_stdio (void)
       g_assert_cmpuint (alsize_ps, <, 0x40000000);
       g_assert_cmpuint (size_ps, >, G_GUINT64_CONSTANT (0xFFFFFFFF));
       g_assert_cmpuint (statbuf_ps.st_size, >, 0);
+#if defined(_WIN64)
+      g_assert_cmpuint (statbuf_ps.st_size, ==, G_GUINT64_CONSTANT (0x10000000f));
+#else
       g_assert_cmpuint (statbuf_ps.st_size, <=, 0xFFFFFFFF);
+#endif
 
       g_object_unref (fi_ps);
       g_object_unref (gf_ps);
@@ -707,7 +898,8 @@ test_internal_enhanced_stdio (void)
                              G_FILE_ATTRIBUTE_STANDARD_ALLOCATED_SIZE ","
                              G_FILE_ATTRIBUTE_ID_FILE ","
                              G_FILE_ATTRIBUTE_TIME_MODIFIED ","
-                             G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC,
+                             G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC ","
+                             G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC,
                              G_FILE_QUERY_INFO_NONE,
                              NULL, NULL);
 
@@ -716,7 +908,8 @@ test_internal_enhanced_stdio (void)
                              G_FILE_ATTRIBUTE_STANDARD_ALLOCATED_SIZE ","
                              G_FILE_ATTRIBUTE_ID_FILE ","
                              G_FILE_ATTRIBUTE_TIME_MODIFIED ","
-                             G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC,
+                             G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC ","
+                             G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC,
                              G_FILE_QUERY_INFO_NONE,
                              NULL, NULL);
 
@@ -725,12 +918,14 @@ test_internal_enhanced_stdio (void)
   g_assert_true (g_file_info_has_attribute (fi_p0, G_FILE_ATTRIBUTE_ID_FILE));
   g_assert_true (g_file_info_has_attribute (fi_p0, G_FILE_ATTRIBUTE_TIME_MODIFIED));
   g_assert_true (g_file_info_has_attribute (fi_p0, G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC));
+  g_assert_true (g_file_info_has_attribute (fi_p0, G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC));
 
   g_assert_true (g_file_info_has_attribute (fi_p1, G_FILE_ATTRIBUTE_STANDARD_SIZE));
   g_assert_true (g_file_info_has_attribute (fi_p1, G_FILE_ATTRIBUTE_STANDARD_ALLOCATED_SIZE));
   g_assert_true (g_file_info_has_attribute (fi_p1, G_FILE_ATTRIBUTE_ID_FILE));
   g_assert_true (g_file_info_has_attribute (fi_p1, G_FILE_ATTRIBUTE_TIME_MODIFIED));
   g_assert_true (g_file_info_has_attribute (fi_p1, G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC));
+  g_assert_true (g_file_info_has_attribute (fi_p1, G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC));
 
   size_p0 = g_file_info_get_attribute_uint64 (fi_p0, G_FILE_ATTRIBUTE_STANDARD_SIZE);
   alsize_p0 = g_file_info_get_attribute_uint64 (fi_p0, G_FILE_ATTRIBUTE_STANDARD_ALLOCATED_SIZE);
@@ -778,7 +973,8 @@ test_internal_enhanced_stdio (void)
   g_object_unref (fi_p0);
   fi_p0 = g_file_query_info (gf_p0,
                              G_FILE_ATTRIBUTE_TIME_MODIFIED ","
-                             G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC,
+                             G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC ","
+                             G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC,
                              G_FILE_QUERY_INFO_NONE,
                              NULL, NULL);
   dt2 = g_file_info_get_modification_date_time (fi_p0);
@@ -829,7 +1025,7 @@ test_xattrs (void)
 {
   GFile *file = NULL;
   GFileIOStream *stream = NULL;
-  GFileInfo *file_info0 = NULL, *file_info1 = NULL;
+  GFileInfo *file_info0 = NULL, *file_info1 = NULL, *file_info2 = NULL;
   GError *local_error = NULL;
 
   g_test_summary ("Test setting and getting escaped xattrs");
@@ -851,6 +1047,7 @@ test_xattrs (void)
   g_file_info_set_attribute_string (file_info0, "xattr::escaped", "hello\\x82\\x80\\xbd");
   g_file_info_set_attribute_string (file_info0, "xattr::string", "hi there");
   g_file_info_set_attribute_string (file_info0, "xattr::embedded-nul", "hi\\x00there");
+  g_file_info_set_attribute_string (file_info0, "xattr::deleteme", "this attribute will be deleted");
 
   g_file_set_attributes_from_info (file, file_info0, G_FILE_QUERY_INFO_NONE, NULL, &local_error);
 
@@ -875,8 +1072,19 @@ test_xattrs (void)
       g_assert_cmpstr (g_file_info_get_attribute_string (file_info1, "xattr::escaped"), ==, "hello\\x82\\x80\\xbd");
       g_assert_cmpstr (g_file_info_get_attribute_string (file_info1, "xattr::string"), ==, "hi there");
       g_assert_cmpstr (g_file_info_get_attribute_string (file_info1, "xattr::embedded-nul"), ==, "hi\\x00there");
+      g_assert_cmpstr (g_file_info_get_attribute_string (file_info1, "xattr::deleteme"), ==, "this attribute will be deleted");
 
       g_object_unref (file_info1);
+
+      /* Check whether removing extended attributes works. */
+      g_file_set_attribute (file, "xattr::deleteme", G_FILE_ATTRIBUTE_TYPE_INVALID, NULL, G_FILE_QUERY_INFO_NONE, NULL, &local_error);
+      g_assert_no_error (local_error);
+      file_info2 = g_file_query_info (file, "xattr::deleteme", G_FILE_QUERY_INFO_NONE, NULL, &local_error);
+      g_assert_no_error (local_error);
+      g_assert_nonnull (file_info2);
+      g_assert_cmpstr (g_file_info_get_attribute_string (file_info2, "xattr::deleteme"), ==, NULL);
+
+      g_object_unref (file_info2);
     }
 
   /* Tidy up. */

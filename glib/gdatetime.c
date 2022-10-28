@@ -6,6 +6,8 @@
  * Copyright © 2010 Codethink Limited
  * Copyright © 2018 Tomasz Miąsko
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
  * published by the Free Software Foundation; either version 2.1 of the
@@ -622,7 +624,7 @@ g_date_time_get_week_number (GDateTime *datetime,
                              gint      *day_of_week,
                              gint      *day_of_year)
 {
-  gint a, b, c, d, e, f, g, n, s, month, day, year;
+  gint a, b, c, d, e, f, g, n, s, month = -1, day = -1, year = -1;
 
   g_date_time_get_ymd (datetime, &year, &month, &day);
 
@@ -956,6 +958,8 @@ GDateTime *
 g_date_time_new_now (GTimeZone *tz)
 {
   gint64 now_us;
+
+  g_return_val_if_fail (tz != NULL, NULL);
 
   now_us = g_get_real_time ();
 
@@ -2279,19 +2283,19 @@ g_date_time_get_day_of_month (GDateTime *datetime)
 {
   gint           day_of_year,
                  i;
-  const guint16 *days;
+  guint          is_leap;
   guint16        last = 0;
 
   g_return_val_if_fail (datetime != NULL, 0);
 
-  days = days_in_year[GREGORIAN_LEAP (g_date_time_get_year (datetime)) ? 1 : 0];
+  is_leap = GREGORIAN_LEAP (g_date_time_get_year (datetime)) ? 1 : 0;
   g_date_time_get_week_number (datetime, NULL, NULL, &day_of_year);
 
   for (i = 1; i <= 12; i++)
     {
-      if (days [i] >= day_of_year)
+      if (days_in_year[is_leap][i] >= day_of_year)
         return day_of_year - last;
-      last = days [i];
+      last = days_in_year[is_leap][i];
     }
 
   g_warn_if_reached ();
@@ -2342,7 +2346,7 @@ g_date_time_get_day_of_month (GDateTime *datetime)
 gint
 g_date_time_get_week_numbering_year (GDateTime *datetime)
 {
-  gint year, month, day, weekday;
+  gint year = -1, month = -1, day = -1, weekday;
 
   g_date_time_get_ymd (datetime, &year, &month, &day);
   weekday = g_date_time_get_day_of_week (datetime);
@@ -3141,7 +3145,7 @@ g_date_time_format_utf8 (GDateTime   *datetime,
 			 g_date_time_get_day_of_month (datetime));
 	  break;
 	case 'e':
-	  format_number (outstr, alt_digits, pad_set ? pad : " ", 2,
+	  format_number (outstr, alt_digits, pad_set ? pad : "\u2007", 2,
 			 g_date_time_get_day_of_month (datetime));
 	  break;
 	case 'f':
@@ -3189,11 +3193,11 @@ g_date_time_format_utf8 (GDateTime   *datetime,
 			 g_date_time_get_day_of_year (datetime));
 	  break;
 	case 'k':
-	  format_number (outstr, alt_digits, pad_set ? pad : " ", 2,
+	  format_number (outstr, alt_digits, pad_set ? pad : "\u2007", 2,
 			 g_date_time_get_hour (datetime));
 	  break;
 	case 'l':
-	  format_number (outstr, alt_digits, pad_set ? pad : " ", 2,
+	  format_number (outstr, alt_digits, pad_set ? pad : "\u2007", 2,
 			 (g_date_time_get_hour (datetime) + 11) % 12 + 1);
 	  break;
 	case 'm':
@@ -3355,7 +3359,8 @@ g_date_time_format_utf8 (GDateTime   *datetime,
  * - \%c: the preferred date and time representation for the current locale
  * - \%C: the century number (year/100) as a 2-digit integer (00-99)
  * - \%d: the day of the month as a decimal number (range 01 to 31)
- * - \%e: the day of the month as a decimal number (range  1 to 31)
+ * - \%e: the day of the month as a decimal number (range 1 to 31);
+ *   single digits are preceded by a figure space
  * - \%F: equivalent to `%Y-%m-%d` (the ISO 8601 date format)
  * - \%g: the last two digits of the ISO 8601 week-based year as a
  *   decimal number (00-99). This works well with \%V and \%u.
@@ -3366,9 +3371,9 @@ g_date_time_format_utf8 (GDateTime   *datetime,
  * - \%I: the hour as a decimal number using a 12-hour clock (range 01 to 12)
  * - \%j: the day of the year as a decimal number (range 001 to 366)
  * - \%k: the hour (24-hour clock) as a decimal number (range 0 to 23);
- *   single digits are preceded by a blank
+ *   single digits are preceded by a figure space
  * - \%l: the hour (12-hour clock) as a decimal number (range 1 to 12);
- *   single digits are preceded by a blank
+ *   single digits are preceded by a figure space
  * - \%m: the month as a decimal number (range 01 to 12)
  * - \%M: the minute as a decimal number (range 00 to 59)
  * - \%f: the microsecond as a decimal number (range 000000 to 999999)
@@ -3492,12 +3497,14 @@ g_date_time_format_iso8601 (GDateTime *datetime)
   GString *outstr = NULL;
   gchar *main_date = NULL;
   gint64 offset;
-  gchar *format = "%Y-%m-%dT%H:%M:%S";
+  gchar *format = "%C%y-%m-%dT%H:%M:%S";
+
+  g_return_val_if_fail (datetime != NULL, NULL);
 
   /* if datetime has sub-second non-zero values below the second precision we
    * should print them as well */
   if (datetime->usec % G_TIME_SPAN_SECOND != 0)
-    format = "%Y-%m-%dT%H:%M:%S.%f";
+    format = "%C%y-%m-%dT%H:%M:%S.%f";
 
   /* Main date and time. */
   main_date = g_date_time_format (datetime, format);

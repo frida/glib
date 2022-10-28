@@ -3,6 +3,8 @@
  * Copyright (C) 2010 Red Hat, Inc.
  * Copyright (C) 2009 Codethink Limited
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -70,16 +72,16 @@ struct _GUnixCredentialsMessage
   GUnixCredentialsMessagePrivate *priv;
 };
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GType                  g_unix_credentials_message_get_type             (void) G_GNUC_CONST;
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GSocketControlMessage *g_unix_credentials_message_new                  (void);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GSocketControlMessage *g_unix_credentials_message_new_with_credentials (GCredentials *credentials);
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 GCredentials          *g_unix_credentials_message_get_credentials      (GUnixCredentialsMessage *message);
 
-GLIB_AVAILABLE_IN_ALL
+GIO_AVAILABLE_IN_ALL
 gboolean               g_unix_credentials_message_is_supported         (void);
 
 G_END_DECLS

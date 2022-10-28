@@ -3,6 +3,8 @@
  * Copyright (C) 2006-2007 Red Hat, Inc.
  * Copyright © 2007 Ryan Lortie
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -49,6 +51,7 @@
 #include "gfileicon.h"
 #include <glib/gstdio.h>
 #include "glibintl.h"
+#include "glib-private.h"
 #include "giomodule-priv.h"
 #include "gappinfo.h"
 #include "gappinfoprivate.h"
@@ -89,6 +92,7 @@ enum {
 static void     g_desktop_app_info_iface_init         (GAppInfoIface    *iface);
 static gboolean g_desktop_app_info_ensure_saved       (GDesktopAppInfo  *info,
                                                        GError          **error);
+static gboolean g_desktop_app_info_load_file (GDesktopAppInfo *self);
 
 /**
  * GDesktopAppInfo:
@@ -162,6 +166,7 @@ static const gchar    *desktop_file_dirs_config_dir = NULL;
 static DesktopFileDir *desktop_file_dir_user_config = NULL;  /* (owned) */
 static DesktopFileDir *desktop_file_dir_user_data = NULL;  /* (owned) */
 static GMutex          desktop_file_dir_lock;
+static const gchar    *gio_launch_desktop_path = NULL;
 
 /* Monitor 'changed' signal handler {{{2 */
 static void desktop_file_dir_reset (DesktopFileDir *dir);
@@ -705,7 +710,7 @@ merge_directory_results (void)
       static_total_results = g_renew (struct search_result, static_total_results, static_total_results_allocated);
     }
 
-  if (static_total_results + static_total_results_size != 0)
+  if (static_search_results_size != 0)
     memcpy (static_total_results + static_total_results_size,
             static_search_results,
             static_search_results_size * sizeof (struct search_result));
@@ -1003,6 +1008,19 @@ desktop_file_dir_unindexed_init (DesktopFileDir *dir)
 }
 
 static GDesktopAppInfo *
+g_desktop_app_info_new_from_filename_unlocked (const char *filename)
+{
+  GDesktopAppInfo *info = NULL;
+
+  info = g_object_new (G_TYPE_DESKTOP_APP_INFO, "filename", filename, NULL);
+
+  if (!g_desktop_app_info_load_file (info))
+    g_clear_object (&info);
+
+  return info;
+}
+
+static GDesktopAppInfo *
 desktop_file_dir_unindexed_get_app (DesktopFileDir *dir,
                                     const gchar    *desktop_id)
 {
@@ -1013,7 +1031,7 @@ desktop_file_dir_unindexed_get_app (DesktopFileDir *dir,
   if (!filename)
     return NULL;
 
-  return g_desktop_app_info_new_from_filename (filename);
+  return g_desktop_app_info_new_from_filename_unlocked (filename);
 }
 
 static void
@@ -1033,7 +1051,7 @@ desktop_file_dir_unindexed_get_all (DesktopFileDir *dir,
       if (desktop_file_dir_app_name_is_masked (dir, app_name))
         continue;
 
-      add_to_table_if_appropriate (apps, app_name, g_desktop_app_info_new_from_filename (filename));
+      add_to_table_if_appropriate (apps, app_name, g_desktop_app_info_new_from_filename_unlocked (filename));
     }
 }
 
@@ -1555,6 +1573,9 @@ desktop_file_dirs_lock (void)
   if (desktop_file_dirs_config_dir != NULL &&
       g_strcmp0 (desktop_file_dirs_config_dir, user_config_dir) != 0)
     {
+      g_debug ("%s: Resetting desktop app info dirs from %s to %s",
+               G_STRFUNC, desktop_file_dirs_config_dir, user_config_dir);
+
       g_ptr_array_set_size (desktop_file_dirs, 0);
       g_clear_pointer (&desktop_file_dir_user_config, desktop_file_dir_unref);
       g_clear_pointer (&desktop_file_dir_user_data, desktop_file_dir_unref);
@@ -1751,6 +1772,56 @@ binary_from_exec (const char *exec)
   return g_strndup (start, p - start);
 }
 
+/*< internal >
+ * g_desktop_app_info_get_desktop_id_for_filename
+ * @self: #GDesktopAppInfo to get desktop id of
+ *
+ * Tries to find the desktop ID for a particular `.desktop` filename, as per the
+ * [Desktop Entry Specification](https://specifications.freedesktop.org/desktop-
+ * entry-spec/desktop-entry-spec-latest.html#desktop-file-id).
+ *
+ * Returns: desktop id or basename if filename is unknown.
+ */
+static char *
+g_desktop_app_info_get_desktop_id_for_filename (GDesktopAppInfo *self)
+{
+  guint i;
+  gchar *desktop_id = NULL;
+
+  g_return_val_if_fail (self->filename != NULL, NULL);
+
+  for (i = 0; i < desktop_file_dirs->len; i++)
+    {
+      DesktopFileDir *dir = g_ptr_array_index (desktop_file_dirs, i);
+      GHashTable *app_names;
+      GHashTableIter iter;
+      gpointer key, value;
+
+      app_names = dir->app_names;
+
+      if (!app_names)
+        continue;
+
+      g_hash_table_iter_init (&iter, app_names);
+      while (g_hash_table_iter_next (&iter, &key, &value))
+        {
+          if (!strcmp (value, self->filename))
+            {
+              desktop_id = g_strdup (key);
+              break;
+            }
+        }
+
+      if (desktop_id)
+        break;
+    }
+
+  if (!desktop_id)
+    desktop_id = g_path_get_basename (self->filename);
+
+  return g_steal_pointer (&desktop_id);
+}
+
 static gboolean
 g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
                                       GKeyFile        *key_file)
@@ -1813,6 +1884,10 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
       else
         {
           char *t;
+
+          /* Since @exec is not an empty string, there must be at least one
+           * argument, so dereferencing argv[0] should return non-NULL. */
+          g_assert (argc > 0);
           t = g_find_program_in_path (argv[0]);
           g_strfreev (argv);
 
@@ -1909,6 +1984,9 @@ g_desktop_app_info_load_from_keyfile (GDesktopAppInfo *info,
       g_free (basename);
     }
 
+  if (info->filename)
+    info->desktop_id = g_desktop_app_info_get_desktop_id_for_filename (info);
+
   info->keyfile = g_key_file_ref (key_file);
 
   return TRUE;
@@ -1921,8 +1999,6 @@ g_desktop_app_info_load_file (GDesktopAppInfo *self)
   gboolean retval = FALSE;
 
   g_return_val_if_fail (self->filename != NULL, FALSE);
-
-  self->desktop_id = g_path_get_basename (self->filename);
 
   key_file = g_key_file_new ();
 
@@ -1950,11 +2026,14 @@ g_desktop_app_info_new_from_keyfile (GKeyFile *key_file)
 
   info = g_object_new (G_TYPE_DESKTOP_APP_INFO, NULL);
   info->filename = NULL;
+
+  desktop_file_dirs_lock ();
+
   if (!g_desktop_app_info_load_from_keyfile (info, key_file))
-    {
-      g_object_unref (info);
-      return NULL;
-    }
+    g_clear_object (&info);
+
+  desktop_file_dirs_unlock ();
+
   return info;
 }
 
@@ -1972,12 +2051,12 @@ g_desktop_app_info_new_from_filename (const char *filename)
 {
   GDesktopAppInfo *info = NULL;
 
-  info = g_object_new (G_TYPE_DESKTOP_APP_INFO, "filename", filename, NULL);
-  if (!g_desktop_app_info_load_file (info))
-    {
-      g_object_unref (info);
-      return NULL;
-    }
+  desktop_file_dirs_lock ();
+
+  info = g_desktop_app_info_new_from_filename_unlocked (filename);
+
+  desktop_file_dirs_unlock ();
+
   return info;
 }
 
@@ -2230,7 +2309,7 @@ g_desktop_app_info_get_generic_name (GDesktopAppInfo *info)
  *
  * Gets the value of the NoDisplay key, which helps determine if the
  * application info should be shown in menus. See
- * #G_KEY_FILE_DESKTOP_KEY_NO_DISPLAY and g_app_info_should_show().
+ * %G_KEY_FILE_DESKTOP_KEY_NO_DISPLAY and g_app_info_should_show().
  *
  * Returns: The value of the NoDisplay key
  *
@@ -2548,12 +2627,29 @@ prepend_terminal_to_vector (int    *argc,
 {
 #ifndef G_OS_WIN32
   char **real_argv;
-  int real_argc;
-  int i, j;
-  char **term_argv = NULL;
-  int term_argc = 0;
-  char *check;
+  size_t real_argc;
+  size_t i;
+  size_t term_argc;
+  char *found_terminal;
   char **the_argv;
+  const char *term_arg;
+  static const struct {
+    const char *exec;
+    const char *exec_arg;
+  } known_terminals[] = {
+    { "xdg-terminal-exec", NULL },
+    { "kgx", "-e" },
+    { "gnome-terminal", "--" },
+    { "mate-terminal", "-x" },
+    { "xfce4-terminal", "-x" },
+    { "tilix", "-e" },
+    { "konsole", "-e" },
+    { "nxterm", "-e" },
+    { "color-xterm", "-e" },
+    { "rxvt", "-e" },
+    { "dtterm", "-e" },
+    { "xterm", "-e" }
+  };
 
   g_return_val_if_fail (argc != NULL, FALSE);
   g_return_val_if_fail (argv != NULL, FALSE);
@@ -2567,68 +2663,41 @@ prepend_terminal_to_vector (int    *argc,
   /* compute size if not given */
   if (*argc < 0)
     {
-      for (i = 0; the_argv[i] != NULL; i++)
+      for ((*argc) = 0; the_argv[*argc] != NULL; (*argc)++)
         ;
-      *argc = i;
     }
 
-  term_argc = 2;
-  term_argv = g_new0 (char *, 3);
+  for (i = 0, found_terminal = NULL; i < G_N_ELEMENTS (known_terminals); i++)
+    {
+      found_terminal = g_find_program_in_path (known_terminals[i].exec);
+      if (found_terminal != NULL)
+        {
+          term_arg = known_terminals[i].exec_arg;
+          break;
+        }
+    }
 
-  check = g_find_program_in_path ("gnome-terminal");
-  if (check != NULL)
+  if (found_terminal == NULL)
     {
-      term_argv[0] = check;
-      /* Since 2017, gnome-terminal has preferred `--` over `-x` or `-e`. */
-      term_argv[1] = g_strdup ("--");
+      g_debug ("Couldn’t find a known terminal");
+      return FALSE;
     }
-  else
-    {
-      if (check == NULL)
-        check = g_find_program_in_path ("mate-terminal");
-      if (check == NULL)
-        check = g_find_program_in_path ("xfce4-terminal");
-      if (check != NULL)
-        {
-          term_argv[0] = check;
-          /* Note that gnome-terminal takes -x and
-           * as -e in gnome-terminal is broken we use that. */
-          term_argv[1] = g_strdup ("-x");
-        }
-      else
-        {
-          if (check == NULL)
-            check = g_find_program_in_path ("tilix");
-          if (check == NULL)
-            check = g_find_program_in_path ("konsole");
-          if (check == NULL)
-            check = g_find_program_in_path ("nxterm");
-          if (check == NULL)
-            check = g_find_program_in_path ("color-xterm");
-          if (check == NULL)
-            check = g_find_program_in_path ("rxvt");
-          if (check == NULL)
-            check = g_find_program_in_path ("dtterm");
-          if (check == NULL)
-            check = g_find_program_in_path ("xterm");
-          if (check == NULL)
-            {
-              g_free (term_argv);
-              return FALSE;
-            }
-          term_argv[0] = check;
-          term_argv[1] = g_strdup ("-e");
-        }
-    }
+
+  /* check if the terminal require an option */
+  term_argc = term_arg ? 2 : 1;
 
   real_argc = term_argc + *argc;
   real_argv = g_new (char *, real_argc + 1);
 
-  for (i = 0; i < term_argc; i++)
-    real_argv[i] = term_argv[i];
+  i = 0;
+  real_argv[i++] = found_terminal;
 
-  for (j = 0; j < *argc; j++, i++)
-    real_argv[i] = (char *)the_argv[j];
+  if (term_arg)
+    real_argv[i++] = g_strdup (term_arg);
+
+  g_assert (i == term_argc);
+  for (int j = 0; j < *argc; j++)
+    real_argv[i++] = the_argv[j];
 
   real_argv[i] = NULL;
 
@@ -2636,9 +2705,6 @@ prepend_terminal_to_vector (int    *argc,
   *argv = real_argv;
   *argc = real_argc;
 
-  /* we use g_free here as we sucked all the inner strings
-   * out from it into real_argv */
-  g_free (term_argv);
   return TRUE;
 #else
   return FALSE;
@@ -2794,15 +2860,6 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
       char *sn_id = NULL;
       char **wrapped_argv;
       int i;
-      gsize j;
-      const gchar * const wrapper_argv[] =
-        {
-          "/bin/sh",
-          "-e",
-          "-u",
-          "-c", "export GIO_LAUNCHED_DESKTOP_FILE_PID=$$; exec \"$@\"",
-          "sh",  /* argv[0] for sh */
-        };
 
       old_uris = dup_uris;
       if (!expand_application_parameters (info, exec_line, &dup_uris, &argc, &argv, error))
@@ -2846,26 +2903,32 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
           emit_launch_started (launch_context, info, sn_id);
         }
 
-      /* Wrap the @argv in a command which will set the
-       * `GIO_LAUNCHED_DESKTOP_FILE_PID` environment variable. We can’t set this
-       * in @envp along with `GIO_LAUNCHED_DESKTOP_FILE` because we need to know
-       * the PID of the new forked process. We can’t use setenv() between fork()
-       * and exec() because we’d rather use posix_spawn() for speed.
-       *
-       * `sh` should be available on all the platforms that `GDesktopAppInfo`
-       * currently supports (since they are all POSIX). If additional platforms
-       * need to be supported in future, it will probably have to be replaced
-       * with a wrapper program (grep the GLib git history for
-       * `gio-launch-desktop` for an example of this which could be
-       * resurrected). */
-      wrapped_argv = g_new (char *, argc + G_N_ELEMENTS (wrapper_argv) + 1);
+      if (g_once_init_enter (&gio_launch_desktop_path))
+        {
+          const gchar *tmp = NULL;
+          gboolean is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
 
-      for (j = 0; j < G_N_ELEMENTS (wrapper_argv); j++)
-        wrapped_argv[j] = g_strdup (wrapper_argv[j]);
+          /* Allow test suite to specify path to gio-launch-desktop */
+          if (!is_setuid)
+            tmp = g_getenv ("GIO_LAUNCH_DESKTOP");
+
+          /* Allow build system to specify path to gio-launch-desktop */
+          if (tmp == NULL && g_file_test (GIO_LAUNCH_DESKTOP, G_FILE_TEST_IS_EXECUTABLE))
+            tmp = GIO_LAUNCH_DESKTOP;
+
+          /* Fall back on usual searching in $PATH */
+          if (tmp == NULL)
+            tmp = "gio-launch-desktop";
+          g_once_init_leave (&gio_launch_desktop_path, tmp);
+        }
+
+      wrapped_argv = g_new (char *, argc + 2);
+      wrapped_argv[0] = g_strdup (gio_launch_desktop_path);
+
       for (i = 0; i < argc; i++)
-        wrapped_argv[i + G_N_ELEMENTS (wrapper_argv)] = g_steal_pointer (&argv[i]);
+        wrapped_argv[i + 1] = g_steal_pointer (&argv[i]);
 
-      wrapped_argv[i + G_N_ELEMENTS (wrapper_argv)] = NULL;
+      wrapped_argv[i + 1] = NULL;
       g_free (argv);
       argv = NULL;
 
@@ -2886,6 +2949,7 @@ g_desktop_app_info_launch_uris_with_spawn (GDesktopAppInfo            *info,
 
           g_free (sn_id);
           g_list_free (launched_uris);
+          g_clear_pointer (&wrapped_argv, g_strfreev);
 
           goto out;
         }
@@ -3031,6 +3095,9 @@ launch_uris_with_dbus_signal_cb (GObject      *object,
 
   if (data->callback)
     data->callback (object, result, data->user_data);
+  else if (!g_task_had_error (G_TASK (result)))
+    g_variant_unref (g_dbus_connection_call_finish (G_DBUS_CONNECTION (object),
+                                                    result, NULL));
 
   launch_uris_with_dbus_data_free (data);
 }
@@ -3083,6 +3150,8 @@ launch_uris_with_dbus (GDesktopAppInfo    *info,
                           NULL, G_DBUS_CALL_FLAGS_NONE, -1,
                           cancellable, launch_uris_with_dbus_signal_cb, g_steal_pointer (&data));
   g_free (object_path);
+
+  g_variant_dict_clear (&dict);
 }
 
 static gboolean
@@ -3182,9 +3251,8 @@ g_desktop_app_info_launch_uris (GAppInfo           *appinfo,
 
 typedef struct
 {
-  GAppInfo *appinfo;
-  GList *uris;
-  GAppLaunchContext *context;
+  GList *uris;  /* (element-type utf8) (owned) (nullable) */
+  GAppLaunchContext *context;  /* (owned) (nullable) */
 } LaunchUrisData;
 
 static void
@@ -3201,16 +3269,20 @@ launch_uris_with_dbus_cb (GObject      *object,
                           gpointer      user_data)
 {
   GTask *task = G_TASK (user_data);
-  GError *error = NULL;
+  GError *local_error = NULL;
+  GVariant *ret;
 
-  g_dbus_connection_call_finish (G_DBUS_CONNECTION (object), result, &error);
-  if (error != NULL)
+  ret = g_dbus_connection_call_finish (G_DBUS_CONNECTION (object), result, &local_error);
+  if (local_error != NULL)
     {
-      g_dbus_error_strip_remote_error (error);
-      g_task_return_error (task, g_steal_pointer (&error));
+      g_dbus_error_strip_remote_error (local_error);
+      g_task_return_error (task, g_steal_pointer (&local_error));
     }
   else
-    g_task_return_boolean (task, TRUE);
+    {
+      g_task_return_boolean (task, TRUE);
+      g_variant_unref (ret);
+    }
 
   g_object_unref (task);
 }
@@ -3237,7 +3309,7 @@ launch_uris_bus_get_cb (GObject      *object,
   LaunchUrisData *data = g_task_get_task_data (task);
   GCancellable *cancellable = g_task_get_cancellable (task);
   GDBusConnection *session_bus;
-  GError *error = NULL;
+  GError *local_error = NULL;
 
   session_bus = g_bus_get_finish (result, NULL);
 
@@ -3263,17 +3335,22 @@ launch_uris_bus_get_cb (GObject      *object,
                                                  data->uris, data->context,
                                                  _SPAWN_FLAGS_DEFAULT, NULL,
                                                  NULL, NULL, NULL, -1, -1, -1,
-                                                 &error);
-      if (error != NULL)
+                                                 &local_error);
+      if (local_error != NULL)
         {
-          g_task_return_error (task, g_steal_pointer (&error));
+          g_task_return_error (task, g_steal_pointer (&local_error));
           g_object_unref (task);
         }
-      else
+      else if (session_bus)
         g_dbus_connection_flush (session_bus,
                                  cancellable,
                                  launch_uris_flush_cb,
                                  g_steal_pointer (&task));
+      else
+        {
+          g_task_return_boolean (task, TRUE);
+          g_clear_object (&task);
+        }
     }
 
   g_clear_object (&session_bus);
@@ -3295,7 +3372,7 @@ g_desktop_app_info_launch_uris_async (GAppInfo           *appinfo,
 
   data = g_new0 (LaunchUrisData, 1);
   data->uris = g_list_copy_deep (uris, (GCopyFunc) g_strdup, NULL);
-  data->context = (context != NULL) ? g_object_ref (context) : NULL;
+  g_set_object (&data->context, context);
   g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) launch_uris_data_free);
 
   g_bus_get (G_BUS_TYPE_SESSION, cancellable, launch_uris_bus_get_cb, task);
@@ -3533,6 +3610,8 @@ ensure_dir (DirType   type,
     default:
       g_assert_not_reached ();
     }
+
+  g_debug ("%s: Ensuring %s", G_STRFUNC, path);
 
   errno = 0;
   if (g_mkdir_with_parents (path, 0700) == 0)
@@ -3837,40 +3916,40 @@ static void
 run_update_command (char *command,
                     char *subdir)
 {
-        char *argv[3] = {
-                NULL,
-                NULL,
-                NULL,
-        };
-        GPid pid = 0;
-        GError *error = NULL;
+  char *argv[3] = {
+          NULL,
+          NULL,
+          NULL,
+  };
+  GPid pid = 0;
+  GError *local_error = NULL;
 
-        argv[0] = command;
-        argv[1] = g_build_filename (g_get_user_data_dir (), subdir, NULL);
+  argv[0] = command;
+  argv[1] = g_build_filename (g_get_user_data_dir (), subdir, NULL);
 
-        if (g_spawn_async ("/", argv,
-                           NULL,       /* envp */
-                           G_SPAWN_SEARCH_PATH |
-                           G_SPAWN_STDOUT_TO_DEV_NULL |
-                           G_SPAWN_STDERR_TO_DEV_NULL |
-                           G_SPAWN_DO_NOT_REAP_CHILD,
-                           NULL, NULL, /* No setup function */
-                           &pid,
-                           &error))
-          g_child_watch_add (pid, update_program_done, NULL);
-        else
-          {
-            /* If we get an error at this point, it's quite likely the user doesn't
-             * have an installed copy of either 'update-mime-database' or
-             * 'update-desktop-database'.  I don't think we want to popup an error
-             * dialog at this point, so we just do a g_warning to give the user a
-             * chance of debugging it.
-             */
-            g_warning ("%s", error->message);
-            g_error_free (error);
-          }
+  if (g_spawn_async ("/", argv,
+                     NULL,       /* envp */
+                     G_SPAWN_SEARCH_PATH |
+                     G_SPAWN_STDOUT_TO_DEV_NULL |
+                     G_SPAWN_STDERR_TO_DEV_NULL |
+                     G_SPAWN_DO_NOT_REAP_CHILD,
+                     NULL, NULL, /* No setup function */
+                     &pid,
+                     &local_error))
+    g_child_watch_add (pid, update_program_done, NULL);
+  else
+    {
+      /* If we get an error at this point, it's quite likely the user doesn't
+       * have an installed copy of either 'update-mime-database' or
+       * 'update-desktop-database'.  I don't think we want to popup an error
+       * dialog at this point, so we just do a g_warning to give the user a
+       * chance of debugging it.
+       */
+      g_warning ("%s", local_error->message);
+      g_error_free (local_error);
+    }
 
-        g_free (argv[1]);
+  g_free (argv[1]);
 }
 
 static gboolean
@@ -4543,6 +4622,8 @@ g_app_info_get_default_for_uri_scheme (const char *uri_scheme)
 {
   GAppInfo *app_info;
   char *content_type, *scheme_down;
+
+  g_return_val_if_fail (uri_scheme != NULL && *uri_scheme != '\0', NULL);
 
   scheme_down = g_ascii_strdown (uri_scheme, -1);
   content_type = g_strdup_printf ("x-scheme-handler/%s", scheme_down);

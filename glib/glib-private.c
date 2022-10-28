@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 2011 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -29,7 +31,6 @@
  * Do not call this function; it is used to share private
  * API between glib, gobject, and gio.
  */
-#ifndef GLIB_DIET
 GLibPrivateVTable *
 glib__private__ (void)
 {
@@ -55,54 +56,11 @@ glib__private__ (void)
     g_win32_lstat_utf8,
     g_win32_readlink_utf8,
     g_win32_fstat,
+    g_win32_find_helper_executable_path,
+    g_win32_reopen_noninherited,
+    g_win32_handle_is_socket,
 #endif
   };
 
   return &table;
 }
-
-void
-glib_enable_io_features (void)
-{
-}
-
-#else
-
-static GLibPrivateVTable glib_private_table = {
-  .glib_init = glib_init,
-};
-
-GLibPrivateVTable *
-glib__private__ (void)
-{
-  return &glib_private_table;
-}
-
-void
-glib_enable_io_features (void)
-{
-  GLibPrivateVTable * p = &glib_private_table;
-
-  p->g_wakeup_new = g_wakeup_new;
-  p->g_wakeup_free = g_wakeup_free;
-  p->g_wakeup_get_pollfd = g_wakeup_get_pollfd;
-  p->g_wakeup_signal = g_wakeup_signal;
-  p->g_wakeup_acknowledge = g_wakeup_acknowledge;
-
-  p->g_get_worker_context = g_get_worker_context;
-
-  p->g_check_setuid = g_check_setuid;
-  p->g_main_context_new_with_next_id = g_main_context_new_with_next_id;
-
-  p->g_dir_open_with_errno = g_dir_open_with_errno;
-  p->g_dir_new_from_dirp = g_dir_new_from_dirp;
-
-#ifdef G_OS_WIN32
-  p->g_win32_stat_utf8 = g_win32_stat_utf8;
-  p->g_win32_lstat_utf8 = g_win32_lstat_utf8;
-  p->g_win32_readlink_utf8 = g_win32_readlink_utf8;
-  p->g_win32_fstat = g_win32_fstat;
-#endif
-}
-
-#endif

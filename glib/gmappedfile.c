@@ -3,6 +3,8 @@
  *
  * Copyright 2005 Matthias Clasen
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -232,7 +234,7 @@ mapped_file_new_from_fd (int           fd,
  * If @filename is the name of an empty, regular file, the function
  * will successfully return an empty #GMappedFile. In other cases of
  * size 0 (e.g. device files such as /dev/null), @error will be set
- * to the #GFileError value #G_FILE_ERROR_INVAL.
+ * to the #GFileError value %G_FILE_ERROR_INVAL.
  *
  * Returns: a newly allocated #GMappedFile which must be unref'd
  *    with g_mapped_file_unref(), or %NULL if the mapping failed.

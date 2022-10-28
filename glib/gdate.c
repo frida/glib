@@ -1,6 +1,8 @@
 /* GLIB - Library of useful routines for C programming
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -242,8 +244,8 @@
  * @G_DATE_SATURDAY: Saturday
  * @G_DATE_SUNDAY: Sunday
  *
- * Enumeration representing a day of the week; #G_DATE_MONDAY,
- * #G_DATE_TUESDAY, etc. #G_DATE_BAD_WEEKDAY is an invalid weekday.
+ * Enumeration representing a day of the week; %G_DATE_MONDAY,
+ * %G_DATE_TUESDAY, etc. %G_DATE_BAD_WEEKDAY is an invalid weekday.
  */
 
 /**
@@ -2556,9 +2558,7 @@ win32_strftime_helper (const GDate     *d,
 	      break;
 	    case 'Z':
 	      n = GetTimeZoneInformation (&tzinfo);
-	      if (n == TIME_ZONE_ID_UNKNOWN)
-		;
-	      else if (n == TIME_ZONE_ID_STANDARD)
+	      if (n == TIME_ZONE_ID_UNKNOWN || n == TIME_ZONE_ID_STANDARD)
 		g_array_append_vals (result, tzinfo.StandardName, wcslen (tzinfo.StandardName));
 	      else if (n == TIME_ZONE_ID_DAYLIGHT)
 		g_array_append_vals (result, tzinfo.DaylightName, wcslen (tzinfo.DaylightName));
@@ -2726,6 +2726,8 @@ g_date_strftime (gchar       *s,
     {
       g_warning (G_STRLOC "Error converting results of strftime to UTF-8: %s", error->message);
       g_error_free (error);
+
+      g_assert (convbuf == NULL);
 
       s[0] = '\0';
       return 0;

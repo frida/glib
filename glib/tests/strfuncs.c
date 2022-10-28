@@ -1200,89 +1200,132 @@ test_strdelimit (void)
   g_free (string);
 }
 
-/* Testing g_str_has_prefix() */
+/* Testing g_str_has_prefix() function avoiding the optimizing macro */
 static void
 test_has_prefix (void)
 {
-  gboolean res;
-
   if (g_test_undefined ())
     {
       g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
                              "*assertion*!= NULL*");
-      res = g_str_has_prefix ("foo", NULL);
+      g_assert_false ((g_str_has_prefix) ("foo", NULL));
       g_test_assert_expected_messages ();
-      g_assert_false (res);
 
       g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
                              "*assertion*!= NULL*");
-      res = g_str_has_prefix (NULL, "foo");
+      g_assert_false ((g_str_has_prefix) (NULL, "foo"));
       g_test_assert_expected_messages ();
-      g_assert_false (res);
     }
 
-  res = g_str_has_prefix ("foo", "bar");
-  g_assert_cmpint (res, ==, FALSE);
+  /* Having a string smaller than the prefix */
+  g_assert_false ((g_str_has_prefix) ("aa", "aaa"));
 
-  res = g_str_has_prefix ("foo", "foobar");
-  g_assert_cmpint (res, ==, FALSE);
+  /* Negative tests */
+  g_assert_false ((g_str_has_prefix) ("foo", "bar"));
+  g_assert_false ((g_str_has_prefix) ("foo", "foobar"));
+  g_assert_false ((g_str_has_prefix) ("foobar", "bar"));
 
-  res = g_str_has_prefix ("foobar", "bar");
-  g_assert_cmpint (res, ==, FALSE);
-
-  res = g_str_has_prefix ("foobar", "foo");
-  g_assert_cmpint (res, ==, TRUE);
-
-  res = g_str_has_prefix ("foo", "");
-  g_assert_cmpint (res, ==, TRUE);
-
-  res = g_str_has_prefix ("foo", "foo");
-  g_assert_cmpint (res, ==, TRUE);
-
-  res = g_str_has_prefix ("", "");
-  g_assert_cmpint (res, ==, TRUE);
+  /* Positive tests */
+  g_assert_true ((g_str_has_prefix) ("foobar", "foo"));
+  g_assert_true ((g_str_has_prefix) ("foo", ""));
+  g_assert_true ((g_str_has_prefix) ("foo", "foo"));
+  g_assert_true ((g_str_has_prefix) ("", ""));
 }
 
+/* Testing g_str_has_prefix() optimized macro */
+static void
+test_has_prefix_macro (void)
+{
+  if (g_test_undefined ())
+    {
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      g_assert_false (g_str_has_prefix ("foo", NULL));
+      g_test_assert_expected_messages ();
+
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      g_assert_false (g_str_has_prefix (NULL, "foo"));
+      g_test_assert_expected_messages ();
+    }
+
+  /* Having a string smaller than the prefix */
+  g_assert_false (g_str_has_prefix ("aa", "aaa"));
+
+  /* Negative tests */
+  g_assert_false (g_str_has_prefix ("foo", "bar"));
+  g_assert_false (g_str_has_prefix ("foo", "foobar"));
+  g_assert_false (g_str_has_prefix ("foobar", "bar"));
+
+  /* Positive tests */
+  g_assert_true (g_str_has_prefix ("foobar", "foo"));
+  g_assert_true (g_str_has_prefix ("foo", ""));
+  g_assert_true (g_str_has_prefix ("foo", "foo"));
+  g_assert_true (g_str_has_prefix ("", ""));
+}
+
+/* Testing g_str_has_suffix() function avoiding the optimizing macro */
 static void
 test_has_suffix (void)
 {
-  gboolean res;
-
   if (g_test_undefined ())
     {
       g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
                              "*assertion*!= NULL*");
-      res = g_str_has_suffix ("foo", NULL);
+      g_assert_false ((g_str_has_suffix) ("foo", NULL));
       g_test_assert_expected_messages ();
-      g_assert_false (res);
 
       g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
                              "*assertion*!= NULL*");
-      res = g_str_has_suffix (NULL, "foo");
+      g_assert_false ((g_str_has_suffix) (NULL, "foo"));
       g_test_assert_expected_messages ();
-      g_assert_false (res);
     }
 
-  res = g_str_has_suffix ("foo", "bar");
-  g_assert_false (res);
+  /* Having a string smaller than the suffix */
+  g_assert_false ((g_str_has_suffix) ("aa", "aaa"));
 
-  res = g_str_has_suffix ("bar", "foobar");
-  g_assert_false (res);
+  /* Negative tests */
+  g_assert_false ((g_str_has_suffix) ("foo", "bar"));
+  g_assert_false ((g_str_has_suffix) ("bar", "foobar"));
+  g_assert_false ((g_str_has_suffix) ("foobar", "foo"));
 
-  res = g_str_has_suffix ("foobar", "foo");
-  g_assert_false (res);
+  /* Positive tests */
+  g_assert_true ((g_str_has_suffix) ("foobar", "bar"));
+  g_assert_true ((g_str_has_suffix) ("foo", ""));
+  g_assert_true ((g_str_has_suffix) ("foo", "foo"));
+  g_assert_true ((g_str_has_suffix) ("", ""));
+}
 
-  res = g_str_has_suffix ("foobar", "bar");
-  g_assert_true (res);
+/* Testing g_str_has_prefix() optimized macro */
+static void
+test_has_suffix_macro (void)
+{
+  if (g_test_undefined ())
+    {
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      g_assert_false (g_str_has_suffix ("foo", NULL));
+      g_test_assert_expected_messages ();
 
-  res = g_str_has_suffix ("foo", "");
-  g_assert_true (res);
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                             "*assertion*!= NULL*");
+      g_assert_false (g_str_has_suffix (NULL, "foo"));
+      g_test_assert_expected_messages ();
+    }
 
-  res = g_str_has_suffix ("foo", "foo");
-  g_assert_true (res);
+  /* Having a string smaller than the suffix */
+  g_assert_false (g_str_has_suffix ("aa", "aaa"));
 
-  res = g_str_has_suffix ("", "");
-  g_assert_true (res);
+  /* Negative tests */
+  g_assert_false (g_str_has_suffix ("foo", "bar"));
+  g_assert_false (g_str_has_suffix ("bar", "foobar"));
+  g_assert_false (g_str_has_suffix ("foobar", "foo"));
+
+  /* Positive tests */
+  g_assert_true (g_str_has_suffix ("foobar", "bar"));
+  g_assert_true (g_str_has_suffix ("foo", ""));
+  g_assert_true (g_str_has_suffix ("foo", "foo"));
+  g_assert_true (g_str_has_suffix ("", ""));
 }
 
 static void
@@ -2440,15 +2483,14 @@ test_ascii_string_to_number_usual (void)
 
         case UNSIGNED:
           {
-            guint64 value64 = 0;
             result = g_ascii_string_to_unsigned (data->str,
                                                  data->base,
                                                  data->min,
                                                  data->max,
-                                                 &value64,
+                                                 &valueu64,
                                                  &error);
-            value = value64;
-            g_assert_cmpint (value, ==, value64);
+            value = valueu64;
+            g_assert_cmpint (value, ==, valueu64);
             break;
           }
 
@@ -2547,6 +2589,34 @@ test_ascii_string_to_number_pathological (void)
   g_assert_cmpint (svalue, ==, G_MININT64);
 }
 
+static void
+test_set_str (void)
+{
+  char *str = NULL;
+  const char *empty_str = "";
+
+  g_assert_false (g_set_str (&str, NULL));
+  g_assert_null (str);
+
+  g_assert_true (g_set_str (&str, empty_str));
+  g_assert_false (g_set_str (&str, empty_str));
+  g_assert_nonnull (str);
+  g_assert_true ((gpointer)str != (gpointer)empty_str);
+  g_assert_cmpstr (str, ==, empty_str);
+
+  g_assert_true (g_set_str (&str, NULL));
+  g_assert_null (str);
+
+  g_assert_true (g_set_str (&str, empty_str));
+  g_assert_true (g_set_str (&str, "test"));
+  g_assert_cmpstr (str, ==, "test");
+
+  g_assert_true (g_set_str (&str, &str[2]));
+  g_assert_cmpstr (str, ==, "st");
+
+  g_free (str);
+}
+
 int
 main (int   argc,
       char *argv[])
@@ -2561,9 +2631,12 @@ main (int   argc,
   g_test_add_func ("/strfuncs/ascii_strtod", test_ascii_strtod);
   g_test_add_func ("/strfuncs/bounds-check", test_bounds);
   g_test_add_func ("/strfuncs/has-prefix", test_has_prefix);
+  g_test_add_func ("/strfuncs/has-prefix-macro", test_has_prefix_macro);
   g_test_add_func ("/strfuncs/has-suffix", test_has_suffix);
+  g_test_add_func ("/strfuncs/has-suffix-macro", test_has_suffix_macro);
   g_test_add_func ("/strfuncs/memdup", test_memdup);
   g_test_add_func ("/strfuncs/memdup2", test_memdup2);
+  g_test_add_func ("/strfuncs/set_str", test_set_str);
   g_test_add_func ("/strfuncs/stpcpy", test_stpcpy);
   g_test_add_func ("/strfuncs/str_match_string", test_str_match_string);
   g_test_add_func ("/strfuncs/str_tokenize_and_fold", test_str_tokenize_and_fold);

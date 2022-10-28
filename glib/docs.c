@@ -1,6 +1,8 @@
 /*
  * Copyright © 2011 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -78,134 +80,217 @@
 /**
  * gpointer:
  *
- * An untyped pointer.
- * #gpointer looks better and is easier to use than void*.
+ * An untyped pointer, exactly equivalent to `void *`.
+ *
+ * The standard C `void *` type should usually be preferred in
+ * new code, but `gpointer` can be used in contexts where a type name
+ * must be a single word, such as in the g_type_name() of %G_TYPE_POINTER
+ * or when generating a family of function names for multiple types
+ * using macros.
  */
 
 /**
  * gconstpointer:
  *
- * An untyped pointer to constant data.
+ * An untyped pointer to constant data, exactly equivalent to `const void *`.
+ *
  * The data pointed to should not be changed.
  *
  * This is typically used in function prototypes to indicate
  * that the data pointed to will not be altered by the function.
+ *
+ * The standard C `const void *` type should usually be preferred in
+ * new code, but `gconstpointer` can be used in contexts where a type name
+ * must be a single word.
  */
 
 /**
  * gchar:
  *
- * Corresponds to the standard C char type.
+ * Equivalent to the standard C `char` type.
+ *
+ * This type only exists for symmetry with `guchar`.
+ * The standard C `char` type should be preferred in new code.
  */
 
 /**
  * guchar:
  *
- * Corresponds to the standard C unsigned char type.
+ * Equivalent to the standard C `unsigned char` type.
+ *
+ * The standard C `unsigned char` type should usually be preferred in
+ * new code, but `guchar` can be used in contexts where a type name
+ * must be a single word, such as in the g_type_name() of %G_TYPE_UCHAR
+ * or when generating a family of function names for multiple types
+ * using macros.
  */
 
 /**
  * gint:
  *
- * Corresponds to the standard C int type.
- * Values of this type can range from #G_MININT to #G_MAXINT.
+ * Equivalent to the standard C `int` type.
+ *
+ * Values of this type can range from `INT_MIN` to `INT_MAX`,
+ * or equivalently from %G_MININT to %G_MAXINT.
+ *
+ * This type only exists for symmetry with `guint`.
+ * The standard C `int` type should be preferred in new code.
  */
 
 /**
  * G_MININT:
  *
  * The minimum value which can be held in a #gint.
+ *
+ * This is the same as standard C `INT_MIN`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * G_MAXINT:
  *
  * The maximum value which can be held in a #gint.
+ *
+ * This is the same as standard C `INT_MAX`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * guint:
  *
- * Corresponds to the standard C unsigned int type.
- * Values of this type can range from 0 to #G_MAXUINT.
+ * Equivalent to the standard C `unsigned int` type.
+ *
+ * Values of this type can range from 0 to `UINT_MAX`,
+ * or equivalently 0 to %G_MAXUINT.
+ *
+ * The standard C `unsigned int` type should usually be preferred in
+ * new code, but `guint` can be used in contexts where a type name
+ * must be a single word, such as in the g_type_name() of %G_TYPE_UINT
+ * or when generating a family of function names for multiple types
+ * using macros.
  */
 
 /**
  * G_MAXUINT:
  *
  * The maximum value which can be held in a #guint.
+ *
+ * This is the same as standard C `UINT_MAX`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * gshort:
  *
- * Corresponds to the standard C short type.
- * Values of this type can range from #G_MINSHORT to #G_MAXSHORT.
+ * Equivalent to the standard C `short` type.
+ *
+ * Values of this type can range from `SHRT_MIN` to `SHRT_MAX`,
+ * or equivalently %G_MINSHORT to %G_MAXSHORT.
+ *
+ * This type only exists for symmetry with `gushort`.
+ * The standard C `short` type should be preferred in new code.
  */
 
 /**
  * G_MINSHORT:
  *
  * The minimum value which can be held in a #gshort.
+ *
+ * This is the same as standard C `SHRT_MIN`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * G_MAXSHORT:
  *
  * The maximum value which can be held in a #gshort.
+ *
+ * This is the same as standard C `SHRT_MAX`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * gushort:
  *
- * Corresponds to the standard C unsigned short type.
- * Values of this type can range from 0 to #G_MAXUSHORT.
+ * Equivalent to the standard C `unsigned short` type.
+ *
+ * Values of this type can range from 0 to `USHRT_MAX`,
+ * or equivalently from 0 to %G_MAXUSHORT.
+ *
+ * The standard C `unsigned short` type should usually be preferred in
+ * new code, but `gushort` can be used in contexts where a type name
+ * must be a single word, such as when generating a family of function
+ * names for multiple types using macros.
  */
 
 /**
  * G_MAXUSHORT:
  *
  * The maximum value which can be held in a #gushort.
+ *
+ * This is the same as standard C `USHRT_MAX`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * glong:
  *
- * Corresponds to the standard C long type.
- * Values of this type can range from #G_MINLONG to #G_MAXLONG.
+ * Equivalent to the standard C `long` type.
+ *
+ * Values of this type can range from `LONG_MIN` to `LONG_MAX`,
+ * or equivalently %G_MINLONG to %G_MAXLONG.
+ *
+ * This type only exists for symmetry with `gulong`.
+ * The standard C `long` type should be preferred in new code.
  */
 
 /**
  * G_MINLONG:
  *
  * The minimum value which can be held in a #glong.
+ *
+ * This is the same as standard C `LONG_MIN`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * G_MAXLONG:
  *
  * The maximum value which can be held in a #glong.
+ *
+ * This is the same as standard C `ULONG_MAX`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * gulong:
  *
- * Corresponds to the standard C unsigned long type.
- * Values of this type can range from 0 to #G_MAXULONG.
+ * Equivalent to the standard C `unsigned long` type.
+ *
+ * Values of this type can range from 0 to %G_MAXULONG.
+ *
+ * The standard C `unsigned long` type should usually be preferred in
+ * new code, but `gulong` can be used in contexts where a type name
+ * must be a single word, such as in the g_type_name() of %G_TYPE_ULONG
+ * or when generating a family of function names for multiple types
+ * using macros.
  */
 
 /**
  * G_MAXULONG:
  *
  * The maximum value which can be held in a #gulong.
+ *
+ * This is the same as standard C `ULONG_MAX`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * gint8:
  *
  * A signed integer guaranteed to be 8 bits on all platforms.
- * Values of this type can range from #G_MININT8 (= -128) to
- * #G_MAXINT8 (= 127).
+ * Values of this type can range from %G_MININT8 (= -128) to
+ * %G_MAXINT8 (= 127).
  */
 
 /**
@@ -220,7 +305,7 @@
  * guint8:
  *
  * An unsigned integer guaranteed to be 8 bits on all platforms.
- * Values of this type can range from 0 to #G_MAXUINT8 (= 255).
+ * Values of this type can range from 0 to %G_MAXUINT8 (= 255).
  */
 
 /**
@@ -235,8 +320,8 @@
  * gint16:
  *
  * A signed integer guaranteed to be 16 bits on all platforms.
- * Values of this type can range from #G_MININT16 (= -32,768) to
- * #G_MAXINT16 (= 32,767).
+ * Values of this type can range from %G_MININT16 (= -32,768) to
+ * %G_MAXINT16 (= 32,767).
  *
  * To print or scan values of this type, use
  * %G_GINT16_MODIFIER and/or %G_GINT16_FORMAT.
@@ -289,7 +374,7 @@
  * guint16:
  *
  * An unsigned integer guaranteed to be 16 bits on all platforms.
- * Values of this type can range from 0 to #G_MAXUINT16 (= 65,535).
+ * Values of this type can range from 0 to %G_MAXUINT16 (= 65,535).
  *
  * To print or scan values of this type, use
  * %G_GINT16_MODIFIER and/or %G_GUINT16_FORMAT.
@@ -307,15 +392,15 @@
  * G_GUINT16_FORMAT:
  *
  * This is the platform dependent conversion specifier for scanning
- * and printing values of type #guint16. See also #G_GINT16_FORMAT
+ * and printing values of type #guint16. See also %G_GINT16_FORMAT
  */
 
 /**
  * gint32:
  *
  * A signed integer guaranteed to be 32 bits on all platforms.
- * Values of this type can range from #G_MININT32 (= -2,147,483,648)
- * to #G_MAXINT32 (= 2,147,483,647).
+ * Values of this type can range from %G_MININT32 (= -2,147,483,648)
+ * to %G_MAXINT32 (= 2,147,483,647).
  *
  * To print or scan values of this type, use
  * %G_GINT32_MODIFIER and/or %G_GINT32_FORMAT.
@@ -334,7 +419,7 @@
  *
  * The platform dependent length modifier for conversion specifiers
  * for scanning and printing values of type #gint32 or #guint32. It
- * is a string literal. See also #G_GINT16_MODIFIER.
+ * is a string literal. See also %G_GINT16_MODIFIER.
  *
  * Since: 2.4
  */
@@ -343,14 +428,14 @@
  * G_GINT32_FORMAT:
  *
  * This is the platform dependent conversion specifier for scanning
- * and printing values of type #gint32. See also #G_GINT16_FORMAT.
+ * and printing values of type #gint32. See also %G_GINT16_FORMAT.
  */
 
 /**
  * guint32:
  *
  * An unsigned integer guaranteed to be 32 bits on all platforms.
- * Values of this type can range from 0 to #G_MAXUINT32 (= 4,294,967,295).
+ * Values of this type can range from 0 to %G_MAXUINT32 (= 4,294,967,295).
  *
  * To print or scan values of this type, use
  * %G_GINT32_MODIFIER and/or %G_GUINT32_FORMAT.
@@ -368,15 +453,15 @@
  * G_GUINT32_FORMAT:
  *
  * This is the platform dependent conversion specifier for scanning
- * and printing values of type #guint32. See also #G_GINT16_FORMAT.
+ * and printing values of type #guint32. See also %G_GINT16_FORMAT.
  */
 
 /**
  * gint64:
  *
  * A signed integer guaranteed to be 64 bits on all platforms.
- * Values of this type can range from #G_MININT64
- * (= -9,223,372,036,854,775,808) to #G_MAXINT64
+ * Values of this type can range from %G_MININT64
+ * (= -9,223,372,036,854,775,808) to %G_MAXINT64
  * (= 9,223,372,036,854,775,807).
  *
  * To print or scan values of this type, use
@@ -407,7 +492,7 @@
  * G_GINT64_FORMAT:
  *
  * This is the platform dependent conversion specifier for scanning
- * and printing values of type #gint64. See also #G_GINT16_FORMAT.
+ * and printing values of type #gint64. See also %G_GINT16_FORMAT.
  *
  * Some platforms do not support scanning and printing 64-bit integers,
  * even though the types are supported. On such platforms %G_GINT64_FORMAT
@@ -421,7 +506,7 @@
  * guint64:
  *
  * An unsigned integer guaranteed to be 64-bits on all platforms.
- * Values of this type can range from 0 to #G_MAXUINT64
+ * Values of this type can range from 0 to %G_MAXUINT64
  * (= 18,446,744,073,709,551,615).
  *
  * To print or scan values of this type, use
@@ -438,7 +523,7 @@
  * G_GUINT64_FORMAT:
  *
  * This is the platform dependent conversion specifier for scanning
- * and printing values of type #guint64. See also #G_GINT16_FORMAT.
+ * and printing values of type #guint64. See also %G_GINT16_FORMAT.
  *
  * Some platforms do not support scanning and printing 64-bit integers,
  * even though the types are supported. On such platforms %G_GUINT64_FORMAT
@@ -469,8 +554,10 @@
 /**
  * gfloat:
  *
- * Corresponds to the standard C float type.
- * Values of this type can range from -#G_MAXFLOAT to #G_MAXFLOAT.
+ * Equivalent to the standard C `float` type.
+ *
+ * Values of this type can range from `-FLT_MAX` to `FLT_MAX`,
+ * or equivalently from -%G_MAXFLOAT to %G_MAXFLOAT.
  */
 
 /**
@@ -480,19 +567,27 @@
  *
  * If you are interested in the smallest value which can be held
  * in a #gfloat, use -%G_MAXFLOAT.
+ *
+ * This is the same as standard C `FLT_MIN`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * G_MAXFLOAT:
  *
  * The maximum value which can be held in a #gfloat.
+ *
+ * This is the same as standard C `FLT_MAX`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * gdouble:
  *
- * Corresponds to the standard C double type.
- * Values of this type can range from -#G_MAXDOUBLE to #G_MAXDOUBLE.
+ * Equivalent to the standard C `double` type.
+ *
+ * Values of this type can range from `-DBL_MAX` to `DBL_MAX`,
+ * or equivalently from -%G_MAXDOUBLE to %G_MAXDOUBLE.
  */
 
 /**
@@ -502,32 +597,75 @@
  *
  * If you are interested in the smallest value which can be held
  * in a #gdouble, use -%G_MAXDOUBLE.
+ *
+ * This is the same as standard C `DBL_MIN`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * G_MAXDOUBLE:
  *
  * The maximum value which can be held in a #gdouble.
+ *
+ * This is the same as standard C `DBL_MAX`, which is available since C99
+ * and should be preferred in new code.
  */
 
 /**
  * gsize:
  *
- * An unsigned integer type of the result of the sizeof operator,
- * corresponding to the size_t type defined in C99.
- * This type is wide enough to hold the numeric value of a pointer,
- * so it is usually 32 bit wide on a 32-bit platform and 64 bit wide
+ * An unsigned integer type of the result of the `sizeof` operator,
+ * corresponding to the `size_t` type defined in C99.
+ *
+ * The standard `size_t` type should be preferred in new code, unless
+ * consistency with pre-existing APIs requires `gsize`
+ * (see below for more details).
+ *
+ * `gsize` is usually 32 bit wide on a 32-bit platform and 64 bit wide
  * on a 64-bit platform. Values of this type can range from 0 to
- * #G_MAXSIZE.
+ * %G_MAXSIZE.
+ *
+ * This type is wide enough to hold the size of the largest possible
+ * memory allocation, but is not guaranteed to be wide enough to hold
+ * the numeric value of a pointer: on platforms that use tagged pointers,
+ * such as [CHERI](https://cheri-cpu.org/), pointers can be numerically
+ * larger than the size of the address space.
+ * If the numeric value of a pointer needs to be stored in an integer
+ * without information loss, use the standard C types `intptr_t` or
+ * `uintptr_t`, or the similar GLib types #gintptr or #guintptr.
  *
  * To print or scan values of this type, use
  * %G_GSIZE_MODIFIER and/or %G_GSIZE_FORMAT.
+ *
+ * Note that on platforms where more than one standard integer type is
+ * the same size, `size_t` and `gsize` are always the same size but are
+ * not necessarily implemented by the same standard integer type.
+ * For example, on an ILP32 platform where `int`, `long` and pointers
+ * are all 32-bit, `size_t` might be `unsigned long` while `gsize`
+ * might be `unsigned int`.
+ * This can result in compiler warnings or unexpected C++ name-mangling
+ * if the two types are used inconsistently.
+ *
+ * As a result, changing a type from `gsize` to `size_t` in existing APIs
+ * might be an incompatible API or ABI change, especially if C++
+ * is involved. The safe option is to leave existing APIs using the same type
+ * that they have historically used, and only use the standard C types in
+ * new APIs.
+ *
+ * Similar considerations apply to all the fixed-size types
+ * (#gint8, #guint8, #gint16, #guint16, #gint32, #guint32, #gint64,
+ * #guint64 and #goffset), as well as #gintptr and #guintptr.
+ * Types that are 32 bits or larger are particularly likely to be
+ * affected by this.
  */
 
 /**
  * G_MAXSIZE:
  *
  * The maximum value which can be held in a #gsize.
+ *
+ * This is the same as standard C `SIZE_MAX` (available since C99),
+ * which should be preferred in new code.
  *
  * Since: 2.4
  */
@@ -539,6 +677,11 @@
  * for scanning and printing values of type #gsize. It
  * is a string literal.
  *
+ * Note that this is not necessarily the correct modifier to scan or
+ * print a `size_t`, even though the in-memory representation is the
+ * same. The Standard C `"z"` modifier should be used for `size_t`,
+ * assuming a C99-compliant `printf` implementation is available.
+ *
  * Since: 2.6
  */
 
@@ -546,7 +689,12 @@
  * G_GSIZE_FORMAT:
  *
  * This is the platform dependent conversion specifier for scanning
- * and printing values of type #gsize. See also #G_GINT16_FORMAT.
+ * and printing values of type #gsize. See also %G_GINT16_FORMAT.
+ *
+ * Note that this is not necessarily the correct format to scan or
+ * print a `size_t`, even though the in-memory representation is the
+ * same. The standard C `"zu"` format should be used for `size_t`,
+ * assuming a C99-compliant `printf` implementation is available.
  *
  * Since: 2.6
  */
@@ -555,9 +703,22 @@
  * gssize:
  *
  * A signed variant of #gsize, corresponding to the
- * ssize_t defined on most platforms.
- * Values of this type can range from #G_MINSSIZE
- * to #G_MAXSSIZE.
+ * `ssize_t` defined in POSIX or the similar `SSIZE_T` in Windows.
+ *
+ * In new platform-specific code, consider using `ssize_t` or `SSIZE_T`
+ * directly.
+ *
+ * Values of this type can range from %G_MINSSIZE
+ * to %G_MAXSSIZE.
+ *
+ * Note that on platforms where `ssize_t` is implemented, `ssize_t` and
+ * `gssize` might be implemented by different standard integer types
+ * of the same size. Similarly, on Windows, `SSIZE_T` and `gssize`
+ * might be implemented by different standard integer types of the same
+ * size. See #gsize for more details.
+ *
+ * This type is also not guaranteed to be the same as standard C
+ * `ptrdiff_t`, although they are the same on many platforms.
  *
  * To print or scan values of this type, use
  * %G_GSSIZE_MODIFIER and/or %G_GSSIZE_FORMAT.
@@ -583,7 +744,12 @@
  * G_GSSIZE_FORMAT:
  *
  * This is the platform dependent conversion specifier for scanning
- * and printing values of type #gssize. See also #G_GINT16_FORMAT.
+ * and printing values of type #gssize. See also %G_GINT16_FORMAT.
+ *
+ * Note that this is not necessarily the correct format to scan or print
+ * a POSIX `ssize_t` or a Windows `SSIZE_T`, even though the in-memory
+ * representation is the same.
+ * On POSIX platforms, the `"zd"` format should be used for `ssize_t`.
  *
  * Since: 2.6
  */
@@ -595,6 +761,11 @@
  * for scanning and printing values of type #gssize. It
  * is a string literal.
  *
+ * Note that this is not necessarily the correct modifier to scan or print
+ * a POSIX `ssize_t` or a Windows `SSIZE_T`, even though the in-memory
+ * representation is the same.
+ * On POSIX platforms, the `"z"` modifier should be used for `ssize_t`.
+ *
  * Since: 2.6
  */
 
@@ -605,8 +776,8 @@
  * corresponding to the POSIX type `off_t` as if compiling with
  * `_FILE_OFFSET_BITS` set to 64. #goffset is always 64 bits wide, even on
  * 32-bit architectures.
- * Values of this type can range from #G_MINOFFSET to
- * #G_MAXOFFSET.
+ * Values of this type can range from %G_MINOFFSET to
+ * %G_MAXOFFSET.
  *
  * To print or scan values of this type, use
  * %G_GOFFSET_MODIFIER and/or %G_GOFFSET_FORMAT.
@@ -631,7 +802,7 @@
  *
  * The platform dependent length modifier for conversion specifiers
  * for scanning and printing values of type #goffset. It is a string
- * literal. See also #G_GINT64_MODIFIER.
+ * literal. See also %G_GINT64_MODIFIER.
  *
  * Since: 2.20
  */
@@ -640,7 +811,7 @@
  * G_GOFFSET_FORMAT:
  *
  * This is the platform dependent conversion specifier for scanning
- * and printing values of type #goffset. See also #G_GINT64_FORMAT.
+ * and printing values of type #goffset. See also %G_GINT64_FORMAT.
  *
  * Since: 2.20
  */
@@ -652,7 +823,7 @@
  * This macro is used to insert #goffset 64-bit integer literals
  * into the source code.
  *
- * See also #G_GINT64_CONSTANT.
+ * See also G_GINT64_CONSTANT().
  *
  * Since: 2.20
  */
@@ -662,6 +833,14 @@
  *
  * Corresponds to the C99 type intptr_t,
  * a signed integer type that can hold any pointer.
+ *
+ * The standard `intptr_t` type should be preferred in new code, unless
+ * consistency with pre-existing APIs requires `gintptr`.
+ * Note that `intptr_t` and `gintptr` might be implemented by different
+ * standard integer types of the same size. See #gsize for more details.
+ *
+ * #gintptr is not guaranteed to be the same type or the same size as #gssize,
+ * even though they are the same on many CPU architectures.
  *
  * To print or scan values of this type, use
  * %G_GINTPTR_MODIFIER and/or %G_GINTPTR_FORMAT.
@@ -676,6 +855,12 @@
  * for scanning and printing values of type #gintptr or #guintptr.
  * It is a string literal.
  *
+ * Note that this is not necessarily the correct modifier to scan or
+ * print an `intptr_t`, even though the in-memory representation is the
+ * same.
+ * Standard C macros like `PRIdPTR` and `SCNdPTR` should be used for
+ * `intptr_t`.
+ *
  * Since: 2.22
  */
 
@@ -685,6 +870,12 @@
  * This is the platform dependent conversion specifier for scanning
  * and printing values of type #gintptr.
  *
+ * Note that this is not necessarily the correct format to scan or
+ * print an `intptr_t`, even though the in-memory representation is the
+ * same.
+ * Standard C macros like `PRIdPTR` and `SCNdPTR` should be used for
+ * `intptr_t`.
+ *
  * Since: 2.22
  */
 
@@ -693,6 +884,14 @@
  *
  * Corresponds to the C99 type uintptr_t,
  * an unsigned integer type that can hold any pointer.
+ *
+ * The standard `uintptr_t` type should be preferred in new code, unless
+ * consistency with pre-existing APIs requires `guintptr`.
+ * Note that `uintptr_t` and `guintptr` might be implemented by different
+ * standard integer types of the same size. See #gsize for more details.
+ *
+ * #guintptr is not guaranteed to be the same type or the same size as #gsize,
+ * even though they are the same on many CPU architectures.
  *
  * To print or scan values of this type, use
  * %G_GINTPTR_MODIFIER and/or %G_GUINTPTR_FORMAT.
@@ -705,6 +904,12 @@
  *
  * This is the platform dependent conversion specifier
  * for scanning and printing values of type #guintptr.
+ *
+ * Note that this is not necessarily the correct format to scan or
+ * print a `uintptr_t`, even though the in-memory representation is the
+ * same.
+ * Standard C macros like `PRIuPTR` and `SCNuPTR` should be used for
+ * `uintptr_t`.
  *
  * Since: 2.22
  */
@@ -849,29 +1054,29 @@
  * G_BYTE_ORDER:
  *
  * The host byte order.
- * This can be either #G_LITTLE_ENDIAN or #G_BIG_ENDIAN (support for
- * #G_PDP_ENDIAN may be added in future.)
+ * This can be either %G_LITTLE_ENDIAN or %G_BIG_ENDIAN (support for
+ * %G_PDP_ENDIAN may be added in future.)
  */
 
 /**
  * G_LITTLE_ENDIAN:
  *
  * Specifies one of the possible types of byte order.
- * See #G_BYTE_ORDER.
+ * See %G_BYTE_ORDER.
  */
 
 /**
  * G_BIG_ENDIAN:
  *
  * Specifies one of the possible types of byte order.
- * See #G_BYTE_ORDER.
+ * See %G_BYTE_ORDER.
  */
 
 /**
  * G_PDP_ENDIAN:
  *
  * Specifies one of the possible types of byte order
- * (currently unused). See #G_BYTE_ORDER.
+ * (currently unused). See %G_BYTE_ORDER.
  */
 
 /**
@@ -1543,7 +1748,7 @@
  * @title: Numerical Definitions
  * @short_description: mathematical constants, and floating point decomposition
  *
- * GLib offers mathematical constants such as #G_PI for the value of pi;
+ * GLib offers mathematical constants such as %G_PI for the value of pi;
  * many platforms have these in the C library, but some don't, the GLib
  * versions always exist.
  *
@@ -1643,6 +1848,17 @@
  * @short_description: commonly-used macros
  *
  * These macros provide a few commonly-used features.
+ */
+
+/**
+ * G_OS_DARWIN:
+ *
+ * This macro is defined only on Apple operating systems (macOS or iOS).
+ * So you can bracket Apple-specific code in `\#ifdef G_OS_DARWIN`.
+ *
+ * Note that %G_OS_UNIX is also set.
+ *
+ * Since: 2.76
  */
 
 /**
@@ -1816,7 +2032,12 @@
  *
  * Returns the offset, in bytes, of a member of a struct.
  *
- * Returns: the offset of @member from the start of @struct_type
+ * Consider using standard C `offsetof()`, available since at least C89
+ * and C++98, in new code (but note that `offsetof()` returns a `size_t`
+ * rather than a `long`).
+ *
+ * Returns: the offset of @member from the start of @struct_type,
+ *  as a value of type #glong.
  */
 
 /**
@@ -1857,7 +2078,7 @@
 /**
  * G_BEGIN_DECLS:
  *
- * Used (along with #G_END_DECLS) to bracket header files. If the
+ * Used (along with %G_END_DECLS) to bracket header files. If the
  * compiler in use is a C++ compiler, adds extern "C"
  * around the header.
  */
@@ -1865,7 +2086,7 @@
 /**
  * G_END_DECLS:
  *
- * Used (along with #G_BEGIN_DECLS) to bracket header files. If the
+ * Used (along with %G_BEGIN_DECLS) to bracket header files. If the
  * compiler in use is a C++ compiler, adds extern "C"
  * around the header.
  */
@@ -1883,6 +2104,9 @@
  *
  * Each invocation of `G_VA_COPY (ap1, ap2)` must be matched with a
  * corresponding `va_end (ap1)` call in the same function.
+ *
+ * This is equivalent to standard C `va_copy()`, available since C99
+ * and C++11, which should be preferred in new code.
  */
 
 /**
@@ -2047,7 +2271,7 @@
  *   G_GNUC_END_IGNORE_DEPRECATIONS
  * ]|
  *
- * |[<!-- language="C" --
+ * |[<!-- language="C" -->
  * static void
  * test_deprecated_function (void)
  * {
@@ -2081,7 +2305,7 @@
  * meant to be portable across different compilers and must be placed
  * before the function declaration.
  *
- * |[<!-- language="C" --
+ * |[<!-- language="C" -->
  * G_DEPRECATED
  * int my_mistake (void);
  * ]|
@@ -2098,7 +2322,7 @@
  * is meant to be portable across different compilers and must be placed
  * before the function declaration.
  *
- * |[<!-- language="C" --
+ * |[<!-- language="C" -->
  * G_DEPRECATED_FOR(my_replacement)
  * int my_mistake (void);
  * ]|

@@ -1,6 +1,8 @@
 /*
  * Copyright (C) 2011 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -44,6 +46,30 @@ test_sort_basic (void)
     g_assert_cmpint (data[i -1], <=, data[i]);
 
   g_free (data);
+}
+
+static void
+test_sort_zero_elements (void)
+{
+  gint *data, *data_copy;
+  gsize i;
+
+  data = g_malloc (100 * sizeof (int));
+  data_copy = g_malloc (100 * sizeof (int));
+  for (i = 0; i < 100; i++)
+    {
+      data[i] = g_random_int ();
+      data_copy[i] = data[i];
+    }
+
+  /* 0 elements is a valid case */
+  g_qsort_with_data (data, 0, sizeof (int), int_compare_data, NULL);
+
+  for (i = 0; i < 100; i++)
+    g_assert_cmpint (data[i], ==, data_copy[i]);
+
+  g_free (data);
+  g_free (data_copy);
 }
 
 typedef struct {
@@ -120,6 +146,7 @@ main (int argc, char *argv[])
   g_test_init (&argc, &argv, NULL);
 
   g_test_add_func ("/sort/basic", test_sort_basic);
+  g_test_add_func ("/sort/zero-elements", test_sort_zero_elements);
   g_test_add_func ("/sort/stable", test_sort_stable);
   g_test_add_func ("/sort/big", test_sort_big);
 

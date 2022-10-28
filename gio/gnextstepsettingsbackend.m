@@ -1,6 +1,8 @@
 /*
  * Copyright © 2011 William Hua
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -21,7 +23,7 @@
 
 #include "gsettingsbackendinternal.h"
 #include "gsimplepermission.h"
-#include "giomodule.h"
+#include "giomodule-priv.h"
 
 #import <Foundation/Foundation.h>
 
@@ -44,6 +46,7 @@ struct _GNextstepSettingsBackend
 G_DEFINE_TYPE_WITH_CODE (GNextstepSettingsBackend,
                          g_nextstep_settings_backend,
                          G_TYPE_SETTINGS_BACKEND,
+                         _g_io_modules_ensure_extension_points_registered ();
                          g_io_extension_point_implement (G_SETTINGS_BACKEND_EXTENSION_POINT_NAME,
                                                          g_define_type_id, "nextstep", 90));
 
@@ -444,17 +447,17 @@ g_nextstep_settings_backend_get_ns_object (GVariant *variant)
     {
       NSMutableDictionary *dictionary;
       GVariantIter iter;
-      GVariant *name;
+      const gchar *name;
       GVariant *value;
 
       dictionary = [NSMutableDictionary dictionaryWithCapacity:g_variant_iter_init (&iter, variant)];
 
-      while (g_variant_iter_loop (&iter, "{s*}", &name, &value))
+      while (g_variant_iter_loop (&iter, "{&s*}", &name, &value))
         {
           NSString *key;
           id object;
 
-          key = [NSString stringWithUTF8String:g_variant_get_string (name, NULL)];
+          key = [NSString stringWithUTF8String:name];
           object = g_nextstep_settings_backend_get_ns_object (value);
 
           [dictionary setObject:object forKey:key];

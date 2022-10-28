@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008-2010 Red Hat, Inc.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -416,7 +418,7 @@ test_connection_send (void)
 
   /*
    * Check that we never actually send a message if the GCancellable
-   * is already cancelled - i.e.  we should get #G_IO_ERROR_CANCELLED
+   * is already cancelled - i.e.  we should get G_IO_ERROR_CANCELLED
    * when the actual connection is not up.
    */
   ca = g_cancellable_new ();
@@ -1232,6 +1234,9 @@ test_connection_basic (void)
                  flags == G_DBUS_CAPABILITY_FLAGS_UNIX_FD_PASSING);
 
   connection_flags = g_dbus_connection_get_flags (connection);
+  /* Ignore G_DBUS_CONNECTION_FLAGS_CROSS_NAMESPACE, it's an
+   * implementation detail whether we set it */
+  connection_flags &= ~G_DBUS_CONNECTION_FLAGS_CROSS_NAMESPACE;
   g_assert_cmpint (connection_flags, ==,
                    G_DBUS_CONNECTION_FLAGS_AUTHENTICATION_CLIENT |
                    G_DBUS_CONNECTION_FLAGS_MESSAGE_BUS_CONNECTION);

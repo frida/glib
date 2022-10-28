@@ -3,6 +3,8 @@
  * Copyright (C) 2008, 2010 Collabora, Ltd.
  * Copyright (C) 2008 Nokia Corporation. All rights reserved.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -734,7 +736,6 @@ nego_reply_read_cb (GObject      *source,
   
   if (data->offset == data->length)
     {
-      GError *error = NULL;
       gboolean must_auth = FALSE;
       gboolean has_auth = data->username || data->password;
 

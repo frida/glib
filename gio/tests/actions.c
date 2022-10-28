@@ -1,3 +1,26 @@
+/*
+ * Copyright © 2010, 2011, 2013, 2014 Codethink Limited
+ * Copyright © 2010, 2011, 2012, 2013, 2015 Red Hat, Inc.
+ * Copyright © 2012 Pavel Vasin
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General
+ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
+ *
+ * Authors: Ryan Lortie <desrt@desrt.ca>
+ */
+
 #include <gio/gio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -115,33 +138,20 @@ test_name (void)
 }
 
 static gboolean
-strv_has_string (gchar       **haystack,
-                 const gchar  *needle)
-{
-  guint n;
-
-  for (n = 0; haystack != NULL && haystack[n] != NULL; n++)
-    {
-      if (g_strcmp0 (haystack[n], needle) == 0)
-        return TRUE;
-    }
-  return FALSE;
-}
-
-static gboolean
-strv_strv_cmp (gchar **a, gchar **b)
+strv_strv_cmp (const gchar * const *a,
+               const gchar * const *b)
 {
   guint n;
 
   for (n = 0; a[n] != NULL; n++)
     {
-       if (!strv_has_string (b, a[n]))
+       if (!g_strv_contains (b, a[n]))
          return FALSE;
     }
 
   for (n = 0; b[n] != NULL; n++)
     {
-       if (!strv_has_string (a, b[n]))
+       if (!g_strv_contains (a, b[n]))
          return FALSE;
     }
 
@@ -149,7 +159,7 @@ strv_strv_cmp (gchar **a, gchar **b)
 }
 
 static gboolean
-strv_set_equal (gchar **strv, ...)
+strv_set_equal (const gchar * const *strv, ...)
 {
   guint count;
   va_list list;
@@ -164,7 +174,7 @@ strv_set_equal (gchar **strv, ...)
       str = va_arg (list, const gchar *);
       if (str == NULL)
         break;
-      if (!strv_has_string (strv, str))
+      if (!g_strv_contains (strv, str))
         {
           res = FALSE;
           break;
@@ -215,7 +225,7 @@ test_simple_group (void)
   g_assert_false (g_action_group_has_action (G_ACTION_GROUP (group), "baz"));
   actions = g_action_group_list_actions (G_ACTION_GROUP (group));
   g_assert_cmpint (g_strv_length (actions), ==, 2);
-  g_assert_true (strv_set_equal (actions, "foo", "bar", NULL));
+  g_assert_true (strv_set_equal ((const gchar * const *) actions, "foo", "bar", NULL));
   g_strfreev (actions);
   g_assert_true (g_action_group_get_action_enabled (G_ACTION_GROUP (group), "foo"));
   g_assert_true (g_action_group_get_action_enabled (G_ACTION_GROUP (group), "bar"));
@@ -275,10 +285,12 @@ test_stateful (void)
 
   if (g_test_undefined ())
     {
+      GVariant *new_state = g_variant_ref_sink (g_variant_new_int32 (123));
       g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
                              "*assertion*g_variant_is_of_type*failed*");
-      g_simple_action_set_state (action, g_variant_new_int32 (123));
+      g_simple_action_set_state (action, new_state);
       g_test_assert_expected_messages ();
+      g_variant_unref (new_state);
     }
 
   g_simple_action_set_state (action, g_variant_new_string ("hello"));
@@ -292,10 +304,12 @@ test_stateful (void)
 
   if (g_test_undefined ())
     {
+      GVariant *new_state = g_variant_ref_sink (g_variant_new_int32 (123));
       g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
                              "*assertion*!= NULL*failed*");
-      g_simple_action_set_state (action, g_variant_new_int32 (123));
+      g_simple_action_set_state (action, new_state);
       g_test_assert_expected_messages ();
+      g_variant_unref (new_state);
     }
 
   g_object_unref (action);
@@ -536,6 +550,8 @@ count_activation (const gchar *action)
   count = GPOINTER_TO_INT (g_hash_table_lookup (activation_counts, action));
   count++;
   g_hash_table_insert (activation_counts, (gpointer)action, GINT_TO_POINTER (count));
+
+  g_main_context_wakeup (NULL);
 }
 
 static gint
@@ -593,7 +609,7 @@ compare_action_groups (GActionGroup *a, GActionGroup *b)
 
   alist = g_action_group_list_actions (a);
   blist = g_action_group_list_actions (b);
-  equal = strv_strv_cmp (alist, blist);
+  equal = strv_strv_cmp ((const gchar * const *) alist, (const gchar * const *) blist);
 
   for (i = 0; equal && alist[i]; i++)
     {
@@ -743,6 +759,41 @@ call_describe (gpointer user_data)
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 
 static void
+action_added_removed_cb (GActionGroup *action_group,
+                         char         *action_name,
+                         gpointer      user_data)
+{
+  guint *counter = user_data;
+
+  *counter = *counter + 1;
+  g_main_context_wakeup (NULL);
+}
+
+static void
+action_enabled_changed_cb (GActionGroup *action_group,
+                           char         *action_name,
+                           gboolean      enabled,
+                           gpointer      user_data)
+{
+  guint *counter = user_data;
+
+  *counter = *counter + 1;
+  g_main_context_wakeup (NULL);
+}
+
+static void
+action_state_changed_cb (GActionGroup *action_group,
+                         char         *action_name,
+                         GVariant     *value,
+                         gpointer      user_data)
+{
+  guint *counter = user_data;
+
+  *counter = *counter + 1;
+  g_main_context_wakeup (NULL);
+}
+
+static void
 test_dbus_export (void)
 {
   GDBusConnection *bus;
@@ -754,6 +805,8 @@ test_dbus_export (void)
   GVariant *v;
   guint id;
   gchar **actions;
+  guint n_actions_added = 0, n_actions_enabled_changed = 0, n_actions_removed = 0, n_actions_state_changed = 0;
+  gulong added_signal_id, enabled_changed_signal_id, removed_signal_id, state_changed_signal_id;
 
   loop = g_main_loop_new (NULL, FALSE);
 
@@ -770,13 +823,19 @@ test_dbus_export (void)
   g_assert_no_error (error);
 
   proxy = g_dbus_action_group_get (bus, g_dbus_connection_get_unique_name (bus), "/");
+  added_signal_id = g_signal_connect (proxy, "action-added", G_CALLBACK (action_added_removed_cb), &n_actions_added);
+  enabled_changed_signal_id = g_signal_connect (proxy, "action-enabled-changed", G_CALLBACK (action_enabled_changed_cb), &n_actions_enabled_changed);
+  removed_signal_id = g_signal_connect (proxy, "action-removed", G_CALLBACK (action_added_removed_cb), &n_actions_removed);
+  state_changed_signal_id = g_signal_connect (proxy, "action-state-changed", G_CALLBACK (action_state_changed_cb), &n_actions_state_changed);
 
   actions = g_action_group_list_actions (G_ACTION_GROUP (proxy));
   g_assert_cmpint (g_strv_length (actions), ==, 0);
   g_strfreev (actions);
 
-  g_timeout_add (100, stop_loop, loop);
-  g_main_loop_run (loop);
+  /* Actions are queried from the bus asynchronously after the first
+   * list_actions() call. Wait for the expected signals then check again. */
+  while (n_actions_added < G_N_ELEMENTS (exported_entries))
+    g_main_context_iteration (NULL, TRUE);
 
   actions = g_action_group_list_actions (G_ACTION_GROUP (proxy));
   g_assert_cmpint (g_strv_length (actions), ==, G_N_ELEMENTS (exported_entries));
@@ -795,54 +854,56 @@ test_dbus_export (void)
   g_assert_true (compare_action_groups (G_ACTION_GROUP (group), G_ACTION_GROUP (proxy)));
 
   /* test that various changes get propagated from group to proxy */
+  n_actions_added = 0;
   action = g_simple_action_new_stateful ("italic", NULL, g_variant_new_boolean (FALSE));
   g_simple_action_group_insert (group, G_ACTION (action));
   g_object_unref (action);
 
-  g_timeout_add (100, stop_loop, loop);
-  g_main_loop_run (loop);
+  while (n_actions_added == 0)
+    g_main_context_iteration (NULL, TRUE);
 
   g_assert_true (compare_action_groups (G_ACTION_GROUP (group), G_ACTION_GROUP (proxy)));
 
   action = G_SIMPLE_ACTION (g_simple_action_group_lookup (group, "cut"));
   g_simple_action_set_enabled (action, FALSE);
 
-  g_timeout_add (100, stop_loop, loop);
-  g_main_loop_run (loop);
+  while (n_actions_enabled_changed == 0)
+    g_main_context_iteration (NULL, TRUE);
 
   g_assert_true (compare_action_groups (G_ACTION_GROUP (group), G_ACTION_GROUP (proxy)));
 
   action = G_SIMPLE_ACTION (g_simple_action_group_lookup (group, "bold"));
   g_simple_action_set_state (action, g_variant_new_boolean (FALSE));
 
-  g_timeout_add (100, stop_loop, loop);
-  g_main_loop_run (loop);
+  while (n_actions_state_changed == 0)
+    g_main_context_iteration (NULL, TRUE);
 
   g_assert_true (compare_action_groups (G_ACTION_GROUP (group), G_ACTION_GROUP (proxy)));
 
   g_simple_action_group_remove (group, "italic");
 
-  g_timeout_add (100, stop_loop, loop);
-  g_main_loop_run (loop);
+  while (n_actions_removed == 0)
+    g_main_context_iteration (NULL, TRUE);
 
   g_assert_true (compare_action_groups (G_ACTION_GROUP (group), G_ACTION_GROUP (proxy)));
 
   /* test that activations and state changes propagate the other way */
-
+  n_actions_state_changed = 0;
   g_assert_cmpint (activation_count ("copy"), ==, 0);
   g_action_group_activate_action (G_ACTION_GROUP (proxy), "copy", NULL);
 
-  g_timeout_add (100, stop_loop, loop);
-  g_main_loop_run (loop);
+  while (activation_count ("copy") == 0)
+    g_main_context_iteration (NULL, TRUE);
 
   g_assert_cmpint (activation_count ("copy"), ==, 1);
   g_assert_true (compare_action_groups (G_ACTION_GROUP (group), G_ACTION_GROUP (proxy)));
 
+  n_actions_state_changed = 0;
   g_assert_cmpint (activation_count ("bold"), ==, 0);
   g_action_group_activate_action (G_ACTION_GROUP (proxy), "bold", NULL);
 
-  g_timeout_add (100, stop_loop, loop);
-  g_main_loop_run (loop);
+  while (n_actions_state_changed == 0)
+    g_main_context_iteration (NULL, TRUE);
 
   g_assert_cmpint (activation_count ("bold"), ==, 1);
   g_assert_true (compare_action_groups (G_ACTION_GROUP (group), G_ACTION_GROUP (proxy)));
@@ -850,10 +911,11 @@ test_dbus_export (void)
   g_assert_true (g_variant_get_boolean (v));
   g_variant_unref (v);
 
+  n_actions_state_changed = 0;
   g_action_group_change_action_state (G_ACTION_GROUP (proxy), "bold", g_variant_new_boolean (FALSE));
 
-  g_timeout_add (100, stop_loop, loop);
-  g_main_loop_run (loop);
+  while (n_actions_state_changed == 0)
+    g_main_context_iteration (NULL, TRUE);
 
   g_assert_cmpint (activation_count ("bold"), ==, 1);
   g_assert_true (compare_action_groups (G_ACTION_GROUP (group), G_ACTION_GROUP (proxy)));
@@ -863,6 +925,10 @@ test_dbus_export (void)
 
   g_dbus_connection_unexport_action_group (bus, id);
 
+  g_signal_handler_disconnect (proxy, added_signal_id);
+  g_signal_handler_disconnect (proxy, enabled_changed_signal_id);
+  g_signal_handler_disconnect (proxy, removed_signal_id);
+  g_signal_handler_disconnect (proxy, state_changed_signal_id);
   g_object_unref (proxy);
   g_object_unref (group);
   g_main_loop_unref (loop);

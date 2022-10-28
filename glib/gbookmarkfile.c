@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2005-2006 Emmanuele Bassi
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -285,6 +287,24 @@ bookmark_app_info_free (BookmarkAppInfo *app_info)
   g_slice_free (BookmarkAppInfo, app_info);
 }
 
+static BookmarkAppInfo *
+bookmark_app_info_copy (BookmarkAppInfo *app_info)
+{
+  BookmarkAppInfo *copy;
+
+  if (!app_info)
+    return NULL;
+
+  copy = bookmark_app_info_new (app_info->name);
+  copy->count = app_info->count;
+  copy->exec = g_strdup (app_info->exec);
+
+  if (app_info->stamp)
+    copy->stamp = g_date_time_ref (app_info->stamp);
+
+  return copy;
+}
+
 static gchar *
 bookmark_app_info_dump (BookmarkAppInfo *app_info)
 {
@@ -298,14 +318,27 @@ bookmark_app_info_dump (BookmarkAppInfo *app_info)
 
   name = g_markup_escape_text (app_info->name, -1);
   exec = g_markup_escape_text (app_info->exec, -1);
-  modified = g_date_time_format_iso8601 (app_info->stamp);
   count = g_strdup_printf ("%u", app_info->count);
+
+  if (app_info->stamp)
+    {
+      char *tmp;
+
+      tmp = g_date_time_format_iso8601 (app_info->stamp);
+      modified = g_strconcat (" " BOOKMARK_MODIFIED_ATTRIBUTE "=\"", tmp, "\"",
+                              NULL);
+      g_free (tmp);
+    }
+  else
+    {
+      modified = g_strdup ("");
+    }
 
   retval = g_strconcat ("          "
                         "<" BOOKMARK_NAMESPACE_NAME ":" BOOKMARK_APPLICATION_ELEMENT
                         " " BOOKMARK_NAME_ATTRIBUTE "=\"", name, "\""
-                        " " BOOKMARK_EXEC_ATTRIBUTE "=\"", exec, "\""
-                        " " BOOKMARK_MODIFIED_ATTRIBUTE "=\"", modified, "\""
+                        " " BOOKMARK_EXEC_ATTRIBUTE "=\"", exec, "\"",
+                        modified,
                         " " BOOKMARK_COUNT_ATTRIBUTE "=\"", count, "\"/>\n",
                         NULL);
 
@@ -365,6 +398,37 @@ bookmark_metadata_free (BookmarkMetadata *metadata)
   g_free (metadata->icon_mime);
 
   g_slice_free (BookmarkMetadata, metadata);
+}
+
+static BookmarkMetadata *
+bookmark_metadata_copy (BookmarkMetadata *metadata)
+{
+  BookmarkMetadata *copy;
+  GList *l;
+
+  if (!metadata)
+    return NULL;
+
+  copy = bookmark_metadata_new ();
+  copy->is_private = metadata->is_private;
+  copy->mime_type = g_strdup (metadata->mime_type);
+  copy->icon_href = g_strdup (metadata->icon_href);
+  copy->icon_mime = g_strdup (metadata->icon_mime);
+
+  copy->groups = g_list_copy_deep (metadata->groups, (GCopyFunc) g_strdup, NULL);
+  copy->applications =
+    g_list_copy_deep (metadata->applications, (GCopyFunc) bookmark_app_info_copy, NULL);
+
+  for (l = copy->applications; l; l = l->next)
+    {
+      BookmarkAppInfo *app_info = l->data;
+      g_hash_table_insert (copy->apps_by_name, app_info->name, app_info);
+    }
+
+  g_assert (g_hash_table_size (copy->apps_by_name) ==
+            g_hash_table_size (metadata->apps_by_name));
+
+  return copy;
 }
 
 static gchar *
@@ -541,6 +605,31 @@ bookmark_item_free (BookmarkItem *item)
   g_slice_free (BookmarkItem, item);
 }
 
+static BookmarkItem *
+bookmark_item_copy (BookmarkItem *item)
+{
+  BookmarkItem* copy;
+
+  if (!item)
+    return NULL;
+
+  copy = bookmark_item_new (item->uri);
+
+  copy->title = g_strdup (item->title);
+  copy->description = g_strdup (item->description);
+
+  copy->metadata = bookmark_metadata_copy (item->metadata);
+
+  if (item->added)
+    copy->added = g_date_time_ref (item->added);
+  if (item->modified)
+    copy->modified = g_date_time_ref (item->modified);
+  if (item->visited)
+    copy->visited = g_date_time_ref (item->visited);
+
+  return copy;
+}
+
 static void
 bookmark_item_touch_modified (BookmarkItem *item)
 {
@@ -694,12 +783,7 @@ g_bookmark_file_clear (GBookmarkFile *bookmark)
   g_list_free_full (bookmark->items, (GDestroyNotify) bookmark_item_free);
   bookmark->items = NULL;
 
-  if (bookmark->items_by_uri)
-    {
-      g_hash_table_destroy (bookmark->items_by_uri);
-
-      bookmark->items_by_uri = NULL;
-    }
+  g_clear_pointer (&bookmark->items_by_uri, g_hash_table_unref);
 }
 
 struct _ParseData
@@ -1508,7 +1592,7 @@ g_bookmark_file_parse (GBookmarkFile  *bookmark,
   parse_data->bookmark_file = bookmark;
 
   context = g_markup_parse_context_new (&markup_parser,
-  					0,
+  					G_MARKUP_DEFAULT_FLAGS,
   					parse_data,
   					(GDestroyNotify) parse_data_free);
 
@@ -1667,6 +1751,42 @@ g_bookmark_file_new (void)
   g_bookmark_file_init (bookmark);
 
   return bookmark;
+}
+
+/**
+ * g_bookmark_file_copy:
+ * @bookmark: A #GBookmarkFile
+ *
+ * Deeply copies a @bookmark #GBookmarkFile object to a new one.
+ *
+ * Returns: (transfer full): the copy of @bookmark. Use
+ *   g_bookmark_free() when finished using it.
+ *
+ * Since: 2.76
+ */
+GBookmarkFile *
+g_bookmark_file_copy (GBookmarkFile *bookmark)
+{
+  GBookmarkFile *copy;
+  GList *l;
+
+  g_return_val_if_fail (bookmark != NULL, NULL);
+
+  copy = g_bookmark_file_new ();
+  copy->title = g_strdup (bookmark->title);
+  copy->description = g_strdup (bookmark->description);
+  copy->items = g_list_copy_deep (bookmark->items, (GCopyFunc) bookmark_item_copy, NULL);
+
+  for (l = copy->items; l; l = l->next)
+    {
+      BookmarkItem *item = l->data;
+      g_hash_table_insert (copy->items_by_uri, item->uri, item);
+    }
+
+  g_assert (g_hash_table_size (copy->items_by_uri) ==
+            g_hash_table_size (bookmark->items_by_uri));
+
+  return copy;
 }
 
 /**
@@ -2217,7 +2337,7 @@ g_bookmark_file_set_title (GBookmarkFile *bookmark,
  * If @uri is %NULL, the title of @bookmark is returned.
  *
  * In the event the URI cannot be found, %NULL is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: (transfer full): a newly allocated string or %NULL if the specified
  *   URI cannot be found.
@@ -2302,7 +2422,7 @@ g_bookmark_file_set_description (GBookmarkFile *bookmark,
  * Retrieves the description of the bookmark for @uri.
  *
  * In the event the URI cannot be found, %NULL is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: (transfer full): a newly allocated string or %NULL if the specified
  *   URI cannot be found.
@@ -2382,9 +2502,9 @@ g_bookmark_file_set_mime_type (GBookmarkFile *bookmark,
  * Retrieves the MIME type of the resource pointed by @uri.
  *
  * In the event the URI cannot be found, %NULL is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.  In the
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.  In the
  * event that the MIME type cannot be found, %NULL is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_INVALID_VALUE.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_INVALID_VALUE.
  *
  * Returns: (transfer full): a newly allocated string or %NULL if the specified
  *   URI cannot be found.
@@ -2468,9 +2588,9 @@ g_bookmark_file_set_is_private (GBookmarkFile *bookmark,
  * Gets whether the private flag of the bookmark for @uri is set.
  *
  * In the event the URI cannot be found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.  In the
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.  In the
  * event that the private flag cannot be found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_INVALID_VALUE.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_INVALID_VALUE.
  *
  * Returns: %TRUE if the private flag is set, %FALSE otherwise.
  *
@@ -2577,7 +2697,7 @@ g_bookmark_file_set_added_date_time (GBookmarkFile *bookmark,
  * Gets the time the bookmark for @uri was added to @bookmark
  *
  * In the event the URI cannot be found, -1 is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: a timestamp
  *
@@ -2603,7 +2723,7 @@ g_bookmark_file_get_added (GBookmarkFile  *bookmark,
  * Gets the time the bookmark for @uri was added to @bookmark
  *
  * In the event the URI cannot be found, %NULL is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: (transfer none): a #GDateTime
  *
@@ -2710,7 +2830,7 @@ g_bookmark_file_set_modified_date_time (GBookmarkFile *bookmark,
  * Gets the time when the bookmark for @uri was last modified.
  *
  * In the event the URI cannot be found, -1 is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: a timestamp
  *
@@ -2736,7 +2856,7 @@ g_bookmark_file_get_modified (GBookmarkFile  *bookmark,
  * Gets the time when the bookmark for @uri was last modified.
  *
  * In the event the URI cannot be found, %NULL is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: (transfer none): a #GDateTime
  *
@@ -2845,7 +2965,7 @@ g_bookmark_file_set_visited_date_time (GBookmarkFile *bookmark,
  * Gets the time the bookmark for @uri was last visited.
  *
  * In the event the URI cannot be found, -1 is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: a timestamp.
  *
@@ -2871,7 +2991,7 @@ g_bookmark_file_get_visited (GBookmarkFile  *bookmark,
  * Gets the time the bookmark for @uri was last visited.
  *
  * In the event the URI cannot be found, %NULL is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: (transfer none): a #GDateTime
  *
@@ -2912,7 +3032,7 @@ g_bookmark_file_get_visited_date_time (GBookmarkFile  *bookmark,
  * the bookmark for @uri belongs to.
  *
  * In the event the URI cannot be found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: %TRUE if @group was found.
  *
@@ -3007,9 +3127,9 @@ g_bookmark_file_add_group (GBookmarkFile *bookmark,
  * for @uri belongs to.
  *
  * In the event the URI cannot be found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  * In the event no group was defined, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_INVALID_VALUE.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_INVALID_VALUE.
  *
  * Returns: %TRUE if @group was successfully removed.
  *
@@ -3124,7 +3244,7 @@ g_bookmark_file_set_groups (GBookmarkFile  *bookmark,
  * Retrieves the list of group names of the bookmark for @uri.
  *
  * In the event the URI cannot be found, %NULL is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * The returned array is %NULL terminated, so @length may optionally
  * be %NULL.
@@ -3274,10 +3394,10 @@ g_bookmark_file_add_application (GBookmarkFile *bookmark,
  * that have registered a bookmark for @uri inside @bookmark.
  *
  * In the event the URI cannot be found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  * In the event that no application with name @app_name has registered
  * a bookmark for @uri,  %FALSE is returned and error is set to
- * #G_BOOKMARK_FILE_ERROR_APP_NOT_REGISTERED.
+ * %G_BOOKMARK_FILE_ERROR_APP_NOT_REGISTERED.
  *
  * Returns: %TRUE if the application was successfully removed.
  *
@@ -3324,7 +3444,7 @@ g_bookmark_file_remove_application (GBookmarkFile  *bookmark,
  * registered by application @name.
  *
  * In the event the URI cannot be found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: %TRUE if the application @name was found
  *
@@ -3388,10 +3508,10 @@ g_bookmark_file_has_application (GBookmarkFile  *bookmark,
  *
  * If you try to remove an application by setting its registration count to
  * zero, and no bookmark for @uri is found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND; similarly,
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND; similarly,
  * in the event that no application @name has registered a bookmark
  * for @uri,  %FALSE is returned and error is set to
- * #G_BOOKMARK_FILE_ERROR_APP_NOT_REGISTERED.  Otherwise, if no bookmark
+ * %G_BOOKMARK_FILE_ERROR_APP_NOT_REGISTERED.  Otherwise, if no bookmark
  * for @uri is found, one is created.
  *
  * Returns: %TRUE if the application's meta-data was successfully
@@ -3451,10 +3571,10 @@ g_bookmark_file_set_app_info (GBookmarkFile  *bookmark,
  *
  * If you try to remove an application by setting its registration count to
  * zero, and no bookmark for @uri is found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND; similarly,
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND; similarly,
  * in the event that no application @name has registered a bookmark
  * for @uri,  %FALSE is returned and error is set to
- * #G_BOOKMARK_FILE_ERROR_APP_NOT_REGISTERED.  Otherwise, if no bookmark
+ * %G_BOOKMARK_FILE_ERROR_APP_NOT_REGISTERED.  Otherwise, if no bookmark
  * for @uri is found, one is created.
  *
  * Returns: %TRUE if the application's meta-data was successfully
@@ -3622,11 +3742,11 @@ expand_exec_line (const gchar *exec_fmt,
  * The string returned in @app_exec must be freed.
  *
  * In the event the URI cannot be found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.  In the
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.  In the
  * event that no application with name @app_name has registered a bookmark
  * for @uri,  %FALSE is returned and error is set to
- * #G_BOOKMARK_FILE_ERROR_APP_NOT_REGISTERED. In the event that unquoting
- * the command line fails, an error of the #G_SHELL_ERROR domain is
+ * %G_BOOKMARK_FILE_ERROR_APP_NOT_REGISTERED. In the event that unquoting
+ * the command line fails, an error of the %G_SHELL_ERROR domain is
  * set and %FALSE is returned.
  *
  * Returns: %TRUE on success.
@@ -3674,11 +3794,11 @@ g_bookmark_file_get_app_info (GBookmarkFile  *bookmark,
  * The string returned in @app_exec must be freed.
  *
  * In the event the URI cannot be found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.  In the
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.  In the
  * event that no application with name @app_name has registered a bookmark
  * for @uri,  %FALSE is returned and error is set to
- * #G_BOOKMARK_FILE_ERROR_APP_NOT_REGISTERED. In the event that unquoting
- * the command line fails, an error of the #G_SHELL_ERROR domain is
+ * %G_BOOKMARK_FILE_ERROR_APP_NOT_REGISTERED. In the event that unquoting
+ * the command line fails, an error of the %G_SHELL_ERROR domain is
  * set and %FALSE is returned.
  *
  * Returns: %TRUE on success.
@@ -3770,7 +3890,7 @@ g_bookmark_file_get_application_info (GBookmarkFile  *bookmark,
  * bookmark for @uri.
  *
  * In the event the URI cannot be found, %NULL is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: (array length=length) (transfer full): a newly allocated %NULL-terminated array of strings.
  *   Use g_strfreev() to free it.
@@ -3863,7 +3983,7 @@ g_bookmark_file_get_size (GBookmarkFile *bookmark)
  * %NULL, then the bookmark is removed.
  *
  * In the event the URI cannot be found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: %TRUE if the URI was successfully changed
  *
@@ -3980,7 +4100,7 @@ g_bookmark_file_set_icon (GBookmarkFile *bookmark,
  * Gets the icon of the bookmark for @uri.
  *
  * In the event the URI cannot be found, %FALSE is returned and
- * @error is set to #G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
+ * @error is set to %G_BOOKMARK_FILE_ERROR_URI_NOT_FOUND.
  *
  * Returns: %TRUE if the icon for the bookmark for the URI was found.
  *   You should free the returned strings.

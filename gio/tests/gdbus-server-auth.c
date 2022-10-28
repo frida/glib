@@ -1,6 +1,8 @@
 /*
  * Copyright 2019 Collabora Ltd.
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -245,7 +247,7 @@ assert_expected_uid_pid (InteropFlags flags,
        * on Linux. */
       g_assert_cmpint (uid, ==, getuid ());
       g_assert_cmpint (pid, ==, getpid ());
-#elif defined(__APPLE__)
+#elif defined(G_OS_DARWIN)
       /* We know (or at least suspect) that both GDBus and libdbus support
        * passing the uid only on macOS. */
       g_assert_cmpint (uid, ==, getuid ());

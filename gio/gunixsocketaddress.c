@@ -2,6 +2,8 @@
  *
  * Copyright (C) 2008 Christian Kellner, Samuel Cormier-Iijima
  *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
@@ -28,6 +30,9 @@
 #include "glibintl.h"
 #include "gnetworking.h"
 
+#ifdef G_OS_WIN32
+#include "giowin32-afunix.h"
+#endif
 
 /**
  * SECTION:gunixsocketaddress
@@ -45,9 +50,13 @@
  * errors. You can use g_unix_socket_address_abstract_names_supported()
  * to see if abstract names are supported.
  *
- * Note that `<gio/gunixsocketaddress.h>` belongs to the UNIX-specific GIO
- * interfaces, thus you have to use the `gio-unix-2.0.pc` pkg-config file
- * when using it.
+ * Since GLib 2.72, #GUnixSocketAddress is available on all platforms. It
+ * requires underlying system support (such as Windows 10 with `AF_UNIX`) at
+ * run time.
+ *
+ * Before GLib 2.72, `<gio/gunixsocketaddress.h>` belonged to the UNIX-specific
+ * GIO interfaces, thus you had to use the `gio-unix-2.0.pc` pkg-config file
+ * when using it. This is no longer necessary since GLib 2.72.
  */
 
 /**

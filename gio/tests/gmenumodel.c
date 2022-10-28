@@ -831,13 +831,8 @@ service_thread_func (gpointer user_data)
   flags = G_DBUS_SERVER_FLAGS_NONE;
 
 #ifdef G_OS_UNIX
-  if (g_unix_socket_address_abstract_names_supported ())
-    address = g_strdup ("unix:tmpdir=/tmp/test-dbus-peer");
-  else
-    {
-      tmpdir = g_dir_make_tmp ("test-dbus-peer-XXXXXX", NULL);
-      address = g_strdup_printf ("unix:tmpdir=%s", tmpdir);
-    }
+  tmpdir = g_dir_make_tmp ("test-dbus-peer-XXXXXX", NULL);
+  address = g_strdup_printf ("unix:tmpdir=%s", tmpdir);
 #else
   address = g_strdup ("nonce-tcp:");
   flags |= G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS;
@@ -1318,6 +1313,7 @@ test_attribute_iter (void)
   iter = g_menu_model_iterate_item_attributes (G_MENU_MODEL (menu), 0);
   while (g_menu_attribute_iter_get_next (iter, &name, &v))
     g_hash_table_insert (found, g_strdup (name), v);
+  g_object_unref (iter);
 
   g_assert_cmpint (g_hash_table_size (found), ==, 6);
   
@@ -1363,19 +1359,23 @@ test_links (void)
   item = g_menu_item_new ("test2", NULL);
   g_menu_item_set_link (item, "submenu", m);
   g_menu_prepend_item (menu, item);
+  g_object_unref (item);
 
   item = g_menu_item_new ("test1", NULL);
   g_menu_item_set_link (item, "section", m);
   g_menu_insert_item (menu, 0, item);
+  g_object_unref (item);
 
   item = g_menu_item_new ("test3", NULL);
   g_menu_item_set_link (item, "wallet", m);
   g_menu_insert_item (menu, 1000, item);
+  g_object_unref (item);
 
   item = g_menu_item_new ("test4", NULL);
   g_menu_item_set_link (item, "purse", m);
   g_menu_item_set_link (item, "purse", NULL);
   g_menu_append_item (menu, item);
+  g_object_unref (item);
 
   g_assert_cmpint (g_menu_model_get_n_items (G_MENU_MODEL (menu)), ==, 4);
 
@@ -1456,6 +1456,7 @@ test_convenience (void)
 
   g_object_unref (m1);
   g_object_unref (m2);
+  g_object_unref (sub);
 }
 
 static void

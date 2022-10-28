@@ -1,3 +1,24 @@
+/*
+ * Copyright © 2012 Red Hat, Inc.
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General
+ * Public License along with this library; if not, see <http://www.gnu.org/licenses/>.
+ *
+ * Authors: Alexander Larsson <alexl@redhat.com>
+ */
+
 #include "config.h"
 
 #include <string.h>
@@ -874,7 +895,11 @@ client_free (Client *client)
       name_ref (name);
 
       if (name->owner && name->owner->client == client)
-	name_release_owner (name);
+        {
+          /* Help static analysers with the refcount at this point. */
+          g_assert (name->refcount >= 2);
+          name_release_owner (name);
+        }
 
       name_unqueue_owner (name, client);
 
@@ -1593,13 +1618,8 @@ initable_init (GInitable     *initable,
   if (daemon->address == NULL)
     {
 #ifdef G_OS_UNIX
-      if (g_unix_socket_address_abstract_names_supported ())
-	daemon->address = g_strdup ("unix:tmpdir=/tmp/gdbus-daemon");
-      else
-	{
-	  daemon->tmpdir = g_dir_make_tmp ("gdbus-daemon-XXXXXX", NULL);
-	  daemon->address = g_strdup_printf ("unix:tmpdir=%s", daemon->tmpdir);
-	}
+      daemon->tmpdir = g_dir_make_tmp ("gdbus-daemon-XXXXXX", NULL);
+      daemon->address = g_strdup_printf ("unix:tmpdir=%s", daemon->tmpdir);
       flags |= G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER;
 #else
       /* Don’t require authentication on Windows as that hasn’t been
