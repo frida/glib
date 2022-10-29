@@ -1348,7 +1348,7 @@ _g_thread_deinit (void)
   for (cur = g_thread_privates; cur; cur = cur->next)
     {
       GPrivate *key = cur->data;
-      TlsFree ((DWORD) key->p);
+      TlsFree (GPOINTER_TO_SIZE (key->p));
     }
   g_tinylist_free (g_thread_privates);
   g_thread_privates = NULL;
