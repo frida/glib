@@ -4942,7 +4942,7 @@ g_weak_ref_clear (GWeakRef *weak_ref)
   g_weak_ref_set (weak_ref, NULL);
 
   /* be unkind */
-  weak_ref->priv.p = (void *) 0xccccccccu;
+  weak_ref->priv.p = GSIZE_TO_POINTER (0xccccccccu);
 }
 
 /**
