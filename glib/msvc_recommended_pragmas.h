@@ -30,8 +30,18 @@
 #pragma warning(error:4715) /* 'function': not all control paths return a value */
 #pragma warning(error:4098) /* 'void' function returning a value */
 
+#pragma warning(disable:4018)   /* No signed/unsigned mismatch warnings */
 #pragma warning(disable:4244)	/* No possible loss of data warnings */
+#pragma warning(disable:4245)   /* No signed/unsigned mismatch warnings */
+#pragma warning(disable:4267)   /* No data loss warnings */
 #pragma warning(disable:4305)   /* No truncation from int to char warnings */
+#pragma warning(disable:4389)   /* No signed/unsigned mismatch warnings */
+#pragma warning(disable:4189)   /* No initialized but not referenced warnings */
+#pragma warning(disable:4206)   /* No translation unit empty warnings */
+#pragma warning(disable:4456)   /* No declaration shadowing warnings */
+#pragma warning(disable:4701)   /* No potentially uninitialized local variable warnings */
+#pragma warning(disable:4702)   /* No unreachable code warnings */
+#pragma warning(disable:4996)   /* No deprecation warnings */
 
 #pragma warning(error:4819) /* The file contains a character that cannot be represented in the current code page */
 #endif                      /* __clang__ */
