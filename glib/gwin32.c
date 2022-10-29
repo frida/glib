@@ -568,6 +568,7 @@ g_win32_check_windows_version (const gint major,
                                const gint spver,
                                const GWin32OSType os_type)
 {
+  gboolean got_version_info;
   OSVERSIONINFOEXW osverinfo;
   gboolean is_ver_checked = FALSE;
   gboolean is_type_checked = FALSE;
@@ -578,7 +579,8 @@ g_win32_check_windows_version (const gint major,
 
   /* Check for Service Pack Version >= 0 */
   g_return_val_if_fail (spver >= 0, FALSE);
-  g_return_val_if_fail (_g_win32_call_rtl_version (&osverinfo), FALSE);
+  got_version_info = _g_win32_call_rtl_version (&osverinfo);
+  g_return_val_if_fail (got_version_info, FALSE);
 
   /* check the OS and Service Pack Versions */
   if (osverinfo.dwMajorVersion > (DWORD) major)
