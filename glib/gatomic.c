@@ -667,13 +667,13 @@ void
 void
 (g_atomic_int_inc) (volatile gint *atomic)
 {
-  InterlockedIncrement (atomic);
+  InterlockedIncrement ((volatile LONG *) atomic);
 }
 
 gboolean
 (g_atomic_int_dec_and_test) (volatile gint *atomic)
 {
-  return InterlockedDecrement (atomic) == 0;
+  return InterlockedDecrement ((volatile LONG *) atomic) == 0;
 }
 
 gboolean
@@ -681,7 +681,8 @@ gboolean
                                      gint           oldval,
                                      gint           newval)
 {
-  return InterlockedCompareExchange (atomic, newval, oldval) == oldval;
+  return InterlockedCompareExchange ((volatile LONG *) atomic, newval, oldval)
+      == oldval;
 }
 
 gboolean
@@ -690,7 +691,7 @@ gboolean
                                           gint  newval,
                                           gint *preval)
 {
-  *preval = InterlockedCompareExchange (atomic, newval, oldval);
+  *preval = InterlockedCompareExchange ((LONG *) atomic, newval, oldval);
   return *preval == oldval;
 }
 
@@ -698,14 +699,14 @@ gint
 (g_atomic_int_exchange) (gint *atomic,
                          gint  newval)
 {
-  return InterlockedExchange (atomic, newval);
+  return InterlockedExchange ((LONG *) atomic, newval);
 }
 
 gint
 (g_atomic_int_add) (volatile gint *atomic,
                     gint           val)
 {
-  return InterlockedExchangeAdd (atomic, val);
+  return InterlockedExchangeAdd ((LONG *) atomic, val);
 }
 
 guint
@@ -713,9 +714,9 @@ guint
                     guint           val)
 {
 #if defined (_M_IX86) && defined (_MSC_VER) && _MSC_VER <= 1800 /* VS2013 */
-  return _InterlockedAnd (atomic, val);
+  return _InterlockedAnd ((LONG *) atomic, val);
 #else
-  return InterlockedAnd (atomic, val);
+  return InterlockedAnd ((LONG *) atomic, val);
 #endif
 }
 
@@ -724,9 +725,9 @@ guint
                    guint           val)
 {
 #if defined (_M_IX86) && defined (_MSC_VER) && _MSC_VER <= 1800 /* VS2013 */
-  return _InterlockedOr (atomic, val);
+  return _InterlockedOr ((LONG *) atomic, val);
 #else
-  return InterlockedOr (atomic, val);
+  return InterlockedOr ((LONG *) atomic, val);
 #endif
 }
 
@@ -735,9 +736,9 @@ guint
                     guint           val)
 {
 #if defined (_M_IX86) && defined (_MSC_VER) && _MSC_VER <= 1800 /* VS2013 */
-  return _InterlockedXor (atomic, val);
+  return _InterlockedXor ((LONG *) atomic, val);
 #else
-  return InterlockedXor (atomic, val);
+  return InterlockedXor ((LONG *) atomic, val);
 #endif
 }
 
