@@ -2136,7 +2136,13 @@ subproject('gvdb')
 gvdb_dep = dependency('gvdb')
 
 libm = cc.find_library('m', required : false)
-libffi_dep = dependency('libffi', version : '>= 3.0.0', fallback : ['libffi', 'ffi_dep'])
+libffi_options = [
+  'tests=false',
+]
+libffi_dep = dependency('libffi',
+                        version : '>= 3.0.0',
+                        fallback : ['libffi', 'ffi_dep'],
+                        default_options : libffi_options)
 
 libz_dep = dependency('zlib')
 
