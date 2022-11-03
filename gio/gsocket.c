@@ -371,6 +371,16 @@ _win32_unset_event_mask (GSocket *socket, int mask)
   recv (sockfd, (gpointer)buf, len, flags)
 #endif
 
+/* Android uses a signed socklen_t on 32-bit architectures. */
+#if defined (__ANDROID__) && GLIB_SIZEOF_VOID_P == 4
+#define getsockopt(sockfd, level, optname, optval, optlen) \
+  getsockopt (sockfd, level, optname, optval, (socklen_t *) optlen)
+#define getsockname(sockfd, addr, addrlen) \
+  getsockname (sockfd, addr, (socklen_t *) addrlen)
+#define getpeername(sockfd, addr, addrlen) \
+  getpeername (sockfd, addr, (socklen_t *) addrlen)
+#endif
+
 static gchar *
 address_to_string (GSocketAddress *address)
 {
