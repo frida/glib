@@ -1,6 +1,8 @@
 /* Unit tests for gfileutils
  * Copyright (C) 1995-1997  Peter Mattis, Spencer Kimball and Josh MacDonald
  *
+ * SPDX-License-Identifier: LicenseRef-old-glib-tests
+ *
  * This work is provided "as is"; redistribution and modification
  * in whole or in part, in any medium, physical or electronic is
  * permitted without restriction.
@@ -33,6 +35,7 @@
 /* Test our stdio wrappers here; this disables redefining (e.g.) g_open() to open() */
 #define G_STDIO_WRAP_ON_UNIX
 #include <glib/gstdio.h>
+#include "glib-private.h"
 
 #ifdef G_OS_UNIX
 #include <unistd.h>
@@ -2460,12 +2463,79 @@ assert_fd_was_closed (int fd)
    * was still valid */
   if (g_test_undefined ())
     {
-      int result = g_fsync (fd);
-      int errsv = errno;
+      int result, errsv;
+      GWin32InvalidParameterHandler handler;
+
+      GLIB_PRIVATE_CALL (g_win32_push_empty_invalid_parameter_handler) (&handler);
+      result = g_fsync (fd);
+      errsv = errno;
+      GLIB_PRIVATE_CALL (g_win32_pop_invalid_parameter_handler) (&handler);
 
       g_assert_cmpint (result, !=, 0);
       g_assert_cmpint (errsv, ==, EBADF);
     }
+}
+
+static void
+test_clear_fd_ebadf (void)
+{
+  char *name = NULL;
+  GError *error = NULL;
+  int fd;
+  int copy_of_fd;
+  int errsv;
+  gboolean ret;
+  GWin32InvalidParameterHandler handler;
+
+  /* We're going to trigger a programming error: attmpting to close a
+   * fd that was already closed. Make criticals non-fatal. */
+  g_assert_true (g_test_undefined ());
+  g_log_set_always_fatal (G_LOG_FATAL_MASK);
+  g_log_set_fatal_mask ("GLib", G_LOG_FATAL_MASK);
+  GLIB_PRIVATE_CALL (g_win32_push_empty_invalid_parameter_handler) (&handler);
+
+  fd = g_file_open_tmp (NULL, &name, &error);
+  g_assert_cmpint (fd, !=, -1);
+  g_assert_no_error (error);
+  g_assert_nonnull (name);
+  ret = g_close (fd, &error);
+  g_assert_no_error (error);
+  assert_fd_was_closed (fd);
+  g_assert_true (ret);
+  g_unlink (name);
+  g_free (name);
+
+  /* Try to close it again with g_close() */
+  ret = g_close (fd, NULL);
+  errsv = errno;
+  g_assert_cmpint (errsv, ==, EBADF);
+  assert_fd_was_closed (fd);
+  g_assert_false (ret);
+
+  /* Try to close it again with g_clear_fd() */
+  copy_of_fd = fd;
+  errno = EILSEQ;
+  ret = g_clear_fd (&copy_of_fd, NULL);
+  errsv = errno;
+  g_assert_cmpint (errsv, ==, EBADF);
+  assert_fd_was_closed (fd);
+  g_assert_false (ret);
+
+#ifdef g_autofree
+    {
+      g_autofd int close_me = fd;
+
+      /* This avoids clang warnings about the variables being unused */
+      g_test_message ("Invalid fd will be closed by autocleanup: %d",
+                      close_me);
+      errno = EILSEQ;
+    }
+
+  errsv = errno;
+  g_assert_cmpint (errsv, ==, EILSEQ);
+#endif
+
+  GLIB_PRIVATE_CALL (g_win32_pop_invalid_parameter_handler) (&handler);
 }
 
 static void
@@ -2475,6 +2545,7 @@ test_clear_fd (void)
   GError *error = NULL;
   int fd;
   int copy_of_fd;
+  int errsv;
 
 #ifdef g_autofree
   g_test_summary ("Test g_clear_fd() and g_autofd");
@@ -2520,12 +2591,31 @@ test_clear_fd (void)
       /* This avoids clang warnings about the variables being unused */
       g_test_message ("Will be closed by autocleanup: %d, %d",
                       close_me, was_never_set);
+      /* This is one of the few errno values guaranteed by Standard C.
+       * We set it here to check that a successful g_autofd close doesn't
+       * alter errno. */
+      errno = EILSEQ;
     }
 
+  errsv = errno;
+  g_assert_cmpint (errsv, ==, EILSEQ);
   assert_fd_was_closed (fd);
   g_unlink (name);
   g_free (name);
 #endif
+
+  if (g_test_undefined ())
+    {
+      g_test_message ("Testing error handling");
+      g_test_trap_subprocess ("/fileutils/clear-fd/subprocess/ebadf",
+                              0, G_TEST_SUBPROCESS_DEFAULT);
+#ifdef g_autofree
+      g_test_trap_assert_stderr ("*failed with EBADF*failed with EBADF*failed with EBADF*");
+#else
+      g_test_trap_assert_stderr ("*failed with EBADF*failed with EBADF*");
+#endif
+      g_test_trap_assert_passed ();
+    }
 }
 
 int
@@ -2565,6 +2655,7 @@ main (int   argc,
   g_test_add_func ("/fileutils/stdio-wrappers", test_stdio_wrappers);
   g_test_add_func ("/fileutils/fopen-modes", test_fopen_modes);
   g_test_add_func ("/fileutils/clear-fd", test_clear_fd);
+  g_test_add_func ("/fileutils/clear-fd/subprocess/ebadf", test_clear_fd_ebadf);
 
   return g_test_run ();
 }

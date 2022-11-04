@@ -1,15 +1,3 @@
-option('diet',
-       type : 'boolean',
-       value : false,
-       yield : true,
-       description : 'optimize for minimal footprint by disabling features rarely used')
-
-option('printf',
-       type : 'combo',
-       choices : ['auto', 'system', 'internal'],
-       value : 'auto',
-       description : 'preferred printf implementation')
-
 option('runtime_libdir',
        type : 'string',
        value : '',
@@ -19,7 +7,7 @@ option('iconv',
        type : 'combo',
        choices : ['auto', 'libc', 'external'],
        value : 'auto',
-       description : 'iconv implementation to use (\'libc\' = \'Part of the C library\'; \'external\' = \'External libiconv\'; \'auto\' = \'Auto-detect which iconv is available\')')
+       deprecated: true,)
 
 option('charsetalias_dir',
        type : 'string',
@@ -30,11 +18,6 @@ option('gio_module_dir',
        type : 'string',
        value : '',
        description : 'load gio modules from this directory (default to \'libdir/gio/modules\' if unset)')
-
-option('cocoa',
-       type : 'feature',
-       value : 'auto',
-       description : 'build with Cocoa features on macOS')
 
 option('selinux',
        type : 'feature',

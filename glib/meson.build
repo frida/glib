@@ -206,7 +206,6 @@ glib_sub_headers = files(
   'gnode.h',
   'goption.h',
   'gpattern.h',
-  'gplatformaudit.h',
   'gpoll.h',
   'gprimes.h',
   'gqsort.h',
@@ -285,7 +284,6 @@ glib_sources += files(
   'giochannel.c',
   'gkeyfile.c',
   'glib-init.c',
-  'glib-fork.c',
   'glib-private.c',
   'glist.c',
   'gmain.c',
@@ -296,7 +294,6 @@ glib_sources += files(
   'gnode.c',
   'goption.c',
   'gpattern.c',
-  'gplatformaudit.c',
   'gpoll.c',
   'gprimes.c',
   'gqsort.c',
@@ -322,7 +319,6 @@ glib_sources += files(
   'gthreadpool.c',
   'gtimer.c',
   'gtimezone.c',
-  'gtinylist.c',
   'gtrace.c',
   'gtrace-private.h',
   'gtranslit.c',
@@ -352,7 +348,7 @@ glib_sources += files(
 platform_deps = []
 
 if host_system == 'windows'
-  if get_option('default_library') == 'shared'
+  if glib_build_shared
     glib_win_rc = configure_file(
       input: 'glib.rc.in',
       output: 'glib.rc',
@@ -413,7 +409,7 @@ libglib = library('glib-2.0',
   # intl.lib is not compatible with SAFESEH
   link_args : [noseh_link_args, glib_link_flags, win32_ldflags],
   include_directories : configinc,
-  link_with: [charset_lib, gnulib_lib] + intl_lib,
+  link_with: [charset_lib, gnulib_lib],
   dependencies : [
     gnulib_libm_dependency,
     libiconv,

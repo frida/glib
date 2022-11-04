@@ -553,25 +553,17 @@ _g_list_remove_link (GList *list,
 
   if (link->prev)
     {
-#ifndef G_DISABLE_CHECKS
       if (link->prev->next == link)
         link->prev->next = link->next;
       else
         g_warning ("corrupted double-linked list detected");
-#else
-      link->prev->next = link->next;
-#endif
     }
   if (link->next)
     {
-#ifndef G_DISABLE_CHECKS
       if (link->next->prev == link)
         link->next->prev = link->prev;
       else
         g_warning ("corrupted double-linked list detected");
-#else
-      link->next->prev = link->prev;
-#endif
     }
 
   if (link == list)

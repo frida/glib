@@ -53,7 +53,6 @@
 
 #include "gstrfuncs.h"
 
-#include "glib-init.h"
 #include "gprintf.h"
 #include "gprintfint.h"
 #include "glibintl.h"
@@ -320,19 +319,17 @@ static const guint16 ascii_table_data[256] = {
 
 const guint16 * const g_ascii_table = ascii_table_data;
 
-#if !defined (GLIB_STATIC_COMPILATION) && \
-    defined(HAVE_NEWLOCALE) && \
+#if defined(HAVE_NEWLOCALE) && \
     defined(HAVE_USELOCALE)
 #define USE_XLOCALE 1
 #endif
 
 #ifdef USE_XLOCALE
-static locale_t C_locale = NULL;
-
 static locale_t
 get_C_locale (void)
 {
   static gsize initialized = FALSE;
+  static locale_t C_locale = NULL;
 
   if (g_once_init_enter (&initialized))
     {
@@ -1338,9 +1335,7 @@ g_strerror (gint errnum)
   if (!msg)
     {
       gchar buf[1024];
-#ifndef GLIB_DIET
       GError *error = NULL;
-#endif
 #if defined(HAVE_STRERROR_R) && !defined(STRERROR_R_CHAR_P)
       int ret;
 #endif
@@ -1370,22 +1365,14 @@ g_strerror (gint errnum)
           return NULL;
         }
 
-#ifndef GLIB_DIET
       if (!g_get_console_charset (NULL))
         {
           msg = g_locale_to_utf8 (msg, -1, NULL, NULL, &error);
-#ifndef G_DISABLE_CHECKS
           if (error)
             g_print ("%s\n", error->message);
-#endif
-          g_clear_error (&error);
         }
       else if (msg == (const gchar *)buf)
         msg = g_strdup (buf);
-#else
-      g_assert (msg == (const gchar *)buf);
-      msg = g_strdup (buf);
-#endif
 
       g_hash_table_insert (errors, GINT_TO_POINTER (errnum), (char *) msg);
     }
@@ -3527,14 +3514,6 @@ g_ascii_string_to_unsigned (const gchar  *str,
   if (out_num != NULL)
     *out_num = number;
   return TRUE;
-}
-
-void
-_g_strfuncs_deinit (void)
-{
-#ifdef USE_XLOCALE
-  g_clear_pointer (&C_locale, freelocale);
-#endif
 }
 
 G_DEFINE_QUARK (g-number-parser-error-quark, g_number_parser_error)

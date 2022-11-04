@@ -1,6 +1,8 @@
 /* GLib testing framework examples and tests
  * Copyright (C) 2008 Red Hat, Inc
  *
+ * SPDX-License-Identifier: LicenseRef-old-glib-tests
+ *
  * This work is provided "as is"; redistribution and modification
  * in whole or in part, in any medium, physical or electronic is
  * permitted without restriction.
@@ -40,7 +42,8 @@ static gpointer
 writer_thread (gpointer user_data)
 {
   GOutputStream *out;
-  gssize nwrote, offset;
+  gssize nwrote;
+  size_t offset;
   GError *err = NULL;
   HANDLE out_handle;
 
@@ -58,7 +61,7 @@ writer_thread (gpointer user_data)
       g_usleep (10);
 
       offset = 0;
-      while (offset < (gssize) sizeof (DATA))
+      while (offset < sizeof (DATA))
 	{
 	  nwrote = g_output_stream_write (out, DATA + offset,
 					  sizeof (DATA) - offset,

@@ -432,10 +432,8 @@ get_hostname_max_length_bytes (void)
 
 #ifdef HOST_NAME_MAX
   return HOST_NAME_MAX;
-#elif defined(_POSIX_HOST_NAME_MAX)
-  return _POSIX_HOST_NAME_MAX;
 #else
-  return 255;
+  return _POSIX_HOST_NAME_MAX;
 #endif /* HOST_NAME_MAX */
 #else
   /* Fallback to some reasonable value

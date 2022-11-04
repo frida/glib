@@ -28,11 +28,7 @@
 /* Don't put conflicting kernel types in the global namespace: */
 #define __KERNEL_STRICT_NAMES
 
-#ifdef HAVE_SYS_INOTIFY_H
 #include <sys/inotify.h>
-#else
-#include "inotify-compat.h"
-#endif
 #include <string.h>
 #include <glib.h>
 #include "inotify-kernel.h"

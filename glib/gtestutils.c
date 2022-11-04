@@ -3236,8 +3236,13 @@ g_assertion_message (const char     *domain,
 
   /* store assertion message in global variable, so that it can be found in a
    * core dump */
-  g_free (__glib_assert_msg);
-  __glib_assert_msg = s;
+  if (__glib_assert_msg != NULL)
+    /* free the old one */
+    free (__glib_assert_msg);
+  __glib_assert_msg = (char*) malloc (strlen (s) + 1);
+  strcpy (__glib_assert_msg, s);
+
+  g_free (s);
 
   if (test_in_subprocess)
     {
@@ -3426,7 +3431,7 @@ test_trap_clear (void)
   g_clear_pointer (&test_trap_last_stderr, g_free);
 }
 
-#if defined (G_OS_UNIX) && defined (HAVE_FORK)
+#ifdef G_OS_UNIX
 
 static int
 safe_dup2 (int fd1,
@@ -3654,7 +3659,7 @@ gboolean
 g_test_trap_fork (guint64        usec_timeout,
                   GTestTrapFlags test_trap_flags)
 {
-#if defined (G_OS_UNIX) && defined (HAVE_FORK)
+#ifdef G_OS_UNIX
   int stdout_pipe[2] = { -1, -1 };
   int stderr_pipe[2] = { -1, -1 };
   int errsv;

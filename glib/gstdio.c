@@ -315,9 +315,7 @@ _g_win32_fill_statbuf_from_handle_info (const wchar_t                    *filena
 static void
 _g_win32_fill_privatestat (const struct __stat64            *statbuf,
                            const BY_HANDLE_FILE_INFORMATION *handle_info,
-#if _WIN32_WINNT >= 0x0600
                            const FILE_STANDARD_INFO         *std_info,
-#endif
                            DWORD                             reparse_tag,
                            GWin32PrivateStat                *buf)
 {
@@ -331,11 +329,7 @@ _g_win32_fill_privatestat (const struct __stat64            *statbuf,
   buf->attributes = handle_info->dwFileAttributes;
   buf->st_nlink = handle_info->nNumberOfLinks;
   buf->st_size = (((guint64) handle_info->nFileSizeHigh) << 32) | handle_info->nFileSizeLow;
-#if _WIN32_WINNT >= 0x0600
   buf->allocated_size = std_info->AllocationSize.QuadPart;
-#else
-  buf->allocated_size = buf->st_size;
-#endif
 
   buf->reparse_tag = reparse_tag;
 
@@ -594,9 +588,7 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
 {
   struct __stat64 statbuf;
   BY_HANDLE_FILE_INFORMATION handle_info;
-#if _WIN32_WINNT >= 0x0600
   FILE_STANDARD_INFO std_info;
-#endif
   gboolean is_symlink = FALSE;
   wchar_t *filename_target = NULL;
   DWORD immediate_attributes;
@@ -645,7 +637,6 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
                                                  &handle_info);
   error_code = GetLastError ();
 
-#if _WIN32_WINNT >= 0x0600
   if (succeeded_so_far)
     {
       succeeded_so_far = GetFileInformationByHandleEx (file_handle,
@@ -654,7 +645,6 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
                                                        sizeof (std_info));
       error_code = GetLastError ();
     }
-#endif
 
   if (!succeeded_so_far)
     {
@@ -690,9 +680,7 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
   g_free (filename_target);
   _g_win32_fill_privatestat (&statbuf,
                              &handle_info,
-#if _WIN32_WINNT >= 0x0600
                              &std_info,
-#endif
                              reparse_tag,
                              buf);
 
@@ -709,9 +697,7 @@ _g_win32_stat_fd (int                 fd,
   DWORD error_code;
   struct __stat64 statbuf;
   BY_HANDLE_FILE_INFORMATION handle_info;
-#if _WIN32_WINNT >= 0x0600
   FILE_STANDARD_INFO std_info;
-#endif
   DWORD reparse_tag = 0;
   gboolean is_symlink = FALSE;
 
@@ -724,7 +710,6 @@ _g_win32_stat_fd (int                 fd,
                                                  &handle_info);
   error_code = GetLastError ();
 
-#if _WIN32_WINNT >= 0x0600
   if (succeeded_so_far)
     {
       succeeded_so_far = GetFileInformationByHandleEx (file_handle,
@@ -733,7 +718,6 @@ _g_win32_stat_fd (int                 fd,
                                                        sizeof (std_info));
       error_code = GetLastError ();
     }
-#endif
 
   if (!succeeded_so_far)
     {
@@ -752,9 +736,7 @@ _g_win32_stat_fd (int                 fd,
 
   _g_win32_fill_privatestat (&statbuf,
                              &handle_info,
-#if _WIN32_WINNT >= 0x0600
                              &std_info,
-#endif
                              reparse_tag,
                              buf);
 
@@ -1806,6 +1788,8 @@ g_close (gint       fd,
            * on Linux at least.  Anyone who wants to add a conditional check
            * for e.g. HP-UX is welcome to do so later...
            *
+           * close_func_with_invalid_fds() in gspawn.c has similar logic.
+           *
            * https://lwn.net/Articles/576478/
            * http://lkml.indiana.edu/hypermail/linux/kernel/0509.1/0877.html
            * https://bugzilla.gnome.org/show_bug.cgi?id=682819
@@ -1832,13 +1816,7 @@ g_close (gint       fd,
                * not necessarily in the caller of g_close(), but somebody else
                * might have wrongly closed fd. In any case, there is a serious bug
                * somewhere. */
-              /* FIXME: This causes a number of unit test failures on macOS.
-               * Disabling the message for now until someone with access to a
-               * macOS machine can investigate.
-               * See https://gitlab.gnome.org/GNOME/glib/-/issues/2785 */
-#ifndef G_OS_DARWIN
               g_critical ("g_close(fd:%d) failed with EBADF. The tracking of file descriptors got messed up", fd);
-#endif
             }
           else
             {
@@ -1866,6 +1844,13 @@ g_close (gint       fd,
  * If @fd_ptr points to a negative number, return %TRUE without closing
  * anything.
  * In both cases, set @fd_ptr to `-1` before returning.
+ *
+ * Like g_close(), if closing the file descriptor fails, the error is
+ * stored in both %errno and @error. If this function succeeds,
+ * %errno is undefined.
+ *
+ * This function is async-signal-safe if @error is %NULL and @fd_ptr
+ * points to either a negative number or a valid file descriptor.
  *
  * It is a programming error for @fd_ptr to point to a non-negative
  * number that is not a valid file descriptor.
@@ -1919,6 +1904,9 @@ g_close (gint       fd,
  * Otherwise, this macro has similar constraints as g_autoptr(): it is
  * only supported on GCC and clang, and the variable must be initialized
  * (to either a valid file descriptor or a negative number).
+ *
+ * Using this macro is async-signal-safe if the constraints described above
+ * are met, so it can be used in a signal handler or after `fork()`.
  *
  * Any error from closing the file descriptor when it goes out of scope
  * is ignored. Use g_clear_fd() if error-checking is required.

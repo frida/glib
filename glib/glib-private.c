@@ -24,6 +24,10 @@
 #include "glib-private.h"
 #include "glib-init.h"
 
+#ifdef USE_INVALID_PARAMETER_HANDLER
+#include <crtdbg.h>
+#endif
+
 /**
  * glib__private__:
  * @arg: Do not use this argument
@@ -31,7 +35,6 @@
  * Do not call this function; it is used to share private
  * API between glib, gobject, and gio.
  */
-#ifndef GLIB_DIET
 GLibPrivateVTable *
 glib__private__ (void)
 {
@@ -61,53 +64,81 @@ glib__private__ (void)
     g_win32_reopen_noninherited,
     g_win32_handle_is_socket,
 #endif
+
+    g_win32_push_empty_invalid_parameter_handler,
+    g_win32_pop_invalid_parameter_handler,
   };
 
   return &table;
 }
 
-void
-glib_enable_io_features (void)
+#ifdef USE_INVALID_PARAMETER_HANDLER
+/*
+ * This is the (empty) invalid parameter handler
+ * that is used for Visual C++ 2005 (and later) builds
+ * so that we can use this instead of the system automatically
+ * aborting the process, when calling _get_osfhandle(), isatty()
+ * and _commit() (via g_fsync()) and so on with an invalid file
+ * descriptor.
+ *
+ * This is necessary so that the gspawn helper and the test programs
+ * will continue to run as expected, since we are purposely or
+ * forced to use invalid FDs.
+ *
+ * Please see https://learn.microsoft.com/en-us/cpp/c-runtime-library/parameter-validation?view=msvc-170
+ * for an explanation on this.
+ */
+static void
+empty_invalid_parameter_handler (const wchar_t *expression,
+                                 const wchar_t *function,
+                                 const wchar_t *file,
+                                 unsigned int   line,
+                                 uintptr_t      pReserved)
 {
 }
 
-#else
+/* fallback to _set_invalid_parameter_handler() if we don't have _set_thread_local_invalid_parameter_handler() */
+#ifndef HAVE__SET_THREAD_LOCAL_INVALID_PARAMETER_HANDLER
+# define _set_thread_local_invalid_parameter_handler _set_invalid_parameter_handler
+#endif
 
-static GLibPrivateVTable glib_private_table = {
-  .glib_init = glib_init,
-};
-
-GLibPrivateVTable *
-glib__private__ (void)
-{
-  return &glib_private_table;
-}
-
+#endif
+/*
+ * g_win32_push_empty_invalid_parameter_handler:
+ * @handler: a possibly uninitialized GWin32InvalidParameterHandler
+ */
 void
-glib_enable_io_features (void)
+g_win32_push_empty_invalid_parameter_handler (GWin32InvalidParameterHandler *handler)
 {
-  GLibPrivateVTable * p = &glib_private_table;
+#ifdef USE_INVALID_PARAMETER_HANDLER
+  /* use the empty invalid parameter handler to override the default invalid parameter_handler */
+  handler->pushed_handler = empty_invalid_parameter_handler;
+  handler->old_handler = _set_thread_local_invalid_parameter_handler (handler->pushed_handler);
 
-  p->g_wakeup_new = g_wakeup_new;
-  p->g_wakeup_free = g_wakeup_free;
-  p->g_wakeup_get_pollfd = g_wakeup_get_pollfd;
-  p->g_wakeup_signal = g_wakeup_signal;
-  p->g_wakeup_acknowledge = g_wakeup_acknowledge;
-
-  p->g_get_worker_context = g_get_worker_context;
-
-  p->g_check_setuid = g_check_setuid;
-  p->g_main_context_new_with_next_id = g_main_context_new_with_next_id;
-
-  p->g_dir_open_with_errno = g_dir_open_with_errno;
-  p->g_dir_new_from_dirp = g_dir_new_from_dirp;
-
-#ifdef G_OS_WIN32
-  p->g_win32_stat_utf8 = g_win32_stat_utf8;
-  p->g_win32_lstat_utf8 = g_win32_lstat_utf8;
-  p->g_win32_readlink_utf8 = g_win32_readlink_utf8;
-  p->g_win32_fstat = g_win32_fstat;
+  /* Disable the message box for assertions. */
+  handler->pushed_report_mode = 0;
+  handler->prev_report_mode = _CrtSetReportMode(_CRT_ASSERT, handler->pushed_report_mode);
 #endif
 }
 
+/*
+ * g_win32_pop_invalid_parameter_handler:
+ * @handler: a GWin32InvalidParameterHandler processed with
+ * g_win32_push_empty_invalid_parameter_handler()
+ */
+void
+g_win32_pop_invalid_parameter_handler (GWin32InvalidParameterHandler *handler)
+{
+#ifdef USE_INVALID_PARAMETER_HANDLER
+  G_GNUC_UNUSED _invalid_parameter_handler popped_handler;
+  G_GNUC_UNUSED int popped_report_mode;
+
+  /* Restore previous/default invalid parameter handler, check the value returned matches the one we previously pushed */
+  popped_handler = _set_thread_local_invalid_parameter_handler (handler->old_handler);
+  g_return_if_fail (handler->pushed_handler == popped_handler);
+
+  /* Restore the message box for assertions, check the value returned matches the one we previously pushed */
+  popped_report_mode = _CrtSetReportMode(_CRT_ASSERT, handler->prev_report_mode);
+  g_return_if_fail (handler->pushed_report_mode == popped_report_mode);
 #endif
+}

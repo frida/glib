@@ -30,10 +30,6 @@
 #include "gvaluecollector.h"
 #include "gtype-private.h"
 
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
-
 /**
  * SECTION:gparamspec
  * @short_description: Metadata for parameter specifications

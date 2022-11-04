@@ -192,9 +192,9 @@
 #include "gcharset.h"
 #include "gconvert.h"
 #include "genviron.h"
+#include "glib-private.h"
 #include "gmain.h"
 #include "gmem.h"
-#include "gplatformaudit.h"
 #include "gprintfint.h"
 #include "gtestutils.h"
 #include "gthread.h"
@@ -218,63 +218,6 @@
 
 #ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
 #define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
-#endif
-
-/* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-
-typedef enum _FILE_INFO_BY_HANDLE_CLASS
-{
-  FileBasicInfo                   = 0,
-  FileStandardInfo                = 1,
-  FileNameInfo                    = 2,
-  FileRenameInfo                  = 3,
-  FileDispositionInfo             = 4,
-  FileAllocationInfo              = 5,
-  FileEndOfFileInfo               = 6,
-  FileStreamInfo                  = 7,
-  FileCompressionInfo             = 8,
-  FileAttributeTagInfo            = 9,
-  FileIdBothDirectoryInfo         = 10,
-  FileIdBothDirectoryRestartInfo  = 11,
-  FileIoPriorityHintInfo          = 12,
-  FileRemoteProtocolInfo          = 13,
-  FileFullDirectoryInfo           = 14,
-  FileFullDirectoryRestartInfo    = 15,
-  FileStorageInfo                 = 16,
-  FileAlignmentInfo               = 17,
-  FileIdInfo                      = 18,
-  FileIdExtdDirectoryInfo         = 19,
-  FileIdExtdDirectoryRestartInfo  = 20,
-  MaximumFileInfoByHandlesClass
-} FILE_INFO_BY_HANDLE_CLASS;
-
-typedef struct _FILE_NAME_INFO
-{
-  DWORD FileNameLength;
-  WCHAR FileName[1];
-} FILE_NAME_INFO;
-
-typedef BOOL (WINAPI fGetFileInformationByHandleEx) (HANDLE,
-                                                     FILE_INFO_BY_HANDLE_CLASS,
-                                                     LPVOID,
-                                                     DWORD);
-#endif
-
-#if defined (_MSC_VER) && (_MSC_VER >=1400)
-/* This is ugly, but we need it for isatty() in case we have bad fd's,
- * otherwise Windows will abort() the program on msvcrt80.dll and later
- */
-#include <crtdbg.h>
-
-_GLIB_EXTERN void
-myInvalidParameterHandler(const wchar_t *expression,
-                          const wchar_t *function,
-                          const wchar_t *file,
-                          unsigned int   line,
-                          uintptr_t      pReserved)
-{
-}
 #endif
 
 #include "gwin32.h"
@@ -1603,33 +1546,12 @@ win32_is_pipe_tty (int fd)
   wchar_t *name = NULL;
   gint length;
 
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  HANDLE h_kerneldll = NULL;
-  fGetFileInformationByHandleEx *GetFileInformationByHandleEx;
-#endif
-
   h_fd = (HANDLE) _get_osfhandle (fd);
 
   if (h_fd == INVALID_HANDLE_VALUE || GetFileType (h_fd) != FILE_TYPE_PIPE)
     goto done_query;
 
-  /* The following check is available on Vista or later, so on XP, no color support */
   /* mintty uses a pipe, in the form of \{cygwin|msys}-xxxxxxxxxxxxxxxx-ptyN-{from|to}-master */
-
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  h_kerneldll = LoadLibraryW (L"kernel32.dll");
-
-  if (h_kerneldll == NULL)
-    goto done_query;
-
-  GetFileInformationByHandleEx =
-    (fGetFileInformationByHandleEx *) GetProcAddress (h_kerneldll, "GetFileInformationByHandleEx");
-
-  if (GetFileInformationByHandleEx == NULL)
-    goto done_query;
-#endif
 
   info = g_try_malloc (info_size);
 
@@ -1677,12 +1599,6 @@ win32_is_pipe_tty (int fd)
 done_query:
   if (info != NULL)
     g_free (info);
-
-  /* XXX: Remove once XP support really dropped */
-#if _WIN32_WINNT < 0x0600
-  if (h_kerneldll != NULL)
-    FreeLibrary (h_kerneldll);
-#endif
 
   return result;
 }
@@ -2180,12 +2096,7 @@ g_log_writer_supports_color (gint output_fd)
 {
 #ifdef G_OS_WIN32
   gboolean result = FALSE;
-
-#if (defined (_MSC_VER) && _MSC_VER >= 1400)
-  _invalid_parameter_handler oldHandler, newHandler;
-  int prev_report_mode = 0;
-#endif
-
+  GWin32InvalidParameterHandler handler;
 #endif
 
   g_return_val_if_fail (output_fd >= 0, FALSE);
@@ -2212,17 +2123,7 @@ g_log_writer_supports_color (gint output_fd)
    */
 #ifdef G_OS_WIN32
 
-#if (defined (_MSC_VER) && _MSC_VER >= 1400)
-  /* Set up our empty invalid parameter handler, for isatty(),
-   * in case of bad fd's passed in for isatty(), so that
-   * msvcrt80.dll+ won't abort the program
-   */
-  newHandler = myInvalidParameterHandler;
-  oldHandler = _set_invalid_parameter_handler (newHandler);
-
-  /* Disable the message box for assertions. */
-  prev_report_mode = _CrtSetReportMode(_CRT_ASSERT, 0);
-#endif
+  g_win32_push_empty_invalid_parameter_handler (&handler);
 
   if (g_win32_check_windows_version (10, 0, 0, G_WIN32_OS_ANY))
     {
@@ -2254,10 +2155,7 @@ g_log_writer_supports_color (gint output_fd)
     result = win32_is_pipe_tty (output_fd);
 
 reset_invalid_param_handler:
-#if defined (_MSC_VER) && (_MSC_VER >= 1400)
-      _CrtSetReportMode(_CRT_ASSERT, prev_report_mode);
-      _set_invalid_parameter_handler (oldHandler);
-#endif
+  g_win32_pop_invalid_parameter_handler (&handler);
 
   return result;
 #else
@@ -2279,13 +2177,11 @@ open_journal (void)
 {
   if ((journal_fd = socket (AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0)) < 0)
     return;
-  glib_fd_callbacks->on_fd_opened (journal_fd, "Journal");
 
 #ifndef HAVE_SOCK_CLOEXEC
   if (fcntl (journal_fd, F_SETFD, FD_CLOEXEC) < 0)
     {
       close (journal_fd);
-      glib_fd_callbacks->on_fd_closed (journal_fd, "Journal");
       journal_fd = -1;
     }
 #endif
@@ -3565,17 +3461,4 @@ g_printf_string_upper_bound (const gchar *format,
 {
   gchar c;
   return _g_vsnprintf (&c, 1, format, args) + 1;
-}
-
-void
-_g_messages_deinit (void)
-{
-#if defined(__linux__) && !defined(__BIONIC__)
-  if (journal_fd != -1)
-    {
-      close (journal_fd);
-      glib_fd_callbacks->on_fd_closed (journal_fd, "Journal");
-      journal_fd = -1;
-    }
-#endif
 }

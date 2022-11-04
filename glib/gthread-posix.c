@@ -43,7 +43,6 @@
 
 #include "gthread.h"
 
-#include "glib-init.h"
 #include "gmain.h"
 #include "gmessages.h"
 #include "gslice.h"
@@ -51,7 +50,6 @@
 #include "gtestutils.h"
 #include "gthreadprivate.h"
 #include "gutils.h"
-#include "gtinylist.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -62,9 +60,6 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#ifdef HAVE_MACH_MACH_H
-#include <mach/mach.h>
-#endif
 #ifdef HAVE_PTHREAD_SET_NAME_NP
 #include <pthread_np.h>
 #endif
@@ -84,59 +79,12 @@
 #define USE_NATIVE_MUTEX
 #endif
 
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
-
-static pthread_mutex_t g_thread_state_lock;
-static pthread_key_t g_thread_cleanup_key;
-
-#if !defined(USE_NATIVE_MUTEX)
-static GTinyList *g_thread_mutexes = NULL;
-static GTinyList *g_thread_conds = NULL;
-#endif
-static GTinyList *g_thread_rec_mutexes = NULL;
-static GTinyList *g_thread_rwlocks = NULL;
-static GTinyList *g_thread_privates = NULL;
-
-static void
-g_thread_state_add (GTinyList **list,
-                    gpointer    item)
-{
-  pthread_mutex_lock (&g_thread_state_lock);
-  *list = g_tinylist_prepend (*list, item);
-  pthread_mutex_unlock (&g_thread_state_lock);
-}
-
-static void
-g_thread_state_remove (GTinyList **list,
-                       gpointer    item)
-{
-  pthread_mutex_lock (&g_thread_state_lock);
-  *list = g_tinylist_remove (*list, item);
-  pthread_mutex_unlock (&g_thread_state_lock);
-}
-
-static void
-g_thread_ensure_destructor_registered (void)
-{
-  GRealThread *thread = (GRealThread *) g_thread_self ();
-
-  if (thread->destructor_registered)
-    return;
-
-  pthread_setspecific (g_thread_cleanup_key, thread);
-  thread->destructor_registered = TRUE;
-}
-
 static void
 g_thread_abort (gint         status,
                 const gchar *function)
 {
-#ifndef G_DISABLE_CHECKS
   fprintf (stderr, "GLib (gthread-posix.c): Unexpected error from C library during '%s': %s.  Aborting.\n",
            function, strerror (status));
-#endif
   g_abort ();
 }
 
@@ -154,7 +102,7 @@ g_mutex_impl_new (void)
   pthread_mutexattr_t attr;
 #endif
 
-  mutex = glib_mem_table->malloc (sizeof (pthread_mutex_t));
+  mutex = malloc (sizeof (pthread_mutex_t));
   if G_UNLIKELY (mutex == NULL)
     g_thread_abort (errno, "malloc");
 
@@ -178,7 +126,7 @@ static void
 g_mutex_impl_free (pthread_mutex_t *mutex)
 {
   pthread_mutex_destroy (mutex);
-  glib_mem_table->free (mutex);
+  free (mutex);
 }
 
 static inline pthread_mutex_t *
@@ -191,8 +139,6 @@ g_mutex_get_impl (GMutex *mutex)
       impl = g_mutex_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&mutex->p, NULL, impl))
         g_mutex_impl_free (impl);
-      else
-        g_thread_state_add (&g_thread_mutexes, impl);
       impl = mutex->p;
     }
 
@@ -235,8 +181,6 @@ void
 g_mutex_init (GMutex *mutex)
 {
   mutex->p = g_mutex_impl_new ();
-
-  g_thread_state_add (&g_thread_mutexes, mutex->p);
 }
 
 /**
@@ -256,8 +200,6 @@ g_mutex_init (GMutex *mutex)
 void
 g_mutex_clear (GMutex *mutex)
 {
-  g_thread_state_remove (&g_thread_mutexes, mutex->p);
-
   g_mutex_impl_free (mutex->p);
 }
 
@@ -341,7 +283,7 @@ g_rec_mutex_impl_new (void)
   pthread_mutexattr_t attr;
   pthread_mutex_t *mutex;
 
-  mutex = glib_mem_table->malloc (sizeof (pthread_mutex_t));
+  mutex = malloc (sizeof (pthread_mutex_t));
   if G_UNLIKELY (mutex == NULL)
     g_thread_abort (errno, "malloc");
 
@@ -357,7 +299,7 @@ static void
 g_rec_mutex_impl_free (pthread_mutex_t *mutex)
 {
   pthread_mutex_destroy (mutex);
-  glib_mem_table->free (mutex);
+  free (mutex);
 }
 
 static inline pthread_mutex_t *
@@ -370,8 +312,6 @@ g_rec_mutex_get_impl (GRecMutex *rec_mutex)
       impl = g_rec_mutex_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&rec_mutex->p, NULL, impl))
         g_rec_mutex_impl_free (impl);
-      else
-        g_thread_state_add (&g_thread_rec_mutexes, impl);
       impl = rec_mutex->p;
     }
 
@@ -415,8 +355,6 @@ void
 g_rec_mutex_init (GRecMutex *rec_mutex)
 {
   rec_mutex->p = g_rec_mutex_impl_new ();
-
-  g_thread_state_add (&g_thread_rec_mutexes, rec_mutex->p);
 }
 
 /**
@@ -437,8 +375,6 @@ g_rec_mutex_init (GRecMutex *rec_mutex)
 void
 g_rec_mutex_clear (GRecMutex *rec_mutex)
 {
-  g_thread_state_remove (&g_thread_rec_mutexes, rec_mutex->p);
-
   g_rec_mutex_impl_free (rec_mutex->p);
 }
 
@@ -509,7 +445,7 @@ g_rw_lock_impl_new (void)
   pthread_rwlock_t *rwlock;
   gint status;
 
-  rwlock = glib_mem_table->malloc (sizeof (pthread_rwlock_t));
+  rwlock = malloc (sizeof (pthread_rwlock_t));
   if G_UNLIKELY (rwlock == NULL)
     g_thread_abort (errno, "malloc");
 
@@ -523,7 +459,7 @@ static void
 g_rw_lock_impl_free (pthread_rwlock_t *rwlock)
 {
   pthread_rwlock_destroy (rwlock);
-  glib_mem_table->free (rwlock);
+  free (rwlock);
 }
 
 static inline pthread_rwlock_t *
@@ -536,8 +472,6 @@ g_rw_lock_get_impl (GRWLock *lock)
       impl = g_rw_lock_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&lock->p, NULL, impl))
         g_rw_lock_impl_free (impl);
-      else
-        g_thread_state_add (&g_thread_rwlocks, impl);
       impl = lock->p;
     }
 
@@ -579,8 +513,6 @@ void
 g_rw_lock_init (GRWLock *rw_lock)
 {
   rw_lock->p = g_rw_lock_impl_new ();
-
-  g_thread_state_add (&g_thread_rwlocks, rw_lock->p);
 }
 
 /**
@@ -600,8 +532,6 @@ g_rw_lock_init (GRWLock *rw_lock)
 void
 g_rw_lock_clear (GRWLock *rw_lock)
 {
-  g_thread_state_remove (&g_thread_rwlocks, rw_lock->p);
-
   g_rw_lock_impl_free (rw_lock->p);
 }
 
@@ -752,9 +682,11 @@ g_cond_impl_new (void)
 #elif defined (HAVE_PTHREAD_CONDATTR_SETCLOCK) && defined (CLOCK_MONOTONIC)
   if G_UNLIKELY ((status = pthread_condattr_setclock (&attr, CLOCK_MONOTONIC)) != 0)
     g_thread_abort (status, "pthread_condattr_setclock");
+#else
+#error Cannot support GCond on your platform.
 #endif
 
-  cond = glib_mem_table->malloc (sizeof (pthread_cond_t));
+  cond = malloc (sizeof (pthread_cond_t));
   if G_UNLIKELY (cond == NULL)
     g_thread_abort (errno, "malloc");
 
@@ -770,7 +702,7 @@ static void
 g_cond_impl_free (pthread_cond_t *cond)
 {
   pthread_cond_destroy (cond);
-  glib_mem_table->free (cond);
+  free (cond);
 }
 
 static inline pthread_cond_t *
@@ -783,8 +715,6 @@ g_cond_get_impl (GCond *cond)
       impl = g_cond_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&cond->p, NULL, impl))
         g_cond_impl_free (impl);
-      else
-        g_thread_state_add (&g_thread_conds, impl);
       impl = cond->p;
     }
 
@@ -813,8 +743,6 @@ void
 g_cond_init (GCond *cond)
 {
   cond->p = g_cond_impl_new ();
-
-  g_thread_state_add (&g_thread_conds, cond->p);
 }
 
 /**
@@ -834,8 +762,6 @@ g_cond_init (GCond *cond)
 void
 g_cond_clear (GCond *cond)
 {
-  g_thread_state_remove (&g_thread_conds, cond->p);
-
   g_cond_impl_free (cond->p);
 }
 
@@ -1005,22 +931,7 @@ g_cond_wait_until (GCond  *cond,
       return TRUE;
   }
 #else
-  /* This isn't a great fallback, but if we're targeting a system this old it's
-   * unlikely that our monotonic clock emulation is relied on for a use-case
-   * where it needs to be perfect.
-   */
-  {
-    gint64 remaining, deadline;
-
-    remaining = end_time - g_get_monotonic_time ();
-    deadline = g_get_real_time () + remaining;
-
-    ts.tv_sec = deadline / 1000000;
-    ts.tv_nsec = (deadline % 1000000) * 1000;
-
-    if ((status = pthread_cond_timedwait (g_cond_get_impl (cond), g_mutex_get_impl (mutex), &ts)) == 0)
-      return TRUE;
-  }
+#error Cannot support GCond on your platform.
 #endif
 
   if G_UNLIKELY (status != ETIMEDOUT)
@@ -1110,15 +1021,15 @@ g_cond_wait_until (GCond  *cond,
  **/
 
 static pthread_key_t *
-g_private_impl_new (void)
+g_private_impl_new (GDestroyNotify notify)
 {
   pthread_key_t *key;
   gint status;
 
-  key = glib_mem_table->malloc (sizeof (pthread_key_t));
+  key = malloc (sizeof (pthread_key_t));
   if G_UNLIKELY (key == NULL)
     g_thread_abort (errno, "malloc");
-  status = pthread_key_create (key, NULL);
+  status = pthread_key_create (key, notify);
   if G_UNLIKELY (status != 0)
     g_thread_abort (status, "pthread_key_create");
 
@@ -1133,7 +1044,7 @@ g_private_impl_free (pthread_key_t *key)
   status = pthread_key_delete (*key);
   if G_UNLIKELY (status != 0)
     g_thread_abort (status, "pthread_key_delete");
-  glib_mem_table->free (key);
+  free (key);
 }
 
 static inline pthread_key_t *
@@ -1143,15 +1054,11 @@ g_private_get_impl (GPrivate *key)
 
   if G_UNLIKELY (impl == NULL)
     {
-      impl = g_private_impl_new ();
+      impl = g_private_impl_new (key->notify);
       if (!g_atomic_pointer_compare_and_exchange (&key->p, NULL, impl))
         {
           g_private_impl_free (impl);
           impl = key->p;
-        }
-      else
-        {
-          g_thread_state_add (&g_thread_privates, key);
         }
     }
 
@@ -1196,9 +1103,6 @@ g_private_set (GPrivate *key,
 
   if G_UNLIKELY ((status = pthread_setspecific (*g_private_get_impl (key), value)) != 0)
     g_thread_abort (status, "pthread_setspecific");
-
-  g_thread_private_destroy_later (key, value);
-  g_thread_ensure_destructor_registered ();
 }
 
 /**
@@ -1230,9 +1134,6 @@ g_private_replace (GPrivate *key,
 
   if (old && key->notify)
     key->notify (old);
-
-  g_thread_private_destroy_later (key, value);
-  g_thread_ensure_destructor_registered ();
 }
 
 /* {{{1 GThread */
@@ -1314,6 +1215,7 @@ g_system_thread_get_scheduler_settings (GThreadSchedulerSettings *scheduler_sett
             }
           else
             {
+              g_debug ("Failed to get thread scheduler attributes: %s", g_strerror (errsv));
               g_free (scheduler_settings->attr);
 
               return FALSE;
@@ -1329,6 +1231,7 @@ g_system_thread_get_scheduler_settings (GThreadSchedulerSettings *scheduler_sett
     {
       int errsv = errno;
 
+      g_debug ("Failed to set thread scheduler attributes: %s", g_strerror (errsv));
       g_free (scheduler_settings->attr);
 
       return FALSE;
@@ -1390,7 +1293,6 @@ g_system_thread_new (GThreadFunc proxy,
   base_thread->thread.func = func;
   base_thread->thread.data = data;
   base_thread->name = g_strdup (name);
-  base_thread->pending_garbage = g_hash_table_new (NULL, NULL);
   thread->scheduler_settings = scheduler_settings;
   thread->proxy = proxy;
 
@@ -1430,7 +1332,6 @@ g_system_thread_new (GThreadFunc proxy,
     {
       g_set_error (error, G_THREAD_ERROR, G_THREAD_ERROR_AGAIN, 
                    "Error creating thread: %s", g_strerror (ret));
-      g_hash_table_unref (thread->thread.pending_garbage);
       g_free (thread->thread.name);
       g_slice_free (GThreadPosix, thread);
       return NULL;
@@ -1773,226 +1674,6 @@ g_cond_wait_until (GCond  *cond,
 }
 
 #endif
-
-#if defined (HAVE_MACH_MACH_H)
-
-struct _GThreadBeacon
-{
-  mach_port_t thread;
-};
-
-GThreadBeacon *
-g_thread_lifetime_beacon_new (void)
-{
-  GThreadBeacon *beacon;
-
-  beacon = g_slice_new (GThreadBeacon);
-  beacon->thread = mach_thread_self ();
-
-  return beacon;
-}
-
-void
-g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
-{
-  mach_port_deallocate (mach_task_self (), beacon->thread);
-
-  g_slice_free (GThreadBeacon, beacon);
-}
-
-gboolean
-g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
-{
-  mach_port_type_t type = 0;
-
-  mach_port_type (mach_task_self (), beacon->thread, &type);
-
-  return (type & MACH_PORT_TYPE_DEAD_NAME) != 0;
-}
-
-#elif defined (__linux__)
-
-#include "gfileutils.h"
-
-#include <sys/syscall.h>
-
-struct _GThreadBeacon
-{
-  pid_t thread_id;
-};
-
-GThreadBeacon *
-g_thread_lifetime_beacon_new (void)
-{
-  GThreadBeacon *beacon;
-
-  beacon = g_slice_new (GThreadBeacon);
-  beacon->thread_id = syscall (__NR_gettid);
-
-  return beacon;
-}
-
-void
-g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
-{
-  g_slice_free (GThreadBeacon, beacon);
-}
-
-gboolean
-g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
-{
-  gchar path[32];
-
-  sprintf (path, "/proc/self/task/%d", beacon->thread_id);
-
-  return !g_file_test (path, G_FILE_TEST_EXISTS);
-}
-
-#elif defined (__FreeBSD__)
-
-#include <pthread_np.h>
-#include <sys/thr.h>
-
-struct _GThreadBeacon
-{
-  int thread_id;
-};
-
-GThreadBeacon *
-g_thread_lifetime_beacon_new (void)
-{
-  GThreadBeacon *beacon;
-
-  beacon = g_slice_new (GThreadBeacon);
-  beacon->thread_id = pthread_getthreadid_np ();
-
-  return beacon;
-}
-
-void
-g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
-{
-  g_slice_free (GThreadBeacon, beacon);
-}
-
-gboolean
-g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
-{
-  return thr_kill (beacon->thread_id, 0) != 0;
-}
-
-#elif defined (HAVE_QNX)
-
-#include <process.h>
-#include <sys/neutrino.h>
-
-struct _GThreadBeacon
-{
-  pid_t process_id;
-  gint thread_id;
-};
-
-GThreadBeacon *
-g_thread_lifetime_beacon_new (void)
-{
-  GThreadBeacon *beacon;
-
-  beacon = g_slice_new (GThreadBeacon);
-  beacon->process_id = getpid ();
-  beacon->thread_id = gettid ();
-
-  return beacon;
-}
-
-void
-g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
-{
-  g_slice_free (GThreadBeacon, beacon);
-}
-
-gboolean
-g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
-{
-  gint status;
-
-  status = SignalKill (0, beacon->process_id, beacon->thread_id, 0, 0, 0);
-
-  return status == -1 && errno == ESRCH;
-}
-
-#else
-#error Please implement for your OS
-#endif
-
-void
-_g_thread_init (void)
-{
-  pthread_mutexattr_t *pattr = NULL;
-  gint status;
-#ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
-  pthread_mutexattr_t attr;
-
-  pthread_mutexattr_init (&attr);
-  pthread_mutexattr_settype (&attr, PTHREAD_MUTEX_ADAPTIVE_NP);
-  pattr = &attr;
-#endif
-
-  if G_UNLIKELY ((status = pthread_mutex_init (&g_thread_state_lock, pattr)) != 0)
-    g_thread_abort (status, "pthread_mutex_init");
-
-  if G_UNLIKELY ((status = pthread_key_create (&g_thread_cleanup_key,
-      g_thread_schedule_cleanup)) != 0)
-    g_thread_abort (status, "pthread_key_create");
-
-#ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
-  pthread_mutexattr_destroy (&attr);
-#endif
-}
-
-void
-_g_thread_deinit (void)
-{
-  GTinyList *cur;
-  gint status;
-
-  g_thread_garbage_collect ();
-  g_thread_perform_cleanup (g_thread_self ());
-  pthread_setspecific (g_thread_cleanup_key, NULL);
-
-  for (cur = g_thread_privates; cur; cur = cur->next)
-    {
-      GPrivate *key = cur->data;
-      g_private_impl_free (key->p);
-    }
-  g_tinylist_free (g_thread_privates);
-  g_thread_privates = NULL;
-
-#if !defined(USE_NATIVE_MUTEX)
-  g_tinylist_foreach (g_thread_conds, (GFunc) g_cond_impl_free, NULL);
-  g_tinylist_free (g_thread_conds);
-  g_thread_conds = NULL;
-#endif
-
-  g_tinylist_foreach (g_thread_rwlocks, (GFunc) g_rw_lock_impl_free, NULL);
-  g_tinylist_free (g_thread_rwlocks);
-  g_thread_rwlocks = NULL;
-
-  g_tinylist_foreach (g_thread_rec_mutexes, (GFunc) g_rec_mutex_impl_free, NULL);
-  g_tinylist_free (g_thread_rec_mutexes);
-  g_thread_rec_mutexes = NULL;
-
-#if !defined(USE_NATIVE_MUTEX)
-  g_tinylist_foreach (g_thread_mutexes, (GFunc) g_mutex_impl_free, NULL);
-  g_tinylist_free (g_thread_mutexes);
-  g_thread_mutexes = NULL;
-#endif
-
-  if G_UNLIKELY ((status = pthread_key_delete (g_thread_cleanup_key)) != 0)
-    g_thread_abort (status, "pthread_key_delete");
-
-  if G_UNLIKELY ((status = pthread_mutex_destroy (&g_thread_state_lock)) != 0)
-    g_thread_abort (status, "pthread_mutex_destroy");
-}
 
   /* {{{1 Epilogue */
 /* vim:set foldmethod=marker: */

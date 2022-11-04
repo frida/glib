@@ -46,10 +46,6 @@
 #include "grefcount.h"
 #include "gutilsprivate.h"
 
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
-
 /**
  * SECTION:arrays
  * @title: Arrays
@@ -740,11 +736,9 @@ g_array_remove_index (GArray *farray,
 
   array->len -= 1;
 
-#ifndef GLIB_DIET
   if (G_UNLIKELY (g_mem_gc_friendly))
     g_array_elt_zero (array, array->len, 1);
   else
-#endif
     g_array_zero_terminate (array);
 
   return farray;
@@ -782,11 +776,9 @@ g_array_remove_index_fast (GArray *farray,
   
   array->len -= 1;
 
-#ifndef GLIB_DIET
   if (G_UNLIKELY (g_mem_gc_friendly))
     g_array_elt_zero (array, array->len, 1);
   else
-#endif
     g_array_zero_terminate (array);
 
   return farray;
@@ -830,11 +822,9 @@ g_array_remove_range (GArray *farray,
              (array->len - (index_ + length)) * array->elt_size);
 
   array->len -= length;
-#ifndef GLIB_DIET
   if (G_UNLIKELY (g_mem_gc_friendly))
     g_array_elt_zero (array, array->len, length);
   else
-#endif
     g_array_zero_terminate (array);
 
   return farray;
@@ -1009,11 +999,9 @@ g_array_maybe_expand (GRealArray *array,
 
       array->data = g_realloc (array->data, want_alloc);
 
-#ifndef GLIB_DIET
       if (G_UNLIKELY (g_mem_gc_friendly))
         memset (g_array_elt_pos (array, array->elt_capacity), 0,
                 g_array_elt_len (array, want_len - array->elt_capacity));
-#endif
 
       array->elt_capacity = MIN (want_alloc / array->elt_size, G_MAXUINT);
     }
@@ -1645,18 +1633,14 @@ g_ptr_array_maybe_expand (GRealPtrArray *array,
 
   if ((array->len + len) > array->alloc)
     {
-#ifndef GLIB_DIET
       guint old_alloc = array->alloc;
-#endif
       gsize want_alloc = g_nearest_pow (sizeof (gpointer) * (array->len + len));
       want_alloc = MAX (want_alloc, MIN_ARRAY_SIZE);
       array->alloc = MIN (want_alloc / sizeof (gpointer), G_MAXUINT);
       array->pdata = g_realloc (array->pdata, want_alloc);
-#ifndef GLIB_DIET
       if (G_UNLIKELY (g_mem_gc_friendly))
         for ( ; old_alloc < array->alloc; old_alloc++)
           array->pdata [old_alloc] = NULL;
-#endif
     }
 }
 
@@ -1737,11 +1721,7 @@ ptr_array_remove_index (GPtrArray *array,
 
   rarray->len -= 1;
 
-#ifndef GLIB_DIET
   if (rarray->null_terminated || G_UNLIKELY (g_mem_gc_friendly))
-#else
-  if (rarray->null_terminated)
-#endif
     rarray->pdata[rarray->len] = NULL;
 
   return result;
@@ -1876,7 +1856,6 @@ g_ptr_array_remove_range (GPtrArray *array,
     }
 
   rarray->len -= length;
-#ifndef GLIB_DIET
   if (G_UNLIKELY (g_mem_gc_friendly))
     {
       for (i = 0; i < length; i++)
@@ -1884,9 +1863,6 @@ g_ptr_array_remove_range (GPtrArray *array,
     }
   else
     ptr_array_maybe_null_terminate (rarray);
-#else
-  ptr_array_maybe_null_terminate (rarray);
-#endif
 
   return array;
 }

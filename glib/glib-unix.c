@@ -35,36 +35,6 @@
 #include <sys/types.h>
 #include <pwd.h>
 
-#if defined (__linux__) && !defined (HAVE_PIPE2)
-# include <sys/syscall.h>
-# ifndef __NR_pipe2
-#  if defined (__i386__)
-#   define __NR_pipe2 331
-#  elif defined (__x86_64__)
-#   define __NR_pipe2 293
-#  elif defined (__arm__)
-#   define __NR_pipe2 (__NR_SYSCALL_BASE + 359)
-#  elif defined (__mips__)
-#   if _MIPS_SIM == _MIPS_SIM_ABI32
-#    define __NR_pipe2 4328
-#   elif _MIPS_SIM == _MIPS_SIM_ABI64
-#    define __NR_pipe2 5287
-#   elif _MIPS_SIM == _MIPS_SIM_NABI32
-#    define __NR_pipe2 6291
-#   else
-#    error Unexpected MIPS ABI
-#   endif
-#  else
-#   error Please implement for your architecture
-#  endif
-# endif
-# ifndef O_CLOEXEC
-#  define O_CLOEXEC 0x80000
-# endif
-# define pipe2 g_try_pipe2
-static int g_try_pipe2 (int pipedes[2], int flags);
-#endif
-
 G_STATIC_ASSERT (sizeof (ssize_t) == GLIB_SIZEOF_SSIZE_T);
 G_STATIC_ASSERT (G_ALIGNOF (gssize) == G_ALIGNOF (ssize_t));
 
@@ -129,7 +99,7 @@ g_unix_open_pipe (int     *fds,
   /* We only support FD_CLOEXEC */
   g_return_val_if_fail ((flags & (FD_CLOEXEC)) == flags, FALSE);
 
-#ifdef __linux__
+#ifdef HAVE_PIPE2
   {
     int pipe2_flags = 0;
     if (flags & FD_CLOEXEC)
@@ -138,17 +108,6 @@ g_unix_open_pipe (int     *fds,
     ecode = pipe2 (fds, pipe2_flags);
     if (ecode == -1 && errno != ENOSYS)
       return g_unix_set_error_from_errno (error, errno);
-    /* Don't reassign pipes to stdin, stdout, stderr if closed meanwhile */
-    else if (fds[0] < 3 || fds[1] < 3)
-      {
-        int old_fds[2] = { fds[0], fds[1] };
-        gboolean result = g_unix_open_pipe (fds, flags, error);
-        close (old_fds[0]);
-        close (old_fds[1]);
-
-        if (!result)
-          g_unix_set_error_from_errno (error, errno);
-      }
     else if (ecode == 0)
       return TRUE;
     /* Fall through on -ENOSYS, we must be running on an old kernel */
@@ -157,19 +116,6 @@ g_unix_open_pipe (int     *fds,
   ecode = pipe (fds);
   if (ecode == -1)
     return g_unix_set_error_from_errno (error, errno);
-  /* Don't reassign pipes to stdin, stdout, stderr if closed meanwhile */
-  else if (fds[0] < 3 || fds[1] < 3)
-    {
-      int old_fds[2] = { fds[0], fds[1] };
-      gboolean result = g_unix_open_pipe (fds, flags, error);
-      close (old_fds[0]);
-      close (old_fds[1]);
-
-      if (!result)
-        g_unix_set_error_from_errno (error, errno);
-
-      return result;
-    }
 
   if (flags == 0)
     return TRUE;
@@ -600,14 +546,3 @@ g_unix_get_passwd_entry (const gchar  *user_name,
 
   return (struct passwd *) g_steal_pointer (&buffer);
 }
-
-#if defined (__linux__) && !defined (HAVE_PIPE2)
-
-static int
-g_try_pipe2 (int pipedes[2],
-             int flags)
-{
-  return syscall (__NR_pipe2, pipedes, flags);
-}
-
-#endif

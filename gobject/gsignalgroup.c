@@ -713,15 +713,13 @@ g_signal_group_connect_closure_ (GSignalGroup   *self,
 {
   GObject *target;
   SignalHandler *handler;
-  gboolean name_is_valid;
   guint signal_id;
   GQuark signal_detail;
 
   g_return_val_if_fail (G_IS_SIGNAL_GROUP (self), FALSE);
   g_return_val_if_fail (detailed_signal != NULL, FALSE);
-  name_is_valid = g_signal_parse_name (detailed_signal, self->target_type,
-                                       &signal_id, &signal_detail, TRUE);
-  g_return_val_if_fail (name_is_valid, FALSE);
+  g_return_val_if_fail (g_signal_parse_name (detailed_signal, self->target_type,
+                                             &signal_id, &signal_detail, TRUE) != 0, FALSE);
   g_return_val_if_fail (closure != NULL, FALSE);
 
   g_rec_mutex_lock (&self->mutex);

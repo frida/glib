@@ -710,13 +710,13 @@ void
 void
 (g_atomic_int_inc) (volatile gint *atomic)
 {
-  InterlockedIncrement ((volatile LONG *) atomic);
+  InterlockedIncrement (atomic);
 }
 
 gboolean
 (g_atomic_int_dec_and_test) (volatile gint *atomic)
 {
-  return InterlockedDecrement ((volatile LONG *) atomic) == 0;
+  return InterlockedDecrement (atomic) == 0;
 }
 
 gboolean
@@ -724,8 +724,7 @@ gboolean
                                      gint           oldval,
                                      gint           newval)
 {
-  return InterlockedCompareExchange ((volatile LONG *) atomic, newval, oldval)
-      == oldval;
+  return InterlockedCompareExchange (atomic, newval, oldval) == oldval;
 }
 
 gboolean
@@ -734,7 +733,7 @@ gboolean
                                           gint  newval,
                                           gint *preval)
 {
-  *preval = InterlockedCompareExchange ((LONG *) atomic, newval, oldval);
+  *preval = InterlockedCompareExchange (atomic, newval, oldval);
   return *preval == oldval;
 }
 
@@ -742,42 +741,42 @@ gint
 (g_atomic_int_exchange) (gint *atomic,
                          gint  newval)
 {
-  return InterlockedExchange ((LONG *) atomic, newval);
+  return InterlockedExchange (atomic, newval);
 }
 
 gint
 (g_atomic_int_add) (volatile gint *atomic,
                     gint           val)
 {
-  return InterlockedExchangeAdd ((LONG *) atomic, val);
+  return InterlockedExchangeAdd (atomic, val);
 }
 
 guint
 (g_atomic_int_and) (volatile guint *atomic,
                     guint           val)
 {
-  return InterlockedAnd ((LONG *) atomic, val);
+  return InterlockedAnd (atomic, val);
 }
 
 guint
 (g_atomic_int_or) (volatile guint *atomic,
                    guint           val)
 {
-  return InterlockedOr ((LONG *) atomic, val);
+  return InterlockedOr (atomic, val);
 }
 
 guint
 (g_atomic_int_xor) (volatile guint *atomic,
                     guint           val)
 {
-  return InterlockedXor ((LONG *) atomic, val);
+  return InterlockedXor (atomic, val);
 }
 
 
 gpointer
 (g_atomic_pointer_get) (const volatile void *atomic)
 {
-  const volatile gpointer *ptr = atomic;
+  const gpointer *ptr = atomic;
 
   MemoryBarrier ();
   return *ptr;
@@ -787,7 +786,7 @@ void
 (g_atomic_pointer_set) (volatile void *atomic,
                         gpointer       newval)
 {
-  volatile gpointer *ptr = atomic;
+  gpointer *ptr = atomic;
 
   *ptr = newval;
   MemoryBarrier ();

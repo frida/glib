@@ -568,7 +568,6 @@ g_win32_check_windows_version (const gint major,
                                const gint spver,
                                const GWin32OSType os_type)
 {
-  gboolean got_version_info;
   OSVERSIONINFOEXW osverinfo;
   gboolean is_ver_checked = FALSE;
   gboolean is_type_checked = FALSE;
@@ -579,8 +578,7 @@ g_win32_check_windows_version (const gint major,
 
   /* Check for Service Pack Version >= 0 */
   g_return_val_if_fail (spver >= 0, FALSE);
-  got_version_info = _g_win32_call_rtl_version (&osverinfo);
-  g_return_val_if_fail (got_version_info, FALSE);
+  g_return_val_if_fail (_g_win32_call_rtl_version (&osverinfo), FALSE);
 
   /* check the OS and Service Pack Versions */
   if (osverinfo.dwMajorVersion > (DWORD) major)
@@ -841,8 +839,6 @@ G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 G_GNUC_END_IGNORE_DEPRECATIONS
 }
 
-#if 0
-
 /* This function looks up two environment
  * variables, G_WIN32_ALLOC_CONSOLE and G_WIN32_ATTACH_CONSOLE.
  * G_WIN32_ALLOC_CONSOLE, if set to 1, makes the process
@@ -860,7 +856,7 @@ G_GNUC_END_IGNORE_DEPRECATIONS
  * attached to a process, from DllMain().
  */
 void
-_g_console_win32_init (void)
+g_console_win32_init (void)
 {
   struct
     {
@@ -1273,7 +1269,7 @@ parse_catch_list (const wchar_t *catch_buffer,
 }
 
 void
-_g_crash_handler_win32_init (void)
+g_crash_handler_win32_init (void)
 {
   wchar_t      debugger_env[DEBUGGER_BUFFER_SIZE];
 #define CATCH_BUFFER_SIZE 1024
@@ -1330,15 +1326,13 @@ _g_crash_handler_win32_init (void)
 }
 
 void
-_g_crash_handler_win32_deinit (void)
+g_crash_handler_win32_deinit (void)
 {
   if (WinVEH_handle != NULL)
     RemoveVectoredExceptionHandler (WinVEH_handle);
 
   WinVEH_handle = NULL;
 }
-
-#endif
 
 /**
  * g_win32_find_helper_executable_path:

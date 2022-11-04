@@ -82,15 +82,9 @@ _g_fd_is_pollable (int fd)
   struct epoll_event ev = { 0, };
   gboolean add_succeeded;
 
-#ifdef EPOLL_CLOEXEC
   efd = epoll_create1 (EPOLL_CLOEXEC);
   if (efd == -1)
     g_error ("epoll_create1 () failed: %s", g_strerror (errno));
-#else
-  efd = epoll_create (1);
-  if (efd == -1)
-    g_error ("epoll_create () failed: %s", g_strerror (errno));
-#endif
 
   ev.events = EPOLLIN;
 

@@ -513,15 +513,17 @@
 #include "gtestutils.h"
 #include "gthread.h"
 
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
-
 static GRWLock error_domain_global;
 /* error_domain_ht must be accessed with error_domain_global
  * locked.
  */
 static GHashTable *error_domain_ht = NULL;
+
+void
+g_error_init (void)
+{
+  error_domain_ht = g_hash_table_new (NULL, NULL);
+}
 
 typedef struct
 {
@@ -537,9 +539,6 @@ typedef struct
 static inline ErrorDomainInfo *
 error_domain_lookup (GQuark domain)
 {
-  if (error_domain_ht == NULL)
-    return NULL;
-
   return g_hash_table_lookup (error_domain_ht,
                               GUINT_TO_POINTER (domain));
 }
@@ -564,9 +563,6 @@ error_domain_register (GQuark            error_quark,
       info->init = error_type_init;
       info->copy = error_type_copy;
       info->clear = error_type_clear;
-
-      if (error_domain_ht == NULL)
-        error_domain_ht = g_hash_table_new (NULL, NULL);
 
       g_hash_table_insert (error_domain_ht,
                            GUINT_TO_POINTER (error_quark),

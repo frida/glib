@@ -290,7 +290,6 @@
 /* this is a g_return_val_if_fail() for making
  * sure a (GVariant *) has the required type.
  */
-#ifndef G_DISABLE_CHECKS
 #define TYPE_CHECK(value, TYPE, val) \
   if G_UNLIKELY (!g_variant_is_of_type (value, TYPE)) {           \
     g_return_if_fail_warning (G_LOG_DOMAIN, G_STRFUNC,            \
@@ -298,9 +297,6 @@
                               ", " #TYPE ")");                    \
     return val;                                                   \
   }
-#else
-#define TYPE_CHECK(value, TYPE, val)
-#endif
 
 /* Numeric Type Constructor/Getters {{{1 */
 /* < private >

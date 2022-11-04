@@ -51,10 +51,6 @@
 #include "gmacros.h" /* For G_STATIC_ASSERT define */
 #undef GLIB_COMPILATION
 
-#if defined (__linux__) && !defined (SOCK_CLOEXEC)
-# define SOCK_CLOEXEC 02000000
-#endif
-
 /*
  * write_all:
  * @fd: a file descriptor
@@ -260,12 +256,5 @@ main (int argc, char *argv[])
   set_up_journal (argv[1]);
 #endif
 
-#ifdef HAVE_EXECVP
   return execvp (argv[1], argv + 1);
-#else
-  fprintf (stderr,
-           "gio-launch-desktop[%d]: execvp() not supported",
-           getpid ());
-  return -1;
-#endif
 }

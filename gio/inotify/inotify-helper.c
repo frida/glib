@@ -27,12 +27,8 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
-#ifdef HAVE_SYS_INOTIFY_H
 /* Just include the local header to stop all the pain */
 #include <sys/inotify.h>
-#else
-#include "inotify-compat.h"
-#endif
 #include <gio/glocalfilemonitor.h>
 #include <gio/gfile.h>
 #include "inotify-helper.h"

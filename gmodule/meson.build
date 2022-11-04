@@ -28,11 +28,11 @@ if g_module_impl == 'G_MODULE_IMPL_DL'
     message('Building for MSVC: assuming that symbols are prefixed with underscore')
     g_module_need_uscore = 1
   elif meson.can_run_host_binaries()
-    # FIXME: communicate result via stdout instead of return value, so non-0 return is not printed in bold red
     rres = cc.run(dlopen_dlsym_test_code,
                   dependencies : libdl_dep,
                   name : 'dlsym() preceding underscores')
-    if host_system == 'windows' or (rres.compiled() and rres.returncode() == 0)
+    if host_system == 'windows' or (rres.compiled() and
+      rres.returncode() == 0 and rres.stdout().to_int() == 0)
       g_module_need_uscore = 1
     endif
   else
@@ -79,7 +79,7 @@ gvisibility_h = custom_target(
 
 gmodule_sources = [gmodule_c, gvisibility_h, 'gmodule-deprecated.c']
 
-if host_system == 'windows' and get_option('default_library') == 'shared'
+if host_system == 'windows'
   gmodule_win_rc = configure_file(
     input: 'gmodule.rc.in',
     output: 'gmodule.rc',

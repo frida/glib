@@ -72,6 +72,10 @@
 #include <AvailabilityMacros.h>
 #endif
 
+#define __GLIB_H_INSIDE__
+#include "gconstructor.h"
+#undef __GLIB_H_INSIDE__
+
 /**
  * SECTION:giomodule
  * @short_description: Loadable GIO Modules
@@ -894,6 +898,11 @@ try_implementation (const char           *extension_point,
       if (impl)
         return impl;
 
+      g_debug ("Failed to initialize %s (%s) for %s: %s",
+               g_io_extension_get_name (extension),
+               g_type_name (type),
+               extension_point,
+               error ? error->message : "");
       g_clear_error (&error);
       return NULL;
     }
@@ -989,6 +998,9 @@ _g_io_module_get_default (const gchar         *extension_point,
 
   if (!ep)
     {
+      g_debug ("%s: Failed to find extension point ‘%s’",
+               G_STRFUNC, extension_point);
+      g_warn_if_reached ();
       g_rec_mutex_unlock (&default_modules_lock);
       return NULL;
     }
@@ -1050,7 +1062,13 @@ _g_io_module_get_default (const gchar         *extension_point,
   if (impl != NULL)
     {
       g_assert (extension != NULL);
+      g_debug ("%s: Found default implementation %s (%s) for ‘%s’",
+               G_STRFUNC, g_io_extension_get_name (extension),
+               G_OBJECT_TYPE_NAME (impl), extension_point);
     }
+  else
+    g_debug ("%s: Failed to find default implementation for ‘%s’",
+             G_STRFUNC, extension_point);
 
   return g_steal_pointer (&impl);
 }
@@ -1099,7 +1117,7 @@ extern GType _g_win32_network_monitor_get_type (void);
 
 static HMODULE gio_dll = NULL;
 
-#ifdef DLL_EXPORT
+#ifndef GLIB_STATIC_COMPILATION
 
 BOOL WINAPI DllMain (HINSTANCE hinstDLL,
                      DWORD     fdwReason,
@@ -1119,7 +1137,39 @@ DllMain (HINSTANCE hinstDLL,
   return TRUE;
 }
 
+#elif defined(G_HAS_CONSTRUCTORS) /* && G_PLATFORM_WIN32 && GLIB_STATIC_COMPILATION */
+extern void glib_win32_init (void);
+extern void gobject_win32_init (void);
+
+#ifdef G_DEFINE_CONSTRUCTOR_NEEDS_PRAGMA
+#pragma G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS(giomodule_init_ctor)
 #endif
+
+G_DEFINE_CONSTRUCTOR (giomodule_init_ctor)
+
+static void
+giomodule_init_ctor (void)
+{
+  /* When built dynamically, module initialization is done through DllMain
+   * function which is called when the dynamic library is loaded by the glib
+   * module AFTER loading gobject. So, in dynamic configuration glib and
+   * gobject are always initialized BEFORE gio.
+   *
+   * When built statically, initialization mechanism relies on hooking
+   * functions to the CRT section directly at compilation time. As we don't
+   * control how each compilation unit will be built and in which order, we
+   * obtain the same kind of issue as the "static initialization order fiasco".
+   * In this case, we must ensure explicitly that glib and gobject are always
+   * well initialized BEFORE gio.
+   */
+  glib_win32_init ();
+  gobject_win32_init ();
+  gio_win32_appinfo_init (FALSE);
+}
+
+#else /* G_PLATFORM_WIN32 && GLIB_STATIC_COMPILATION && !G_HAS_CONSTRUCTORS */
+#error Your platform/compiler is missing constructor support
+#endif /* GLIB_STATIC_COMPILATION */
 
 void *
 _g_io_win32_get_module (void)
@@ -1132,7 +1182,7 @@ _g_io_win32_get_module (void)
   return gio_dll;
 }
 
-#endif
+#endif /* G_PLATFORM_WIN32 */
 
 void
 _g_io_modules_ensure_extension_points_registered (void)
@@ -1195,8 +1245,6 @@ _g_io_modules_ensure_extension_points_registered (void)
     }
 }
 
-#ifndef GLIB_STATIC_COMPILATION
-
 static gchar *
 get_gio_module_dir (void)
 {
@@ -1252,25 +1300,19 @@ get_gio_module_dir (void)
   return module_dir;
 }
 
-#endif /* !GLIB_STATIC_COMPILATION */
-
 void
 _g_io_modules_ensure_loaded (void)
 {
   static gsize loaded_dirs = FALSE;
-#ifndef GLIB_STATIC_COMPILATION
-  gboolean is_setuid;
   const char *module_path;
-  gchar *module_dir;
   GIOModuleScope *scope;
-#endif
 
   _g_io_modules_ensure_extension_points_registered ();
 
   if (g_once_init_enter (&loaded_dirs))
     {
-#ifndef GLIB_STATIC_COMPILATION
-      is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
+      gboolean is_setuid = GLIB_PRIVATE_CALL (g_check_setuid) ();
+      gchar *module_dir;
 
       scope = g_io_module_scope_new (G_IO_MODULE_SCOPE_BLOCK_DUPLICATES);
 
@@ -1298,14 +1340,13 @@ _g_io_modules_ensure_loaded (void)
       g_free (module_dir);
 
       g_io_module_scope_free (scope);
-#endif
 
       /* Initialize types from built-in "modules" */
       g_type_ensure (g_null_settings_backend_get_type ());
       g_type_ensure (g_memory_settings_backend_get_type ());
       g_type_ensure (g_keyfile_settings_backend_get_type ());
       g_type_ensure (g_power_profile_monitor_dbus_get_type ());
-#if defined(__linux__)
+#if defined(HAVE_INOTIFY_INIT1)
       g_type_ensure (g_inotify_file_monitor_get_type ());
 #endif
 #if defined(HAVE_KQUEUE)
@@ -1353,7 +1394,7 @@ _g_io_modules_ensure_loaded (void)
       g_type_ensure (_g_network_monitor_netlink_get_type ());
       g_type_ensure (_g_network_monitor_nm_get_type ());
 #endif
-#if defined(G_OS_WIN32) && _WIN32_WINNT >= 0x0600
+#ifdef G_OS_WIN32
       g_type_ensure (_g_win32_network_monitor_get_type ());
 #endif
 

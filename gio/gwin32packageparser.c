@@ -27,8 +27,6 @@
 
 #include "config.h"
 
-#if _WIN32_WINNT >= 0x0600
-
 #define COBJMACROS
 #define INITGUID
 #include <windows.h>
@@ -820,5 +818,3 @@ xml_parser_iteration (struct _xml_sax_state  *sax,
 
   return TRUE;
 }
-
-#endif

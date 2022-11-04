@@ -148,39 +148,59 @@ gboolean             (g_str_has_prefix) (const gchar *str,
 
 #if G_GNUC_CHECK_VERSION (2, 0)
 
-/* A note on the 'x + !x' terms: These are added to workaround a false
- * warning in gcc 10< which is ignoring the check 'x != NULL' that is
- * set outside of the G_GNUC_EXTENSION scope. Without 'x + !x' it
- * would complain that x may be NULL where strlen() and memcmp()
- * both require non-null arguments. */
+/* This macro is defeat a false -Wnonnull warning in GCC.
+ * Without it, it thinks strlen and memcmp may be getting passed NULL
+ * despite the explicit check for NULL right above the calls.
+ */
+#define _G_STR_NONNULL(x) (x + !x)
 
-#define g_str_has_prefix(STR, PREFIX)                                   \
-  ((STR != NULL && PREFIX != NULL && __builtin_constant_p (PREFIX)) ?   \
-   G_GNUC_EXTENSION ({                                                  \
-       const char *const __str = STR;                                   \
-       const char *const __prefix = PREFIX;                             \
-       const size_t __str_len = strlen (__str + !__str);                \
-       const size_t __prefix_len = strlen (__prefix + !__prefix);       \
-       (__str_len >= __prefix_len) ?                                    \
-         memcmp (__str + !__str,                                        \
-                 __prefix + !__prefix, __prefix_len) == 0 : FALSE;      \
-     })                                                                 \
-   :                                                                    \
-   (g_str_has_prefix) (STR, PREFIX))
+#define g_str_has_prefix(STR, PREFIX)                                         \
+  (__builtin_constant_p (PREFIX)?                                             \
+    G_GNUC_EXTENSION ({                                                       \
+       const char * const __str = (STR);                                      \
+       const char * const __prefix = (PREFIX);                                \
+       gboolean __result = FALSE;                                             \
+                                                                              \
+       if G_UNLIKELY (__str == NULL || __prefix == NULL)                      \
+           __result = (g_str_has_prefix) (__str, __prefix);                   \
+       else                                                                   \
+         {                                                                    \
+            const size_t __str_len = strlen (_G_STR_NONNULL (__str));         \
+            const size_t __prefix_len = strlen (_G_STR_NONNULL (__prefix));   \
+            if (__str_len >= __prefix_len)                                    \
+              __result = memcmp (_G_STR_NONNULL (__str),                      \
+                                 _G_STR_NONNULL (__prefix),                   \
+                                 __prefix_len) == 0;                          \
+         }                                                                    \
+         __result;                                                            \
+    })                                                                        \
+  :                                                                           \
+    (g_str_has_prefix) (STR, PREFIX)                                          \
+  )
 
-#define g_str_has_suffix(STR, SUFFIX)                                   \
-  ((STR != NULL && SUFFIX != NULL && __builtin_constant_p (SUFFIX)) ?   \
-   G_GNUC_EXTENSION ({                                                  \
-       const char *const __str = STR;                                   \
-       const char *const __suffix = SUFFIX;                             \
-       const size_t __str_len = strlen (__str + !__str);                \
-       const size_t __suffix_len = strlen (__suffix + !__suffix);       \
-       (__str_len >= __suffix_len) ?                                    \
-         memcmp (__str + !__str + __str_len - __suffix_len,             \
-                 __suffix + !__suffix, __suffix_len) == 0 : FALSE;      \
-     })                                                                 \
-   :                                                                    \
-   (g_str_has_suffix) (STR, SUFFIX))
+#define g_str_has_suffix(STR, SUFFIX)                                         \
+  (__builtin_constant_p (SUFFIX)?                                             \
+    G_GNUC_EXTENSION ({                                                       \
+       const char * const __str = (STR);                                      \
+       const char * const __suffix = (SUFFIX);                                \
+       gboolean __result = FALSE;                                             \
+                                                                              \
+       if G_UNLIKELY (__str == NULL || __suffix == NULL)                      \
+         __result = (g_str_has_suffix) (__str, __suffix);                     \
+       else                                                                   \
+         {                                                                    \
+            const size_t __str_len = strlen (_G_STR_NONNULL (__str));         \
+            const size_t __suffix_len = strlen (_G_STR_NONNULL (__suffix));   \
+            if (__str_len >= __suffix_len)                                    \
+              __result = memcmp (__str + __str_len - __suffix_len,            \
+                                 _G_STR_NONNULL (__suffix),                   \
+                                 __suffix_len) == 0;                          \
+         }                                                                    \
+         __result;                                                            \
+    })                                                                        \
+  :                                                                           \
+    (g_str_has_suffix) (STR, SUFFIX)                                          \
+  )
 
 #endif /* G_GNUC_CHECK_VERSION (2, 0) */
 
