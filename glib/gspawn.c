@@ -89,8 +89,23 @@
 #include "glib-unix.h"
 
 #if defined (__APPLE__) && defined (HAVE_FORK)
-#include <libproc.h>
-#include <sys/proc_info.h>
+# ifdef HAVE_LIBPROC_H
+#  include <libproc.h>
+#  include <sys/proc_info.h>
+# else
+#  define PROC_PIDLISTFDS     1
+#  define PROC_PIDLISTFD_SIZE (sizeof (struct proc_fdinfo))
+struct proc_fdinfo
+{
+  int32_t proc_fd;
+  uint32_t proc_fdtype;
+};
+extern int proc_pidinfo (int      pid,
+                         int      flavor,
+                         uint64_t arg,
+                         void    *buffer,
+                         int      buffersize);
+# endif
 #endif
 
 #define INHERITS_OR_NULL_STDIN  (G_SPAWN_STDIN_FROM_DEV_NULL | G_SPAWN_CHILD_INHERITS_STDIN)

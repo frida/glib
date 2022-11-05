@@ -348,6 +348,7 @@ headers = [
   'fstab.h',
   'grp.h',
   'inttypes.h',
+  'libproc.h',
   'limits.h',
   'locale.h',
   'mach/mach.h',
