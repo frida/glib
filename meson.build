@@ -510,7 +510,6 @@ if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
     '-Wno-format-zero-length',
     # We explicitly require variadic macros
     '-Wno-variadic-macros',
-    '-Werror=format=2',
     '-Werror=init-self',
     '-Werror=missing-include-dirs',
     '-Werror=pointer-arith',
