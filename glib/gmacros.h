@@ -131,6 +131,7 @@
 
 #define g_macro__has_attribute___pure__ G_GNUC_CHECK_VERSION (2, 96)
 #define g_macro__has_attribute___malloc__ G_GNUC_CHECK_VERSION (2, 96)
+#define g_macro__has_attribute___always_inline__ G_GNUC_CHECK_VERSION (3, 1)
 #define g_macro__has_attribute___noinline__ G_GNUC_CHECK_VERSION (2, 96)
 #define g_macro__has_attribute___sentinel__ G_GNUC_CHECK_VERSION (4, 0)
 #define g_macro__has_attribute___alloc_size__ G_GNUC_CHECK_VERSION (4, 3)
