@@ -709,8 +709,6 @@ g_aligned_alloc (gsize n_blocks,
   res = aligned_alloc (alignment, real_size);
 #elif defined(HAVE_MEMALIGN)
   res = memalign (alignment, real_size);
-#else
-# error "This platform does not have an aligned memory allocator."
 #endif
 
   TRACE (GLIB_MEM_ALLOC((void*) res, (unsigned int) real_size, 0, 0));
