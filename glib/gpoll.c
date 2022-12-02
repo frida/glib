@@ -80,7 +80,7 @@
 extern gboolean _g_main_poll_debug;
 #endif
 
-#ifdef HAVE_POLL
+#if defined (HAVE_POLL) && !defined (HAVE_KQUEUE)
 
 /**
  * g_poll:

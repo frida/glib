@@ -83,6 +83,10 @@
 #include <mach/mach_time.h>
 #endif
 
+#ifdef HAVE_KQUEUE
+#include <sys/event.h>
+#endif
+
 #include "glib_trace.h"
 
 #include "gmain.h"
@@ -326,6 +330,10 @@ struct _GMainContext
 
   gint64   time;
   gboolean time_is_fresh;
+
+#ifdef HAVE_KQUEUE
+  gint kq;
+#endif
 };
 
 struct _GSourceCallback
@@ -599,6 +607,10 @@ _g_main_recover_from_fork_in_child (void)
     {
       GMainContext *context = l->data;
 
+#ifdef HAVE_KQUEUE
+      context->kq = kqueue ();
+#endif
+
       g_wakeup_free (context->wakeup);
       context->wakeup = g_wakeup_new ();
 
@@ -716,6 +728,10 @@ g_main_context_unref (GMainContext *context)
 
   poll_rec_list_free (context, context->poll_records);
 
+#ifdef HAVE_KQUEUE
+  close (context->kq);
+#endif
+
   g_wakeup_free (context->wakeup);
   g_cond_clear (&context->cond);
 
@@ -812,6 +828,10 @@ g_main_context_new_with_flags (GMainContextFlags flags)
   context->pending_dispatches = g_ptr_array_new ();
   
   context->time_is_fresh = FALSE;
+
+#ifdef HAVE_KQUEUE
+  context->kq = kqueue ();
+#endif
   
   context->wakeup = g_wakeup_new ();
   g_wakeup_get_pollfd (context->wakeup, &context->wake_up_rec);
@@ -4611,6 +4631,9 @@ g_main_context_poll (GMainContext *context,
   if (n_fds || timeout != 0)
     {
       int ret, errsv;
+#ifdef HAVE_KQUEUE
+      guint max_events;
+#endif
 
 #ifdef	G_MAIN_POLL_DEBUG
       poll_timer = NULL;
@@ -4625,8 +4648,100 @@ g_main_context_poll (GMainContext *context,
       LOCK_CONTEXT (context);
 
       poll_func = context->poll_func;
+#ifdef HAVE_KQUEUE
+      max_events = context->n_poll_records;
+#endif
 
       UNLOCK_CONTEXT (context);
+
+#ifdef HAVE_KQUEUE
+      if (poll_func == g_poll)
+	{
+	  struct kevent *events;
+	  struct timespec *ts, ts_storage;
+
+	  events = g_newa (struct kevent, max_events);
+
+	  if (timeout != -1)
+	    {
+	      ts_storage.tv_sec = timeout / 1000;
+	      ts_storage.tv_nsec = (timeout % 1000) * 1000000;
+	      ts = &ts_storage;
+	    }
+	  else
+	    {
+	      ts = NULL;
+	    }
+
+	  ret = kevent (context->kq, NULL, 0, events, max_events, ts);
+	  errsv = errno;
+
+	  if (ret > 0)
+	    {
+	      int i;
+
+	      for (int i = 0; i < n_fds; i++)
+		fds[i].revents = 0;
+
+	      for (i = 0; i < ret; i++)
+		{
+		  struct kevent *ev = &events[i];
+
+		  for (int i = 0; i < n_fds; i++)
+		    {
+		      GPollFD *pfd = &fds[i];
+
+		      if (pfd->fd == (gint) ev->ident)
+			{
+			  switch (ev->filter)
+			    {
+			      case EVFILT_READ:
+				if (pfd->events & G_IO_IN)
+				  pfd->revents |= G_IO_IN;
+#ifdef EV_OOBAND
+				if (pfd->events & G_IO_PRI && ev->flags & EV_OOBAND)
+				  pfd->revents |= G_IO_PRI;
+#endif
+				if (ev->flags & EV_EOF)
+				  {
+				    pfd->revents |= G_IO_HUP;
+				    if (ev->fflags != 0)
+				      pfd->revents |= G_IO_ERR;
+				  }
+				break;
+			      case EVFILT_WRITE:
+				if (pfd->events & G_IO_OUT)
+				  pfd->revents |= G_IO_OUT;
+				if (ev->flags & EV_EOF)
+				  pfd->revents |= G_IO_ERR;
+				break;
+#ifdef EVFILT_EXCEPT
+			      case EVFILT_EXCEPT:
+				if (pfd->events & G_IO_PRI)
+				  pfd->revents |= G_IO_PRI;
+				if (ev->flags & EV_EOF)
+				  pfd->revents |= G_IO_HUP;
+				break;
+#endif
+			      case EVFILT_USER:
+				if (pfd->events & G_IO_IN)
+				  pfd->revents |= G_IO_IN;
+				break;
+			    }
+			}
+		    }
+		}
+	    }
+	  else if (ret < 0 && errsv != EINTR)
+	    {
+	      g_warning ("kevent(2) failed due to: %s.",
+			 g_strerror (errsv));
+	    }
+
+	  goto out;
+	}
+#endif
+
       ret = (*poll_func) (fds, n_fds, timeout);
       errsv = errno;
       if (ret < 0 && errsv != EINTR)
@@ -4639,6 +4754,11 @@ g_main_context_poll (GMainContext *context,
 #endif
 	}
       
+
+#ifdef HAVE_KQUEUE
+out:
+      ;
+#endif
 #ifdef	G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
 	{
@@ -4756,6 +4876,43 @@ g_main_context_add_poll_unlocked (GMainContext *context,
 
   context->poll_changed = TRUE;
 
+#ifdef HAVE_KQUEUE
+  {
+    struct kevent events[3], *ev;
+
+    ev = events;
+    if (fd->fd == G_KQUEUE_WAKEUP_HANDLE)
+      {
+	*(fd->kq) = context->kq;
+
+	EV_SET (ev, fd->fd, EVFILT_USER, EV_ADD, NOTE_FFCOPY, 0, NULL);
+	ev++;
+      }
+    else
+      {
+	if (fd->events & G_IO_IN)
+	  {
+	    EV_SET (ev, fd->fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+	    ev++;
+	  }
+	if (fd->events & G_IO_OUT)
+	  {
+	    EV_SET (ev, fd->fd, EVFILT_WRITE, EV_ADD, 0, 0, NULL);
+	    ev++;
+	  }
+#ifdef EVFILT_EXCEPT
+	if (fd->events & G_IO_PRI)
+	  {
+	    EV_SET (ev, fd->fd, EVFILT_EXCEPT, EV_ADD, NOTE_OOB, 0, NULL);
+	    ev++;
+	  }
+#endif
+      }
+
+    kevent (context->kq, events, ev - events, NULL, 0, NULL);
+  }
+#endif
+
   /* Now wake up the main loop if it is waiting in the poll() */
   if (fd != &context->wake_up_rec)
     g_wakeup_signal (context->wakeup);
@@ -4816,6 +4973,72 @@ g_main_context_remove_poll_unlocked (GMainContext *context,
     }
 
   context->poll_changed = TRUE;
+
+#ifdef HAVE_KQUEUE
+  {
+    gboolean remove_wakeup, remove_in, remove_out, remove_pri;
+    struct kevent events[3], *ev;
+
+    remove_wakeup = fd->fd == G_KQUEUE_WAKEUP_HANDLE;
+    if (remove_wakeup)
+      {
+	remove_in = FALSE;
+	remove_out = FALSE;
+	remove_pri = FALSE;
+      }
+    else
+      {
+	remove_in = !!(fd->events & G_IO_IN);
+	remove_out = !!(fd->events & G_IO_OUT);
+	remove_pri = !!(fd->events & G_IO_PRI);
+      }
+
+    for (pollrec = context->poll_records; pollrec; pollrec = pollrec->next)
+      {
+	GPollFD *cur = pollrec->fd;
+
+	if (cur->fd == G_KQUEUE_WAKEUP_HANDLE)
+	  {
+	    remove_wakeup = FALSE;
+	  }
+	else if (cur->fd == fd->fd)
+	  {
+	    if (cur->events & G_IO_IN)
+	      remove_in = FALSE;
+	    if (cur->events & G_IO_OUT)
+	      remove_out = FALSE;
+	    if (cur->events & G_IO_PRI)
+	      remove_pri = FALSE;
+	  }
+      }
+
+    ev = events;
+    if (remove_wakeup)
+      {
+	EV_SET (ev, fd->fd, EVFILT_USER, EV_DELETE, 0, 0, NULL);
+	ev++;
+      }
+    if (remove_in)
+      {
+	EV_SET (ev, fd->fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+	ev++;
+      }
+    if (remove_out)
+      {
+	EV_SET (ev, fd->fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+	ev++;
+      }
+#ifdef EVFILT_EXCEPT
+    if (remove_pri)
+      {
+	EV_SET (ev, fd->fd, EVFILT_EXCEPT, EV_DELETE, 0, 0, NULL);
+	ev++;
+      }
+#endif
+
+    kevent (context->kq, events, ev - events, NULL, 0, NULL);
+  }
+#endif
 
   /* Now wake up the main loop if it is waiting in the poll() */
   g_wakeup_signal (context->wakeup);

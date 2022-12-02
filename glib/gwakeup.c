@@ -114,6 +114,65 @@ g_wakeup_free (GWakeup *wakeup)
   CloseHandle ((HANDLE) wakeup);
 }
 
+#elif defined (HAVE_KQUEUE)
+
+#include "glib-unix.h"
+
+#include <sys/event.h>
+
+struct _GWakeup
+{
+  gint kq;
+};
+
+GWakeup *
+g_wakeup_new (void)
+{
+  GWakeup *wakeup;
+
+  wakeup = g_slice_new (GWakeup);
+  wakeup->kq = -1;
+
+  return wakeup;
+}
+
+void
+g_wakeup_get_pollfd (GWakeup *wakeup,
+                     GPollFD *poll_fd)
+{
+  poll_fd->fd = G_KQUEUE_WAKEUP_HANDLE;
+  poll_fd->events = G_IO_IN;
+  poll_fd->kq = &wakeup->kq;
+}
+
+void
+g_wakeup_acknowledge (GWakeup *wakeup)
+{
+  struct kevent ev[2];
+
+  EV_SET (&ev[0], G_KQUEUE_WAKEUP_HANDLE, EVFILT_USER, EV_DELETE,
+	  0, 0, NULL);
+  EV_SET (&ev[1], G_KQUEUE_WAKEUP_HANDLE, EVFILT_USER, EV_ADD,
+	  NOTE_FFCOPY, 0, NULL);
+  kevent (wakeup->kq, ev, G_N_ELEMENTS (ev), NULL, 0, NULL);
+}
+
+void
+g_wakeup_signal (GWakeup *wakeup)
+{
+  struct kevent ev;
+
+  EV_SET (&ev, G_KQUEUE_WAKEUP_HANDLE, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+
+  kevent (wakeup->kq, &ev, 1, NULL, 0, NULL);
+}
+
+void
+g_wakeup_free (GWakeup *wakeup)
+{
+  g_slice_free (GWakeup, wakeup);
+}
+
 #else
 
 #include "glib-unix.h"

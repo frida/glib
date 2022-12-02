@@ -1614,6 +1614,14 @@ else
   glibconfig_conf.set('g_dir_separator', '/')
   glibconfig_conf.set('g_searchpath_separator', ':')
 endif
+if glib_conf.has('HAVE_KQUEUE')
+  glib_pollfd_flavor = '#define G_POLLFD_KQUEUE'
+elif host_system == 'windows'
+  glib_pollfd_flavor = '#define G_POLLFD_WINDOWS'
+else
+  glib_pollfd_flavor = '#define G_POLLFD_STANDARD'
+endif
+glibconfig_conf.set('glib_pollfd_flavor', glib_pollfd_flavor)
 
 g_sizet_compatibility = {
   'short': sizet_size == short_size,

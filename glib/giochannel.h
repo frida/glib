@@ -329,6 +329,8 @@ gint        g_io_channel_unix_get_fd (GIOChannel *channel);
 /* Hook for GClosure / GSource integration. Don't touch */
 GLIB_VAR GSourceFuncs g_io_watch_funcs;
 
+#define G_KQUEUE_WAKEUP_HANDLE -42
+
 #ifdef G_OS_WIN32
 
 /* You can use this "pseudo file descriptor" in a GPollFD to add
