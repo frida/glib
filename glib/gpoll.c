@@ -42,13 +42,6 @@
  */
 /* #define G_MAIN_POLL_DEBUG */
 
-#ifdef _WIN32
-/* Always enable debugging printout on Windows, as it is more often
- * needed there...
- */
-#define G_MAIN_POLL_DEBUG
-#endif
-
 #include <sys/types.h>
 #include <time.h>
 #include <stdlib.h>
@@ -148,8 +141,10 @@ poll_rest (GPollFD *msg_fd,
       /* Wait for either messages or handles
        * -> Use MsgWaitForMultipleObjectsEx
        */
+#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
 	g_print ("  MsgWaitForMultipleObjectsEx(%d, %lu)\n", nhandles, timeout_ms);
+#endif
 
       ready = MsgWaitForMultipleObjectsEx (nhandles, handles, timeout_ms,
 					   QS_ALLINPUT, MWMO_ALERTABLE);
@@ -178,8 +173,10 @@ poll_rest (GPollFD *msg_fd,
       /* Wait for just handles
        * -> Use WaitForMultipleObjectsEx
        */
+#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
 	g_print ("  WaitForMultipleObjectsEx(%d, %lu)\n", nhandles, timeout_ms);
+#endif
 
       ready = WaitForMultipleObjectsEx (nhandles, handles, FALSE, timeout_ms, TRUE);
       if (ready == WAIT_FAILED)
@@ -190,12 +187,14 @@ poll_rest (GPollFD *msg_fd,
 	}
     }
 
+#ifdef G_MAIN_POLL_DEBUG
   if (_g_main_poll_debug)
     g_print ("  wait returns %ld%s\n",
 	     ready,
 	     (ready == WAIT_FAILED ? " (WAIT_FAILED)" :
 	      (ready == WAIT_TIMEOUT ? " (WAIT_TIMEOUT)" :
 	       (msg_fd != NULL && ready == WAIT_OBJECT_0 + nhandles ? " (msg)" : ""))));
+#endif
 
   if (ready == WAIT_FAILED)
     return -1;
@@ -224,8 +223,10 @@ poll_rest (GPollFD *msg_fd,
 
       f = handle_to_fd[ready - WAIT_OBJECT_0];
       f->revents = f->events;
+#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
         g_print ("  got event %p\n", (HANDLE) f->fd);
+#endif
 
       /* Do not count the stop_fd */
       retval = (f != stop_fd) ? 1 : 0;
@@ -307,8 +308,10 @@ fill_poll_thread_data (GPollFD              *fds,
 
   if (stop_fd != NULL)
     {
+#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
         g_print (" Stop FD: %p", (HANDLE) stop_fd->fd);
+#endif
 
       g_assert (data->nhandles < MAXIMUM_WAIT_OBJECTS);
 
@@ -328,14 +331,18 @@ fill_poll_thread_data (GPollFD              *fds,
 
       if (f->fd == G_WIN32_MSG_HANDLE && (f->events & G_IO_IN))
         {
+#ifdef G_MAIN_POLL_DEBUG
           if (_g_main_poll_debug && data->msg_fd == NULL)
             g_print (" MSG");
+#endif
           data->msg_fd = f;
         }
       else if (f->fd > 0)
         {
+#ifdef G_MAIN_POLL_DEBUG
           if (_g_main_poll_debug)
             g_print (" %p", (HANDLE) f->fd);
+#endif
           data->handle_to_fd[data->nhandles] = f;
           data->handles[data->nhandles++] = (HANDLE) f->fd;
         }
@@ -386,13 +393,17 @@ g_poll (GPollFD *fds,
     {
       GWin32PollThreadData data = { 0, };
 
+#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
         g_print ("g_poll: waiting for");
+#endif
 
       fill_poll_thread_data (fds, nfds, timeout, NULL, &data);
 
+#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
         g_print ("\n");
+#endif
 
       retval = poll_single_thread (&data);
       if (retval == -1)
@@ -402,8 +413,10 @@ g_poll (GPollFD *fds,
       return retval;
     }
 
+#ifdef G_MAIN_POLL_DEBUG
   if (_g_main_poll_debug)
     g_print ("g_poll: polling with threads\n");
+#endif
 
   nthreads = nfds / MAXIMUM_WAIT_OBJECTS_PER_THREAD;
   threads_remain = nfds % MAXIMUM_WAIT_OBJECTS_PER_THREAD;

@@ -41,13 +41,6 @@
  */
 /* #define G_MAIN_POLL_DEBUG */
 
-#ifdef _WIN32
-/* Always enable debugging printout on Windows, as it is more often
- * needed there...
- */
-#define G_MAIN_POLL_DEBUG
-#endif
-
 #ifdef G_OS_UNIX
 #include "glib-unix.h"
 #include <pthread.h>
