@@ -185,22 +185,22 @@
 
 G_BEGIN_DECLS
 
-GLIB_AVAILABLE_IN_2_68
+GIO_AVAILABLE_IN_2_68
 void                            gio_init (void);
 
-GLIB_AVAILABLE_IN_2_68
+GIO_AVAILABLE_IN_2_68
 void                            gio_shutdown (void);
 
-GLIB_AVAILABLE_IN_2_68
+GIO_AVAILABLE_IN_2_68
 void                            gio_deinit (void);
 
-GLIB_AVAILABLE_IN_2_68
+GIO_AVAILABLE_IN_2_68
 void                            gio_prepare_to_fork (void);
 
-GLIB_AVAILABLE_IN_2_68
+GIO_AVAILABLE_IN_2_68
 void                            gio_recover_from_fork_in_parent (void);
 
-GLIB_AVAILABLE_IN_2_68
+GIO_AVAILABLE_IN_2_68
 void                            gio_recover_from_fork_in_child (void);
 
 G_END_DECLS

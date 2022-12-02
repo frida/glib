@@ -708,6 +708,8 @@ typedef enum	/*< skip >*/
 
 
 /* --- prototypes --- */
+GOBJECT_AVAILABLE_IN_2_68
+void                  gobject_init                   (void);
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 GOBJECT_DEPRECATED_IN_2_36
 void                  g_type_init                    (void);

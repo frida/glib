@@ -2451,6 +2451,8 @@ subdir('tools')
 if get_option('default_library') == 'static'
   subdir('proxy-libintl-static')
   libintl_deps = [intl_dep]
+else
+  intl_lib = []
 endif
 subdir('glib')
 subdir('gobject')
