@@ -84,6 +84,7 @@
 #endif
 
 #ifdef HAVE_KQUEUE
+#include "gwakeup-private.h"
 #include <sys/event.h>
 #endif
 
@@ -608,13 +609,18 @@ _g_main_recover_from_fork_in_child (void)
       GMainContext *context = l->data;
 
 #ifdef HAVE_KQUEUE
+      context->kq = -1;
+#endif
+
+      g_main_context_remove_poll_unlocked (context, &context->wake_up_rec);
+
+#ifdef HAVE_KQUEUE
       context->kq = kqueue ();
 #endif
 
       g_wakeup_free (context->wakeup);
       context->wakeup = g_wakeup_new ();
 
-      g_main_context_remove_poll_unlocked (context, &context->wake_up_rec);
       g_wakeup_get_pollfd (context->wakeup, &context->wake_up_rec);
       g_main_context_add_poll_unlocked (context, 0, &context->wake_up_rec);
     }
@@ -4020,6 +4026,12 @@ g_main_context_query (GMainContext *context,
               fds[n_poll].fd = pollrec->fd->fd;
               fds[n_poll].events = events;
               fds[n_poll].revents = 0;
+#ifdef HAVE_KQUEUE
+              if (pollrec->fd->fd == G_KQUEUE_WAKEUP_HANDLE)
+                fds[n_poll].handle = pollrec->fd->handle;
+              else
+                fds[n_poll].handle = NULL;
+#endif
             }
 
           n_poll++;
@@ -4659,10 +4671,11 @@ g_main_context_poll (GMainContext *context,
 	{
 	  struct kevent *events;
 	  struct timespec *ts, ts_storage;
+	  int i;
 
 	  events = g_newa (struct kevent, max_events);
 
-	  if (timeout != -1)
+	  if (timeout >= 0)
 	    {
 	      ts_storage.tv_sec = timeout / 1000;
 	      ts_storage.tv_nsec = (timeout % 1000) * 1000000;
@@ -4676,63 +4689,68 @@ g_main_context_poll (GMainContext *context,
 	  ret = kevent (context->kq, NULL, 0, events, max_events, ts);
 	  errsv = errno;
 
-	  if (ret > 0)
+	  for (i = 0; i < n_fds; i++)
+	    fds[i].revents = 0;
+
+	  for (i = 0; i < ret; i++)
 	    {
-	      int i;
+	      struct kevent *ev = &events[i];
 
-	      for (int i = 0; i < n_fds; i++)
-		fds[i].revents = 0;
-
-	      for (i = 0; i < ret; i++)
+	      for (int j = 0; j < n_fds; j++)
 		{
-		  struct kevent *ev = &events[i];
+		  GPollFD *pfd = &fds[j];
 
-		  for (int i = 0; i < n_fds; i++)
+		  if (ev->filter == EVFILT_USER)
 		    {
-		      GPollFD *pfd = &fds[i];
-
-		      if (pfd->fd == (gint) ev->ident)
+		      if (pfd->fd == G_KQUEUE_WAKEUP_HANDLE &&
+			  pfd->handle == GSIZE_TO_POINTER (ev->ident))
 			{
-			  switch (ev->filter)
-			    {
-			      case EVFILT_READ:
-				if (pfd->events & G_IO_IN)
-				  pfd->revents |= G_IO_IN;
+			  if (pfd->events & G_IO_IN)
+			    pfd->revents |= G_IO_IN;
+			}
+		    }
+		  else if (pfd->fd == (gint) ev->ident)
+		    {
+		      switch (ev->filter)
+			{
+			  case EVFILT_READ:
+			    if (pfd->events & G_IO_IN)
+			      pfd->revents |= G_IO_IN;
 #ifdef EV_OOBAND
-				if (pfd->events & G_IO_PRI && ev->flags & EV_OOBAND)
-				  pfd->revents |= G_IO_PRI;
+			    if (pfd->events & G_IO_PRI && ev->flags & EV_OOBAND)
+			      pfd->revents |= G_IO_PRI;
 #endif
-				if (ev->flags & EV_EOF)
-				  {
-				    pfd->revents |= G_IO_HUP;
-				    if (ev->fflags != 0)
-				      pfd->revents |= G_IO_ERR;
-				  }
-				break;
-			      case EVFILT_WRITE:
-				if (pfd->events & G_IO_OUT)
-				  pfd->revents |= G_IO_OUT;
-				if (ev->flags & EV_EOF)
+			    if (ev->flags & EV_EOF)
+			      {
+				pfd->revents |= G_IO_HUP;
+				if (ev->fflags != 0)
 				  pfd->revents |= G_IO_ERR;
-				break;
+			      }
+			    if (ev->flags & EV_ERROR)
+			      pfd->revents |= G_IO_ERR;
+			    break;
+			  case EVFILT_WRITE:
+			    if (pfd->events & G_IO_OUT)
+			      pfd->revents |= G_IO_OUT;
+			    if (ev->flags & (EV_EOF|EV_ERROR))
+			      pfd->revents |= G_IO_ERR;
+			    break;
 #ifdef EVFILT_EXCEPT
-			      case EVFILT_EXCEPT:
-				if (pfd->events & G_IO_PRI)
-				  pfd->revents |= G_IO_PRI;
-				if (ev->flags & EV_EOF)
-				  pfd->revents |= G_IO_HUP;
-				break;
+			  case EVFILT_EXCEPT:
+			    if (pfd->events & G_IO_PRI)
+			      pfd->revents |= G_IO_PRI;
+			    if (ev->flags & EV_EOF)
+			      pfd->revents |= G_IO_HUP;
+			    if (ev->flags & EV_ERROR)
+			      pfd->revents |= G_IO_ERR;
+			    break;
 #endif
-			      case EVFILT_USER:
-				if (pfd->events & G_IO_IN)
-				  pfd->revents |= G_IO_IN;
-				break;
-			    }
 			}
 		    }
 		}
 	    }
-	  else if (ret < 0 && errsv != EINTR)
+
+	  if (ret < 0 && errsv != EINTR)
 	    {
 	      g_warning ("kevent(2) failed due to: %s.",
 			 g_strerror (errsv));
@@ -4883,9 +4901,8 @@ g_main_context_add_poll_unlocked (GMainContext *context,
     ev = events;
     if (fd->fd == G_KQUEUE_WAKEUP_HANDLE)
       {
-	*(fd->kq) = context->kq;
-
-	EV_SET (ev, fd->fd, EVFILT_USER, EV_ADD, NOTE_FFCOPY, 0, NULL);
+	EV_SET (ev, GPOINTER_TO_SIZE (fd->handle), EVFILT_USER, EV_ADD,
+		NOTE_FFCOPY, 0, NULL);
 	ev++;
       }
     else
@@ -4910,6 +4927,9 @@ g_main_context_add_poll_unlocked (GMainContext *context,
       }
 
     kevent (context->kq, events, ev - events, NULL, 0, NULL);
+
+    if (fd->fd == G_KQUEUE_WAKEUP_HANDLE)
+      _g_wakeup_kqueue_realize (fd->handle, context->kq);
   }
 #endif
 
@@ -4978,6 +4998,7 @@ g_main_context_remove_poll_unlocked (GMainContext *context,
   {
     gboolean remove_wakeup, remove_in, remove_out, remove_pri;
     struct kevent events[3], *ev;
+    guint num_events;
 
     remove_wakeup = fd->fd == G_KQUEUE_WAKEUP_HANDLE;
     if (remove_wakeup)
@@ -4999,7 +5020,8 @@ g_main_context_remove_poll_unlocked (GMainContext *context,
 
 	if (cur->fd == G_KQUEUE_WAKEUP_HANDLE)
 	  {
-	    remove_wakeup = FALSE;
+	    if (cur->handle == fd->handle)
+	      remove_wakeup = FALSE;
 	  }
 	else if (cur->fd == fd->fd)
 	  {
@@ -5012,10 +5034,14 @@ g_main_context_remove_poll_unlocked (GMainContext *context,
 	  }
       }
 
+    if (remove_wakeup)
+      _g_wakeup_kqueue_unrealize (fd->handle);
+
     ev = events;
     if (remove_wakeup)
       {
-	EV_SET (ev, fd->fd, EVFILT_USER, EV_DELETE, 0, 0, NULL);
+	EV_SET (ev, GPOINTER_TO_SIZE (fd->handle), EVFILT_USER, EV_DELETE, 0,
+		0, NULL);
 	ev++;
       }
     if (remove_in)
@@ -5035,8 +5061,10 @@ g_main_context_remove_poll_unlocked (GMainContext *context,
 	ev++;
       }
 #endif
+    num_events = ev - events;
 
-    kevent (context->kq, events, ev - events, NULL, 0, NULL);
+    if (context->kq != -1 && num_events > 0)
+      kevent (context->kq, events, num_events, NULL, 0, NULL);
   }
 #endif
 

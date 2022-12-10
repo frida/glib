@@ -76,6 +76,17 @@
 #include "gprintf.h"
 #endif
 
+#ifdef HAVE_KQUEUE
+#include "galloca.h"
+#include "gprintf.h"
+#include "gwakeup-private.h"
+#include <sys/event.h>
+#endif
+
+#ifdef G_DISABLE_CHECKS
+#include "glib-nolog.h"
+#endif
+
 #ifdef G_MAIN_POLL_DEBUG
 extern gboolean _g_main_poll_debug;
 #endif
@@ -502,6 +513,188 @@ g_poll (GPollFD *fds,
   CloseHandle ((HANDLE)stop_event.fd);
 
   return retval;
+}
+
+#elif defined (HAVE_KQUEUE)
+
+gint
+g_poll (GPollFD *fds,
+	guint    nfds,
+	gint     timeout)
+{
+  int ret, errsv, kq, i;
+  guint max_events;
+  struct kevent *events, *ev;
+  guint num_wakeup_fds;
+  struct timespec *ts, ts_storage;
+
+  kq = kqueue ();
+  if (kq == -1)
+    return -1;
+
+  max_events = nfds * 3;
+  events = g_newa (struct kevent, max_events);
+  ev = events;
+  num_wakeup_fds = 0;
+
+  for (i = 0; i < (int) nfds; i++)
+    {
+      GPollFD *fd = &fds[i];
+
+      if (fd->fd == G_KQUEUE_WAKEUP_HANDLE)
+	{
+	  EV_SET (ev, GPOINTER_TO_SIZE (fd->handle), EVFILT_USER, EV_ADD,
+		  NOTE_FFCOPY, 0, NULL);
+	  ev++;
+	  num_wakeup_fds++;
+	}
+      else if (fd->fd >= 0)
+	{
+	  if (fd->events & G_IO_IN)
+	    {
+	      EV_SET (ev, fd->fd, EVFILT_READ, EV_ADD, 0, 0, fd);
+	      ev++;
+	    }
+	  if (fd->events & G_IO_OUT)
+	    {
+	      EV_SET (ev, fd->fd, EVFILT_WRITE, EV_ADD, 0, 0, fd);
+	      ev++;
+	    }
+#ifdef EVFILT_EXCEPT
+	  if (fd->events & G_IO_PRI)
+	    {
+	      EV_SET (ev, fd->fd, EVFILT_EXCEPT, EV_ADD, NOTE_OOB, 0, fd);
+	      ev++;
+	    }
+#endif
+	}
+    }
+
+  if (timeout >= 0)
+    {
+      ts_storage.tv_sec = timeout / 1000;
+      ts_storage.tv_nsec = (timeout % 1000) * 1000000;
+      ts = &ts_storage;
+    }
+  else
+    {
+      ts = NULL;
+    }
+
+  if (num_wakeup_fds == 0)
+    {
+      ret = kevent (kq, events, ev - events, events, max_events, ts);
+      errsv = errno;
+    }
+  else
+    {
+      ret = kevent (kq, events, ev - events, NULL, 0, NULL);
+      errsv = errno;
+      if (ret == -1)
+	goto beach;
+
+      for (i = 0; i < (int) nfds; i++)
+	{
+	  GPollFD *fd = &fds[i];
+
+	  if (fd->fd == G_KQUEUE_WAKEUP_HANDLE)
+	    _g_wakeup_kqueue_realize (fd->handle, kq);
+	}
+
+      ret = kevent (kq, NULL, 0, events, max_events, ts);
+      errsv = errno;
+    }
+
+  for (i = 0; i < (int) nfds; i++)
+    fds[i].revents = 0;
+
+  for (i = 0; i < ret; i++)
+    {
+      struct kevent *ev = &events[i];
+      GPollFD *pfd = ev->udata;
+
+      switch (ev->filter)
+	{
+	  case EVFILT_READ:
+	    if (pfd->events & G_IO_IN)
+	      pfd->revents |= G_IO_IN;
+#ifdef EV_OOBAND
+	    if (pfd->events & G_IO_PRI && ev->flags & EV_OOBAND)
+	      pfd->revents |= G_IO_PRI;
+#endif
+	    if (ev->flags & EV_EOF)
+	      {
+		pfd->revents |= G_IO_HUP;
+		if (ev->fflags != 0)
+		  pfd->revents |= G_IO_ERR;
+	      }
+	    if (ev->flags & EV_ERROR)
+	      pfd->revents |= G_IO_ERR;
+	    break;
+	  case EVFILT_WRITE:
+	    if (pfd->events & G_IO_OUT)
+	      pfd->revents |= G_IO_OUT;
+	    if (ev->flags & (EV_EOF|EV_ERROR))
+	      pfd->revents |= G_IO_ERR;
+	    break;
+#ifdef EVFILT_EXCEPT
+	  case EVFILT_EXCEPT:
+	    if (pfd->events & G_IO_PRI)
+	      pfd->revents |= G_IO_PRI;
+	    if (ev->flags & EV_EOF)
+	      pfd->revents |= G_IO_HUP;
+	    if (ev->flags & EV_ERROR)
+	      pfd->revents |= G_IO_ERR;
+	    break;
+#endif
+	  case EVFILT_USER:
+	    for (int j = 0; j < (int) nfds; j++)
+		{
+		  pfd = &fds[j];
+		  if (pfd->fd == G_KQUEUE_WAKEUP_HANDLE &&
+		      pfd->handle == GSIZE_TO_POINTER (ev->ident))
+		    {
+		      if (pfd->events & G_IO_IN)
+			pfd->revents |= G_IO_IN;
+		    }
+		}
+	    break;
+	}
+    }
+
+  if (ret > 0)
+    {
+      ret = 0;
+      for (i = 0; i < (int) nfds; i++)
+	{
+	  if (fds[i].revents != 0)
+	    ret++;
+	}
+    }
+  else if (ret < 0 && errsv != EINTR)
+    {
+      g_warning ("kevent(2) failed due to: %s.",
+		 g_strerror (errsv));
+    }
+
+beach:
+  if (num_wakeup_fds > 0)
+    {
+      for (i = 0; i < (int) nfds; i++)
+	{
+	  GPollFD *fd = &fds[i];
+
+	  if (fd->fd == G_KQUEUE_WAKEUP_HANDLE)
+	    _g_wakeup_kqueue_unrealize (fd->handle);
+	}
+    }
+
+  close (kq);
+
+  if (ret == -1)
+    errno = errsv;
+
+  return ret;
 }
 
 #else  /* !G_OS_WIN32 */

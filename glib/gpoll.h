@@ -102,7 +102,7 @@ struct _GPollFD
   gushort 	events;
   gushort 	revents;
 #ifdef G_POLLFD_KQUEUE
-  gint	       *kq;
+  gpointer      handle;
 #endif
 };
 

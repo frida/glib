@@ -117,13 +117,21 @@ g_wakeup_free (GWakeup *wakeup)
 #elif defined (HAVE_KQUEUE)
 
 #include "glib-unix.h"
+#include "gwakeup-private.h"
 
 #include <sys/event.h>
 
+#define G_WAKEUP_LOCK(w)   g_mutex_lock (&(w)->mutex)
+#define G_WAKEUP_UNLOCK(w) g_mutex_unlock (&(w)->mutex)
+
 struct _GWakeup
 {
+  GMutex mutex;
   gint kq;
+  guint pending;
 };
+
+static void g_wakeup_signal_unlocked (GWakeup *wakeup);
 
 GWakeup *
 g_wakeup_new (void)
@@ -131,7 +139,9 @@ g_wakeup_new (void)
   GWakeup *wakeup;
 
   wakeup = g_slice_new (GWakeup);
+  g_mutex_init (&wakeup->mutex);
   wakeup->kq = -1;
+  wakeup->pending = 0;
 
   return wakeup;
 }
@@ -142,7 +152,31 @@ g_wakeup_get_pollfd (GWakeup *wakeup,
 {
   poll_fd->fd = G_KQUEUE_WAKEUP_HANDLE;
   poll_fd->events = G_IO_IN;
-  poll_fd->kq = &wakeup->kq;
+  poll_fd->handle = wakeup;
+}
+
+void
+_g_wakeup_kqueue_realize (GWakeup *wakeup,
+			  gint kq)
+{
+  G_WAKEUP_LOCK (wakeup);
+
+  wakeup->kq = kq;
+
+  if (wakeup->pending != 0)
+    g_wakeup_signal_unlocked (wakeup);
+
+  G_WAKEUP_UNLOCK (wakeup);
+}
+
+void
+_g_wakeup_kqueue_unrealize (GWakeup *wakeup)
+{
+  G_WAKEUP_LOCK (wakeup);
+
+  wakeup->kq = -1;
+
+  G_WAKEUP_UNLOCK (wakeup);
 }
 
 void
@@ -150,26 +184,49 @@ g_wakeup_acknowledge (GWakeup *wakeup)
 {
   struct kevent ev[2];
 
-  EV_SET (&ev[0], G_KQUEUE_WAKEUP_HANDLE, EVFILT_USER, EV_DELETE,
+  G_WAKEUP_LOCK (wakeup);
+
+  EV_SET (&ev[0], GPOINTER_TO_SIZE (wakeup), EVFILT_USER, EV_DELETE,
 	  0, 0, NULL);
-  EV_SET (&ev[1], G_KQUEUE_WAKEUP_HANDLE, EVFILT_USER, EV_ADD,
+  EV_SET (&ev[1], GPOINTER_TO_SIZE (wakeup), EVFILT_USER, EV_ADD,
 	  NOTE_FFCOPY, 0, NULL);
   kevent (wakeup->kq, ev, G_N_ELEMENTS (ev), NULL, 0, NULL);
+
+  wakeup->pending = 0;
+
+  G_WAKEUP_UNLOCK (wakeup);
 }
 
 void
 g_wakeup_signal (GWakeup *wakeup)
 {
-  struct kevent ev;
+  G_WAKEUP_LOCK (wakeup);
 
-  EV_SET (&ev, G_KQUEUE_WAKEUP_HANDLE, EVFILT_USER, 0, NOTE_TRIGGER, 0, NULL);
+  g_wakeup_signal_unlocked (wakeup);
 
-  kevent (wakeup->kq, &ev, 1, NULL, 0, NULL);
+  G_WAKEUP_UNLOCK (wakeup);
+}
+
+static void
+g_wakeup_signal_unlocked (GWakeup *wakeup)
+{
+  if (wakeup->kq != -1)
+    {
+      struct kevent ev;
+
+      EV_SET (&ev, GPOINTER_TO_SIZE (wakeup), EVFILT_USER, 0, NOTE_TRIGGER,
+	      0, NULL);
+
+      kevent (wakeup->kq, &ev, 1, NULL, 0, NULL);
+    }
+
+  wakeup->pending++;
 }
 
 void
 g_wakeup_free (GWakeup *wakeup)
 {
+  g_mutex_clear (&wakeup->mutex);
   g_slice_free (GWakeup, wakeup);
 }
 
