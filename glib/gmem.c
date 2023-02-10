@@ -78,9 +78,22 @@ g_memalign (gsize alignment,
 {
   gpointer aligned_memory = NULL;
 
-  posix_memalign (&aligned_memory, alignment, size);
+  int ret = posix_memalign (&aligned_memory, alignment, size);
 
-  return aligned_memory;
+  if (ret == 0)
+    return aligned_memory;
+
+  if (ret == EINVAL)
+    {
+      // The alignment argument was not a power of two,
+      // or was not a multiple of sizeof(void *).
+      g_error ("%s: invalid alignment value: %"G_GSIZE_FORMAT" bytes",
+               G_STRLOC, alignment);
+    }
+
+  // ret == ENOMEM (etc)
+  g_error ("%s: failed to allocate %"G_GSIZE_FORMAT" bytes",
+            G_STRLOC, size);
 }
 #elif HAVE_MEMALIGN
 # define g_memalign memalign
