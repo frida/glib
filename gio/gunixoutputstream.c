@@ -454,7 +454,7 @@ g_unix_output_stream_writev (GOutputStream        *stream,
     {
       int errsv;
 
-      if(unix_stream->priv->can_poll)
+      if (unix_stream->priv->can_poll)
         {
           poll_fds[0].revents = poll_fds[1].revents = 0;
           do
