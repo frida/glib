@@ -369,6 +369,7 @@ g_unix_input_stream_read (GInputStream  *stream,
           if (!poll_fds[0].revents)
             continue;
         }
+        
       res = read (unix_stream->priv->fd, buffer, count);
       if (res == -1)
 	{
