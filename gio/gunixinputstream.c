@@ -342,7 +342,7 @@ g_unix_input_stream_read (GInputStream  *stream,
 
   while (1)
     {
-      if(unix_stream->priv->can_poll) 
+      if(unix_stream->priv->can_poll)
         {
           int errsv;
           
