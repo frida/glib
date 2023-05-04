@@ -22,6 +22,23 @@
 
 #include "config.h"
 
+#ifdef __APPLE__
+# include <TargetConditionals.h>
+# if TARGET_OS_TV
+#  define HAVE_FORK 1
+#  define HAVE_POSIX_SPAWN 1
+#  include <Availability.h>
+#  undef __TVOS_PROHIBITED
+#  define __TVOS_PROHIBITED
+#  undef __API_UNAVAILABLE
+#  define __API_UNAVAILABLE(...)
+#  include <unistd.h>
+#  include <spawn.h>
+#  undef __TVOS_PROHIBITED
+#  define __TVOS_PROHIBITED __OS_AVAILABILITY(tvos,unavailable)
+# endif
+#endif
+
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
