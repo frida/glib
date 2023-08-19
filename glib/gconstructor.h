@@ -163,7 +163,7 @@
   static void _func (void); \
   static void _func ## _register (void) { _glib_register_constructor (_func); }
 #define G_DEFINE_DESTRUCTOR(_func) \
-  _G_DEFINE_CONSTRUCTOR (_func ## _register); \
+  _G_DEFINE_DESTRUCTOR (_func ## _register); \
   void _glib_register_destructor (void (*) (void)); \
   static void _func (void); \
   static void _func ## _register (void) { _glib_register_destructor (_func); }
@@ -177,7 +177,7 @@
 #ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
 #define G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(_func) \
   static void _func ## _register (void); \
-  _G_DEFINE_CONSTRUCTOR_PRAGMA_ARGS (_func ## _register)
+  _G_DEFINE_DESTRUCTOR_PRAGMA_ARGS (_func ## _register)
 #endif
 
 #endif /* __GTK_DOC_IGNORE__ */
