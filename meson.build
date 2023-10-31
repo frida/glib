@@ -513,7 +513,6 @@ if cc.get_id() == 'gcc' or cc.get_id() == 'clang'
     '-Werror=init-self',
     '-Werror=missing-include-dirs',
     '-Werror=pointer-arith',
-    '-Werror=unused-result',
   ]
 
   warning_c_args = warning_common_args + [
