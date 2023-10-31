@@ -5,8 +5,12 @@ as GTK and GNOME. It provides data structure handling for C, portability
 wrappers, and interfaces for such runtime functionality as an event loop,
 threads, dynamic loading, and an object system.
 
-The official download locations are:
+The Frida GLib location is:
+  <https://github.com/frida/glib>
+
+The official GLib locations are:
   <https://download.gnome.org/sources/glib>
+  <https://gitlab.gnome.org/GNOME/glib/>
 
 The official web site is:
   <https://www.gtk.org/>
