@@ -485,16 +485,11 @@ _glib_register_destructor (GXtorFunc destructor)
 
 #ifdef G_PLATFORM_WIN32
 
-# if defined (_MSC_VER)
+# ifdef GLIB_STATIC_COMPILATION
 static void WINAPI
 glib_tls_callback (HINSTANCE hinstDLL,
                    DWORD     fdwReason,
                    LPVOID    lpvReserved)
-# elif defined (GLIB_STATIC_COMPILATION)
-BOOL WINAPI
-glib_dll_main (HINSTANCE hinstDLL,
-               DWORD     fdwReason,
-               LPVOID    lpvReserved)
 # else
 BOOL WINAPI
 DllMain (HINSTANCE hinstDLL,
@@ -520,31 +515,44 @@ DllMain (HINSTANCE hinstDLL,
       ;
     }
 
-# ifndef _MSC_VER
+# ifndef GLIB_STATIC_COMPILATION
   return TRUE;
 # endif
 }
 
-# ifdef _MSC_VER
-#  if GLIB_SIZEOF_VOID_P == 8
-#   pragma comment (linker, "/INCLUDE:_tls_used")
-#   pragma comment (linker, "/INCLUDE:_xl_b")
-#   pragma const_seg(".CRT$XLB")
-    EXTERN_C const
+# ifdef GLIB_STATIC_COMPILATION
+
+#  if defined (_MSC_VER)
+#   if GLIB_SIZEOF_VOID_P == 8
+#    pragma comment (linker, "/INCLUDE:_tls_used")
+#    pragma comment (linker, "/INCLUDE:_xl_b")
+#    pragma const_seg(".CRT$XLB")
+     EXTERN_C const
+#   else
+#    pragma comment (linker, "/INCLUDE:__tls_used")
+#    pragma comment (linker, "/INCLUDE:__xl_b")
+#    pragma data_seg(".CRT$XLB")
+     EXTERN_C
+#   endif
 #  else
-#   pragma comment (linker, "/INCLUDE:__tls_used")
-#   pragma comment (linker, "/INCLUDE:__xl_b")
-#   pragma data_seg(".CRT$XLB")
-    EXTERN_C
+    __attribute__ ((used, section (".CRT$XLB")))
+#   if GLIB_SIZEOF_VOID_P == 8
+     EXTERN_C const
+#   else
+     EXTERN_C
+#   endif
 #  endif
 
 PIMAGE_TLS_CALLBACK _xl_b = glib_tls_callback;
 
-#  if GLIB_SIZEOF_VOID_P == 8
-#   pragma const_seg()
-#  else
-#   pragma data_seg()
+#  ifdef _MSC_VER
+#   if GLIB_SIZEOF_VOID_P == 8
+#    pragma const_seg()
+#   else
+#    pragma data_seg()
+#   endif
 #  endif
+
 # endif
 
 #endif
