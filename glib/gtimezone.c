@@ -1060,7 +1060,7 @@ rules_from_windows_time_zone (const gchar   *identifier,
       for (year = first, i = 0; *rules != NULL && year <= last; year++)
         {
           gboolean failed = FALSE;
-          swprintf_s (s, 11, L"%d", year);
+          swprintf (s, 11, L"%d", year);
 
           if (!failed)
             {
