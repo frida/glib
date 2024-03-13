@@ -2144,6 +2144,7 @@ gvdb_dep = dependency('gvdb')
 
 libm = cc.find_library('m', required : false)
 libffi_options = [
+  'exe_static_tramp=false',
   'tests=false',
 ]
 libffi_dep = dependency('libffi',
