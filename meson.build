@@ -2120,7 +2120,13 @@ endif
 
 # Try again with the fallback
 if not pcre2.found()
-  pcre2 = dependency('libpcre2-8', required : true, fallback : ['pcre2', 'libpcre2_8'])
+  pcre2_options = [
+    'grep=false',
+    'test=false',
+  ]
+  pcre2 = dependency('libpcre2-8', required : true,
+                     fallback : ['pcre2', 'libpcre2_8'],
+                     default_options : pcre2_options)
   use_pcre2_static_flag = true
 elif host_system == 'windows'
   pcre2_static = cc.links('''#define PCRE2_STATIC
