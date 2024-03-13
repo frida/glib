@@ -2347,6 +2347,7 @@ endif
 pcre2_req = '>=10.32'
 pcre2_options = [
   'default_library=static',
+  'grep=false',
   'test=false',
 ]
 
