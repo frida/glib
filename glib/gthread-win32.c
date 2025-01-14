@@ -44,10 +44,10 @@
 
 #include "glib.h"
 #include "glib-init.h"
+#include "gptrset.h"
 #include "gthread.h"
 #include "gthreadprivate.h"
 #include "gslice.h"
-#include "gtinylist.h"
 
 #include <windows.h>
 
@@ -173,8 +173,8 @@ g_mutex_unlock (GMutex *mutex)
 
 /* {{{1 GRecMutex */
 
-static CRITICAL_SECTION g_thread_rec_mutex_lock;
-static GTinyList *g_thread_rec_mutexes = NULL;
+static CRITICAL_SECTION  g_thread_rec_mutex_lock;
+static GPtrSet          *g_thread_rec_mutexes;
 
 static CRITICAL_SECTION *
 g_rec_mutex_impl_new (void)
@@ -185,7 +185,7 @@ g_rec_mutex_impl_new (void)
   InitializeCriticalSection (cs);
 
   EnterCriticalSection (&g_thread_rec_mutex_lock);
-  g_thread_rec_mutexes = g_tinylist_prepend (g_thread_rec_mutexes, cs);
+  g_ptr_set_add (g_thread_rec_mutexes, cs);
   LeaveCriticalSection (&g_thread_rec_mutex_lock);
 
   return cs;
@@ -202,7 +202,7 @@ static void
 g_rec_mutex_impl_free (CRITICAL_SECTION *cs)
 {
   EnterCriticalSection (&g_thread_rec_mutex_lock);
-  g_thread_rec_mutexes = g_tinylist_remove (g_thread_rec_mutexes, cs);
+  g_ptr_set_remove (g_thread_rec_mutexes, cs);
   LeaveCriticalSection (&g_thread_rec_mutex_lock);
 
   g_rec_mutex_impl_finalize (cs);
@@ -379,8 +379,8 @@ g_cond_wait_until (GCond  *cond,
 
 /* {{{1 GPrivate */
 
-static GTinyList       *g_thread_privates;
-static CRITICAL_SECTION g_private_lock;
+static CRITICAL_SECTION  g_private_lock;
+static GPtrSet          *g_thread_privates;
 
 static DWORD
 g_private_get_impl (GPrivate *key)
@@ -408,7 +408,7 @@ g_private_get_impl (GPrivate *key)
           if (impl == TLS_OUT_OF_INDEXES || impl == 0)
             g_thread_abort (0, "TlsAlloc");
 
-          g_thread_privates = g_tinylist_prepend (g_thread_privates, key);
+          g_ptr_set_add (g_thread_privates, key);
 
           /* Ditto, due to the unlocked access on the fast path */
           if (!g_atomic_pointer_compare_and_exchange (&key->p, NULL, GUINT_TO_POINTER (impl)))
@@ -736,8 +736,8 @@ static gboolean         g_thread_xp_initialized = FALSE;
 static CRITICAL_SECTION g_thread_xp_lock;
 static GPrivate         g_thread_xp_waiter_private =
     G_PRIVATE_INIT_WITH_FLAGS (g_thread_xp_waiter_free, G_PRIVATE_DESTROY_LAST);
-static GTinyList       *g_thread_xp_srws = NULL;
-static GTinyList       *g_thread_xp_conds = NULL;
+static GPtrSet         *g_thread_xp_srws;
+static GPtrSet         *g_thread_xp_conds;
 
 /* {{{2 GThreadWaiter utility class for CONDITION_VARIABLE emulation */
 typedef struct _GThreadXpWaiter GThreadXpWaiter;
@@ -818,7 +818,7 @@ g_thread_xp_DeleteSRWLock (gpointer mutex)
   if (lock)
     {
       EnterCriticalSection (&g_thread_xp_lock);
-      g_thread_xp_srws = g_tinylist_remove (g_thread_xp_srws, lock);
+      g_ptr_set_remove (g_thread_xp_srws, lock);
       LeaveCriticalSection (&g_thread_xp_lock);
 
       g_thread_xp_FreeSRWLock (lock);
@@ -855,8 +855,7 @@ g_thread_xp_get_srwlock (GThreadSRWLock * volatile *lock)
           result->ever_shared = FALSE;
           *lock = result;
 
-          g_thread_xp_srws = g_tinylist_prepend (g_thread_xp_srws,
-                                                     result);
+          g_ptr_set_add (g_thread_xp_srws, result);
         }
 
       LeaveCriticalSection (&g_thread_xp_lock);
@@ -1041,7 +1040,7 @@ g_thread_xp_DeleteConditionVariable (gpointer cond)
   if (cv)
     {
       EnterCriticalSection (&g_thread_xp_lock);
-      g_thread_xp_conds = g_tinylist_remove (g_thread_xp_conds, cv);
+      g_ptr_set_remove (g_thread_xp_conds, cv);
       LeaveCriticalSection (&g_thread_xp_lock);
 
       g_thread_xp_FreeConditionVariable (cv);
@@ -1078,8 +1077,7 @@ g_thread_xp_get_condition_variable (GThreadXpCONDITION_VARIABLE * volatile *cond
       else
         {
           EnterCriticalSection (&g_thread_xp_lock);
-          g_thread_xp_conds = g_tinylist_prepend (g_thread_xp_conds,
-                                                      result);
+          g_ptr_set_add (g_thread_xp_conds, result);
           LeaveCriticalSection (&g_thread_xp_lock);
         }
     }
@@ -1201,6 +1199,8 @@ g_thread_xp_init (void)
   };
 
   InitializeCriticalSection (&g_thread_xp_lock);
+  g_thread_xp_srws = g_ptr_set_new ();
+  g_thread_xp_conds = g_ptr_set_new ();
 
   g_thread_impl_vtable = g_thread_xp_impl_vtable;
 
@@ -1213,14 +1213,14 @@ g_thread_xp_deinit (void)
   if (!g_thread_xp_initialized)
     return;
 
-  g_tinylist_foreach (g_thread_xp_conds,
+  g_ptr_set_foreach (g_thread_xp_conds,
                       (GFunc) g_thread_xp_FreeConditionVariable, NULL);
-  g_tinylist_free (g_thread_xp_conds);
+  g_ptr_set_free (g_thread_xp_conds);
   g_thread_xp_conds = NULL;
 
-  g_tinylist_foreach (g_thread_xp_srws,
+  g_ptr_set_foreach (g_thread_xp_srws,
                       (GFunc) g_thread_xp_FreeSRWLock, NULL);
-  g_tinylist_free (g_thread_xp_srws);
+  g_ptr_set_free (g_thread_xp_srws);
   g_thread_xp_srws = NULL;
 
   DeleteCriticalSection (&g_thread_xp_lock);
@@ -1308,7 +1308,10 @@ _g_thread_init (void)
     g_thread_xp_init ();
 
   InitializeCriticalSection (&g_thread_rec_mutex_lock);
+  g_thread_rec_mutexes = g_ptr_set_new ();
+
   InitializeCriticalSection (&g_private_lock);
+  g_thread_privates = g_ptr_set_new ();
 
 #ifndef _MSC_VER
   SetThreadName_VEH_handle = AddVectoredExceptionHandler (1, &SetThreadName_VEH);
@@ -1340,22 +1343,22 @@ _g_thread_win32_process_detach (void)
 void
 _g_thread_deinit (void)
 {
-  GTinyList *cur;
+  gsize i;
 
   g_thread_garbage_collect ();
   g_thread_perform_cleanup (g_thread_self ());
 
-  for (cur = g_thread_privates; cur; cur = cur->next)
+  for (i = 0; i != g_thread_privates->size; i++)
     {
-      GPrivate *key = cur->data;
+      GPrivate *key = g_thread_privates->items[i];
       TlsFree (GPOINTER_TO_SIZE (key->p));
     }
-  g_tinylist_free (g_thread_privates);
+  g_ptr_set_free (g_thread_privates);
   g_thread_privates = NULL;
 
-  g_tinylist_foreach (g_thread_rec_mutexes, (GFunc) g_rec_mutex_impl_finalize,
-                      NULL);
-  g_tinylist_free (g_thread_rec_mutexes);
+  g_ptr_set_foreach (g_thread_rec_mutexes, (GFunc) g_rec_mutex_impl_finalize,
+                     NULL);
+  g_ptr_set_free (g_thread_rec_mutexes);
   g_thread_rec_mutexes = NULL;
 
   DeleteCriticalSection (&g_thread_rec_mutex_lock);
