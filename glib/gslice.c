@@ -47,7 +47,7 @@
 #include "gthreadprivate.h"
 #include "glib_trace.h"
 #include "gprintf.h"
-#include "gtinylist.h"
+#include "gptrset.h"
 
 #include "gvalgrind.h"
 
@@ -1479,7 +1479,7 @@ slab_allocator_free_chunk (gsize    chunk_size,
 }
 
 /* --- memalign implementation --- */
-static GTinyList *slab_allocations = NULL;
+static GPtrSet *slab_allocations = NULL;
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 static GTrashStack *compat_valloc_trash = NULL;
 G_GNUC_END_IGNORE_DEPRECATIONS
@@ -1487,9 +1487,13 @@ G_GNUC_END_IGNORE_DEPRECATIONS
 static void
 allocator_cleanup (void)
 {
-  g_tinylist_foreach (slab_allocations, (GFunc) glib_mem_table->free, NULL);
-  g_tinylist_free (slab_allocations);
-  slab_allocations = NULL;
+  if (slab_allocations != NULL)
+    {
+      g_ptr_set_foreach (slab_allocations, (GFunc) glib_mem_table->free, NULL);
+      g_ptr_set_free (slab_allocations);
+      slab_allocations = NULL;
+    }
+
   compat_valloc_trash = NULL;
 }
 
@@ -1536,8 +1540,11 @@ allocator_memalign (gsize alignment,
       G_GNUC_END_IGNORE_DEPRECATIONS
 
       if (allocated_memory != NULL)
-        slab_allocations = g_tinylist_prepend (slab_allocations,
-                                               allocated_memory);
+        {
+          if (slab_allocations == NULL)
+            slab_allocations = g_ptr_set_new ();
+          g_ptr_set_add (slab_allocations, allocated_memory);
+        }
     }
 
   if (!aligned_memory)
