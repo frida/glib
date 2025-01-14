@@ -46,12 +46,12 @@
 #include "glib-init.h"
 #include "gmain.h"
 #include "gmessages.h"
+#include "gptrset.h"
 #include "gslice.h"
 #include "gstrfuncs.h"
 #include "gtestutils.h"
 #include "gthreadprivate.h"
 #include "gutils.h"
-#include "gtinylist.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -92,28 +92,28 @@ static pthread_mutex_t g_thread_state_lock;
 static pthread_key_t g_thread_cleanup_key;
 
 #if !defined(USE_NATIVE_MUTEX)
-static GTinyList *g_thread_mutexes = NULL;
-static GTinyList *g_thread_conds = NULL;
+static GPtrSet *g_thread_mutexes;
+static GPtrSet *g_thread_conds;
 #endif
-static GTinyList *g_thread_rec_mutexes = NULL;
-static GTinyList *g_thread_rwlocks = NULL;
-static GTinyList *g_thread_privates = NULL;
+static GPtrSet *g_thread_rec_mutexes;
+static GPtrSet *g_thread_rwlocks;
+static GPtrSet *g_thread_privates;
 
 static void
-g_thread_state_add (GTinyList **list,
-                    gpointer    item)
+g_thread_state_add (GPtrSet  *pset,
+                    gpointer  item)
 {
   pthread_mutex_lock (&g_thread_state_lock);
-  *list = g_tinylist_prepend (*list, item);
+  g_ptr_set_add (pset, item);
   pthread_mutex_unlock (&g_thread_state_lock);
 }
 
 static void
-g_thread_state_remove (GTinyList **list,
-                       gpointer    item)
+g_thread_state_remove (GPtrSet  *pset,
+                       gpointer  item)
 {
   pthread_mutex_lock (&g_thread_state_lock);
-  *list = g_tinylist_remove (*list, item);
+  g_ptr_set_remove (pset, item);
   pthread_mutex_unlock (&g_thread_state_lock);
 }
 
@@ -192,7 +192,7 @@ g_mutex_get_impl (GMutex *mutex)
       if (!g_atomic_pointer_compare_and_exchange (&mutex->p, NULL, impl))
         g_mutex_impl_free (impl);
       else
-        g_thread_state_add (&g_thread_mutexes, impl);
+        g_thread_state_add (g_thread_mutexes, impl);
       impl = mutex->p;
     }
 
@@ -205,13 +205,13 @@ g_mutex_init_impl (GMutex *mutex)
 {
   mutex->p = g_mutex_impl_new ();
 
-  g_thread_state_add (&g_thread_mutexes, mutex->p);
+  g_thread_state_add (g_thread_mutexes, mutex->p);
 }
 
 G_ALWAYS_INLINE static inline void
 g_mutex_clear_impl (GMutex *mutex)
 {
-  g_thread_state_remove (&g_thread_mutexes, mutex->p);
+  g_thread_state_remove (g_thread_mutexes, mutex->p);
 
   g_mutex_impl_free (mutex->p);
 }
@@ -288,7 +288,7 @@ g_rec_mutex_get_impl (GRecMutex *rec_mutex)
       if (!g_atomic_pointer_compare_and_exchange (&rec_mutex->p, NULL, impl))
         g_rec_mutex_impl_free (impl);
       else
-        g_thread_state_add (&g_thread_rec_mutexes, impl);
+        g_thread_state_add (g_thread_rec_mutexes, impl);
       impl = rec_mutex->p;
     }
 
@@ -300,13 +300,13 @@ g_rec_mutex_init_impl (GRecMutex *rec_mutex)
 {
   rec_mutex->p = g_rec_mutex_impl_new ();
 
-  g_thread_state_add (&g_thread_rec_mutexes, rec_mutex->p);
+  g_thread_state_add (g_thread_rec_mutexes, rec_mutex->p);
 }
 
 G_ALWAYS_INLINE static inline void
 g_rec_mutex_clear_impl (GRecMutex *rec_mutex)
 {
-  g_thread_state_remove (&g_thread_rec_mutexes, rec_mutex->p);
+  g_thread_state_remove (g_thread_rec_mutexes, rec_mutex->p);
 
   g_rec_mutex_impl_free (rec_mutex->p);
 }
@@ -368,7 +368,7 @@ g_rw_lock_get_impl (GRWLock *lock)
       if (!g_atomic_pointer_compare_and_exchange (&lock->p, NULL, impl))
         g_rw_lock_impl_free (impl);
       else
-        g_thread_state_add (&g_thread_rwlocks, impl);
+        g_thread_state_add (g_thread_rwlocks, impl);
       impl = lock->p;
     }
 
@@ -380,13 +380,13 @@ g_rw_lock_init_impl (GRWLock *rw_lock)
 {
   rw_lock->p = g_rw_lock_impl_new ();
 
-  g_thread_state_add (&g_thread_rwlocks, rw_lock->p);
+  g_thread_state_add (g_thread_rwlocks, rw_lock->p);
 }
 
 G_ALWAYS_INLINE static inline void
 g_rw_lock_clear_impl (GRWLock *rw_lock)
 {
-  g_thread_state_remove (&g_thread_rwlocks, rw_lock->p);
+  g_thread_state_remove (g_thread_rwlocks, rw_lock->p);
 
   g_rw_lock_impl_free (rw_lock->p);
 }
@@ -488,7 +488,7 @@ g_cond_get_impl (GCond *cond)
       if (!g_atomic_pointer_compare_and_exchange (&cond->p, NULL, impl))
         g_cond_impl_free (impl);
       else
-        g_thread_state_add (&g_thread_conds, impl);
+        g_thread_state_add (g_thread_conds, impl);
       impl = cond->p;
     }
 
@@ -500,13 +500,13 @@ g_cond_init_impl (GCond *cond)
 {
   cond->p = g_cond_impl_new ();
 
-  g_thread_state_add (&g_thread_conds, cond->p);
+  g_thread_state_add (g_thread_conds, cond->p);
 }
 
 G_ALWAYS_INLINE static inline void
 g_cond_clear_impl (GCond *cond)
 {
-  g_thread_state_remove (&g_thread_conds, cond->p);
+  g_thread_state_remove (g_thread_conds, cond->p);
 
   g_cond_impl_free (cond->p);
 }
@@ -708,7 +708,7 @@ _g_private_get_impl (GPrivate *key)
             }
           else
             {
-              g_thread_state_add (&g_thread_privates, key);
+              g_thread_state_add (g_thread_privates, key);
             }
         }
 
@@ -729,7 +729,7 @@ _g_private_get_impl (GPrivate *key)
             }
           else
             {
-              g_thread_state_add (&g_thread_privates, key);
+              g_thread_state_add (g_thread_privates, key);
             }
         }
 
@@ -1453,46 +1453,54 @@ _g_thread_init (void)
 #ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
   pthread_mutexattr_destroy (&attr);
 #endif
+
+#if !defined(USE_NATIVE_MUTEX)
+  g_thread_mutexes = g_ptr_set_new ();
+  g_thread_conds = g_ptr_set_new ();
+#endif
+  g_thread_rec_mutexes = g_ptr_set_new ();
+  g_thread_rwlocks = g_ptr_set_new ();
+  g_thread_privates = g_ptr_set_new ();
 }
 
 void
 _g_thread_deinit (void)
 {
-  GTinyList *cur;
+  gsize i;
   gint status;
 
   g_thread_garbage_collect ();
   g_thread_perform_cleanup (g_thread_self ());
   pthread_setspecific (g_thread_cleanup_key, NULL);
 
-  for (cur = g_thread_privates; cur; cur = cur->next)
+  for (i = 0; i != g_thread_privates->size; i++)
     {
-      GPrivate *key = cur->data;
+      GPrivate *key = g_thread_privates->items[i];
       if (sizeof (pthread_key_t) > sizeof (gpointer))
         g_private_impl_free (key->p);
       else
         g_private_impl_free_direct (key->p);
     }
-  g_tinylist_free (g_thread_privates);
+  g_ptr_set_free (g_thread_privates);
   g_thread_privates = NULL;
 
 #if !defined(USE_NATIVE_MUTEX)
-  g_tinylist_foreach (g_thread_conds, (GFunc) g_cond_impl_free, NULL);
-  g_tinylist_free (g_thread_conds);
+  g_ptr_set_foreach (g_thread_conds, (GFunc) g_cond_impl_free, NULL);
+  g_ptr_set_free (g_thread_conds);
   g_thread_conds = NULL;
 #endif
 
-  g_tinylist_foreach (g_thread_rwlocks, (GFunc) g_rw_lock_impl_free, NULL);
-  g_tinylist_free (g_thread_rwlocks);
+  g_ptr_set_foreach (g_thread_rwlocks, (GFunc) g_rw_lock_impl_free, NULL);
+  g_ptr_set_free (g_thread_rwlocks);
   g_thread_rwlocks = NULL;
 
-  g_tinylist_foreach (g_thread_rec_mutexes, (GFunc) g_rec_mutex_impl_free, NULL);
-  g_tinylist_free (g_thread_rec_mutexes);
+  g_ptr_set_foreach (g_thread_rec_mutexes, (GFunc) g_rec_mutex_impl_free, NULL);
+  g_ptr_set_free (g_thread_rec_mutexes);
   g_thread_rec_mutexes = NULL;
 
 #if !defined(USE_NATIVE_MUTEX)
-  g_tinylist_foreach (g_thread_mutexes, (GFunc) g_mutex_impl_free, NULL);
-  g_tinylist_free (g_thread_mutexes);
+  g_ptr_set_foreach (g_thread_mutexes, (GFunc) g_mutex_impl_free, NULL);
+  g_ptr_set_free (g_thread_mutexes);
   g_thread_mutexes = NULL;
 #endif
 
