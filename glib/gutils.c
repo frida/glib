@@ -275,6 +275,9 @@ gchar*
 g_find_program_in_path (const gchar *program)
 #endif
 {
+#ifdef G_OS_NONE
+  return NULL;
+#else
   const gchar *path, *p;
   gchar *name, *freeme;
 #ifdef G_OS_WIN32
@@ -440,6 +443,7 @@ g_find_program_in_path (const gchar *program)
 #endif
 
   return NULL;
+#endif
 }
 
 /* The functions below are defined this way for compatibility reasons.

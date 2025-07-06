@@ -272,6 +272,12 @@ g_rand_new (void)
 
   for (i = 0; i < G_N_ELEMENTS (seed); i++)
     rand_s (&seed[i]);
+#elif defined (G_OS_NONE)
+  gint64 t = g_get_real_time ();
+  seed[0] = t >> 32;
+  seed[1] = t;
+  seed[2] = 0;
+  seed[3] = 0;
 #else
 #warning Using insecure seed for random number generation because of missing rand_s() in Windows XP
   GTimeVal now;

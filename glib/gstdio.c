@@ -49,7 +49,7 @@
 #include "gstdio.h"
 #include "gstdioprivate.h"
 
-#if !defined (G_OS_UNIX) && !defined (G_OS_WIN32)
+#if !defined (G_OS_UNIX) && !defined (G_OS_WIN32) && !defined (G_OS_NONE)
 #error Please port this to your operating system
 #endif
 
@@ -1254,6 +1254,9 @@ g_mkdir (const gchar *filename,
     
   errno = save_errno;
   return retval;
+#elif defined (G_OS_NONE)
+  errno = ENOSYS;
+  return -1;
 #else
   return mkdir (filename, mode);
 #endif
@@ -1757,8 +1760,11 @@ g_utime (const gchar    *filename,
 
   errno = save_errno;
   return retval;
-#else
+#elif defined (HAVE_UTIME)
   return utime (filename, utb);
+#else
+  errno = ENOSYS;
+  return -1;
 #endif
 }
 

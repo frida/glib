@@ -685,6 +685,17 @@ GPrintFunc      g_set_printerr_handler  (GPrintFunc      func);
 
 #endif /* !G_DISABLE_CHECKS */
 
+#define G_PANIC_MISSING_IMPLEMENTATION() \
+    g_panic ("Missing implementation for: %s", G_STRFUNC)
+
+typedef void (*GPanicFunc) (const gchar *message, gpointer data);
+GLIB_AVAILABLE_IN_2_68
+void            g_panic              (const gchar * format,
+                                      ...);
+GLIB_AVAILABLE_IN_2_68
+void            g_set_panic_handler  (GPanicFunc    func,
+                                      gpointer      user_data);
+
 G_END_DECLS
 
 #endif /* __G_MESSAGES_H__ */

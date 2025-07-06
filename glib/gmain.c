@@ -500,7 +500,7 @@ static GThread *glib_worker_thread;
 static GMainContext *glib_worker_context;
 static gboolean glib_worker_running = FALSE;
 
-#ifndef G_OS_WIN32
+#if !defined (G_OS_WIN32) && !defined (G_OS_NONE)
 
 
 /* UNIX signals work by marking one of these variables then waking the
@@ -3151,6 +3151,9 @@ G_LOCK_DEFINE_STATIC (g_monotonic);
 static gint64 g_monotonic_elapsed_time;
 static gint64 g_monotonic_last_time;
 
+#ifdef G_OS_NONE
+G_GNUC_WEAK
+#endif
 gint64
 g_get_monotonic_time (void)
 {
@@ -4026,11 +4029,16 @@ g_main_context_query (GMainContext *context,
               fds[n_poll].fd = pollrec->fd->fd;
               fds[n_poll].events = events;
               fds[n_poll].revents = 0;
-#ifdef HAVE_KQUEUE
+#if defined (HAVE_KQUEUE)
               if (pollrec->fd->fd == G_KQUEUE_WAKEUP_HANDLE)
                 fds[n_poll].handle = pollrec->fd->handle;
               else
                 fds[n_poll].handle = NULL;
+#elif defined (G_OS_NONE)
+              if (pollrec->fd->fd == G_WAIT_WAKEUP_HANDLE)
+                fds[n_poll].user_data = pollrec->fd->user_data;
+              else
+                fds[n_poll].user_data = NULL;
 #endif
             }
 
@@ -5744,7 +5752,28 @@ g_child_watch_finalize (GSource *source)
 {
 }
 
-#else /* G_OS_WIN32 */
+#elif defined (G_OS_NONE) /* G_OS_WIN32 */
+
+static gboolean
+g_child_watch_prepare (GSource *source,
+		       gint    *timeout)
+{
+  *timeout = -1;
+  return FALSE;
+}
+
+static gboolean
+g_child_watch_check (GSource  *source)
+{
+  return TRUE;
+}
+
+static void
+g_child_watch_finalize (GSource *source)
+{
+}
+
+#else /* G_OS_NONE */
 
 static void
 wake_source (GSource *source)
@@ -6179,7 +6208,7 @@ g_child_watch_dispatch (GSource    *source,
   return FALSE;
 }
 
-#ifndef G_OS_WIN32
+#if !defined (G_OS_WIN32) && !defined (G_OS_NONE)
 
 static void
 g_unix_signal_handler (int signum)
@@ -6270,7 +6299,7 @@ g_child_watch_source_new (GPid pid)
   child_watch_source->poll.events = G_IO_IN;
 
   g_source_add_poll (source, &child_watch_source->poll);
-#else /* !G_OS_WIN32 */
+#elif !defined (G_OS_NONE) /* !G_OS_WIN32 */
 
 #ifdef HAVE_PIDFD
   /* Use a pidfd, if possible, to avoid having to install a global SIGCHLD

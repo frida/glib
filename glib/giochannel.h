@@ -330,6 +330,7 @@ gint        g_io_channel_unix_get_fd (GIOChannel *channel);
 GLIB_VAR GSourceFuncs g_io_watch_funcs;
 
 #define G_KQUEUE_WAKEUP_HANDLE -42
+#define G_WAIT_WAKEUP_HANDLE   -43
 
 #ifdef G_OS_WIN32
 

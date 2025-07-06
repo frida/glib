@@ -1204,7 +1204,7 @@ parse_args (gint    *argc_p,
            * tests spawn a *lot* of them.  Avoid spamming system crash
            * collection programs such as systemd-coredump and abrt.
            */
-#ifdef HAVE_SYS_RESOURCE_H
+#ifdef HAVE_SETRLIMIT
           {
             struct rlimit limit = { 0, 0 };
             (void) setrlimit (RLIMIT_CORE, &limit);
@@ -3697,7 +3697,7 @@ g_test_trap_fork (guint64        usec_timeout,
        * tests spawn a *lot* of them.  Avoid spamming system crash
        * collection programs such as systemd-coredump and abrt.
        */
-#ifdef HAVE_SYS_RESOURCE_H
+#ifdef HAVE_SETRLIMIT
       {
         struct rlimit limit = { 0, 0 };
         (void) setrlimit (RLIMIT_CORE, &limit);

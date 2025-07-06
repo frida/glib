@@ -51,6 +51,10 @@
 
 #include "gvalgrind.h"
 
+#if defined (G_OS_NONE) || defined (GLIB_DIET)
+# define G_NO_SLICE
+#endif
+
 /**
  * SECTION:memory_slices
  * @title: Memory Slices
@@ -185,7 +189,7 @@
  *     external and internal fragmentation (<= 12.5%). [Bonwick94]
  */
 
-#ifndef GLIB_DIET
+#ifndef G_NO_SLICE
 
 /* --- macros and constants --- */
 #define LARGEALIGNMENT          (256)
@@ -1064,7 +1068,7 @@ _g_slice_deinit (void)
 gpointer
 g_slice_alloc (gsize mem_size)
 {
-#ifndef GLIB_DIET
+#ifndef G_NO_SLICE
   ThreadMemory *tmem;
   gsize chunk_size;
   gpointer mem;
@@ -1179,7 +1183,7 @@ void
 g_slice_free1 (gsize    mem_size,
                gpointer mem_block)
 {
-#ifndef GLIB_DIET
+#ifndef G_NO_SLICE
   gsize chunk_size = P2ALIGN (mem_size);
   guint acat = allocator_categorize (chunk_size);
   if (G_UNLIKELY (!mem_block))
@@ -1247,7 +1251,7 @@ g_slice_free_chain_with_offset (gsize    mem_size,
                                 gsize    next_offset)
 {
   gpointer slice = mem_chain;
-#ifndef GLIB_DIET
+#ifndef G_NO_SLICE
   /* while the thread magazines and the magazine cache are implemented so that
    * they can easily be extended to allow for free lists containing more free
    * lists for the first level nodes, which would allow O(1) freeing in this
@@ -1325,7 +1329,7 @@ g_slice_free_chain_with_offset (gsize    mem_size,
 #endif
 }
 
-#ifndef GLIB_DIET
+#ifndef G_NO_SLICE
 
 /* --- single page allocator --- */
 static void
@@ -1806,6 +1810,7 @@ smc_tree_remove (SmcKType key)
 void
 g_slice_debug_tree_statistics (void)
 {
+#ifndef G_NO_SLICE
   g_mutex_lock (&smc_tree_mutex);
   if (smc_tree_root)
     {
@@ -1861,5 +1866,6 @@ g_slice_debug_tree_statistics (void)
    * GSlice: MemChecker: 504.900474 branches per trunk, 98.81% utilization
    * GSlice: MemChecker: 4.965039 entries per branch, 1 minimum, 37 maximum
    */
+#endif
 }
 #endif /* G_ENABLE_DEBUG */

@@ -41,7 +41,9 @@
 
 #include <sys/types.h>
 
+#ifndef __NEWLIB__
 #include <netdb.h>
+
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <resolv.h>
@@ -51,6 +53,7 @@
 
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
+#endif
 @NAMESER_COMPAT_INCLUDE@
 
 #ifndef T_SRV

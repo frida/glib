@@ -29,7 +29,7 @@
 #include <stdio.h>
 #include <sys/stat.h>
 
-#ifdef HAVE_DIRENT_H
+#if (defined (G_OS_WIN32) || defined (HAVE_OPENDIR)) && defined (HAVE_DIRENT_H)
 #include <sys/types.h>
 #include <dirent.h>
 #endif
@@ -58,7 +58,7 @@ struct _GDir
 {
 #ifdef G_OS_WIN32
   _WDIR *wdirp;
-#else
+#elif defined (HAVE_OPENDIR)
   DIR *dirp;
 #endif
 #ifdef G_OS_WIN32
@@ -89,7 +89,9 @@ GDir *
 g_dir_open_with_errno (const gchar *path,
                        guint        flags)
 {
+#if defined (G_OS_WIN32) || defined (HAVE_OPENDIR)
   GDir dir;
+#endif
 #ifdef G_OS_WIN32
   gint saved_errno;
   wchar_t *wpath;
@@ -109,14 +111,19 @@ g_dir_open_with_errno (const gchar *path,
 
   if (dir.wdirp == NULL)
     return NULL;
-#else
+#elif defined (HAVE_OPENDIR)
   dir.dirp = opendir (path);
 
   if (dir.dirp == NULL)
     return NULL;
+#else
+  errno = ENOSYS;
+  return NULL;
 #endif
 
+#if defined (G_OS_WIN32) || defined (HAVE_OPENDIR)
   return g_memdup2 (&dir, sizeof dir);
+#endif
 }
 
 /**
@@ -226,7 +233,7 @@ g_dir_read_name (GDir *dir)
 #ifdef G_OS_WIN32
   gchar *utf8_name;
   struct _wdirent *wentry;
-#else
+#elif defined (HAVE_OPENDIR)
   struct dirent *entry;
 #endif
 
@@ -254,7 +261,7 @@ g_dir_read_name (GDir *dir)
 
       return dir->utf8_buf;
     }
-#else
+#elif defined (HAVE_OPENDIR)
   entry = readdir (dir->dirp);
   while (entry 
          && (0 == strcmp (entry->d_name, ".") ||
@@ -265,6 +272,8 @@ g_dir_read_name (GDir *dir)
     return entry->d_name;
   else
     return NULL;
+#else
+  return NULL;
 #endif
 }
 
@@ -282,7 +291,7 @@ g_dir_rewind (GDir *dir)
   
 #ifdef G_OS_WIN32
   _wrewinddir (dir->wdirp);
-#else
+#elif defined (HAVE_OPENDIR)
   rewinddir (dir->dirp);
 #endif
 }
@@ -300,7 +309,7 @@ g_dir_close (GDir *dir)
 
 #ifdef G_OS_WIN32
   _wclosedir (dir->wdirp);
-#else
+#elif defined (HAVE_OPENDIR)
   closedir (dir->dirp);
 #endif
   g_free (dir);

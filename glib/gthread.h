@@ -51,6 +51,7 @@ typedef void (*GThreadGarbageHandler) (gpointer data);
 
 typedef struct _GThreadCallbacks GThreadCallbacks;
 typedef struct _GThread         GThread;
+typedef struct _GSystemThread   GSystemThread;
 
 typedef union  _GMutex          GMutex;
 typedef struct _GRecMutex       GRecMutex;
@@ -189,6 +190,20 @@ GLIB_AVAILABLE_IN_ALL
 gpointer        g_thread_join                   (GThread        *thread);
 GLIB_AVAILABLE_IN_ALL
 void            g_thread_yield                  (void);
+
+GLIB_AVAILABLE_IN_2_68
+GSystemThread * _g_system_thread_create         (gulong          stack_size,
+                                                 const char     *name,
+                                                 GThreadFunc     func,
+                                                 gpointer        data);
+GLIB_AVAILABLE_IN_2_68
+void            _g_system_thread_detach         (GSystemThread  *thread);
+GLIB_AVAILABLE_IN_2_68
+void            _g_system_thread_wait           (GSystemThread  *thread);
+GLIB_AVAILABLE_IN_2_68
+void            _g_system_thread_exit           (void);
+GLIB_AVAILABLE_IN_2_68
+void            _g_system_thread_set_name       (const gchar    *name);
 
 
 GLIB_AVAILABLE_IN_2_32

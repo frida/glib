@@ -549,6 +549,8 @@ static GMutex         g_messages_lock;
 static GLogDomain    *g_log_domains = NULL;
 static GPrintFunc     glib_print_func = NULL;
 static GPrintFunc     glib_printerr_func = NULL;
+static GPanicFunc     glib_panic_func = NULL;
+static gpointer       glib_panic_data = NULL;
 static GPrivate       g_log_depth;
 static GPrivate       g_log_structured_depth;
 static GLogFunc       default_log_func = g_log_default_handler;
@@ -3514,6 +3516,36 @@ g_printerr (const gchar *format,
     print_string (stderr, string);
 
   g_free (string);
+}
+
+void
+g_panic (const gchar * format,
+         ...)
+{
+  if (glib_panic_func != NULL)
+    {
+      va_list args;
+      gchar msg[128];
+
+      va_start (args, format);
+      vsprintf (msg, format, args);
+
+      glib_panic_func (msg, glib_panic_data);
+
+      va_end (args);
+    }
+  else
+    {
+      *((gint *) NULL) = 42;
+    }
+}
+
+void
+g_set_panic_handler (GPanicFunc func,
+                     gpointer   user_data)
+{
+  glib_panic_func = func;
+  glib_panic_data = user_data;
 }
 
 /**

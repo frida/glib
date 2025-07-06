@@ -230,6 +230,58 @@ g_wakeup_free (GWakeup *wakeup)
   g_slice_free (GWakeup, wakeup);
 }
 
+#elif defined (G_OS_NONE)
+
+#include "giochannel.h"
+#include "gslice.h"
+#include "gwait.h"
+#include "gwakeup-private.h"
+
+GWakeup *
+g_wakeup_new (void)
+{
+  GWakeup *wakeup;
+
+  wakeup = g_slice_new (GWakeup);
+  wakeup->signalled = FALSE;
+  wakeup->token = NULL;
+
+  return wakeup;
+}
+
+void
+g_wakeup_get_pollfd (GWakeup *wakeup,
+                     GPollFD *poll_fd)
+{
+  poll_fd->fd = G_WAIT_WAKEUP_HANDLE;
+  poll_fd->events = G_IO_IN;
+  poll_fd->user_data = wakeup;
+}
+
+void
+g_wakeup_acknowledge (GWakeup *wakeup)
+{
+  g_atomic_int_set (&wakeup->signalled, FALSE);
+}
+
+void
+g_wakeup_signal (GWakeup *wakeup)
+{
+  gpointer t;
+
+  g_atomic_int_set (&wakeup->signalled, TRUE);
+
+  t = g_atomic_pointer_get (&wakeup->token);
+  if (t != NULL)
+    g_wait_wake (t);
+}
+
+void
+g_wakeup_free (GWakeup *wakeup)
+{
+  g_slice_free (GWakeup, wakeup);
+}
+
 #else
 
 #include "glib-unix.h"

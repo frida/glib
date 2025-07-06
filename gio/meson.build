@@ -24,7 +24,7 @@ if host_system == 'windows'
   # inline workarounds for getaddrinfo, getnameinfo and freeaddrinfo if
   # they aren't present at run-time (on Windows 2000).
   gnetworking_h_wspiapi_include = '#include <wspiapi.h>'
-elif host_system != 'android'
+elif host_system not in ['android', 'none']
   # Don't check for C_IN on Android since it does not define it in public
   # headers, we define it ourselves wherever necessary
   if not cc.compiles('''#include <sys/types.h>
@@ -45,7 +45,7 @@ endif
 
 network_libs = [ ]
 network_args = [ ]
-if host_system != 'windows'
+if host_system not in ['windows', 'none']
   # res_query()
   res_query_test = '''#include <resolv.h>
                       int main (int argc, char ** argv) {
@@ -361,7 +361,7 @@ gdbus_daemon_sources = [
   gdbus_daemon_generated,
 ]
 
-if host_system != 'windows'
+if host_system not in ['windows', 'none']
   unix_sources = files(
     'gfiledescriptorbased.c',
     'giounix-private.c',
@@ -440,7 +440,7 @@ if host_system != 'windows'
       'gnetworkmonitornm.c',
     )
   endif
-else
+elif host_system == 'windows'
   appinfo_sources += files('gwin32appinfo.c')
   contenttype_sources += files('gcontenttype-win32.c')
   platform_deps += [cc.find_library('shlwapi'),
@@ -510,22 +510,10 @@ gio_sources = files(
   'gdummytlsbackend.c',
   'gemblem.c',
   'gemblemedicon.c',
-  'gfile.c',
-  'gfileattribute.c',
-  'gfileenumerator.c',
-  'gfileicon.c',
-  'gfileinfo.c',
-  'gfileinputstream.c',
-  'gfilemonitor.c',
-  'gfilenamecompleter.c',
-  'gfileoutputstream.c',
-  'gfileiostream.c',
   'gfilterinputstream.c',
   'gfilteroutputstream.c',
   'gicon.c',
-  'ginetaddress.c',
   'ginetaddressmask.c',
-  'ginetsocketaddress.c',
   'ginitable.c',
   'ginputstream.c',
   'gioerror.c',
@@ -541,13 +529,8 @@ gio_sources = files(
   'gmemoryinputstream.c',
   'gmemoryoutputstream.c',
   'gmountoperation.c',
-  'gnativesocketaddress.c',
   'gnativevolumemonitor.c',
-  'gnetworkaddress.c',
   'gnetworking.c',
-  'gnetworkmonitor.c',
-  'gnetworkmonitorbase.c',
-  'gnetworkservice.c',
   'goutputstream.c',
   'gpermission.c',
   'gpollableinputstream.c',
@@ -560,7 +543,6 @@ gio_sources = files(
   'gproxyaddress.c',
   'gproxyaddressenumerator.c',
   'gproxyresolver.c',
-  'gresolver.c',
   'gresource.c',
   'gresourcefile.c',
   'gseekable.c',
@@ -568,10 +550,6 @@ gio_sources = files(
   'gsimpleiostream.c',
   'gsimplepermission.c',
   'gsimpleproxyresolver.c',
-  'gsocket.c',
-  'gsocketaddress.c',
-  'gsocketaddressenumerator.c',
-  'gsocketclient.c',
   'gsocketconnectable.c',
   'gsocketconnection.c',
   'gsocketcontrolmessage.c',
@@ -580,14 +558,11 @@ gio_sources = files(
   'gsocketoutputstream.c',
   'gsocketservice.c',
   'gsrvtarget.c',
-  'gsubprocesslauncher.c',
-  'gsubprocess.c',
   'gtask.c',
   'gtcpconnection.c',
   'gtcpwrapperconnection.c',
   'gthemedicon.c',
   'gthreadedsocketservice.c',
-  'gthreadedresolver.c',
   'gthreadedresolver.h',
   'gtlsbackend.c',
   'gtlscertificate.c',
@@ -605,7 +580,6 @@ gio_sources = files(
   'gunixconnection.c',
   'gunixfdlist.c',
   'gunixcredentialsmessage.c',
-  'gunixsocketaddress.c',
   'gvfs.c',
   'gvolume.c',
   'gvolumemonitor.c',
@@ -615,20 +589,55 @@ gio_sources = files(
   'gliststore.c',
 )
 
+if host_system != 'none'
+  gio_sources += files(
+    'gfile.c',
+    'gfileattribute.c',
+    'gfileenumerator.c',
+    'gfileicon.c',
+    'gfileinfo.c',
+    'gfileinputstream.c',
+    'gfileiostream.c',
+    'gfilemonitor.c',
+    'gfilenamecompleter.c',
+    'gfileoutputstream.c',
+    'ginetaddress.c',
+    'ginetsocketaddress.c',
+    'gnativesocketaddress.c',
+    'gnetworkaddress.c',
+    'gnetworkmonitor.c',
+    'gnetworkmonitorbase.c',
+    'gnetworkservice.c',
+    'gresolver.c',
+    'gsocket.c',
+    'gsocketaddress.c',
+    'gsocketaddressenumerator.c',
+    'gsocketclient.c',
+    'gsubprocess.c',
+    'gsubprocesslauncher.c',
+    'gthreadedresolver.c',
+    'gunixsocketaddress.c',
+  )
+endif
+
 if glib_build_shared
   gio_sources += files ('../glib/gtrace.c')
 endif
 
 gio_sources += appinfo_sources
 gio_sources += contenttype_sources
-gio_sources += gdbus_daemon_sources
-gio_sources += unix_sources
-gio_sources += win32_sources
-gio_sources += application_sources
+if host_system != 'none'
+  gio_sources += gdbus_daemon_sources
+  gio_sources += unix_sources
+  gio_sources += win32_sources
+  gio_sources += application_sources
+endif
 gio_sources += settings_sources
-gio_sources += gdbus_sources
-gio_sources += portal_sources
-gio_sources += local_sources
+if host_system != 'none'
+  gio_sources += gdbus_sources
+  gio_sources += portal_sources
+  gio_sources += local_sources
+endif
 
 MISSING_STUFF = '''
 # This is read by gobject-introspection/misc/ and gtk-doc
@@ -992,6 +1001,8 @@ gio_tool_sources = [
   'gio-tool-tree.c',
 ]
 
+if host_system != 'none'
+
 executable('gio', gio_tool_sources,
   install : true,
   install_tag : 'bin',
@@ -1055,10 +1066,14 @@ install_data('gschema.dtd',
   install_tag : 'devel',
 )
 
+endif
+
 install_data(['gschema.loc', 'gschema.its'],
   install_dir : get_option('datadir') / 'gettext' / 'its',
   install_tag : 'devel',
 )
+
+if host_system != 'none'
 
 executable('gdbus', 'gdbus-tool.c',
   install : true,
@@ -1076,6 +1091,8 @@ if host_system != 'windows' and not glib_have_cocoa
     # intl.lib is not compatible with SAFESEH
     link_args : noseh_link_args,
     dependencies : [libgio_dep, libgobject_dep, libgmodule_dep, libglib_dep])
+endif
+
 endif
 
 if enable_systemtap

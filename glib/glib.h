@@ -102,6 +102,7 @@
 #include <glib/gvarianttype.h>
 #include <glib/gversion.h>
 #include <glib/gversionmacros.h>
+#include <glib/gwait.h>
 
 #ifdef G_PLATFORM_WIN32
 #include <glib/gwin32.h>

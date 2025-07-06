@@ -33,7 +33,7 @@
 
 #include <stdlib.h>
 
-#ifdef G_OS_UNIX
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif /* G_OS_UNIX */
 
@@ -55,6 +55,10 @@
 #include "gstrfuncs.h"
 #include "gtestutils.h"
 #include "gmain.h"
+
+#ifdef G_OS_NONE
+#include "gwait.h"
+#endif
 
 /**
  * SECTION:timers
@@ -272,6 +276,9 @@ g_usleep (gulong microseconds)
 #ifdef G_OS_WIN32
   /* Round up to the next millisecond */
   Sleep (microseconds ? (1 + (microseconds - 1) / 1000) : 0);
+#elif defined (G_OS_NONE)
+  guint64 my_token;
+  g_wait_sleep (&my_token, microseconds);
 #else
   struct timespec request, remaining;
   request.tv_sec = microseconds / G_USEC_PER_SEC;

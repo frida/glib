@@ -83,6 +83,13 @@
 #include <sys/event.h>
 #endif
 
+#ifdef G_OS_NONE
+#include "gdatetime.h"
+#include "gmessages.h"
+#include "gwakeup-private.h"
+#include "gwait.h"
+#endif
+
 #ifdef G_DISABLE_CHECKS
 #include "glib-nolog.h"
 #endif
@@ -695,6 +702,171 @@ beach:
     errno = errsv;
 
   return ret;
+}
+
+#elif defined (G_OS_NONE)
+
+typedef struct _GPollOperation GPollOperation;
+
+struct _GPollOperation
+{
+  GPollFD *fds;
+  guint    nfds;
+};
+
+gint
+g_poll (GPollFD *fds,
+	guint    nfds,
+	gint     timeout)
+{
+  gint ready;
+  gint64 deadline;
+  guint i;
+  GPollOperation op = { fds, nfds };
+  gpointer token = &op;
+  gboolean slept;
+
+  deadline = (timeout == -1)
+      ? G_MAXINT64
+      : g_get_monotonic_time () + (timeout * G_TIME_SPAN_MILLISECOND);
+
+  for (i = 0; i < nfds; i++)
+    {
+      GPollFD *p = &fds[i];
+
+      if (p->fd == G_WAIT_WAKEUP_HANDLE)
+        {
+          GWakeup *w = p->user_data;
+
+          g_atomic_pointer_set (&w->token, token);
+        }
+    }
+
+  slept = FALSE;
+
+  for (;;)
+    {
+      gint64 timeout_us;
+
+      ready = 0;
+
+      for (i = 0; i < nfds; i++)
+        {
+          GPollFD *p = &fds[i];
+
+          p->revents = 0;
+
+          if (p->fd == G_WAIT_WAKEUP_HANDLE)
+            {
+              GWakeup *w = p->user_data;
+
+              if (g_atomic_int_get (&w->signalled))
+                {
+                  p->revents = G_IO_IN;
+                  ready++;
+                }
+            }
+        }
+
+      if (ready || timeout == 0 || slept)
+        goto done;
+
+      if (timeout == -1)
+        {
+          timeout_us = G_WAIT_INFINITE;
+        }
+      else
+        {
+          gint64 now;
+
+          now = g_get_monotonic_time ();
+          if (now >= deadline)
+            goto done;
+
+          timeout_us = deadline - now;
+        }
+
+      g_wait_sleep (token, timeout_us);
+
+      slept = TRUE;
+    }
+
+done:
+  for (i = 0; i < nfds; i++)
+    {
+      GPollFD *p = &fds[i];
+
+      if (p->fd == G_WAIT_WAKEUP_HANDLE)
+        {
+          GWakeup *w = p->user_data;
+
+          g_atomic_pointer_set (&w->token, NULL);
+        }
+    }
+
+  return ready;
+}
+
+/**
+ * g_wait_sleep:
+ *
+ * Blocks the **current** thread until either
+ *   • @timeout_us expires,           or
+ *   • g_wait_wake (@token) fires on the *same* token.
+ *
+ * @token is opaque; the implementation must **not** dereference it.
+ *
+ * GLib ships weak, do-nothing fall-backs so normal builds link without
+ * an extra object file.  Kernels, bare-metal firmware, RTOSes, etc.
+ * simply override both symbols.
+ */
+G_GNUC_WEAK void
+g_wait_sleep (gpointer token, gint64 timeout_us)
+{
+#ifdef G_OS_NONE
+  G_PANIC_MISSING_IMPLEMENTATION ();
+#endif
+}
+
+/**
+ * g_wait_wake:
+ *
+ * Unblocks every thread that is currently sleeping on the same token.
+ */
+G_GNUC_WEAK void
+g_wait_wake (gpointer token)
+{
+#ifdef G_OS_NONE
+  G_PANIC_MISSING_IMPLEMENTATION ();
+#endif
+}
+
+/**
+ * g_wait_is_set:
+ *
+ * For g_wait_sleep() to query whether g_wait_wake() may already have been
+ * called, to avoid deadlocking in case it needs to register the token before
+ * it can be used to wake it up.
+ */
+gboolean
+g_wait_is_set (gpointer token)
+{
+  GPollOperation *op = token;
+  guint i;
+
+  for (i = 0; i < op->nfds; i++)
+    {
+      GPollFD *p = &op->fds[i];
+
+      if (p->fd == G_WAIT_WAKEUP_HANDLE)
+        {
+          GWakeup *w = p->user_data;
+          if (g_atomic_int_get (&w->signalled))
+            return TRUE;
+        }
+    }
+
+  return FALSE;
 }
 
 #else  /* !G_OS_WIN32 */

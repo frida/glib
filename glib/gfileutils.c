@@ -345,6 +345,9 @@ gboolean
 g_file_test (const gchar *filename,
              GFileTest    test)
 {
+#ifdef G_OS_NONE
+  return FALSE;
+#else
 #ifdef G_OS_WIN32
   DWORD attributes;
   wchar_t *wfilename;
@@ -489,6 +492,7 @@ g_file_test (const gchar *filename,
     }
 
   return FALSE;
+#endif
 #endif
 }
 
@@ -2943,7 +2947,8 @@ g_get_current_dir (void)
     dir = g_strdup ("\\");
 
   return dir;
-
+#elif defined (G_OS_NONE)
+  return g_strdup ("/");
 #else
   const gchar *pwd;
   gchar *buffer = NULL;

@@ -107,7 +107,7 @@ struct _GCredentials
   ucred_t *native;
 #elif G_CREDENTIALS_USE_WIN32_PID
   DWORD native;
-#else
+#elif !defined (G_OS_NONE)
   #ifdef __GNUC__
   #pragma GCC diagnostic push
   #pragma GCC diagnostic warning "-Wcpp"
