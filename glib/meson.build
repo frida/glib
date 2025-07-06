@@ -245,6 +245,7 @@ glib_sub_headers = files(
   'gvarianttype.h',
   'gvariant.h',
   'gversion.h',
+  'gwait.h',
   'gprintf.h',
 )
 
@@ -383,7 +384,7 @@ if host_system == 'windows'
   if cc.get_id() == 'msvc' or cc.get_id() == 'clang-cl'
     glib_sources += files('dirent/wdirent.c')
   endif
-else
+elif host_system != 'none'
   glib_sources += files('glib-unix.c', 'giounix.c')
   if process_spawn_allowed
     glib_sources += files('gspawn-posix.c')
@@ -534,7 +535,7 @@ if host_system == 'windows'
       include_directories : configinc,
       dependencies : [libglib_dep, app_profile_dep])
   endif
-else
+elif host_system != 'none'
   gtester = executable('gtester', 'gtester.c',
     install : true,
     install_tag : 'bin-devel',

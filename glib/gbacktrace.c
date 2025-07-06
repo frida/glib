@@ -149,14 +149,19 @@ void
 g_on_error_query (const gchar *prg_name)
 {
 #ifndef G_OS_WIN32
+# ifndef G_OS_NONE
   static const gchar * const query1 = "[E]xit, [H]alt";
   static const gchar * const query2 = ", show [S]tack trace";
   static const gchar * const query3 = " or [P]roceed";
   gchar buf[16];
+# endif
 
   if (!prg_name)
     prg_name = g_get_prgname ();
 
+# ifdef G_OS_NONE
+  g_on_error_stack_trace (prg_name);
+# else
  retry:
 
   _g_fprintf (stdout,
@@ -199,6 +204,7 @@ g_on_error_query (const gchar *prg_name)
     }
   else
     goto retry;
+# endif
 #else
   if (!prg_name)
     prg_name = g_get_prgname ();

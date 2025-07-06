@@ -1170,7 +1170,7 @@ g_test_log (GTestLogType lbit,
 void
 g_test_disable_crash_reporting (void)
 {
-#ifdef HAVE_SYS_RESOURCE_H
+#ifdef HAVE_SETRLIMIT
   struct rlimit limit = { 0, 0 };
 
   (void) setrlimit (RLIMIT_CORE, &limit);

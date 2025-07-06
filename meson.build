@@ -93,6 +93,16 @@ elif host_system == 'ios'
   subsystem = 'ios'
 endif
 
+newlib_test_code = '''#include <stdlib.h>
+                      #ifndef __NEWLIB__
+                      #error "Not newlib"
+                      #endif'''
+if cc.compiles(newlib_test_code, name : 'libc is newlib')
+  libc = 'newlib'
+else
+  libc = 'other'
+endif
+
 glib_version = meson.project_version()
 glib_api_version = '2.0'
 version_arr = glib_version.split('.')
@@ -185,7 +195,7 @@ installed_tests_template = files('tests/template.test.in')
 installed_tests_template_tap = files('tests/template-tap.test.in')
 
 # Don’t build the tests unless we can run them (either natively, in an exe wrapper, or by installing them for later use)
-build_tests = get_option('tests') and (meson.can_run_host_binaries() or installed_tests_enabled)
+build_tests = get_option('tests') and (meson.can_run_host_binaries() or installed_tests_enabled) and host_system != 'none'
 
 common_test_env = [
   'G_DEBUG=gc-friendly',
@@ -365,6 +375,8 @@ if host_system == 'windows'
 elif host_system == 'cygwin'
   glib_os = '''#define G_OS_UNIX
 #define G_WITH_CYGWIN'''
+elif host_system == 'none'
+  glib_os = '#define G_OS_NONE'
 else
   glib_os = '#define G_OS_UNIX'
 endif
@@ -436,6 +448,7 @@ headers = [
   'mach/mach_time.h',
   'memory.h',
   'mntent.h',
+  'netinet/in.h',
   'netlink/netlink.h',
   'netlink/netlink_route.h',
   'poll.h',
@@ -765,6 +778,7 @@ functions = [
   'memmem',
   'mmap',
   'newlocale',
+  'opendir',
   'pipe2',
   'poll',
   'prlimit',
@@ -773,6 +787,7 @@ functions = [
   'sendmmsg',
   'setenv',
   'setmntent',
+  'setrlimit',
   'strerror_r',
   'strnlen',
   'strsignal',
@@ -783,6 +798,7 @@ functions = [
   'timegm',
   'unsetenv',
   'uselocale',
+  'utime',
   'utimes',
   'utimensat',
   'valloc',
@@ -855,6 +871,9 @@ endif
 function_includes = {
   'execvp': ['unistd.h'],
   'fork': ['unistd.h'],
+  'opendir': ['dirent.h'],
+  'setrlimit': ['sys/resource.h'],
+  'utime': ['utime.h'],
 }
 
 foreach f : functions
@@ -1275,7 +1294,7 @@ have_good_printf = false
 
 printf_preference = get_option('printf')
 if printf_preference == 'auto'
-  if get_option('diet')
+  if host_system == 'none' or get_option('diet')
     printf_preference = 'system'
   else
     printf_preference = (get_option('default_library') == 'static') ? 'internal' : 'system'
@@ -2069,7 +2088,7 @@ elif has_winsock2
   poll_includes = '''
       #define _WIN32_WINNT @0@
       #include <winsock2.h>'''.format(glib_conf.get('_WIN32_WINNT'))
-else
+elif host_system != 'none'
   # FIXME?
   error('FIX POLL* defines')
 endif
@@ -2088,7 +2107,7 @@ if has_syspoll and has_systypes
     val = cc.compute_int(d[0], prefix: poll_includes, guess: d[2])
     glibconfig_conf.set(d[1], val)
   endforeach
-elif has_winsock2
+elif has_winsock2 or host_system == 'none'
   # Due to a missed bug in configure.ac the poll test
   # never succeeded on Windows and used some pre-defined
   # values as a fallback. Keep using them to maintain
@@ -2204,6 +2223,10 @@ if host_system == 'windows' and not get_option('force_posix_threads')
   threads_implementation = 'win32'
   glibconfig_conf.set('g_threads_impl_def', 'WIN32')
   glib_conf.set('THREADS_WIN32', 1)
+elif host_system == 'none'
+  thread_dep = []
+  threads_implementation = 'external'
+  glib_conf.set('THREADS_EXTERNAL', 1)
 else
   thread_dep = dependency('threads')
   threads_implementation = 'posix'
@@ -2329,7 +2352,7 @@ else
     found_iconv = libiconv.found()
   endif
 
-  if not found_iconv and allow_external_iconv and cc.has_header_symbol('iconv.h', 'iconv_open')
+  if not found_iconv and allow_external_iconv and libc != 'newlib' and cc.has_header_symbol('iconv.h', 'iconv_open')
     libiconv = [cc.find_library('iconv')]
     found_iconv = true
   endif
@@ -2842,7 +2865,9 @@ subdir('gobject')
 subdir('gthread')
 subdir('gmodule')
 subdir('gio')
-subdir('girepository')
+if host_system != 'none'
+  subdir('girepository')
+endif
 if build_tests
   subdir('fuzzing')
 endif

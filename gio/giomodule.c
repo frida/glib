@@ -1276,6 +1276,7 @@ get_gio_module_dir (void)
 void
 _g_io_modules_ensure_loaded (void)
 {
+#ifndef G_OS_NONE
   static gsize loaded_dirs = FALSE;
 #ifndef GLIB_STATIC_COMPILATION
   gboolean is_setuid;
@@ -1384,6 +1385,7 @@ _g_io_modules_ensure_loaded (void)
 
       g_once_init_leave (&loaded_dirs, TRUE);
     }
+#endif
 }
 
 static void

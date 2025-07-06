@@ -129,6 +129,8 @@ static inline void g_thread_yield_impl (void);
 #include "gthread-posix.c"
 #elif defined(THREADS_WIN32)
 #include "gthread-win32.c"
+#elif defined(THREADS_EXTERNAL)
+#include "gthread-external.c"
 #else
 #error "No threads implementation"
 #endif
@@ -1477,6 +1479,8 @@ g_get_num_processors (void)
   return 1; /* Fallback */
 }
 
+#ifndef THREADS_EXTERNAL
+
 /**
  * g_mutex_init:
  * @mutex: an uninitialized #GMutex
@@ -2202,6 +2206,8 @@ g_thread_yield (void)
 {
   g_thread_yield_impl ();
 }
+
+#endif /* !THREADS_EXTERNAL */
 
 /* Epilogue {{{1 */
 /* vim: set foldmethod=marker: */

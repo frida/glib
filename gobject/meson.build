@@ -176,10 +176,12 @@ libgobject_dep = declare_dependency(link_with : libgobject,
 )
 meson.override_dependency('gobject-2.0', libgobject_dep)
 
-gobject_query = executable('gobject-query', 'gobject-query.c',
-  install : true,
-  install_tag : 'bin-devel',
-  dependencies : [libglib_dep, libgobject_dep, app_profile_dep])
+if host_system != 'none'
+  gobject_query = executable('gobject-query', 'gobject-query.c',
+    install : true,
+    install_tag : 'bin-devel',
+    dependencies : [libglib_dep, libgobject_dep, app_profile_dep])
+endif
 
 install_data('gobject_gdb.py',
   install_dir : glib_pkgdatadir / 'gdb',

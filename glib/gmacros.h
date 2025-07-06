@@ -657,6 +657,12 @@
 #define G_GNUC_NO_INSTRUMENT
 #endif
 
+#if g_macro__has_attribute(__weak__)
+#define G_GNUC_WEAK __attribute__((weak))
+#else
+#define G_GNUC_WEAK
+#endif
+
 /**
  * G_GNUC_FALLTHROUGH:
  *
