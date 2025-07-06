@@ -327,6 +327,9 @@ gboolean
 g_file_test (const gchar *filename,
              GFileTest    test)
 {
+#ifdef G_OS_NONE
+  return FALSE;
+#else
 #ifdef G_OS_WIN32
   DWORD attributes;
   wchar_t *wfilename;
@@ -471,6 +474,7 @@ g_file_test (const gchar *filename,
     }
 
   return FALSE;
+#endif
 #endif
 }
 
@@ -1185,6 +1189,14 @@ truncate_file (int          fd,
                const char  *dest_file,
                GError     **error)
 {
+#ifdef G_OS_NONE
+  if (error != NULL)
+    set_file_error (error,
+                    dest_file,
+                    _("Failed to write file “%s”: ftruncate() failed: %s"),
+                    ENOSYS);
+  return FALSE;
+#else
   while (
 #ifdef G_OS_WIN32
     g_win32_ftruncate (fd, length) < 0
@@ -1207,6 +1219,7 @@ truncate_file (int          fd,
     }
 
   return TRUE;
+#endif
 }
 
 /* closes @fd once it’s finished (on success or error) */
@@ -1439,6 +1452,7 @@ g_file_set_contents_full (const gchar            *filename,
           goto consistent_out;
         }
 
+#ifndef G_OS_NONE
       /* Maintain the permissions of the file if it exists */
       if (maintain_perms)
         {
@@ -1459,6 +1473,7 @@ g_file_set_contents_full (const gchar            *filename,
               goto consistent_out;
             }
         }
+#endif
 
       do_fsync = fd_should_be_fsynced (fd, filename, flags);
       if (!write_to_file (contents, length, g_steal_fd (&fd), tmp_filename, do_fsync, error))
@@ -3054,7 +3069,8 @@ g_get_current_dir (void)
     dir = g_strdup ("\\");
 
   return dir;
-
+#elif defined (G_OS_NONE)
+  return g_strdup ("/");
 #else
   const gchar *pwd;
   gchar *buffer = NULL;

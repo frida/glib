@@ -301,6 +301,9 @@ g_find_program_for_path (const char *program,
                          const char *path,
                          const char *working_dir)
 {
+#ifdef G_OS_NONE
+  return NULL;
+#else
   const char *original_path = path;
   const char *original_program = program;
   char *program_path = NULL;
@@ -516,6 +519,7 @@ g_find_program_for_path (const char *program,
 #endif
 
   return NULL;
+#endif
 }
 
 /* The functions below are defined this way for compatibility reasons.

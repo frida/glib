@@ -272,8 +272,10 @@ void
 g_slice_free1 (gsize    mem_size,
                gpointer mem_block)
 {
+#ifndef GLIB_DIET
   if (G_UNLIKELY (g_mem_gc_friendly && mem_block))
     memset (mem_block, 0, mem_size);
+#endif
   g_free_sized (mem_block, mem_size);
   TRACE (GLIB_SLICE_FREE((void*)mem_block, mem_size));
 }
@@ -310,8 +312,10 @@ g_slice_free_chain_with_offset (gsize    mem_size,
     {
       guint8 *current = slice;
       slice = *(gpointer *) (current + next_offset);
+#ifndef GLIB_DIET
       if (G_UNLIKELY (g_mem_gc_friendly))
         memset (current, 0, mem_size);
+#endif
       g_free_sized (current, mem_size);
     }
 }

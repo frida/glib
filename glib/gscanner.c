@@ -46,7 +46,7 @@
 #include "gstring.h"
 #include "gtestutils.h"
 
-#ifdef G_OS_UNIX
+#if defined (G_OS_UNIX) || defined (G_OS_NONE)
 #include <unistd.h>
 #endif
 #ifdef G_OS_WIN32

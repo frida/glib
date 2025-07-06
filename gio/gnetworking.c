@@ -90,6 +90,8 @@ g_networking_init (void)
 #endif
 }
 
+#ifndef G_OS_NONE
+
 gboolean
 g_getservbyname_ntohs (const char *name, const char *proto, guint16 *out_port)
 {
@@ -112,3 +114,5 @@ g_getservbyname_ntohs (const char *name, const char *proto, guint16 *out_port)
   *out_port = g_ntohs (result->s_port);
   return TRUE;
 }
+
+#endif

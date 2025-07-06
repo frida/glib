@@ -429,7 +429,7 @@ static GThread *glib_worker_thread;
 static GMainContext *glib_worker_context;
 static gboolean glib_worker_running = FALSE;
 
-#ifndef G_OS_WIN32
+#if !defined (G_OS_WIN32) && !defined (G_OS_NONE)
 
 
 /* UNIX signals work by marking one of these variables then waking the
@@ -3421,6 +3421,12 @@ g_get_monotonic_time_ns (void)
   return val;
 }
 #elif defined(CLOCK_MONOTONIC)
+#ifdef G_OS_NONE
+/* Weak for the same reason as the fallback below: a bare-metal platform supplies its
+   own clock. picolibc defines CLOCK_MONOTONIC, so this branch is now the one that
+   gets compiled there, and it has to yield too. */
+G_GNUC_WEAK
+#endif
 uint64_t
 g_get_monotonic_time_ns (void)
 {
@@ -3443,6 +3449,9 @@ G_LOCK_DEFINE_STATIC (g_monotonic);
 static uint64_t g_monotonic_elapsed_time;
 static uint64_t g_monotonic_last_time;
 
+#ifdef G_OS_NONE
+G_GNUC_WEAK
+#endif
 uint64_t
 g_get_monotonic_time_ns (void)
 {
@@ -3470,6 +3479,9 @@ g_get_monotonic_time_ns (void)
 }
 #endif
 
+#ifdef G_OS_NONE
+G_GNUC_WEAK
+#endif
 gint64
 g_get_monotonic_time (void)
 {
@@ -4447,11 +4459,16 @@ g_main_context_query_unlocked (GMainContext *context,
               fds[n_poll].fd = pollrec->fd->fd;
               fds[n_poll].events = events;
               fds[n_poll].revents = 0;
-#ifdef HAVE_KQUEUE
+#if defined (HAVE_KQUEUE)
               if (pollrec->fd->fd == G_KQUEUE_WAKEUP_HANDLE)
                 fds[n_poll].handle = pollrec->fd->handle;
               else
                 fds[n_poll].handle = NULL;
+#elif defined (G_OS_NONE)
+              if (pollrec->fd->fd == G_WAIT_WAKEUP_HANDLE)
+                fds[n_poll].user_data = pollrec->fd->user_data;
+              else
+                fds[n_poll].user_data = NULL;
 #endif
             }
 
@@ -6314,7 +6331,7 @@ g_child_watch_check (GSource *source)
 static void
 g_child_watch_finalize (GSource *source)
 {
-#ifndef G_OS_WIN32
+#if !defined (G_OS_WIN32) && !defined (G_OS_NONE)
   GChildWatchSource *child_watch_source = (GChildWatchSource *) source;
 
   if (child_watch_source->poll.fd >= 0)
@@ -6330,7 +6347,7 @@ g_child_watch_finalize (GSource *source)
 #endif /* G_OS_WIN32 */
 }
 
-#ifndef G_OS_WIN32
+#if !defined (G_OS_WIN32) && !defined (G_OS_NONE)
 
 static void
 wake_source (GSource *source)
@@ -6664,7 +6681,7 @@ g_child_watch_dispatch (GSource    *source,
     else
       wait_status = child_status;
   }
-#else /* G_OS_WIN32 */
+#elif !defined (G_OS_NONE) /* !G_OS_WIN32 */
   {
     gboolean child_exited = FALSE;
 
@@ -6748,6 +6765,8 @@ g_child_watch_dispatch (GSource    *source,
           }
       }
   }
+#else
+  wait_status = -1;
 #endif /* G_OS_WIN32 */
 
   if (!callback)
@@ -6763,7 +6782,7 @@ g_child_watch_dispatch (GSource    *source,
   return FALSE;
 }
 
-#ifndef G_OS_WIN32
+#if !defined (G_OS_WIN32) && !defined (G_OS_NONE)
 
 static void
 g_unix_signal_handler (int signum)
@@ -6862,7 +6881,7 @@ g_child_watch_source_new (GPid pid)
   child_watch_source->poll.events = G_IO_IN;
 
   g_source_add_poll (source, &child_watch_source->poll);
-#else /* !G_OS_WIN32 */
+#elif !defined (G_OS_NONE) /* !G_OS_WIN32 */
 
 #ifdef HAVE_PIDFD
   /* Use a pidfd, if possible, to avoid having to install a global SIGCHLD

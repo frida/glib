@@ -26,6 +26,16 @@
 
 G_BEGIN_DECLS
 
+#ifdef G_OS_NONE
+
+struct _GWakeup
+{
+  gint signalled;
+  gpointer token;
+};
+
+#endif
+
 void _g_wakeup_kqueue_realize   (GWakeup *wakeup, gint kq);
 void _g_wakeup_kqueue_unrealize (GWakeup *wakeup);
 

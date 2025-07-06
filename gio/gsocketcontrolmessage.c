@@ -200,8 +200,10 @@ g_socket_control_message_deserialize (int      level,
       builtin_messages[i++] = G_TYPE_UNIX_CREDENTIALS_MESSAGE;
       builtin_messages[i++] = G_TYPE_UNIX_FD_MESSAGE;
 #endif
+#ifndef G_OS_NONE
       builtin_messages[i++] = G_TYPE_IP_TOS_MESSAGE;
       builtin_messages[i++] = G_TYPE_IPV6_TCLASS_MESSAGE;
+#endif
 
       n_builtin_messages = i;
 
