@@ -141,6 +141,7 @@
 #define g_macro__has_attribute___const__ G_GNUC_CHECK_VERSION (2, 4)
 #define g_macro__has_attribute___unused__ G_GNUC_CHECK_VERSION (2, 4)
 #define g_macro__has_attribute___no_instrument_function__ G_GNUC_CHECK_VERSION (2, 4)
+#define g_macro__has_attribute_weak G_GNUC_CHECK_VERSION (2, 7)
 #define g_macro__has_attribute_fallthrough G_GNUC_CHECK_VERSION (6, 0)
 #define g_macro__has_attribute___deprecated__ G_GNUC_CHECK_VERSION (3, 1)
 #define g_macro__has_attribute_may_alias G_GNUC_CHECK_VERSION (3, 3)
