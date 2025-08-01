@@ -124,7 +124,7 @@ else
     gl_cv_func_frexpl_works = false
     gl_cv_func_frexpl_broken_beyond_repair = true
   elif (host_system == 'windows')
-    gl_cv_func_frexpl_works = false
+    gl_cv_func_frexpl_works = true
     gl_cv_func_frexpl_broken_beyond_repair = false
   else
     gl_cv_func_frexpl_works = true
