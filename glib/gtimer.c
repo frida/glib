@@ -277,8 +277,7 @@ g_usleep (gulong microseconds)
   /* Round up to the next millisecond */
   Sleep (microseconds ? (1 + (microseconds - 1) / 1000) : 0);
 #elif defined (G_OS_NONE)
-  guint64 my_token;
-  g_wait_sleep (&my_token, microseconds);
+  g_wait_sleep (NULL, microseconds);
 #else
   struct timespec request, remaining;
   request.tv_sec = microseconds / G_USEC_PER_SEC;
