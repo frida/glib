@@ -198,6 +198,7 @@ gboolean      g_task_get_completed             (GTask           *task);
 #ifndef __GTK_DOC_IGNORE__
 /* Debugging API, not part of the public API */
 void g_task_print_alive_tasks (void);
+gchar *g_task_describe_alive_tasks (void);
 #endif  /* !__GTK_DOC_IGNORE__ */
 
 G_END_DECLS

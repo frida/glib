@@ -697,6 +697,16 @@ static GPtrArray *task_list = NULL;
 void
 g_task_print_alive_tasks (void)
 {
+  gchar *description = g_task_describe_alive_tasks ();
+
+  g_message ("%s", description);
+
+  g_free (description);
+}
+
+gchar *
+g_task_describe_alive_tasks (void)
+{
   GString *message_str = g_string_new ("");
 
   G_LOCK (task_list);
@@ -722,8 +732,7 @@ g_task_print_alive_tasks (void)
 
   G_UNLOCK (task_list);
 
-  g_message ("%s", message_str->str);
-  g_string_free (message_str, TRUE);
+  return g_string_free (message_str, FALSE);
 }
 
 static void
