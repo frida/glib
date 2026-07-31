@@ -378,7 +378,9 @@ gnulib_sources += [
 gnulib_lib = static_library('gnulib', gnulib_sources,
   dependencies : [libm],
   include_directories : [configinc, glibinc, include_directories ('.')],
-  pic : true,
+  # Forcing PIC here overrides b_staticpic, and a target whose loader cannot process
+  # a GOT needs that choice respected.
+  pic : get_option('b_staticpic'),
   c_args : ['-DGCC_LINT=1', '-DLIBDIR="@0@"'.format(glib_libdir), '-DG_LOG_DOMAIN="GLib"',
             glib_c_args_internal, extra_gnulib_args],
   gnu_symbol_visibility : 'hidden',
