@@ -36,7 +36,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#ifdef G_OS_UNIX
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 #ifdef G_OS_WIN32
