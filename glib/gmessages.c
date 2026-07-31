@@ -208,7 +208,7 @@
 #include "gjournal-private.h"
 #endif
 
-#ifdef G_OS_UNIX
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 

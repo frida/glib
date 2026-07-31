@@ -28,6 +28,8 @@
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <fcntl.h>
+#endif
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 #include <string.h>

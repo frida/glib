@@ -45,6 +45,8 @@
 #ifdef G_OS_UNIX
 #include <pwd.h>
 #include <sys/utsname.h>
+#endif
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 #include <sys/types.h>
