@@ -3129,6 +3129,12 @@ g_get_monotonic_time (void)
   return val;
 }
 #elif defined(CLOCK_MONOTONIC)
+#ifdef G_OS_NONE
+/* Weak for the same reason as the fallback below: a bare-metal platform supplies its
+   own clock. picolibc defines CLOCK_MONOTONIC, so this branch is now the one that
+   gets compiled there, and it has to yield too. */
+G_GNUC_WEAK
+#endif
 gint64
 g_get_monotonic_time (void)
 {
