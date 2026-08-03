@@ -56,6 +56,8 @@
 
 #ifdef G_OS_UNIX
 #include <fcntl.h>
+#endif
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 

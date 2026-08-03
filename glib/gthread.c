@@ -46,7 +46,7 @@
 
 #include <string.h>
 
-#ifdef G_OS_UNIX
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
 
 #if defined(THREADS_POSIX) && defined(HAVE_PTHREAD_GETAFFINITY_NP)
