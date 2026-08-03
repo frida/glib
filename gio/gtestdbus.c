@@ -29,7 +29,7 @@
 #include <errno.h>
 #include <string.h>
 #include <gstdio.h>
-#ifdef G_OS_UNIX
+#ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
 #ifdef G_OS_WIN32
