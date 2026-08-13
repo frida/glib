@@ -6,7 +6,6 @@ extra_charset_args = cc.get_supported_arguments([
 
 charset_lib = static_library('charset', 'localcharset.c', glib_built_headers,
   include_directories : [configinc, glibinc],
-  pic : true,
   c_args : [
     '-DGLIB_CHARSETALIAS_DIR="@0@"'.format(glib_charsetaliasdir),
     extra_charset_args,
