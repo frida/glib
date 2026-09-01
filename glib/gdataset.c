@@ -183,6 +183,7 @@ static inline gpointer	g_data_set_internal		(GData     	**datalist,
 							 gpointer         data,
 							 GDestroyNotify   destroy_func,
 							 GDataset	 *dataset);
+static void		g_data_steal_marker		(gpointer	  data);
 static void		g_data_initialize		(void);
 
 /* Locking model:
@@ -818,7 +819,7 @@ g_dataset_id_remove_no_notify (gconstpointer  dataset_location,
   
       dataset = g_dataset_lookup (dataset_location);
       if (dataset)
-	ret_data = g_data_set_internal (&dataset->datalist, key_id, NULL, (GDestroyNotify) 42, dataset);
+	ret_data = g_data_set_internal (&dataset->datalist, key_id, NULL, g_data_steal_marker, dataset);
     } 
   G_UNLOCK (g_dataset_global);
 
@@ -852,9 +853,14 @@ g_datalist_id_remove_no_notify (GData	**datalist,
   g_return_val_if_fail (datalist != NULL, NULL);
 
   if (key_id)
-    ret_data = g_data_set_internal (datalist, key_id, NULL, (GDestroyNotify) 42, NULL);
+    ret_data = g_data_set_internal (datalist, key_id, NULL, g_data_steal_marker, NULL);
 
   return ret_data;
+}
+
+static void
+g_data_steal_marker (gpointer data)
+{
 }
 
 /**
