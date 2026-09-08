@@ -680,7 +680,11 @@ get_contents_stdio (const gchar  *filename,
                     gsize        *length,
                     GError      **error)
 {
+#ifdef GLIB_DIET
+  gchar buf[512];
+#else
   gchar buf[4096];
+#endif
   gsize bytes;  /* always <= sizeof(buf) */
   gchar *str = NULL;
   gsize total_bytes = 0;
