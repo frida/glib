@@ -1337,7 +1337,11 @@ g_strerror (gint errnum)
 
   if (!msg)
     {
+#ifdef GLIB_DIET
+      gchar buf[256];
+#else
       gchar buf[1024];
+#endif
 #ifndef GLIB_DIET
       GError *error = NULL;
 #endif
