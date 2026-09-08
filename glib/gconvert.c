@@ -64,6 +64,11 @@ try_conversion (const char *to_codeset,
 		const char *from_codeset,
 		iconv_t    *cd)
 {
+#ifdef GLIB_DIET
+  *cd = (iconv_t) -1;
+
+  return FALSE;
+#else
   *cd = iconv_open (to_codeset, from_codeset);
 
   if (*cd == (iconv_t)-1 && errno == EINVAL)
@@ -79,6 +84,7 @@ try_conversion (const char *to_codeset,
     return FALSE;
 #endif
   return TRUE;
+#endif
 }
 
 static gboolean
@@ -184,9 +190,15 @@ g_iconv (GIConv   converter,
 	 gchar  **outbuf,
 	 gsize   *outbytes_left)
 {
+#ifdef GLIB_DIET
+  errno = EINVAL;
+
+  return (gsize) -1;
+#else
   iconv_t cd = (iconv_t)converter;
 
   return iconv (cd, inbuf, inbytes_left, outbuf, outbytes_left);
+#endif
 }
 
 /**
@@ -207,9 +219,13 @@ g_iconv (GIConv   converter,
 gint
 g_iconv_close (GIConv converter)
 {
+#ifdef GLIB_DIET
+  return 0;
+#else
   iconv_t cd = (iconv_t)converter;
 
   return iconv_close (cd);
+#endif
 }
 
 static GIConv
