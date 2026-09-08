@@ -1104,6 +1104,9 @@ strdup_convert (const gchar *string,
     }
   else
     {
+#ifdef GLIB_DIET
+      return g_strdup (string);
+#else
       GError *err = NULL;
       
       gchar *result = g_convert_with_fallback (string, -1, charset, "UTF-8", "?", NULL, NULL, &err);
@@ -1123,6 +1126,7 @@ strdup_convert (const gchar *string,
 	  
 	  return g_strdup (string);
 	}
+#endif
     }
 }
 
