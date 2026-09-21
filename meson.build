@@ -687,7 +687,7 @@ if host_system == 'darwin'
   functions += ['_NSGetEnviron']
 endif
 
-if host_system != 'qnx'
+if host_system != 'qnx' and cc.check_header('malloc.h')
   functions += ['memalign']
 endif
 
@@ -762,7 +762,8 @@ if cc.has_function('stpcpy', prefix : '#include <string.h>')
   glib_conf.set('HAVE_STPCPY', 1)
 endif
 
-if host_system != 'qnx' and cc.has_function('memalign', prefix: '#include <stdlib.h>\n#include <malloc.h>')
+if host_system != 'qnx' and cc.check_header('malloc.h') \
+    and cc.has_function('memalign', prefix: '#include <stdlib.h>\n#include <malloc.h>')
   glib_conf.set('HAVE_MEMALIGN', 1)
 endif
 
