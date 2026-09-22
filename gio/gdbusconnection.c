@@ -435,7 +435,7 @@ signal_data_free (SignalData *signal_data)
 
 /* ---------------------------------------------------------------------------------------------------- */
 
-#ifdef G_OS_WIN32
+#if defined (G_OS_WIN32) || defined (G_DISABLE_ASSERT)
 #define CONNECTION_ENSURE_LOCK(obj) do { ; } while (FALSE)
 #else
 // TODO: for some reason this doesn't work on Windows
