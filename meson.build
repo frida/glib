@@ -628,6 +628,7 @@ functions = [
   'fsync',
   'getauxval',
   'getc_unlocked',
+  'getfsent',
   'getfsstat',
   'getgrgid_r',
   'getmntent_r',
