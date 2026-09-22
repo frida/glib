@@ -88,6 +88,12 @@
 #include "glib-nolog.h"
 #endif
 
+#ifdef __PROSPERO__
+# define G_MUTEX_IS_BUSY(status) ((status) == EBUSY || (status) == EINVAL)
+#else
+# define G_MUTEX_IS_BUSY(status) ((status) == EBUSY)
+#endif
+
 static pthread_mutex_t g_thread_state_lock;
 static pthread_key_t g_thread_cleanup_key;
 
@@ -325,7 +331,7 @@ g_mutex_trylock (GMutex *mutex)
   if G_LIKELY ((status = pthread_mutex_trylock (g_mutex_get_impl (mutex))) == 0)
     return TRUE;
 
-  if G_UNLIKELY (status != EBUSY)
+  if G_UNLIKELY (!G_MUTEX_IS_BUSY (status))
     g_thread_abort (status, "pthread_mutex_trylock");
 
   return FALSE;
