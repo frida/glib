@@ -793,6 +793,225 @@ g_res_nquery (res_state      statep,
 
 #endif
 
+#ifdef __PROSPERO__
+
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+#undef dn_expand
+#undef res_query
+#define dn_expand g_dn_expand
+#define res_query g_res_query
+
+extern int sceNetGetDnsInfo (void *info, int reserved);
+
+#define G_PROSPERO_DNS_PORT 53
+#define G_PROSPERO_DNS_TIMEOUT 5
+#define G_PROSPERO_DNS_MAX_SERVERS 8
+
+static int
+g_dn_expand (const unsigned char *msg,
+             const unsigned char *eomorig,
+             const unsigned char *comp_dn,
+             char                *exp_dn,
+             int                  length)
+{
+  const unsigned char *p = comp_dn;
+  char *out = exp_dn;
+  const char *out_end = exp_dn + length;
+  int consumed = -1;
+  guint hops = 0;
+
+  while (p < eomorig)
+    {
+      guint len = *p;
+
+      if ((len & 0xc0) == 0xc0)
+        {
+          if (p + 1 >= eomorig || ++hops > G_MAXUINT8)
+            return -1;
+          if (consumed < 0)
+            consumed = (int) (p + 2 - comp_dn);
+          p = msg + (((len & 0x3f) << 8) | p[1]);
+          continue;
+        }
+
+      if ((len & 0xc0) != 0)
+        return -1;
+
+      p++;
+
+      if (len == 0)
+        {
+          if (out >= out_end)
+            return -1;
+          *out = '\0';
+          return (consumed < 0) ? (int) (p - comp_dn) : consumed;
+        }
+
+      if (p + len > eomorig)
+        return -1;
+
+      if (out != exp_dn)
+        {
+          if (out >= out_end)
+            return -1;
+          *out++ = '.';
+        }
+
+      if (out + len >= out_end)
+        return -1;
+      memcpy (out, p, len);
+      out += len;
+      p += len;
+    }
+
+  return -1;
+}
+
+static int
+g_prospero_build_query (const char    *dname,
+                        int            klass,
+                        int            type,
+                        guint16        id,
+                        unsigned char *query,
+                        int            query_size)
+{
+  unsigned char *p = query;
+  const unsigned char *end = query + query_size;
+  const char *label = dname;
+
+  if (query_size < 12)
+    return -1;
+
+  memset (p, 0, 12);
+  p[0] = id >> 8;
+  p[1] = id & 0xff;
+  p[2] = 0x01;  /* recursion desired */
+  p[5] = 0x01;  /* one question */
+  p += 12;
+
+  while (*label != '\0')
+    {
+      const char *dot = strchr (label, '.');
+      gsize len = (dot != NULL) ? (gsize) (dot - label) : strlen (label);
+
+      if (len == 0 || len > 63 || p + 1 + len >= end)
+        return -1;
+
+      *p++ = (unsigned char) len;
+      memcpy (p, label, len);
+      p += len;
+
+      label += len;
+      if (*label == '.')
+        label++;
+    }
+
+  if (p + 5 > end)
+    return -1;
+  *p++ = 0;
+  *p++ = type >> 8;
+  *p++ = type & 0xff;
+  *p++ = klass >> 8;
+  *p++ = klass & 0xff;
+
+  return (int) (p - query);
+}
+
+static int
+g_res_query (const char    *dname,
+             int            klass,
+             int            type,
+             unsigned char *answer,
+             int            anslen)
+{
+  unsigned char servers[64];
+  int num_servers, i;
+  unsigned char query[512];
+  int query_len;
+  guint16 id;
+
+  memset (servers, 0, sizeof (servers));
+  num_servers = sceNetGetDnsInfo (servers, 0);
+  if (num_servers <= 0)
+    {
+      h_errno = NO_RECOVERY;
+      return -1;
+    }
+  num_servers = MIN (num_servers, G_PROSPERO_DNS_MAX_SERVERS);
+
+  id = (guint16) g_random_int_range (0, G_MAXUINT16);
+  query_len = g_prospero_build_query (dname, klass, type, id, query, sizeof (query));
+  if (query_len < 0)
+    {
+      h_errno = NO_RECOVERY;
+      return -1;
+    }
+
+  h_errno = TRY_AGAIN;
+
+  for (i = 0; i != num_servers; i++)
+    {
+      struct sockaddr_in addr;
+      struct timeval timeout;
+      int fd;
+      gssize n;
+      guint16 flags;
+
+      memset (&addr, 0, sizeof (addr));
+      addr.sin_family = AF_INET;
+      addr.sin_port = g_htons (G_PROSPERO_DNS_PORT);
+      memcpy (&addr.sin_addr, servers + (i * 4), 4);
+
+      fd = socket (AF_INET, SOCK_DGRAM, 0);
+      if (fd < 0)
+        continue;
+
+      timeout.tv_sec = G_PROSPERO_DNS_TIMEOUT;
+      timeout.tv_usec = 0;
+      setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof (timeout));
+
+      if (sendto (fd, query, query_len, 0, (struct sockaddr *) &addr, sizeof (addr)) != query_len)
+        {
+          close (fd);
+          continue;
+        }
+
+      n = recv (fd, answer, anslen, 0);
+      close (fd);
+
+      if (n < 12 || (answer[0] << 8 | answer[1]) != id)
+        continue;
+
+      flags = answer[2] << 8 | answer[3];
+      switch (flags & 0x0f)
+        {
+          case 0:
+            if ((answer[6] << 8 | answer[7]) == 0)
+              {
+                h_errno = NO_DATA;
+                return -1;
+              }
+            return (int) n;
+          case 3:
+            h_errno = HOST_NOT_FOUND;
+            return -1;
+          case 2:
+            h_errno = TRY_AGAIN;
+            continue;
+          default:
+            h_errno = NO_RECOVERY;
+            return -1;
+        }
+    }
+
+  return -1;
+}
+
+#endif /* __PROSPERO__ */
+
 #if defined __BIONIC__ && !defined BIND_4_COMPAT
 /* Copy from bionic/libc/private/arpa_nameser_compat.h
  * and bionic/libc/private/arpa_nameser.h */
