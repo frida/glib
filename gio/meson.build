@@ -45,6 +45,10 @@ endif
 
 network_libs = [ ]
 network_args = [ ]
+host_is_prospero = host_system == 'freebsd' and cc.get_define('__PROSPERO__') != ''
+if host_is_prospero
+  network_libs += [ cc.find_library('ScePosixForWebKit'), cc.find_library('SceNet') ]
+endif
 if host_system not in ['windows', 'none']
   # res_query()
   res_query_test = '''#include <resolv.h>
@@ -55,7 +59,7 @@ if host_system not in ['windows', 'none']
                            #include <netinet/in.h>
                            #include <arpa/nameser.h>
                         ''' + res_query_test
-  if not cc.links(res_query_test_full, name : 'res_query()')
+  if not host_is_prospero and not cc.links(res_query_test_full, name : 'res_query()')
     if cc.links(res_query_test_full, args : '-lresolv', name : 'res_query() in -lresolv')
       network_libs += [ cc.find_library('resolv') ]
       network_args += [ '-lresolv' ]
