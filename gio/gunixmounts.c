@@ -1623,6 +1623,7 @@ _g_get_unix_mount_points (void)
 static GList *
 _g_get_unix_mount_points (void)
 {
+#ifdef HAVE_GETFSENT
   struct fstab *fstab = NULL;
   GUnixMountPoint *mount_point;
   GList *return_list = NULL;
@@ -1705,6 +1706,9 @@ _g_get_unix_mount_points (void)
   G_UNLOCK (fsent);
 
   return g_list_reverse (return_list);
+#else
+  return NULL;
+#endif
 }
 
 static GUnixMountPoint **
