@@ -1,6 +1,6 @@
 [wrap-git]
 url=https://github.com/frida/pcre2.git
-revision=b47486922fdc3486499b310dc9cf903449700474
+revision=683059230e4894342bb19f2776f0e50c757fde17
 depth=1
 
 [provide]
