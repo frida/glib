@@ -38,13 +38,6 @@ G_BEGIN_DECLS
 #define G_ASYNC_INITABLE_GET_IFACE(obj)  (G_TYPE_INSTANCE_GET_INTERFACE ((obj), G_TYPE_ASYNC_INITABLE, GAsyncInitableIface))
 #define G_TYPE_IS_ASYNC_INITABLE(type)   (g_type_is_a ((type), G_TYPE_ASYNC_INITABLE))
 
-/**
- * GAsyncInitable:
- *
- * Interface for asynchronously initializable objects.
- *
- * Since: 2.22
- **/
 typedef struct _GAsyncInitableIface GAsyncInitableIface;
 
 /**
@@ -75,7 +68,7 @@ struct _GAsyncInitableIface
 };
 
 GIO_AVAILABLE_IN_ALL
-GType    g_async_initable_get_type    (void) G_GNUC_CONST;
+GType    g_async_initable_get_type    (void);
 
 
 GIO_AVAILABLE_IN_ALL

@@ -38,14 +38,6 @@ G_BEGIN_DECLS
 #define G_IS_FILE_INPUT_STREAM_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_FILE_INPUT_STREAM))
 #define G_FILE_INPUT_STREAM_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_FILE_INPUT_STREAM, GFileInputStreamClass))
 
-/**
- * GFileInputStream:
- *
- * A subclass of GInputStream for opened files. This adds
- * a few file-specific operations and seeking.
- *
- * #GFileInputStream implements #GSeekable.
- **/
 typedef struct _GFileInputStreamClass    GFileInputStreamClass;
 typedef struct _GFileInputStreamPrivate  GFileInputStreamPrivate;
 
@@ -92,7 +84,7 @@ struct _GFileInputStreamClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType      g_file_input_stream_get_type          (void) G_GNUC_CONST;
+GType      g_file_input_stream_get_type          (void);
 
 GIO_AVAILABLE_IN_ALL
 GFileInfo *g_file_input_stream_query_info        (GFileInputStream     *stream,

@@ -1,4 +1,4 @@
-/* Unit tests for g
+/* Unit tests for gmem
  * Copyright (C) 2010 Red Hat, Inc.
  *
  * SPDX-License-Identifier: LicenseRef-old-glib-tests
@@ -34,6 +34,7 @@
 
 static gsize a = G_MAXSIZE / 10 + 10;
 static gsize b = 10;
+static gsize c = 0;
 typedef char X[10];
 
 #define MEM_OVERFLOW_TEST(name, code) MEM_OVERFLOW_TEST_FULL(name, code, g_free)
@@ -71,11 +72,11 @@ MEM_OVERFLOW_TEST (new0_b, p = g_new0 (X, b))
 MEM_OVERFLOW_TEST (renew_a, p = g_malloc (1); p = g_renew (X, p, a))
 MEM_OVERFLOW_TEST (renew_b, p = g_malloc (1); p = g_renew (X, p, b))
 
-MEM_OVERFLOW_TEST_FULL (aligned_alloc_a, p = g_aligned_alloc (sizeof(X), a, 16), g_aligned_free)
-MEM_OVERFLOW_TEST_FULL (aligned_alloc_b, p = g_aligned_alloc (sizeof(X), b, 16), g_aligned_free)
+MEM_OVERFLOW_TEST_FULL (aligned_alloc_a, p = g_aligned_alloc (a, sizeof(X), 16), g_aligned_free)
+MEM_OVERFLOW_TEST_FULL (aligned_alloc_b, p = g_aligned_alloc (b, sizeof(X), 16), g_aligned_free)
 
-MEM_OVERFLOW_TEST_FULL (aligned_alloc0_a, p = g_aligned_alloc0 (sizeof(X), a, 16), g_aligned_free)
-MEM_OVERFLOW_TEST_FULL (aligned_alloc0_b, p = g_aligned_alloc0 (sizeof(X), b, 16), g_aligned_free)
+MEM_OVERFLOW_TEST_FULL (aligned_alloc0_a, p = g_aligned_alloc0 (a, sizeof(X), 16), g_aligned_free)
+MEM_OVERFLOW_TEST_FULL (aligned_alloc0_b, p = g_aligned_alloc0 (b, sizeof(X), 16), g_aligned_free)
 
 static void
 mem_overflow_malloc_0 (void)
@@ -106,6 +107,9 @@ mem_overflow (void)
 #define CHECK_PASS(P)	p = (P); g_assert (p == NULL);
 #define CHECK_FAIL(P)	p = (P); g_assert (p != NULL);
 
+  /* CHECK if return value is NULL for adhering to API... */
+#define CHECK_NULL(P)	p = (P); g_assert (p == NULL);
+
   CHECK_PASS (g_try_malloc_n (a, a));
   CHECK_PASS (g_try_malloc_n (a, b));
   CHECK_PASS (g_try_malloc_n (b, a));
@@ -128,6 +132,8 @@ mem_overflow (void)
   CHECK_PASS (g_try_new (X, a));
   CHECK_FAIL (g_try_new (X, b));
   g_free (p);
+
+  CHECK_NULL (g_try_new (X, c));
 
   CHECK_PASS (g_try_new0 (X, a));
   CHECK_FAIL (g_try_new0 (X, b));

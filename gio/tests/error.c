@@ -557,7 +557,7 @@ test_error_from_errno (void)
 
 #ifdef EDESTADDRREQ
   g_assert_cmpuint (g_io_error_from_errno (EDESTADDRREQ), ==,
-                    G_IO_ERROR_FAILED);
+                    G_IO_ERROR_DESTINATION_UNSET);
 #endif
 
 #ifdef EPROTOTYPE
@@ -572,7 +572,7 @@ test_error_from_errno (void)
 
 #ifdef EADDRNOTAVAIL
   g_assert_cmpuint (g_io_error_from_errno (EADDRNOTAVAIL), ==,
-                    G_IO_ERROR_FAILED);
+                    G_IO_ERROR_CONNECTION_REFUSED);
 #endif
 
 #ifdef ENETDOWN

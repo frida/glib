@@ -401,6 +401,12 @@ test_g_mutex_locker (void)
 
   if (TRUE)
     {
+      /* val is unused in this scope but compiler should not warn. */
+      G_MUTEX_AUTO_LOCK (&mutex, val);
+    }
+
+  if (TRUE)
+    {
       g_autoptr(GMutexLocker) val = g_mutex_locker_new (&mutex);
       
       g_assert_nonnull (val);
@@ -441,6 +447,12 @@ test_g_rec_mutex_locker (void)
   GThread *thread;
 
   g_rec_mutex_init (&rec_mutex);
+
+  if (TRUE)
+    {
+      /* val is unused in this scope but compiler should not warn. */
+      G_REC_MUTEX_AUTO_LOCK (&rec_mutex, val);
+    }
 
   if (TRUE)
     {
@@ -494,6 +506,18 @@ test_g_rw_lock_lockers (void)
 
   if (TRUE)
     {
+      /* val is unused in this scope but compiler should not warn. */
+      G_RW_LOCK_WRITER_AUTO_LOCK (&lock, val);
+    }
+
+  if (TRUE)
+    {
+      /* val is unused in this scope but compiler should not warn. */
+      G_RW_LOCK_READER_AUTO_LOCK (&lock, val);
+    }
+
+  if (TRUE)
+    {
       g_autoptr(GRWLockWriterLocker) val = g_rw_lock_writer_locker_new (&lock);
 
       g_assert_nonnull (val);
@@ -531,6 +555,27 @@ test_g_rw_lock_lockers (void)
   g_rw_lock_writer_unlock (&lock);
 
   g_rw_lock_clear (&lock);
+}
+
+G_LOCK_DEFINE (test_g_auto_lock);
+
+static void
+test_g_auto_lock (void)
+{
+  GThread *thread;
+
+  if (TRUE)
+    {
+      G_AUTO_LOCK (test_g_auto_lock);
+
+      /* Verify that the mutex is actually locked */
+      thread = g_thread_new ("mutex locked", mutex_locked_thread, &G_LOCK_NAME (test_g_auto_lock));
+      g_thread_join (thread);
+    }
+
+  /* Verify that the mutex is unlocked again */
+  thread = g_thread_new ("mutex unlocked", mutex_unlocked_thread, &G_LOCK_NAME (test_g_auto_lock));
+  g_thread_join (thread);
 }
 
 static void
@@ -616,6 +661,30 @@ test_refstring (void)
 {
   g_autoptr(GRefString) str = g_ref_string_new ("hello, world");
   g_assert_nonnull (str);
+}
+
+static void
+test_pathbuf (void)
+{
+#if defined(G_OS_UNIX)
+  g_autoptr(GPathBuf) buf1 = g_path_buf_new_from_path ("/bin/sh");
+  g_auto(GPathBuf) buf2 = G_PATH_BUF_INIT;
+
+  g_path_buf_push (&buf2, "/bin/sh");
+#elif defined(G_OS_WIN32)
+  g_autoptr(GPathBuf) buf1 = g_path_buf_new_from_path ("C:\\windows\\system32.dll");
+  g_auto(GPathBuf) buf2 = G_PATH_BUF_INIT;
+
+  g_path_buf_push (&buf2, "C:\\windows\\system32.dll");
+#else
+  g_test_skip ("Unsupported platform");
+  return;
+#endif
+
+  g_autofree char *path1 = g_path_buf_to_path (buf1);
+  g_autofree char *path2 = g_path_buf_to_path (&buf2);
+
+  g_assert_cmpstr (path1, ==, path2);
 }
 
 static void
@@ -761,6 +830,7 @@ main (int argc, gchar *argv[])
   g_test_add_func ("/autoptr/g_mutex_locker", test_g_mutex_locker);
   g_test_add_func ("/autoptr/g_rec_mutex_locker", test_g_rec_mutex_locker);
   g_test_add_func ("/autoptr/g_rw_lock_lockers", test_g_rw_lock_lockers);
+  g_test_add_func ("/autoptr/g_auto_lock", test_g_auto_lock);
   g_test_add_func ("/autoptr/g_cond", test_g_cond);
   g_test_add_func ("/autoptr/g_timer", test_g_timer);
   g_test_add_func ("/autoptr/g_time_zone", test_g_time_zone);
@@ -772,6 +842,7 @@ main (int argc, gchar *argv[])
   g_test_add_func ("/autoptr/g_variant_type", test_g_variant_type);
   g_test_add_func ("/autoptr/strv", test_strv);
   g_test_add_func ("/autoptr/refstring", test_refstring);
+  g_test_add_func ("/autoptr/pathbuf", test_pathbuf);
   g_test_add_func ("/autoptr/autolist", test_autolist);
   g_test_add_func ("/autoptr/autoslist", test_autoslist);
   g_test_add_func ("/autoptr/autoqueue", test_autoqueue);

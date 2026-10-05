@@ -709,8 +709,6 @@ g_io_win32_prepare (GSource *source,
   GIOWin32Channel *channel = (GIOWin32Channel *)watch->channel;
   int event_mask;
   
-  *timeout = -1;
-  
   if (channel->debug)
     g_print ("g_io_win32_prepare: source=%p channel=%p", source, channel);
 
@@ -1630,7 +1628,7 @@ g_io_channel_new_file (const gchar  *filename,
     MODE_W = 1 << 1,
     MODE_A = 1 << 2,
     MODE_PLUS = 1 << 3,
-  };
+  } G_GNUC_FLAG_ENUM;
   int mode_num, errsv;
 
   g_return_val_if_fail (filename != NULL, NULL);
@@ -1663,7 +1661,7 @@ g_io_channel_new_file (const gchar  *filename,
             mode_num |= MODE_PLUS;
             break;
           }
-        /* Fall through */
+        G_GNUC_FALLTHROUGH;
       default:
         g_warning ("Invalid GIOFileMode %s.", mode);
         return NULL;
@@ -1822,7 +1820,7 @@ g_io_win32_console_get_flags_internal (GIOChannel  *channel)
 {
   GIOWin32Channel *win32_channel = (GIOWin32Channel *) channel;
   HANDLE handle = (HANDLE) _get_osfhandle (win32_channel->fd);
-  gchar c;
+  gchar c = 0;
   DWORD count;
   INPUT_RECORD record;
 

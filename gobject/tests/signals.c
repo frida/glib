@@ -1,16 +1,17 @@
 #include <glib-object.h>
+#include "gvaluecollector.h"
 #include "marshalers.h"
 
 #define g_assert_cmpflags(type,n1, cmp, n2) G_STMT_START { \
                                                type __n1 = (n1), __n2 = (n2); \
                                                if (__n1 cmp __n2) ; else \
-                                                 g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                 g_assertion_message_cmpint (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                                              #n1 " " #cmp " " #n2, __n1, #cmp, __n2, 'i'); \
                                             } G_STMT_END
 #define g_assert_cmpenum(type,n1, cmp, n2) G_STMT_START { \
                                                type __n1 = (n1), __n2 = (n2); \
                                                if (__n1 cmp __n2) ; else \
-                                                 g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                 g_assertion_message_cmpint (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                                              #n1 " " #cmp " " #n2, __n1, #cmp, __n2, 'i'); \
                                             } G_STMT_END
 
@@ -66,9 +67,9 @@ custom_marshal_VOID__INVOCATIONHINT (GClosure     *closure,
 static GType
 test_enum_get_type (void)
 {
-  static gsize static_g_define_type_id = 0;
+  static GType static_g_define_type_id = 0;
 
-  if (g_once_init_enter (&static_g_define_type_id))
+  if (g_once_init_enter_pointer (&static_g_define_type_id))
     {
       static const GEnumValue values[] = {
         { TEST_ENUM_NEGATIVE, "TEST_ENUM_NEGATIVE", "negative" },
@@ -79,7 +80,7 @@ test_enum_get_type (void)
       };
       GType g_define_type_id =
         g_enum_register_static (g_intern_static_string ("TestEnum"), values);
-      g_once_init_leave (&static_g_define_type_id, g_define_type_id);
+      g_once_init_leave_pointer (&static_g_define_type_id, g_define_type_id);
     }
 
   return static_g_define_type_id;
@@ -88,9 +89,9 @@ test_enum_get_type (void)
 static GType
 test_unsigned_enum_get_type (void)
 {
-  static gsize static_g_define_type_id = 0;
+  static GType static_g_define_type_id = 0;
 
-  if (g_once_init_enter (&static_g_define_type_id))
+  if (g_once_init_enter_pointer (&static_g_define_type_id))
     {
       static const GEnumValue values[] = {
         { TEST_UNSIGNED_ENUM_FOO, "TEST_UNSIGNED_ENUM_FOO", "foo" },
@@ -99,7 +100,7 @@ test_unsigned_enum_get_type (void)
       };
       GType g_define_type_id =
         g_enum_register_static (g_intern_static_string ("TestUnsignedEnum"), values);
-      g_once_init_leave (&static_g_define_type_id, g_define_type_id);
+      g_once_init_leave_pointer (&static_g_define_type_id, g_define_type_id);
     }
 
   return static_g_define_type_id;
@@ -118,8 +119,8 @@ static const GEnumValue my_enum_values[] =
 typedef enum {
   MY_FLAGS_FIRST_BIT = (1 << 0),
   MY_FLAGS_THIRD_BIT = (1 << 2),
-  MY_FLAGS_LAST_BIT = (1 << 31)
-} MyFlags;
+  MY_FLAGS_LAST_BIT = (1u << 31)
+} G_GNUC_FLAG_ENUM MyFlags;
 
 static const GFlagsValue my_flag_values[] =
 {
@@ -174,6 +175,174 @@ baa_init (Baa *baa)
 static void
 baa_class_init (BaaClass *class)
 {
+}
+
+/*
+ * A new fundamental object type derived directly from GTypeInstance, rather
+ * than GObject, to test generic marshalling of custom GTypeInstance-derived
+ * types which are collected from varargs as pointers.
+ */
+typedef struct
+{
+  GTypeInstance parent_instance;
+  gint ref_count;
+} TestFundamentalObject;
+
+typedef struct
+{
+  GTypeClass parent_class;
+} TestFundamentalObjectClass;
+
+static guint test_fundamental_object_finalize_count;
+
+static gpointer
+test_fundamental_object_ref (gpointer instance)
+{
+  TestFundamentalObject *object = instance;
+
+  g_assert_nonnull (object);
+  g_assert_true (G_TYPE_CHECK_INSTANCE_TYPE (object, G_TYPE_FROM_INSTANCE (object)));
+
+  g_atomic_int_inc (&object->ref_count);
+
+  return object;
+}
+
+static void
+test_fundamental_object_unref (gpointer instance)
+{
+  TestFundamentalObject *object = instance;
+
+  g_assert_nonnull (object);
+  g_assert_true (G_TYPE_CHECK_INSTANCE_TYPE (object, G_TYPE_FROM_INSTANCE (object)));
+
+  if (g_atomic_int_dec_and_test (&object->ref_count))
+    {
+      test_fundamental_object_finalize_count++;
+      g_type_free_instance ((GTypeInstance *) object);
+    }
+}
+
+static void
+test_fundamental_object_value_init (GValue *value)
+{
+  value->data[0].v_pointer = NULL;
+}
+
+static void
+test_fundamental_object_value_free (GValue *value)
+{
+  g_clear_pointer (&value->data[0].v_pointer, test_fundamental_object_unref);
+}
+
+static void
+test_fundamental_object_value_copy (const GValue *src,
+                                    GValue       *dst)
+{
+  if (src->data[0].v_pointer != NULL)
+    dst->data[0].v_pointer = test_fundamental_object_ref (src->data[0].v_pointer);
+}
+
+static gpointer
+test_fundamental_object_value_peek_pointer (const GValue *value)
+{
+  return value->data[0].v_pointer;
+}
+
+static gchar *
+test_fundamental_object_value_collect (GValue      *value,
+                                       guint        n_collect_values,
+                                       GTypeCValue *collect_values,
+                                       guint        collect_flags)
+{
+  TestFundamentalObject *object = collect_values[0].v_pointer;
+
+  if (object != NULL)
+    object = test_fundamental_object_ref (object);
+
+  value->data[0].v_pointer = object;
+
+  return NULL;
+}
+
+static gchar *
+test_fundamental_object_value_lcopy (const GValue *value,
+                                     guint         n_collect_values,
+                                     GTypeCValue  *collect_values,
+                                     guint         collect_flags)
+{
+  TestFundamentalObject **object_p = collect_values[0].v_pointer;
+
+  if (object_p == NULL)
+    return g_strdup ("value location passed as NULL");
+
+  if (value->data[0].v_pointer == NULL)
+    *object_p = NULL;
+  else if (collect_flags & G_VALUE_NOCOPY_CONTENTS)
+    *object_p = value->data[0].v_pointer;
+  else
+    *object_p = test_fundamental_object_ref (value->data[0].v_pointer);
+
+  return NULL;
+}
+
+static void
+test_fundamental_object_init (TestFundamentalObject      *object,
+                              TestFundamentalObjectClass *object_class)
+{
+  object->ref_count = 1;
+}
+
+static GType
+test_fundamental_object_get_type (void)
+{
+  static GType type = G_TYPE_INVALID;
+
+  if (g_once_init_enter_pointer (&type))
+    {
+      GType new_type;
+
+      new_type =
+        g_type_register_fundamental (g_type_fundamental_next (),
+                                     "TestFundamentalObject",
+                                     &(const GTypeInfo) {
+                                       sizeof (TestFundamentalObjectClass),
+                                       NULL,
+                                       NULL,
+                                       NULL,
+                                       NULL,
+                                       NULL,
+                                       sizeof (TestFundamentalObject),
+                                       0,
+                                       (GInstanceInitFunc) test_fundamental_object_init,
+                                       &(const GTypeValueTable) {
+                                         test_fundamental_object_value_init,
+                                         test_fundamental_object_value_free,
+                                         test_fundamental_object_value_copy,
+                                         test_fundamental_object_value_peek_pointer,
+                                         "p",
+                                         test_fundamental_object_value_collect,
+                                         "p",
+                                         test_fundamental_object_value_lcopy,
+                                       },
+                                     },
+                                     &(const GTypeFundamentalInfo) {
+                                       G_TYPE_FLAG_INSTANTIATABLE |
+                                       G_TYPE_FLAG_CLASSED |
+                                       G_TYPE_FLAG_DERIVABLE,
+                                     },
+                                     0);
+
+      g_once_init_leave_pointer (&type, new_type);
+    }
+
+  return type;
+}
+
+static TestFundamentalObject *
+test_fundamental_object_new (void)
+{
+  return (TestFundamentalObject *) g_type_create_instance (test_fundamental_object_get_type ());
 }
 
 typedef struct _Test Test;
@@ -367,6 +536,15 @@ test_class_init (TestClass *klass)
                 NULL,
                 foo_get_type (),
                 0);
+  g_signal_new ("generic-marshaller-fundamental-object",
+                G_TYPE_FROM_CLASS (klass),
+                G_SIGNAL_RUN_LAST,
+                0,
+                NULL, NULL,
+                NULL,
+                test_fundamental_object_get_type (),
+                1,
+                test_fundamental_object_get_type ());
   s = g_signal_new ("va-marshaller-uint-return",
                 G_TYPE_FROM_CLASS (klass),
                 G_SIGNAL_RUN_LAST,
@@ -668,7 +846,7 @@ static void
 test_generic_marshaller_signal_enum_return_signed (void)
 {
   Test *test;
-  guint id;
+  unsigned long id;
   TestEnum retval = 0;
 
   test = g_object_new (test_get_type (), NULL);
@@ -711,7 +889,7 @@ static void
 test_generic_marshaller_signal_enum_return_unsigned (void)
 {
   Test *test;
-  guint id;
+  unsigned long id;
   TestUnsignedEnum retval = 0;
 
   test = g_object_new (test_get_type (), NULL);
@@ -756,7 +934,7 @@ static void
 test_generic_marshaller_signal_int_return (void)
 {
   Test *test;
-  guint id;
+  unsigned long id;
   gint retval = 0;
 
   test = g_object_new (test_get_type (), NULL);
@@ -820,7 +998,7 @@ static void
 test_generic_marshaller_signal_uint_return (void)
 {
   Test *test;
-  guint id;
+  unsigned long id;
   guint retval = 0;
 
   test = g_object_new (test_get_type (), NULL);
@@ -874,7 +1052,7 @@ static void
 test_generic_marshaller_signal_interface_return (void)
 {
   Test *test;
-  guint id;
+  unsigned long id;
   gpointer retval;
 
   test = g_object_new (test_get_type (), NULL);
@@ -891,6 +1069,63 @@ test_generic_marshaller_signal_interface_return (void)
   g_signal_handler_disconnect (test, id);
 
   g_object_unref (test);
+}
+
+static TestFundamentalObject *
+on_generic_marshaller_fundamental_object (Test                  *test,
+                                          TestFundamentalObject *object)
+{
+  g_assert_true (G_TYPE_CHECK_INSTANCE_TYPE (object, test_fundamental_object_get_type ()));
+
+  return test_fundamental_object_new ();
+}
+
+static void
+test_generic_marshaller_signal_fundamental_object (void)
+{
+  TestFundamentalObject *argument;
+  TestFundamentalObject *retval;
+  GValue values[2] = { G_VALUE_INIT, G_VALUE_INIT };
+  GValue return_value = G_VALUE_INIT;
+  unsigned int old_finalize_count;
+  unsigned long id;
+  guint signal_id;
+  Test *test;
+
+  old_finalize_count = test_fundamental_object_finalize_count;
+  test = g_object_new (test_get_type (), NULL);
+  argument = test_fundamental_object_new ();
+  id = g_signal_connect (test,
+                         "generic-marshaller-fundamental-object",
+                         G_CALLBACK (on_generic_marshaller_fundamental_object),
+                         NULL);
+
+  retval = NULL;
+  g_signal_emit_by_name (test, "generic-marshaller-fundamental-object", argument, &retval);
+  g_assert_true (G_TYPE_CHECK_INSTANCE_TYPE (retval, test_fundamental_object_get_type ()));
+  test_fundamental_object_unref (retval);
+
+  signal_id = g_signal_lookup ("generic-marshaller-fundamental-object", test_get_type ());
+  g_assert_cmpuint (signal_id, >, 0);
+
+  g_value_init (&values[0], test_get_type ());
+  g_value_set_object (&values[0], test);
+  g_value_init (&values[1], test_fundamental_object_get_type ());
+  g_value_set_instance (&values[1], argument);
+  g_value_init (&return_value, test_fundamental_object_get_type ());
+
+  g_signal_emitv (values, signal_id, 0, &return_value);
+  retval = g_value_peek_pointer (&return_value);
+  g_assert_true (G_TYPE_CHECK_INSTANCE_TYPE (retval, test_fundamental_object_get_type ()));
+
+  g_value_unset (&return_value);
+  g_value_unset (&values[1]);
+  g_value_unset (&values[0]);
+  test_fundamental_object_unref (argument);
+  g_signal_handler_disconnect (test, id);
+  g_object_unref (test);
+
+  g_assert_cmpuint (test_fundamental_object_finalize_count, ==, old_finalize_count + 3);
 }
 
 static const GSignalInvocationHint dont_use_this = { 0, };
@@ -1088,6 +1323,30 @@ test_connect (void)
 }
 
 static void
+test_is_connected (void)
+{
+  GObject *test;
+  gulong handler_id;
+
+  test = g_object_new (test_get_type (), NULL);
+
+  handler_id = g_signal_connect (test, "generic-marshaller-int-return",
+                                 G_CALLBACK (test_is_connected),
+                                 NULL);
+
+  g_assert_true (g_signal_handler_is_connected (test, handler_id));
+
+  g_signal_handler_disconnect (test, handler_id);
+
+  g_assert_false (g_signal_handler_is_connected (test, handler_id));
+
+  g_assert_false (g_signal_handler_is_connected (test, 0));
+  g_assert_false (g_signal_handler_is_connected (test, handler_id + 1));
+
+  g_object_unref (test);
+}
+
+static void
 simple_handler1 (GObject *sender,
                  GObject *target)
 {
@@ -1130,12 +1389,35 @@ hook_func (GSignalInvocationHint *ihint,
   return TRUE;
 }
 
+static gboolean
+hook_func_removal (GSignalInvocationHint *ihint,
+                   guint                  n_params,
+                   const GValue          *params,
+                   gpointer               data)
+{
+  gint *count = data;
+
+  (*count)++;
+
+  return FALSE;
+}
+
+static void
+simple_handler_remove_hook (GObject *sender,
+                            gpointer data)
+{
+  gulong *hook = data;
+
+  g_signal_remove_emission_hook (simple_id, *hook);
+}
+
 static void
 test_emission_hook (void)
 {
   GObject *test1, *test2;
   gint count = 0;
   gulong hook;
+  gulong connection_id;
 
   test1 = g_object_new (test_get_type (), NULL);
   test2 = g_object_new (test_get_type (), NULL);
@@ -1149,6 +1431,73 @@ test_emission_hook (void)
   g_signal_remove_emission_hook (simple_id, hook);
   g_signal_emit_by_name (test1, "simple");
   g_assert_cmpint (count, ==, 2);
+
+  count = 0;
+  hook = g_signal_add_emission_hook (simple_id, 0, hook_func_removal, &count, NULL);
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emit_by_name (test1, "simple");
+  g_assert_cmpint (count, ==, 1);
+  g_signal_emit_by_name (test2, "simple");
+  g_assert_cmpint (count, ==, 1);
+
+  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_CRITICAL,
+                         "*simple* had no hook * to remove");
+  g_signal_remove_emission_hook (simple_id, hook);
+  g_test_assert_expected_messages ();
+
+  count = 0;
+  hook = g_signal_add_emission_hook (simple_id, 0, hook_func, &count, NULL);
+  connection_id = g_signal_connect (test1, "simple",
+                                    G_CALLBACK (simple_handler_remove_hook), &hook);
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emit_by_name (test1, "simple");
+  g_assert_cmpint (count, ==, 1);
+  g_signal_emit_by_name (test2, "simple");
+  g_assert_cmpint (count, ==, 1);
+
+  g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_CRITICAL,
+                         "*simple* had no hook * to remove");
+  g_signal_remove_emission_hook (simple_id, hook);
+  g_test_assert_expected_messages ();
+
+  g_clear_signal_handler (&connection_id, test1);
+
+  gulong hooks[10];
+  count = 0;
+
+  for (size_t i = 0; i < G_N_ELEMENTS (hooks); ++i)
+    hooks[i] = g_signal_add_emission_hook (simple_id, 0, hook_func, &count, NULL);
+
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emit_by_name (test1, "simple");
+  g_assert_cmpint (count, ==, 10);
+  g_signal_emit_by_name (test2, "simple");
+  g_assert_cmpint (count, ==, 20);
+
+  for (size_t i = 0; i < G_N_ELEMENTS (hooks); ++i)
+    g_signal_remove_emission_hook (simple_id, hooks[i]);
+
+  g_signal_emit_by_name (test1, "simple");
+  g_assert_cmpint (count, ==, 20);
+
+  count = 0;
+
+  for (size_t i = 0; i < G_N_ELEMENTS (hooks); ++i)
+    hooks[i] = g_signal_add_emission_hook (simple_id, 0, hook_func_removal, &count, NULL);
+
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emit_by_name (test1, "simple");
+  g_assert_cmpint (count, ==, 10);
+  g_signal_emit_by_name (test2, "simple");
+  g_assert_cmpint (count, ==, 10);
+
+  for (size_t i = 0; i < G_N_ELEMENTS (hooks); ++i)
+    {
+      g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_CRITICAL,
+                         "*simple* had no hook * to remove");
+      g_signal_remove_emission_hook (simple_id, hooks[i]);
+      g_test_assert_expected_messages ();
+    }
 
   g_object_unref (test1);
   g_object_unref (test2);
@@ -1392,6 +1741,7 @@ test_introspection (void)
     "va-marshaller-int-return",
     "generic-marshaller-uint-return",
     "generic-marshaller-interface-return",
+    "generic-marshaller-fundamental-object",
     "va-marshaller-uint-return",
     "variant-changed-no-slot",
     "variant-changed",
@@ -1419,7 +1769,7 @@ test_introspection (void)
   g_assert_cmpstr (query.signal_name, ==, "simple");
   g_assert_true (query.itype == test_get_type ());
   g_assert_cmpint (query.signal_flags, ==, G_SIGNAL_RUN_LAST);
-  g_assert_cmpint (query.return_type, ==, G_TYPE_NONE);
+  g_assert_cmpuint (query.return_type, ==, G_TYPE_NONE);
   g_assert_cmpuint (query.n_params, ==, 0);
 
   g_free (ids);
@@ -1487,6 +1837,36 @@ test_block_handler (void)
 
   g_signal_handlers_unblock_matched (test2, G_SIGNAL_MATCH_FUNC, 0, 0, NULL, test_handler, NULL);
 
+  /* Test match by signal ID. */
+  g_assert_cmpuint (g_signal_handlers_block_matched (test1, G_SIGNAL_MATCH_ID, simple_id, 0, NULL, NULL, NULL), ==, 1);
+
+  g_signal_emit_by_name (test1, "simple");
+  g_signal_emit_by_name (test2, "simple");
+
+  g_assert_cmpint (count1, ==, 3);
+  g_assert_cmpint (count2, ==, 4);
+
+  g_assert_cmpuint (g_signal_handlers_unblock_matched (test1, G_SIGNAL_MATCH_ID, simple_id, 0, NULL, NULL, NULL), ==, 1);
+
+  /* Match types are conjunctive */
+  g_assert_cmpuint (g_signal_handlers_block_matched (test1, G_SIGNAL_MATCH_FUNC | G_SIGNAL_MATCH_DATA, 0, 0, NULL, test_handler, "will not match"), ==, 0);
+  g_assert_cmpuint (g_signal_handlers_block_matched (test1, G_SIGNAL_MATCH_FUNC | G_SIGNAL_MATCH_DATA, 0, 0, NULL, test_handler, &count1), ==, 1);
+  g_assert_cmpuint (g_signal_handlers_unblock_matched (test1, G_SIGNAL_MATCH_FUNC | G_SIGNAL_MATCH_DATA, 0, 0, NULL, test_handler, &count1), ==, 1);
+
+  /* Test g_signal_handlers_disconnect_matched for G_SIGNAL_MATCH_ID match */
+  g_assert_cmpuint (g_signal_handlers_disconnect_matched (test1,
+                                                          G_SIGNAL_MATCH_ID,
+                                                          simple_id, 0,
+                                                          NULL, NULL, NULL),
+                    ==,
+                    1);
+  g_assert_cmpuint (g_signal_handler_find (test1,
+                                           G_SIGNAL_MATCH_ID,
+                                           simple_id, 0,
+                                           NULL, NULL, NULL),
+                    ==,
+                    0);
+
   g_object_unref (test1);
   g_object_unref (test2);
 }
@@ -1534,7 +1914,7 @@ test_signal_disconnect_wrong_object (void)
 {
   Test *object, *object2;
   Test2 *object3;
-  guint signal_id;
+  unsigned long signal_id;
 
   object = g_object_new (test_get_type (), NULL);
   object2 = g_object_new (test_get_type (), NULL);
@@ -1544,6 +1924,8 @@ test_signal_disconnect_wrong_object (void)
                                 "simple",
                                 G_CALLBACK (simple_handler1),
                                 NULL);
+
+  g_assert_true (g_signal_handler_is_connected (object, signal_id));
 
   /* disconnect from the wrong object (same type), should warn */
   g_test_expect_message ("GLib-GObject", G_LOG_LEVEL_CRITICAL,
@@ -1585,7 +1967,7 @@ test_clear_signal_handler (void)
 
   if (g_test_undefined ())
     {
-      handler = g_random_int_range (0x01, 0xFF);
+      handler = (gulong) g_random_int_range (0x01, 0xFF);
       g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
                              "*instance '* has no handler with id *'");
       g_clear_signal_handler (&handler, test_obj);
@@ -1788,6 +2170,181 @@ test_signal_is_valid_name (void)
     g_assert_false (g_signal_is_valid_name (invalid_names[i]));
 }
 
+static void
+test_emitv (void)
+{
+  GArray *values;
+  GObject *test;
+  GValue return_value = G_VALUE_INIT;
+  gint count = 0;
+  guint signal_id;
+  gulong hook;
+  gulong id;
+
+  test = g_object_new (test_get_type (), NULL);
+
+  values = g_array_new (TRUE, TRUE, sizeof (GValue));
+  g_array_set_clear_func (values, (GDestroyNotify) g_value_unset);
+
+  g_array_set_size (values, 1);
+  g_value_init (&g_array_index (values, GValue, 0), G_TYPE_OBJECT);
+  g_value_set_object (&g_array_index (values, GValue, 0), test);
+  hook = g_signal_add_emission_hook (simple_id, 0, hook_func, &count, NULL);
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emitv ((GValue *) values->data, simple_id, 0, NULL);
+  g_assert_cmpint (count, ==, 1);
+  g_signal_remove_emission_hook (simple_id, hook);
+
+  g_array_set_size (values, 20);
+  g_value_init (&g_array_index (values, GValue, 1), G_TYPE_INT);
+  g_value_set_int (&g_array_index (values, GValue, 1), 42);
+
+  g_value_init (&g_array_index (values, GValue, 2), G_TYPE_BOOLEAN);
+  g_value_set_boolean (&g_array_index (values, GValue, 2), TRUE);
+
+  g_value_init (&g_array_index (values, GValue, 3), G_TYPE_CHAR);
+  g_value_set_schar (&g_array_index (values, GValue, 3), 17);
+
+  g_value_init (&g_array_index (values, GValue, 4), G_TYPE_UCHAR);
+  g_value_set_uchar (&g_array_index (values, GValue, 4), 140);
+
+  g_value_init (&g_array_index (values, GValue, 5), G_TYPE_UINT);
+  g_value_set_uint (&g_array_index (values, GValue, 5), G_MAXUINT - 42);
+
+  g_value_init (&g_array_index (values, GValue, 6), G_TYPE_LONG);
+  g_value_set_long (&g_array_index (values, GValue, 6), -1117);
+
+  g_value_init (&g_array_index (values, GValue, 7), G_TYPE_ULONG);
+  g_value_set_ulong (&g_array_index (values, GValue, 7), G_MAXULONG - 999);
+
+  g_value_init (&g_array_index (values, GValue, 8), enum_type);
+  g_value_set_enum (&g_array_index (values, GValue, 8), MY_ENUM_VALUE);
+
+  g_value_init (&g_array_index (values, GValue, 9), flags_type);
+  g_value_set_flags (&g_array_index (values, GValue, 9),
+                     MY_FLAGS_FIRST_BIT | MY_FLAGS_THIRD_BIT | MY_FLAGS_LAST_BIT);
+
+  g_value_init (&g_array_index (values, GValue, 10), G_TYPE_FLOAT);
+  g_value_set_float (&g_array_index (values, GValue, 10), 0.25);
+
+  g_value_init (&g_array_index (values, GValue, 11), G_TYPE_DOUBLE);
+  g_value_set_double (&g_array_index (values, GValue, 11), 1.5);
+
+  g_value_init (&g_array_index (values, GValue, 12), G_TYPE_STRING);
+  g_value_set_string (&g_array_index (values, GValue, 12), "Test");
+
+  g_value_init (&g_array_index (values, GValue, 13), G_TYPE_PARAM_LONG);
+  g_value_take_param (&g_array_index (values, GValue, 13),
+                      g_param_spec_long	 ("param", "nick", "blurb", 0, 10, 4, 0));
+
+  g_value_init (&g_array_index (values, GValue, 14), G_TYPE_BYTES);
+  g_value_take_boxed (&g_array_index (values, GValue, 14),
+                      g_bytes_new_static ("Blah", 5));
+
+  g_value_init (&g_array_index (values, GValue, 15), G_TYPE_POINTER);
+  g_value_set_pointer (&g_array_index (values, GValue, 15), &enum_type);
+
+  g_value_init (&g_array_index (values, GValue, 16), test_get_type ());
+  g_value_set_object (&g_array_index (values, GValue, 16), test);
+
+  g_value_init (&g_array_index (values, GValue, 17), G_TYPE_VARIANT);
+  g_value_take_variant (&g_array_index (values, GValue, 17),
+                        g_variant_ref_sink (g_variant_new_uint16 (99)));
+
+  g_value_init (&g_array_index (values, GValue, 18), G_TYPE_INT64);
+  g_value_set_int64 (&g_array_index (values, GValue, 18), G_MAXINT64 - 1234);
+
+  g_value_init (&g_array_index (values, GValue, 19), G_TYPE_UINT64);
+  g_value_set_uint64 (&g_array_index (values, GValue, 19), G_MAXUINT64 - 123456);
+
+  id = g_signal_connect (test, "all-types", G_CALLBACK (all_types_handler_cb), &flags_type);
+  signal_id = g_signal_lookup ("all-types", test_get_type ());
+  g_assert_cmpuint (signal_id, >, 0);
+
+  count = 0;
+  hook = g_signal_add_emission_hook (signal_id, 0, hook_func, &count, NULL);
+  g_assert_cmpint (count, ==, 0);
+  g_signal_emitv ((GValue *) values->data, signal_id, 0, NULL);
+  g_assert_cmpint (count, ==, 1);
+  g_signal_remove_emission_hook (signal_id, hook);
+  g_clear_signal_handler (&id, test);
+
+
+  signal_id = g_signal_lookup ("generic-marshaller-int-return", test_get_type ());
+  g_assert_cmpuint (signal_id, >, 0);
+  g_array_set_size (values, 1);
+
+  id = g_signal_connect (test,
+                         "generic-marshaller-int-return",
+                         G_CALLBACK (on_generic_marshaller_int_return_signed_1),
+                         NULL);
+
+  count = 0;
+  hook = g_signal_add_emission_hook (signal_id, 0, hook_func, &count, NULL);
+  g_assert_cmpint (count, ==, 0);
+  g_value_init (&return_value, G_TYPE_INT);
+  g_signal_emitv ((GValue *) values->data, signal_id, 0, &return_value);
+  g_assert_cmpint (count, ==, 1);
+  g_assert_cmpint (g_value_get_int (&return_value), ==, -30);
+  g_signal_remove_emission_hook (signal_id, hook);
+  g_clear_signal_handler (&id, test);
+
+#ifdef G_ENABLE_DEBUG
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*return*value*generic-marshaller-int-return*NULL*");
+  g_signal_emitv ((GValue *) values->data, signal_id, 0, NULL);
+  g_test_assert_expected_messages ();
+
+  g_value_unset (&return_value);
+  g_value_init (&return_value, G_TYPE_FLOAT);
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "*return*value*generic-marshaller-int-return*gfloat*");
+  g_signal_emitv ((GValue *) values->data, signal_id, 0, &return_value);
+  g_test_assert_expected_messages ();
+#endif
+
+  g_object_unref (test);
+  g_array_unref (values);
+}
+
+typedef struct
+{
+  GWeakRef wr;
+  gulong handler;
+} TestWeakRefDisconnect;
+
+static void
+weak_ref_disconnect_notify (gpointer  data,
+                            GObject  *where_object_was)
+{
+  TestWeakRefDisconnect *state = data;
+  g_assert_null (g_weak_ref_get (&state->wr));
+  state->handler = 0;
+}
+
+static void
+test_weak_ref_disconnect (void)
+{
+  TestWeakRefDisconnect state;
+  GObject *test;
+
+  test = g_object_new (test_get_type (), NULL);
+  g_weak_ref_init (&state.wr, test);
+  state.handler = g_signal_connect_data (test,
+                                         "simple",
+                                         G_CALLBACK (dont_reach),
+                                         &state,
+                                         (GClosureNotify) weak_ref_disconnect_notify,
+                                         0);
+  g_assert_cmpuint (state.handler, >, 0);
+
+  g_object_unref (test);
+
+  g_assert_cmpuint (state.handler, ==, 0);
+  g_assert_null (g_weak_ref_get (&state.wr));
+  g_weak_ref_clear (&state.wr);
+}
+
 /* --- */
 
 int
@@ -1806,9 +2363,12 @@ main (int argc,
   g_test_add_func ("/gobject/signals/generic-marshaller-int-return", test_generic_marshaller_signal_int_return);
   g_test_add_func ("/gobject/signals/generic-marshaller-uint-return", test_generic_marshaller_signal_uint_return);
   g_test_add_func ("/gobject/signals/generic-marshaller-interface-return", test_generic_marshaller_signal_interface_return);
+  g_test_add_func ("/gobject/signals/generic-marshaller-fundamental-object", test_generic_marshaller_signal_fundamental_object);
   g_test_add_func ("/gobject/signals/custom-marshaller", test_custom_marshaller);
   g_test_add_func ("/gobject/signals/connect", test_connect);
+  g_test_add_func ("/gobject/signals/is-connected", test_is_connected);
   g_test_add_func ("/gobject/signals/emission-hook", test_emission_hook);
+  g_test_add_func ("/gobject/signals/emitv", test_emitv);
   g_test_add_func ("/gobject/signals/accumulator", test_accumulator);
   g_test_add_func ("/gobject/signals/accumulator-class", test_accumulator_class);
   g_test_add_func ("/gobject/signals/introspection", test_introspection);
@@ -1825,6 +2385,7 @@ main (int argc,
   g_test_add_data_func ("/gobject/signals/invalid-name/first-char", "7zip", test_signals_invalid_name);
   g_test_add_data_func ("/gobject/signals/invalid-name/empty", "", test_signals_invalid_name);
   g_test_add_func ("/gobject/signals/is-valid-name", test_signal_is_valid_name);
+  g_test_add_func ("/gobject/signals/weak-ref-disconnect", test_weak_ref_disconnect);
 
   return g_test_run ();
 }

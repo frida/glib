@@ -39,20 +39,17 @@
 
 
 /**
- * SECTION:gunixinputstream
- * @short_description: Streaming input operations for UNIX file descriptors
- * @include: gio/gunixinputstream.h
- * @see_also: #GInputStream
+ * GUnixInputStream:
  *
- * #GUnixInputStream implements #GInputStream for reading from a UNIX
+ * `GUnixInputStream` implements [class@Gio.InputStream] for reading from a UNIX
  * file descriptor, including asynchronous operations. (If the file
- * descriptor refers to a socket or pipe, this will use poll() to do
+ * descriptor refers to a socket or pipe, this will use `poll()` to do
  * asynchronous I/O. If it refers to a regular file, it will fall back
  * to doing asynchronous I/O in another thread.)
  *
  * Note that `<gio/gunixinputstream.h>` belongs to the UNIX-specific GIO
  * interfaces, thus you have to use the `gio-unix-2.0.pc` pkg-config
- * file when using it.
+ * file or the `GioUnix-2.0` GIR namespace when using it.
  */
 
 enum {
@@ -136,9 +133,7 @@ g_unix_input_stream_class_init (GUnixInputStreamClass *klass)
    */
   g_object_class_install_property (gobject_class,
 				   PROP_FD,
-				   g_param_spec_int ("fd",
-						     P_("File descriptor"),
-						     P_("The file descriptor to read from"),
+				   g_param_spec_int ("fd", NULL, NULL,
 						     G_MININT, G_MAXINT, -1,
 						     G_PARAM_READABLE | G_PARAM_WRITABLE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_NAME | G_PARAM_STATIC_NICK | G_PARAM_STATIC_BLURB));
 
@@ -151,9 +146,7 @@ g_unix_input_stream_class_init (GUnixInputStreamClass *klass)
    */
   g_object_class_install_property (gobject_class,
 				   PROP_CLOSE_FD,
-				   g_param_spec_boolean ("close-fd",
-							 P_("Close file descriptor"),
-							 P_("Whether to close the file descriptor when the stream is closed"),
+				   g_param_spec_boolean ("close-fd", NULL, NULL,
 							 TRUE,
 							 G_PARAM_READABLE | G_PARAM_WRITABLE | G_PARAM_STATIC_NAME | G_PARAM_STATIC_NICK | G_PARAM_STATIC_BLURB));
 }
@@ -342,34 +335,31 @@ g_unix_input_stream_read (GInputStream  *stream,
 
   while (1)
     {
-      if (unix_stream->priv->can_poll)
+      int errsv;
+
+      poll_fds[0].revents = poll_fds[1].revents = 0;
+      do
         {
-          int errsv;
-          
-          poll_fds[0].revents = poll_fds[1].revents = 0;
-          do
-            {
-              poll_ret = g_poll (poll_fds, nfds, -1);
-              errsv = errno;
-            }
-          while (poll_ret == -1 && errsv == EINTR);
-        
-          if (poll_ret == -1)
-            {
-               g_set_error (error, G_IO_ERROR,
-                            g_io_error_from_errno (errsv),
-                            _("Error reading from file descriptor: %s"),
-                            g_strerror (errsv));
-               break;
-            }
-
-          if (g_cancellable_set_error_if_cancelled (cancellable, error))
-            break;
-
-          if (!poll_fds[0].revents)
-            continue;
+          poll_ret = g_poll (poll_fds, nfds, -1);
+          errsv = errno;
         }
-        
+      while (poll_ret == -1 && errsv == EINTR);
+
+      if (poll_ret == -1)
+	{
+	  g_set_error (error, G_IO_ERROR,
+		       g_io_error_from_errno (errsv),
+		       _("Error reading from file descriptor: %s"),
+		       g_strerror (errsv));
+	  break;
+	}
+
+      if (g_cancellable_set_error_if_cancelled (cancellable, error))
+	break;
+
+      if (!poll_fds[0].revents)
+	continue;
+
       res = read (unix_stream->priv->fd, buffer, count);
       if (res == -1)
 	{

@@ -26,9 +26,11 @@
 #include "gtypes.h"
 #include "gtestutils.h"
 
+#include <math.h>
+#include <time.h>
+
 G_BEGIN_DECLS
 
-GLIB_AVAILABLE_IN_2_60
 void g_set_user_dirs (const gchar *first_dir_type,
                       ...) G_GNUC_NULL_TERMINATED;
 
@@ -52,6 +54,29 @@ g_nearest_pow (gsize num)
 #endif
 
   return n + 1;
+}
+
+void _g_unset_cached_tmp_dir (void);
+
+gboolean _g_localtime (time_t timet, struct tm *tm);
+
+gboolean g_set_prgname_once (const gchar *prgname);
+
+/* Although isnan() is defined as a type-independent macro in C99, mingw32
+ * doesn’t seem to support that (it defines `isnan (float d)` only). Older
+ * MSVC toolchains don’t support C99 either. So we provide an internal
+ * abstraction macro.
+ *
+ * This should not be made public; toolchains will soon enough catch up with
+ * C99, so third party code should just use isnan(). */
+static inline int
+g_isnan (double d)
+{
+#if (defined (_MSC_VER) && (_MSC_VER < 1800)) || defined(__MINGW32__)
+  return _isnan (d);
+#else
+  return isnan (d);
+#endif
 }
 
 G_END_DECLS

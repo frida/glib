@@ -31,24 +31,14 @@
 #include "gtask.h"
 
 /**
- * SECTION:gnetworkmonitor
- * @title: GNetworkMonitor
- * @short_description: Network status monitor
- * @include: gio/gio.h
+ * GNetworkMonitor:
  *
- * #GNetworkMonitor provides an easy-to-use cross-platform API
+ * `GNetworkMonitor` provides an easy-to-use cross-platform API
  * for monitoring network connectivity. On Linux, the available
  * implementations are based on the kernel's netlink interface and
  * on NetworkManager.
  *
  * There is also an implementation for use inside Flatpak sandboxes.
- */
-
-/**
- * GNetworkMonitor:
- *
- * #GNetworkMonitor monitors the status of network connections and
- * indicates when a possibly-user-visible change has occurred.
  *
  * Since: 2.32
  */
@@ -86,6 +76,12 @@ static GNetworkMonitor *network_monitor_default_singleton = NULL;  /* (owned) (a
  *
  * Gets the default #GNetworkMonitor for the system.
  *
+ * Some implementations complete their initialization asynchronously:
+ * properties such as #GNetworkMonitor:network-available may start at their
+ * default values and update shortly afterwards, with notify emissions, once
+ * the state is resolved from the thread-default main context of this first
+ * call.
+ *
  * Returns: (not nullable) (transfer none): a #GNetworkMonitor, which will be
  *     a dummy object if no network monitor is available
  *
@@ -94,7 +90,7 @@ static GNetworkMonitor *network_monitor_default_singleton = NULL;  /* (owned) (a
 GNetworkMonitor *
 g_network_monitor_get_default (void)
 {
-  if (g_once_init_enter (&network_monitor_default_singleton))
+  if (g_once_init_enter_pointer (&network_monitor_default_singleton))
     {
       GNetworkMonitor *singleton;
 
@@ -102,7 +98,7 @@ g_network_monitor_get_default (void)
                                             "GIO_USE_NETWORK_MONITOR",
                                             NULL);
 
-      g_once_init_leave (&network_monitor_default_singleton, singleton);
+      g_once_init_leave_pointer (&network_monitor_default_singleton, singleton);
     }
 
   return network_monitor_default_singleton;
@@ -254,9 +250,9 @@ g_network_monitor_real_can_reach_async (GNetworkMonitor     *monitor,
  * @monitor: a #GNetworkMonitor
  * @connectable: a #GSocketConnectable
  * @cancellable: (nullable): a #GCancellable, or %NULL
- * @callback: (scope async): a #GAsyncReadyCallback to call when the
- *     request is satisfied
- * @user_data: (closure): the data to pass to callback function
+ * @callback: (scope async): a #GAsyncReadyCallback
+ *     to call when the request is satisfied
+ * @user_data: the data to pass to callback function
  *
  * Asynchronously attempts to determine whether or not the host
  * pointed to by @connectable can be reached, without actually
@@ -362,9 +358,7 @@ g_network_monitor_default_init (GNetworkMonitorInterface *iface)
    * Since: 2.32
    */
   g_object_interface_install_property (iface,
-                                       g_param_spec_boolean ("network-available",
-                                                             P_("Network available"),
-                                                             P_("Whether the network is available"),
+                                       g_param_spec_boolean ("network-available", NULL, NULL,
                                                              FALSE,
                                                              G_PARAM_READABLE |
                                                              G_PARAM_STATIC_STRINGS));
@@ -372,14 +366,18 @@ g_network_monitor_default_init (GNetworkMonitorInterface *iface)
   /**
    * GNetworkMonitor:network-metered:
    *
-   * Whether the network is considered metered. That is, whether the
+   * Whether the network is considered metered.
+   *
+   * That is, whether the
    * system has traffic flowing through the default connection that is
    * subject to limitations set by service providers. For example, traffic
    * might be billed by the amount of data transmitted, or there might be a
    * quota on the amount of traffic per month. This is typical with tethered
    * connections (3G and 4G) and in such situations, bandwidth intensive
    * applications may wish to avoid network activity where possible if it will
-   * cost the user money or use up their limited quota.
+   * cost the user money or use up their limited quota. Anything more than a
+   * few hundreds of kilobytes of data usage per hour should be avoided without
+   * asking permission from the user.
    *
    * If more information is required about specific devices then the
    * system network management API should be used instead (for example,
@@ -393,9 +391,7 @@ g_network_monitor_default_init (GNetworkMonitorInterface *iface)
    * Since: 2.46
    */
   g_object_interface_install_property (iface,
-                                       g_param_spec_boolean ("network-metered",
-                                                             P_("Network metered"),
-                                                             P_("Whether the network is metered"),
+                                       g_param_spec_boolean ("network-metered", NULL, NULL,
                                                              FALSE,
                                                              G_PARAM_READABLE |
                                                              G_PARAM_STATIC_STRINGS));
@@ -410,9 +406,7 @@ g_network_monitor_default_init (GNetworkMonitorInterface *iface)
    * Since: 2.44
    */
   g_object_interface_install_property (iface,
-                                       g_param_spec_enum ("connectivity",
-                                                          P_("Network connectivity"),
-                                                          P_("Level of network connectivity"),
+                                       g_param_spec_enum ("connectivity", NULL, NULL,
                                                           G_TYPE_NETWORK_CONNECTIVITY,
                                                           G_NETWORK_CONNECTIVITY_FULL,
                                                           G_PARAM_READABLE |

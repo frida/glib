@@ -25,23 +25,22 @@
 #include "gtask.h"
 
 /**
- * SECTION:gsocketaddressenumerator
- * @short_description: Enumerator for socket addresses
- * @include: gio/gio.h
+ * GSocketAddressEnumerator:
  *
- * #GSocketAddressEnumerator is an enumerator type for #GSocketAddress
- * instances. It is returned by enumeration functions such as
- * g_socket_connectable_enumerate(), which returns a #GSocketAddressEnumerator
- * to list each #GSocketAddress which could be used to connect to that
- * #GSocketConnectable.
+ * `GSocketAddressEnumerator` is an enumerator type for
+ * [class@Gio.SocketAddress] instances. It is returned by enumeration functions
+ * such as [method@Gio.SocketConnectable.enumerate], which returns a
+ * `GSocketAddressEnumerator` to list each [class@Gio.SocketAddress] which could
+ * be used to connect to that [iface@Gio.SocketConnectable].
  *
  * Enumeration is typically a blocking operation, so the asynchronous methods
- * g_socket_address_enumerator_next_async() and
- * g_socket_address_enumerator_next_finish() should be used where possible.
+ * [method@Gio.SocketAddressEnumerator.next_async] and
+ * [method@Gio.SocketAddressEnumerator.next_finish] should be used where
+ * possible.
  *
- * Each #GSocketAddressEnumerator can only be enumerated once. Once
- * g_socket_address_enumerator_next() has returned %NULL, further
- * enumeration with that #GSocketAddressEnumerator is not possible, and it can
+ * Each `GSocketAddressEnumerator` can only be enumerated once. Once
+ * [method@Gio.SocketAddressEnumerator.next] has returned `NULL`, further
+ * enumeration with that `GSocketAddressEnumerator` is not possible, and it can
  * be unreffed.
  */
 
@@ -82,13 +81,13 @@ g_socket_address_enumerator_class_init (GSocketAddressEnumeratorClass *enumerato
  * If @enumerator is expected to yield addresses, but for some reason
  * is unable to (eg, because of a DNS error), then the first call to
  * g_socket_address_enumerator_next() will return an appropriate error
- * in *@error. However, if the first call to
+ * in `*error`. However, if the first call to
  * g_socket_address_enumerator_next() succeeds, then any further
  * internal errors (other than @cancellable being triggered) will be
  * ignored.
  *
  * Returns: (transfer full) (nullable): a #GSocketAddress (owned by the caller), or %NULL on
- *     error (in which case *@error will be set) or if there are no
+ *     error (in which case `*error` will be set) or if there are no
  *     more addresses.
  */
 GSocketAddress *
@@ -135,9 +134,9 @@ g_socket_address_enumerator_real_next_async (GSocketAddressEnumerator *enumerato
  * g_socket_address_enumerator_next_async:
  * @enumerator: a #GSocketAddressEnumerator
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
- * @callback: (scope async): a #GAsyncReadyCallback to call when the request
- *     is satisfied
- * @user_data: (closure): the data to pass to callback function
+ * @callback: (scope async) (closure user_data): a #GAsyncReadyCallback to call
+ *   when the request is satisfied
+ * @user_data: the data to pass to callback function
  *
  * Asynchronously retrieves the next #GSocketAddress from @enumerator
  * and then calls @callback, which must call
@@ -182,7 +181,7 @@ g_socket_address_enumerator_real_next_finish (GSocketAddressEnumerator  *enumera
  * error handling.
  *
  * Returns: (transfer full) (nullable): a #GSocketAddress (owned by the caller), or %NULL on
- *     error (in which case *@error will be set) or if there are no
+ *     error (in which case `*error` will be set) or if there are no
  *     more addresses.
  */
 GSocketAddress *

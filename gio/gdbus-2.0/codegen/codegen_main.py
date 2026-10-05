@@ -6,6 +6,8 @@
 # Copyright (C) 2008-2011 Red Hat, Inc.
 # Copyright (C) 2018 Iñigo Martínez <inigomartinez@gmail.com>
 #
+# SPDX-License-Identifier: LGPL-2.1-or-later
+#
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
 # License as published by the Free Software Foundation; either
@@ -24,14 +26,28 @@
 import argparse
 import os
 import sys
+import importlib.util
+import traceback
+from contextlib import contextmanager
 
 from . import config
 from . import dbustypes
 from . import parser
 from . import codegen
 from . import codegen_docbook
+from . import codegen_md
 from . import codegen_rst
 from .utils import print_error, print_warning
+
+
+def import_from_path(module_name, file_path):
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if not spec:
+        raise Exception("Not a Python file")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def find_arg(arg_list, arg_name):
@@ -60,6 +76,15 @@ def find_prop(iface, prop):
         if m.name == prop:
             return m
     return None
+
+
+@contextmanager
+def file_or_stdout(filename):
+    if filename is None or filename == "-":
+        yield sys.stdout
+    else:
+        with open(filename, "w") as outfile:
+            yield outfile
 
 
 def apply_annotation(iface_list, iface, method, signal, prop, arg, key, value):
@@ -118,7 +143,7 @@ def apply_annotation(iface_list, iface, method, signal, prop, arg, key, value):
 
 def apply_annotations(iface_list, annotation_list):
     # apply annotations given on the command line
-    for (what, key, value) in annotation_list:
+    for what, key, value in annotation_list:
         pos = what.find("::")
         if pos != -1:
             # signal
@@ -213,6 +238,11 @@ def codegen_main():
         help="Generate Docbook in OUTFILES-org.Project.IFace.xml",
     )
     arg_parser.add_argument(
+        "--generate-md",
+        metavar="OUTFILES",
+        help="Generate Markdown in OUTFILES-org.Project.IFace.md",
+    )
+    arg_parser.add_argument(
         "--generate-rst",
         metavar="OUTFILES",
         help="Generate reStructuredText in OUTFILES-org.Project.IFace.rst",
@@ -256,6 +286,12 @@ def codegen_main():
         help="Additional define required for decorator specified by "
         "--symbol-decorator",
     )
+    arg_parser.add_argument(
+        "--extension-path",
+        metavar="EXTENSION_PATH",
+        default="",
+        help="Path to a gdbus-codegen Python extension file (unstable API)",
+    )
 
     group = arg_parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -287,6 +323,20 @@ def codegen_main():
 
     args = arg_parser.parse_args()
 
+    codegen_ext = {}
+    if args.extension_path:
+        try:
+            codegen_ext = import_from_path("GDBusCodegenExt", args.extension_path)
+            codegen_ext.init(
+                args,
+                {
+                    "version": 1,
+                },
+            )
+        except Exception:
+            print_warning(traceback.format_exc())
+            print_error("Loading extension ‘{}’ failed".format(args.extension_path))
+
     if len(args.xml_files) > 0:
         print_warning(
             'The "--xml-files" option is deprecated; use positional arguments instead'
@@ -295,10 +345,11 @@ def codegen_main():
     if (
         args.generate_c_code is not None
         or args.generate_docbook is not None
+        or args.generate_md is not None
         or args.generate_rst is not None
     ) and args.output is not None:
         print_error(
-            "Using --generate-c-code or --generate-docbook or --generate-rst and "
+            "Using --generate-c-code or --generate-{docbook,md,rst} and "
             "--output at the same time is not allowed"
         )
 
@@ -319,7 +370,11 @@ def codegen_main():
             print_error("Using --body requires --output")
 
         c_file = args.output
-        header_name = os.path.splitext(os.path.basename(c_file))[0] + ".h"
+
+        if c_file == "-":
+            header_name = ""
+        else:
+            header_name = os.path.splitext(os.path.basename(c_file))[0] + ".h"
     elif args.interface_info_header:
         if args.output is None:
             print_error("Using --interface-info-header requires --output")
@@ -341,7 +396,11 @@ def codegen_main():
             )
 
         c_file = args.output
-        header_name = os.path.splitext(os.path.basename(c_file))[0] + ".h"
+
+        if c_file == "-":
+            header_name = ""
+        else:
+            header_name = os.path.splitext(os.path.basename(c_file))[0] + ".h"
 
     # Check the minimum GLib version. The minimum --glib-min-required is 2.30,
     # because that’s when gdbus-codegen was introduced. Support 1, 2 or 3
@@ -428,13 +487,18 @@ def codegen_main():
     if docbook:
         docbook_gen.generate(docbook, args.output_directory)
 
+    md = args.generate_md
+    md_gen = codegen_md.MdCodeGenerator(all_ifaces)
+    if md:
+        md_gen.generate(md, args.output_directory)
+
     rst = args.generate_rst
     rst_gen = codegen_rst.RstCodeGenerator(all_ifaces)
     if rst:
         rst_gen.generate(rst, args.output_directory)
 
     if args.header:
-        with open(h_file, "w") as outfile:
+        with file_or_stdout(h_file) as outfile:
             gen = codegen.HeaderCodeGenerator(
                 all_ifaces,
                 args.c_namespace,
@@ -447,11 +511,12 @@ def codegen_main():
                 args.symbol_decorator,
                 args.symbol_decorator_header,
                 outfile,
+                codegen_ext,
             )
             gen.generate()
 
     if args.body:
-        with open(c_file, "w") as outfile:
+        with file_or_stdout(c_file) as outfile:
             gen = codegen.CodeGenerator(
                 all_ifaces,
                 args.c_namespace,
@@ -462,11 +527,12 @@ def codegen_main():
                 glib_min_required,
                 args.symbol_decorator_define,
                 outfile,
+                codegen_ext,
             )
             gen.generate()
 
     if args.interface_info_header:
-        with open(h_file, "w") as outfile:
+        with file_or_stdout(h_file) as outfile:
             gen = codegen.InterfaceInfoHeaderCodeGenerator(
                 all_ifaces,
                 args.c_namespace,
@@ -481,7 +547,7 @@ def codegen_main():
             gen.generate()
 
     if args.interface_info_body:
-        with open(c_file, "w") as outfile:
+        with file_or_stdout(c_file) as outfile:
             gen = codegen.InterfaceInfoBodyCodeGenerator(
                 all_ifaces,
                 args.c_namespace,

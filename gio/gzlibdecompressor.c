@@ -42,11 +42,9 @@ enum {
 };
 
 /**
- * SECTION:gzlibdecompressor
- * @short_description: Zlib decompressor
- * @include: gio/gio.h
+ * GZlibDecompressor:
  *
- * #GZlibDecompressor is an implementation of #GConverter that
+ * `GZlibDecompressor` is an implementation of [iface@Gio.Converter] that
  * decompresses data compressed with zlib.
  */
 
@@ -58,11 +56,6 @@ typedef struct {
   GFileInfo *file_info;
 } HeaderData;
 
-/**
- * GZlibDecompressor:
- *
- * Zlib decompression
- */
 struct _GZlibDecompressor
 {
   GObject parent_instance;
@@ -222,11 +215,16 @@ g_zlib_decompressor_class_init (GZlibDecompressorClass *klass)
   gobject_class->get_property = g_zlib_decompressor_get_property;
   gobject_class->set_property = g_zlib_decompressor_set_property;
 
+  /**
+   * GZlibDecompressor:format:
+   *
+   * The format of the compressed data.
+   *
+   * Since: 2.24
+   */
   g_object_class_install_property (gobject_class,
 				   PROP_FORMAT,
-				   g_param_spec_enum ("format",
-						      P_("compression format"),
-						      P_("The format of the compressed data"),
+				   g_param_spec_enum ("format", NULL, NULL,
 						      G_TYPE_ZLIB_COMPRESSOR_FORMAT,
 						      G_ZLIB_COMPRESSOR_FORMAT_ZLIB,
 						      G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
@@ -235,18 +233,18 @@ g_zlib_decompressor_class_init (GZlibDecompressorClass *klass)
   /**
    * GZlibDecompressor:file-info:
    *
-   * A #GFileInfo containing the information found in the GZIP header
-   * of the data stream processed, or %NULL if the header was not yet
-   * fully processed, is not present at all, or the compressor's
-   * #GZlibDecompressor:format property is not %G_ZLIB_COMPRESSOR_FORMAT_GZIP.
+   * A [class@Gio.FileInfo] containing the information found in the gzip header
+   * of the data stream processed.
+   *
+   * This will be `NULL` if the header was not yet fully processed, is not
+   * present at all, or the compressor’s [property@Gio.ZlibDecompressor:format]
+   * property is not [enum@Gio.ZlibCompressorFormat.GZIP].
    *
    * Since: 2.26
    */
   g_object_class_install_property (gobject_class,
                                    PROP_FILE_INFO,
-                                   g_param_spec_object ("file-info",
-                                                       P_("file info"),
-                                                       P_("File info"),
+                                   g_param_spec_object ("file-info", NULL, NULL,
                                                        G_TYPE_FILE_INFO,
                                                        G_PARAM_READABLE |
                                                        G_PARAM_STATIC_STRINGS));
@@ -254,12 +252,11 @@ g_zlib_decompressor_class_init (GZlibDecompressorClass *klass)
 
 /**
  * g_zlib_decompressor_new:
- * @format: The format to use for the compressed data
+ * @format: the format to use for the compressed data
  *
- * Creates a new #GZlibDecompressor.
+ * Creates a new decompressor.
  *
- * Returns: a new #GZlibDecompressor
- *
+ * Returns: a new [class@Gio.ZlibDecompressor]
  * Since: 2.24
  **/
 GZlibDecompressor *
@@ -278,14 +275,9 @@ g_zlib_decompressor_new (GZlibCompressorFormat format)
  * g_zlib_decompressor_get_file_info:
  * @decompressor: a #GZlibDecompressor
  *
- * Retrieves the #GFileInfo constructed from the GZIP header data
- * of compressed data processed by @compressor, or %NULL if @decompressor's
- * #GZlibDecompressor:format property is not %G_ZLIB_COMPRESSOR_FORMAT_GZIP,
- * or the header data was not fully processed yet, or it not present in the
- * data stream at all.
+ * Gets the [property@Gio.ZlibDecompressor:file-info] property.
  *
- * Returns: (nullable) (transfer none): a #GFileInfo, or %NULL
- *
+ * Returns: (nullable) (transfer none): file info from the gzip header, if available
  * Since: 2.26
  */
 GFileInfo *

@@ -248,22 +248,7 @@ typedef void (*GObjectFinalizeFunc)     (GObject      *object);
  */
 typedef void (*GWeakNotify)		(gpointer      data,
 					 GObject      *where_the_object_was);
-/**
- * GObject:
- *
- * The base object type.
- * 
- * All the fields in the `GObject` structure are private to the implementation
- * and should never be accessed directly.
- *
- * Since GLib 2.72, all #GObjects are guaranteed to be aligned to at least the
- * alignment of the largest basic GLib type (typically this is #guint64 or
- * #gdouble). If you need larger alignment for an element in a #GObject, you
- * should allocate it on the heap (aligned), or arrange for your #GObject to be
- * appropriately padded. This guarantee applies to the #GObject (or derived)
- * struct, the #GObjectClass (or derived) struct, and any private data allocated
- * by G_ADD_PRIVATE().
- */
+
 struct  _GObject
 {
   GTypeInstance  g_type_instance;
@@ -371,7 +356,7 @@ struct  _GObjectClass
   /*< private >*/
   gsize		flags;
 
-  gsize         n_construct_properties;
+  gsize         n_construct_properties;  /* functionally this is limited to UINT_MAX */
 
   gpointer pspecs;
   gsize n_pspecs;
@@ -442,7 +427,7 @@ GParamSpec**g_object_interface_list_properties  (gpointer     g_iface,
 						 guint       *n_properties_p);
 
 GOBJECT_AVAILABLE_IN_ALL
-GType       g_object_get_type                 (void) G_GNUC_CONST;
+GType       g_object_get_type                 (void);
 GOBJECT_AVAILABLE_IN_ALL
 gpointer    g_object_new                      (GType           object_type,
 					       const gchar    *first_property_name,
@@ -680,7 +665,6 @@ gsize	    g_object_compat_control	      (gsize	       what,
 					       gpointer	       data);
 
 /* --- implementation macros --- */
-#ifndef G_DISABLE_CHECKS
 #define G_OBJECT_WARN_INVALID_PSPEC(object, pname, property_id, pspec) \
 G_STMT_START { \
   GObject *_glib__object = (GObject*) (object); \
@@ -694,12 +678,6 @@ G_STMT_START { \
              g_type_name (G_PARAM_SPEC_TYPE (_glib__pspec)), \
              G_OBJECT_TYPE_NAME (_glib__object)); \
 } G_STMT_END
-#else
-#define G_OBJECT_WARN_INVALID_PSPEC(object, pname, property_id, pspec) \
-G_STMT_START { \
-  (void) 0; \
-} G_STMT_END
-#endif
 /**
  * G_OBJECT_WARN_INVALID_PROPERTY_ID:
  * @object: the #GObject on which set_property() or get_property() was called

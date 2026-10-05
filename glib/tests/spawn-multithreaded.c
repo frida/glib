@@ -33,7 +33,10 @@
 #include <sys/types.h>
 
 static char *echo_prog_path;
+
+#ifdef G_OS_WIN32
 static char *sleep_prog_path;
+#endif
 
 #ifdef G_OS_UNIX
 #include <unistd.h>
@@ -60,6 +63,7 @@ get_a_child (gint ttl)
   STARTUPINFO si;
   PROCESS_INFORMATION pi;
   gchar *cmdline;
+  wchar_t *cmdline_utf16;
 
   memset (&si, 0, sizeof (si));
   si.cb = sizeof (&si);
@@ -67,11 +71,15 @@ get_a_child (gint ttl)
 
   cmdline = g_strdup_printf ("%s %d", sleep_prog_path, ttl);
 
-  if (!CreateProcess (NULL, cmdline, NULL, NULL,
+  cmdline_utf16 = g_utf8_to_utf16 (cmdline, -1, NULL, NULL, NULL);
+  g_assert_nonnull (cmdline_utf16);
+
+  if (!CreateProcess (NULL, cmdline_utf16, NULL, NULL,
                       FALSE, 0, NULL, NULL, &si, &pi))
     g_error ("CreateProcess failed: %s",
              g_win32_error_message (GetLastError ()));
 
+  g_free (cmdline_utf16);
   g_free (cmdline);
 
   CloseHandle (pi.hThread);
@@ -425,13 +433,14 @@ main (int   argc,
 
   dirname = g_path_get_dirname (argv[0]);
   echo_prog_path = g_build_filename (dirname, "test-spawn-echo" EXEEXT, NULL);
-  sleep_prog_path = g_build_filename (dirname, "test-spawn-sleep" EXEEXT, NULL);
-  g_free (dirname);
 
   g_assert (g_file_test (echo_prog_path, G_FILE_TEST_EXISTS));
 #ifdef G_OS_WIN32
+  sleep_prog_path = g_build_filename (dirname, "test-spawn-sleep" EXEEXT, NULL);
   g_assert (g_file_test (sleep_prog_path, G_FILE_TEST_EXISTS));
 #endif
+
+  g_clear_pointer (&dirname, g_free);
 
   g_test_add_func ("/gthread/spawn-childs", test_spawn_childs);
   g_test_add_func ("/gthread/spawn-childs-threads", test_spawn_childs_threads);
@@ -441,7 +450,10 @@ main (int   argc,
   ret = g_test_run();
 
   g_free (echo_prog_path);
+
+#ifdef G_OS_WIN32
   g_free (sleep_prog_path);
+#endif
 
   return ret;
 }

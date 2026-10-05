@@ -61,71 +61,21 @@
 #include "gthread.h"
 #include "glib_trace.h"
 
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
-
 /* notes on macros:
  * having G_DISABLE_CHECKS defined disables use of glib_mem_profiler_table and
  * g_mem_profile().
  * If g_mem_gc_friendly is TRUE, freed memory should be 0-wiped.
  */
 
-#ifdef HAVE_POSIX_MEMALIGN
-static gpointer
-g_memalign (gsize alignment,
-            gsize size)
-{
-  gpointer aligned_memory = NULL;
-
-  posix_memalign (&aligned_memory, alignment, size);
-
-  return aligned_memory;
-}
-#elif HAVE_MEMALIGN
-# define g_memalign memalign
-#else
-# define g_memalign NULL
-#endif
-
 /* --- variables --- */
 static GMemVTable glib_mem_vtable = {
   malloc,
   realloc,
-  g_memalign,
   free,
   calloc,
   malloc,
   realloc,
 };
-GMemVTable *glib_mem_table = &glib_mem_vtable;
-
-/**
- * SECTION:memory
- * @Short_Description: general memory-handling
- * @Title: Memory Allocation
- * 
- * These functions provide support for allocating and freeing memory.
- * 
- * If any call to allocate memory using functions g_new(), g_new0(), g_renew(),
- * g_malloc(), g_malloc0(), g_malloc0_n(), g_realloc(), and g_realloc_n()
- * fails, the application is terminated. This also means that there is no
- * need to check if the call succeeded. On the other hand, the `g_try_...()` family
- * of functions returns %NULL on failure that can be used as a check
- * for unsuccessful memory allocation. The application is not terminated
- * in this case.
- *
- * As all GLib functions and data structures use `g_malloc()` internally, unless
- * otherwise specified, any allocation failure will result in the application
- * being terminated.
- *
- * It's important to match g_malloc() (and wrappers such as g_new()) with
- * g_free(), g_slice_alloc() (and wrappers such as g_slice_new()) with
- * g_slice_free(), plain malloc() with free(), and (if you're using C++)
- * new with delete and new[] with delete[]. Otherwise bad things can happen,
- * since these allocators may use different memory pools (and new/delete call
- * constructors and destructors). See also g_mem_set_vtable().
- */
 
 /* --- functions --- */
 /**
@@ -147,8 +97,8 @@ g_malloc (gsize n_bytes)
     {
       gpointer mem;
 
-      mem = glib_mem_vtable.malloc (n_bytes);
-      TRACE (GLIB_MEM_ALLOC((void*) mem, (unsigned int) n_bytes, 0, 0));
+      mem = malloc (n_bytes);
+      TRACE (GLIB_MEM_ALLOC ((void *) mem, n_bytes, 0, 0));
       if (mem)
 	return mem;
 
@@ -156,7 +106,7 @@ g_malloc (gsize n_bytes)
                G_STRLOC, n_bytes);
     }
 
-  TRACE(GLIB_MEM_ALLOC((void*) NULL, (int) n_bytes, 0, 0));
+  TRACE (GLIB_MEM_ALLOC ((void *) NULL, n_bytes, 0, 0));
 
   return NULL;
 }
@@ -180,8 +130,8 @@ g_malloc0 (gsize n_bytes)
     {
       gpointer mem;
 
-      mem = glib_mem_vtable.calloc (1, n_bytes);
-      TRACE (GLIB_MEM_ALLOC((void*) mem, (unsigned int) n_bytes, 1, 0));
+      mem = calloc (1, n_bytes);
+      TRACE (GLIB_MEM_ALLOC ((void *) mem, n_bytes, 1, 0));
       if (mem)
 	return mem;
 
@@ -189,7 +139,7 @@ g_malloc0 (gsize n_bytes)
                G_STRLOC, n_bytes);
     }
 
-  TRACE(GLIB_MEM_ALLOC((void*) NULL, (int) n_bytes, 1, 0));
+  TRACE (GLIB_MEM_ALLOC ((void *) NULL, n_bytes, 1, 0));
 
   return NULL;
 }
@@ -218,8 +168,8 @@ g_realloc (gpointer mem,
 
   if (G_LIKELY (n_bytes))
     {
-      newmem = glib_mem_vtable.realloc (mem, n_bytes);
-      TRACE (GLIB_MEM_REALLOC((void*) newmem, (void*)mem, (unsigned int) n_bytes, 0));
+      newmem = realloc (mem, n_bytes);
+      TRACE (GLIB_MEM_REALLOC ((void *) newmem, (void *) mem, n_bytes, 0));
       if (newmem)
 	return newmem;
 
@@ -227,8 +177,7 @@ g_realloc (gpointer mem,
                G_STRLOC, n_bytes);
     }
 
-  if (mem)
-    glib_mem_vtable.free (mem);
+  free (mem);
 
   TRACE (GLIB_MEM_REALLOC((void*) NULL, (void*)mem, 0, 0));
 
@@ -241,22 +190,61 @@ g_realloc (gpointer mem,
  * 
  * Frees the memory pointed to by @mem.
  *
+ * If you know the allocated size of @mem, calling g_free_sized() may be faster,
+ * depending on the libc implementation in use.
+ *
+ * Starting from GLib 2.78, this may happen automatically in case a GCC
+ * compatible compiler is used with some optimization level and the allocated
+ * size is known at compile time (see [documentation of
+ * `__builtin_object_size()`](https://gcc.gnu.org/onlinedocs/gcc/Object-Size-Checking.html)
+ * to understand its caveats).
+ *
  * If @mem is %NULL it simply returns, so there is no need to check @mem
  * against %NULL before calling this function.
  */
 void
-g_free (gpointer mem)
+(g_free) (gpointer mem)
 {
-  if (G_LIKELY (mem))
-    glib_mem_vtable.free (mem);
+  free (mem);
   TRACE(GLIB_MEM_FREE((void*) mem));
 }
 
 /**
+ * g_free_sized:
+ * @mem: (nullable): the memory to free
+ * @size: size of @mem, in bytes
+ *
+ * Frees the memory pointed to by @mem, assuming it is has the given @size.
+ *
+ * If @mem is %NULL this is a no-op (and @size is ignored).
+ *
+ * It is an error if @size doesn’t match the size passed when @mem was
+ * allocated. @size is passed to this function to allow optimizations in the
+ * allocator. If you don’t know the allocation size, use g_free() instead.
+ *
+ * In case a GCC compatible compiler is used, this function may be used
+ * automatically via g_free() if the allocated size is known at compile time,
+ * since GLib 2.78.
+ *
+ * Since: 2.76
+ */
+void
+g_free_sized (void   *mem,
+              size_t  size)
+{
+#ifdef HAVE_FREE_SIZED
+  free_sized (mem, size);
+#else
+  free (mem);
+#endif
+  TRACE (GLIB_MEM_FREE ((void*) mem));
+}
+
+/**
  * g_clear_pointer: (skip)
- * @pp: (not nullable): a pointer to a variable, struct member etc. holding a
- *    pointer
- * @destroy: a function to which a gpointer can be passed, to destroy *@pp
+ * @pp: (nullable) (not optional) (inout) (transfer full): a pointer to a
+ *   variable, struct member etc. holding a pointer
+ * @destroy: a function to which a gpointer can be passed, to destroy `*pp`
  *
  * Clears a reference to a variable.
  *
@@ -269,9 +257,32 @@ g_free (gpointer mem)
  * A macro is also included that allows this function to be used without
  * pointer casts. This will mask any warnings about incompatible function types
  * or calling conventions, so you must ensure that your @destroy function is
- * compatible with being called as `GDestroyNotify` using the standard calling
- * convention for the platform that GLib was compiled for; otherwise the program
- * will experience undefined behaviour.
+ * compatible with being called as [callback@GLib.DestroyNotify] using the
+ * standard calling convention for the platform that GLib was compiled for;
+ * otherwise the program will experience undefined behaviour.
+ *
+ * Examples of this kind of undefined behaviour include using many Windows Win32
+ * APIs, as well as many if not all OpenGL and Vulkan calls on 32-bit Windows,
+ * which typically use the `__stdcall` calling convention rather than the
+ * `__cdecl` calling convention.
+ *
+ * The affected functions can be used by wrapping them in a
+ * [callback@GLib.DestroyNotify] that is declared with the standard calling
+ * convention:
+ *
+ * ```c
+ * // Wrapper needed to avoid mismatched calling conventions on Windows
+ * static void
+ * destroy_sync (void *sync)
+ * {
+ *   glDeleteSync (sync);
+ * }
+ *
+ * // …
+ *
+ * g_clear_pointer (&sync, destroy_sync);
+ * ```
+
  *
  * Since: 2.34
  **/
@@ -305,11 +316,11 @@ g_try_malloc (gsize n_bytes)
   gpointer mem;
 
   if (G_LIKELY (n_bytes))
-    mem = glib_mem_vtable.try_malloc (n_bytes);
+    mem = malloc (n_bytes);
   else
     mem = NULL;
 
-  TRACE (GLIB_MEM_ALLOC((void*) mem, (unsigned int) n_bytes, 0, 1));
+  TRACE (GLIB_MEM_ALLOC ((void *) mem, n_bytes, 0, 1));
 
   return mem;
 }
@@ -330,12 +341,9 @@ g_try_malloc0 (gsize n_bytes)
   gpointer mem;
 
   if (G_LIKELY (n_bytes))
-    mem = glib_mem_vtable.try_malloc (n_bytes);
+    mem = calloc (1, n_bytes);
   else
     mem = NULL;
-
-  if (mem)
-    memset (mem, 0, n_bytes);
 
   return mem;
 }
@@ -360,21 +368,18 @@ g_try_realloc (gpointer mem,
   gpointer newmem;
 
   if (G_LIKELY (n_bytes))
-    newmem = glib_mem_vtable.try_realloc (mem, n_bytes);
+    newmem = realloc (mem, n_bytes);
   else
     {
       newmem = NULL;
-      if (mem)
-	glib_mem_vtable.free (mem);
+      free (mem);
     }
 
-  TRACE (GLIB_MEM_REALLOC((void*) newmem, (void*)mem, (unsigned int) n_bytes, 1));
+  TRACE (GLIB_MEM_REALLOC ((void *) newmem, (void *) mem, n_bytes, 1));
 
   return newmem;
 }
 
-
-#define SIZE_OVERFLOWS(a,b) (G_UNLIKELY ((b) > 0 && (a) > G_MAXSIZE / (b)))
 
 /**
  * g_malloc_n:
@@ -394,13 +399,15 @@ gpointer
 g_malloc_n (gsize n_blocks,
 	    gsize n_block_bytes)
 {
-  if (SIZE_OVERFLOWS (n_blocks, n_block_bytes))
+  size_t len;
+
+  if (!g_size_checked_mul (&len, n_blocks, n_block_bytes))
     {
       g_error ("%s: overflow allocating %"G_GSIZE_FORMAT"*%"G_GSIZE_FORMAT" bytes",
                G_STRLOC, n_blocks, n_block_bytes);
     }
 
-  return g_malloc (n_blocks * n_block_bytes);
+  return g_malloc (len);
 }
 
 /**
@@ -421,13 +428,15 @@ gpointer
 g_malloc0_n (gsize n_blocks,
 	     gsize n_block_bytes)
 {
-  if (SIZE_OVERFLOWS (n_blocks, n_block_bytes))
+  size_t len;
+
+  if (!g_size_checked_mul (&len, n_blocks, n_block_bytes))
     {
       g_error ("%s: overflow allocating %"G_GSIZE_FORMAT"*%"G_GSIZE_FORMAT" bytes",
                G_STRLOC, n_blocks, n_block_bytes);
     }
 
-  return g_malloc0 (n_blocks * n_block_bytes);
+  return g_malloc0 (len);
 }
 
 /**
@@ -450,13 +459,15 @@ g_realloc_n (gpointer mem,
 	     gsize    n_blocks,
 	     gsize    n_block_bytes)
 {
-  if (SIZE_OVERFLOWS (n_blocks, n_block_bytes))
+  size_t len;
+
+  if (!g_size_checked_mul (&len, n_blocks, n_block_bytes))
     {
       g_error ("%s: overflow allocating %"G_GSIZE_FORMAT"*%"G_GSIZE_FORMAT" bytes",
                G_STRLOC, n_blocks, n_block_bytes);
     }
 
-  return g_realloc (mem, n_blocks * n_block_bytes);
+  return g_realloc (mem, len);
 }
 
 /**
@@ -474,10 +485,12 @@ gpointer
 g_try_malloc_n (gsize n_blocks,
 		gsize n_block_bytes)
 {
-  if (SIZE_OVERFLOWS (n_blocks, n_block_bytes))
+  size_t len;
+
+  if (!g_size_checked_mul (&len, n_blocks, n_block_bytes))
     return NULL;
 
-  return g_try_malloc (n_blocks * n_block_bytes);
+  return g_try_malloc (len);
 }
 
 /**
@@ -495,10 +508,12 @@ gpointer
 g_try_malloc0_n (gsize n_blocks,
 		 gsize n_block_bytes)
 {
-  if (SIZE_OVERFLOWS (n_blocks, n_block_bytes))
+  size_t len;
+
+  if (!g_size_checked_mul (&len, n_blocks, n_block_bytes))
     return NULL;
 
-  return g_try_malloc0 (n_blocks * n_block_bytes);
+  return g_try_malloc0 (len);
 }
 
 /**
@@ -518,26 +533,13 @@ g_try_realloc_n (gpointer mem,
 		 gsize    n_blocks,
 		 gsize    n_block_bytes)
 {
-  if (SIZE_OVERFLOWS (n_blocks, n_block_bytes))
+  size_t len;
+
+  if (!g_size_checked_mul (&len, n_blocks, n_block_bytes))
     return NULL;
 
-  return g_try_realloc (mem, n_blocks * n_block_bytes);
+  return g_try_realloc (mem, len);
 }
-
-static gpointer
-fallback_calloc (gsize n_blocks,
-		 gsize n_block_bytes)
-{
-  gsize l = n_blocks * n_block_bytes;
-  gpointer mem = glib_mem_vtable.malloc (l);
-
-  if (mem)
-    memset (mem, 0, l);
-
-  return mem;
-}
-
-static gboolean vtable_set = FALSE;
 
 /**
  * g_mem_is_system_malloc:
@@ -548,53 +550,33 @@ static gboolean vtable_set = FALSE;
  * This function is useful for avoiding an extra copy of allocated memory returned
  * by a non-GLib-based API.
  *
- * A different allocator can be set using g_mem_set_vtable().
- *
  * Returns: if %TRUE, malloc() and g_malloc() can be mixed.
+ *
+ * Deprecated: 2.46: GLib always uses the system malloc, so this function always
+ * returns %TRUE.
  **/
 gboolean
 g_mem_is_system_malloc (void)
 {
-  return !vtable_set;
+  return TRUE;
 }
 
 /**
  * g_mem_set_vtable:
  * @vtable: table of memory allocation routines.
+ * 
+ * This function used to let you override the memory allocation function.
+ * However, its use was incompatible with the use of global constructors
+ * in GLib and GIO, because those use the GLib allocators before main is
+ * reached. Therefore this function is now deprecated and is just a stub.
  *
- * Sets the #GMemVTable to use for memory allocation. You can use this
- * to provide custom memory allocation routines.
- *
- * The @vtable only needs to provide malloc(), realloc(), and free()
- * functions; GLib can provide default implementations of the others.
- * The malloc() and realloc() implementations should return %NULL on
- * failure, GLib will handle error-checking for you. @vtable is copied,
- * so need not persist after this function has been called.
- *
- * Note that this function must be called before using any other GLib
- * functions.
+ * Deprecated: 2.46: This function now does nothing. Use other memory
+ * profiling tools instead
  */
 void
 g_mem_set_vtable (GMemVTable *vtable)
 {
-  if (!vtable_set)
-    {
-      if (vtable->malloc && vtable->realloc && vtable->free)
-	{
-	  glib_mem_vtable.malloc = vtable->malloc;
-	  glib_mem_vtable.realloc = vtable->realloc;
-	  glib_mem_vtable.memalign = vtable->memalign;
-	  glib_mem_vtable.free = vtable->free;
-	  glib_mem_vtable.calloc = vtable->calloc ? vtable->calloc : fallback_calloc;
-	  glib_mem_vtable.try_malloc = vtable->try_malloc ? vtable->try_malloc : glib_mem_vtable.malloc;
-	  glib_mem_vtable.try_realloc = vtable->try_realloc ? vtable->try_realloc : glib_mem_vtable.realloc;
-	  vtable_set = TRUE;
-	}
-      else
-	g_warning (G_STRLOC ": memory allocation vtable lacks one of malloc(), realloc() or free()");
-    }
-  else
-    g_warning (G_STRLOC ": memory allocation vtable can only be set once at startup");
+  g_warning (G_STRLOC ": custom memory allocation vtable not supported");
 }
 
 
@@ -639,7 +621,7 @@ g_mem_profile (void)
  * the program is terminated.
  *
  * Aligned memory allocations returned by this function can only be
- * freed using g_aligned_free().
+ * freed using g_aligned_free_sized() or g_aligned_free().
  *
  * Returns: (transfer full): the allocated memory
  *
@@ -665,17 +647,15 @@ g_aligned_alloc (gsize n_blocks,
                G_STRLOC, alignment, sizeof (void *));
     }
 
-  if (SIZE_OVERFLOWS (n_blocks, n_block_bytes))
+  if (!g_size_checked_mul (&real_size, n_blocks, n_block_bytes))
     {
       g_error ("%s: overflow allocating %"G_GSIZE_FORMAT"*%"G_GSIZE_FORMAT" bytes",
                G_STRLOC, n_blocks, n_block_bytes);
     }
 
-  real_size = n_blocks * n_block_bytes;
-
   if (G_UNLIKELY (real_size == 0))
     {
-      TRACE(GLIB_MEM_ALLOC((void*) NULL, (int) real_size, 0, 0));
+      TRACE (GLIB_MEM_ALLOC ((void *) NULL, real_size, 0, 0));
       return NULL;
     }
 
@@ -709,9 +689,11 @@ g_aligned_alloc (gsize n_blocks,
   res = aligned_alloc (alignment, real_size);
 #elif defined(HAVE_MEMALIGN)
   res = memalign (alignment, real_size);
+#else
+# error "This platform does not have an aligned memory allocator."
 #endif
 
-  TRACE (GLIB_MEM_ALLOC((void*) res, (unsigned int) real_size, 0, 0));
+  TRACE (GLIB_MEM_ALLOC ((void *) res, real_size, 0, 0));
   if (res)
     return res;
 
@@ -760,4 +742,34 @@ void
 g_aligned_free (gpointer mem)
 {
   aligned_free (mem);
+}
+
+/**
+ * g_aligned_free_sized:
+ * @mem: (nullable): the memory to free
+ * @alignment: alignment of @mem
+ * @size: size of @mem, in bytes
+ *
+ * Frees the memory pointed to by @mem, assuming it is has the given @size and
+ * @alignment.
+ *
+ * If @mem is %NULL this is a no-op (and @size is ignored).
+ *
+ * It is an error if @size doesn’t match the size, or @alignment doesn’t match
+ * the alignment, passed when @mem was allocated. @size and @alignment are
+ * passed to this function to allow optimizations in the allocator. If you
+ * don’t know either of them, use g_aligned_free() instead.
+ *
+ * Since: 2.76
+ */
+void
+g_aligned_free_sized (void   *mem,
+                      size_t  alignment,
+                      size_t  size)
+{
+#ifdef HAVE_FREE_ALIGNED_SIZED
+  free_aligned_sized (mem, alignment, size);
+#else
+  aligned_free (mem);
+#endif
 }

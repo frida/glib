@@ -32,18 +32,14 @@
 
 
 /**
- * SECTION:gnativesocketaddress
- * @short_description: Native GSocketAddress
- * @include: gio/gio.h
- *
- * A socket address of some unknown native type.
- */
-
-/**
  * GNativeSocketAddress:
  *
- * A socket address, corresponding to a general struct
- * sockadd address of a type not otherwise handled by glib.
+ * A socket address of some unknown native type.
+ *
+ * This corresponds to a general `struct sockaddr` of a type not otherwise
+ * handled by GLib.
+ *
+ * Since: 2.46
  */
 
 struct _GNativeSocketAddressPrivate
@@ -90,7 +86,8 @@ g_native_socket_address_get_native_size (GSocketAddress *address)
 
   addr = G_NATIVE_SOCKET_ADDRESS (address);
 
-  return addr->priv->sockaddr_len;
+  g_assert (addr->priv->sockaddr_len <= G_MAXSSIZE);
+  return (gssize) addr->priv->sockaddr_len;
 }
 
 static gboolean

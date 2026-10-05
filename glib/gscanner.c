@@ -46,22 +46,13 @@
 #include "gstring.h"
 #include "gtestutils.h"
 
-#if defined (G_OS_UNIX) || defined (G_OS_NONE)
+#ifdef G_OS_UNIX
 #include <unistd.h>
 #endif
 #ifdef G_OS_WIN32
 #include <io.h>
 #endif
 
-
-/**
- * SECTION:scanner
- * @title: Lexical Scanner
- * @short_description: a general purpose lexical scanner
- *
- * The #GScanner and its associated functions provide a
- * general purpose lexical scanner.
- */
 
 /**
  * GScannerMsgFunc:
@@ -196,7 +187,7 @@
  * @next_position: char number of the last token from g_scanner_peek_next_token()
  * @msg_handler: handler function for _warn and _error
  *
- * The data structure representing a lexical scanner.
+ * `GScanner` provides a general-purpose lexical scanner.
  *
  * You should set @input_name after creating the scanner, since
  * it is used by the default message handler when displaying
@@ -904,7 +895,7 @@ g_scanner_foreach_internal (gpointer  _key,
  * g_scanner_scope_foreach_symbol:
  * @scanner: a #GScanner
  * @scope_id: the scope id
- * @func: the function to call for each symbol/value pair
+ * @func: (scope call): the function to call for each symbol/value pair
  * @user_data: user data to pass to the function
  *
  * Calls the given function for each of the symbol/value pairs
@@ -1177,7 +1168,7 @@ g_scanner_peek_next_char (GScanner *scanner)
     }
   else if (scanner->input_fd >= 0)
     {
-      gint count;
+      gssize count;
       gchar *buffer;
 
       buffer = scanner->buffer;
@@ -1227,7 +1218,7 @@ g_scanner_sync_file_offset (GScanner *scanner)
 
   if (scanner->input_fd >= 0 && scanner->text_end > scanner->text)
     {
-      gint buffered;
+      goffset buffered;
 
       buffered = scanner->text_end - scanner->text;
       if (lseek (scanner->input_fd, - buffered, SEEK_CUR) >= 0)
@@ -1252,7 +1243,7 @@ g_scanner_get_char (GScanner	*scanner,
     fchar = *(scanner->text++);
   else if (scanner->input_fd >= 0)
     {
-      gint count;
+      gssize count;
       gchar *buffer;
 
       buffer = scanner->buffer;
@@ -1703,12 +1694,12 @@ g_scanner_get_token_i (GScanner	*scanner,
        * by copying between potentially-overlapping union members. */
       if (scanner->config->store_int64)
         {
-          gint64 temp = value_p->v_int64;
+          guint64 temp = value_p->v_int64;
           value_p->v_float = temp;
         }
       else
         {
-          gint temp = value_p->v_int;
+          gulong temp = value_p->v_int;
           value_p->v_float = temp;
         }
     }

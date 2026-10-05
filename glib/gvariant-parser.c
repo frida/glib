@@ -31,6 +31,7 @@
 #include "gstrfuncs.h"
 #include "gtestutils.h"
 #include "gvariant.h"
+#include "glib/gvariant-core.h"
 #include "gvariant-internal.h"
 #include "gvarianttype.h"
 #include "gslice.h"
@@ -90,7 +91,9 @@ g_variant_parser_get_error_quark (void)
 
 typedef struct
 {
-  gint start, end;
+  /* Offsets from the start of the input, in bytes. Can be equal when referring
+   * to a point rather than a range. The invariant `end >= start` always holds. */
+  size_t start, end;
 } SourceRef;
 
 G_GNUC_PRINTF(5, 0)
@@ -105,14 +108,16 @@ parser_set_error_va (GError      **error,
   GString *msg = g_string_new (NULL);
 
   if (location->start == location->end)
-    g_string_append_printf (msg, "%d", location->start);
+    g_string_append_printf (msg, "%" G_GSIZE_FORMAT, location->start);
   else
-    g_string_append_printf (msg, "%d-%d", location->start, location->end);
+    g_string_append_printf (msg, "%" G_GSIZE_FORMAT "-%" G_GSIZE_FORMAT,
+                            location->start, location->end);
 
   if (other != NULL)
     {
       g_assert (other->start != other->end);
-      g_string_append_printf (msg, ",%d-%d", other->start, other->end);
+      g_string_append_printf (msg, ",%" G_GSIZE_FORMAT "-%" G_GSIZE_FORMAT,
+                              other->start, other->end);
     }
   g_string_append_c (msg, ':');
 
@@ -139,11 +144,15 @@ parser_set_error (GError      **error,
 
 typedef struct
 {
+  /* We should always have the following ordering constraint:
+   *   start <= this <= stream <= end
+   * Additionally, unless in an error or EOF state, `this < stream`.
+   */
   const gchar *start;
   const gchar *stream;
   const gchar *end;
 
-  const gchar *this;
+  const gchar *this;  /* (nullable) */
 } TokenStream;
 
 
@@ -174,7 +183,7 @@ token_stream_set_error (TokenStream  *stream,
 static gboolean
 token_stream_prepare (TokenStream *stream)
 {
-  gint brackets = 0;
+  gssize brackets = 0;
   const gchar *end;
 
   if (stream->this != NULL)
@@ -326,10 +335,10 @@ static gboolean
 token_stream_peek_string (TokenStream *stream,
                           const gchar *token)
 {
-  gint length = strlen (token);
+  size_t length = strlen (token);
 
   return token_stream_prepare (stream) &&
-         stream->stream - stream->this == length &&
+         (size_t) (stream->stream - stream->this) == length &&
          memcmp (stream->this, token, length) == 0;
 }
 
@@ -400,11 +409,13 @@ token_stream_end_ref (TokenStream *stream,
   ref->end = stream->stream - stream->start;
 }
 
+/* This is guaranteed to write exactly as many bytes to `out` as it consumes
+ * from `in`. i.e. The `out` buffer doesn’t need to be any longer than `in`. */
 static void
 pattern_copy (gchar       **out,
               const gchar **in)
 {
-  gint brackets = 0;
+  gssize brackets = 0;
 
   while (**in == 'a' || **in == 'm' || **in == 'M')
     *(*out)++ = *(*in)++;
@@ -430,15 +441,22 @@ pattern_coalesce (const gchar *left,
 {
   gchar *result;
   gchar *out;
+  size_t buflen;
+  size_t left_len = strlen (left), right_len = strlen (right);
 
   /* the length of the output is loosely bound by the sum of the input
    * lengths, not simply the greater of the two lengths.
    *
-   *   (*(iii)) + ((iii)*) ((iii)(iii))
+   *   (*(iii)) + ((iii)*) = ((iii)(iii))
    *
-   *      8     +    8    =  12
+   *      8     +    8     = 12
+   *
+   * This can be proven by the fact that `out` is never incremented by more
+   * bytes than are consumed from `left` or `right` in each iteration.
    */
-  out = result = g_malloc (strlen (left) + strlen (right));
+  g_assert (left_len < G_MAXSIZE - right_len);
+  buflen = left_len + right_len + 1;
+  out = result = g_malloc (buflen);
 
   while (*left && *right)
     {
@@ -491,6 +509,9 @@ pattern_coalesce (const gchar *left,
             break;
         }
     }
+
+  /* Need at least one byte remaining for trailing nul. */
+  g_assert (out < result + buflen);
 
   if (*left || *right)
     {
@@ -596,7 +617,7 @@ ast_resolve (AST     *ast,
 {
   GVariant *value;
   gchar *pattern;
-  gint i, j = 0;
+  size_t i, j = 0;
 
   pattern = ast_get_pattern (ast, error);
 
@@ -649,9 +670,9 @@ static AST *parse (TokenStream  *stream,
                    GError      **error);
 
 static void
-ast_array_append (AST  ***array,
-                  gint   *n_items,
-                  AST    *ast)
+ast_array_append (AST    ***array,
+                  size_t   *n_items,
+                  AST      *ast)
 {
   if ((*n_items & (*n_items - 1)) == 0)
     *array = g_renew (AST *, *array, *n_items ? 2 ** n_items : 1);
@@ -660,10 +681,10 @@ ast_array_append (AST  ***array,
 }
 
 static void
-ast_array_free (AST  **array,
-                gint   n_items)
+ast_array_free (AST    **array,
+                size_t   n_items)
 {
-  gint i;
+  size_t i;
 
   for (i = 0; i < n_items; i++)
     ast_free (array[i]);
@@ -672,11 +693,11 @@ ast_array_free (AST  **array,
 
 static gchar *
 ast_array_get_pattern (AST    **array,
-                       gint     n_items,
+                       size_t   n_items,
                        GError **error)
 {
   gchar *pattern;
-  gint i;
+  size_t i;
 
   /* Find the pattern which applies to all children in the array, by l-folding a
    * coalesce operation.
@@ -708,7 +729,7 @@ ast_array_get_pattern (AST    **array,
          * pair of values.
          */
         {
-          int j = 0;
+          size_t j = 0;
 
           while (TRUE)
             {
@@ -869,23 +890,86 @@ maybe_wrapper (AST                 *ast,
                const GVariantType  *type,
                GError             **error)
 {
-  const GVariantType *t;
-  GVariant *value;
-  int depth;
+  const GVariantType *base_type;
+  GVariant *base_value;
+  GVariant *value = NULL;
+  unsigned int depth;
+  gboolean trusted;
+  GVariantTypeInfo *base_type_info = NULL;
+  gsize base_serialised_fixed_size, base_serialised_size, serialised_size, n_suffix_zeros;
+  guint8 *serialised = NULL;
+  GBytes *bytes = NULL;
+  gsize i;
 
-  for (depth = 0, t = type;
-       g_variant_type_is_maybe (t);
-       depth++, t = g_variant_type_element (t));
+  for (depth = 0, base_type = type;
+       g_variant_type_is_maybe (base_type);
+       depth++, base_type = g_variant_type_element (base_type));
 
-  value = ast->class->get_base_value (ast, t, error);
+  base_value = ast->class->get_base_value (ast, base_type, error);
 
-  if (value == NULL)
-    return NULL;
+  if (base_value == NULL || depth == 0)
+    return g_steal_pointer (&base_value);
 
-  while (depth--)
-    value = g_variant_new_maybe (NULL, value);
+  /* This is the equivalent of calling g_variant_new_maybe() in a loop enough
+   * times to match the number of nested maybe types in @type. It does the same
+   * in a single `GVariant` allocation, though.
+   *
+   * This avoids maybe_wrapper() becoming an attack vector where a malicious
+   * text-form variant can create a long array, and insert a typedecl for a
+   * deeply nested maybe type on one of its elements. This is achievable with a
+   * relatively short text form, but results in O(array length × typedecl depth)
+   * allocations. This is a denial of service attack.
+   *
+   * Instead of constructing a tree of `GVariant`s in tree-form to match the
+   * @ast, construct a single `GVariant` containing the serialised form of the
+   * maybe-wrappers and the base value that they contain. This is relatively
+   * straightforward: serialise the base value, and then append the correct
+   * number of zero bytes for the maybe-wrappers.
+   *
+   * This is a bit of a layering violation, unfortunately.
+   *
+   * By doing this, the typedecl depth variable is reduced to O(1).
+   */
+  trusted = g_variant_is_trusted (base_value);
 
-  return value;
+  /* See https://developer.gnome.org/documentation/specifications/gvariant-specification-1.0.html#maybes
+   *
+   * The serialised form of a `Just x` is the serialised form of `x` if `x` is
+   * fixed-size, and the serialised form of `x` plus a trailing zero byte if `x`
+   * is variable-size. A `Maybe` variant is always variable-size, even if its
+   * child element is fixed-size, because it might be `Nothing`. This means that
+   * all the maybe-wrappers which are not the innermost are always serialised
+   * with one trailing zero byte each.
+   *
+   * The serialised form of a `Nothing` is an empty byte sequence, but that’s
+   * already handled above in the `base_value == NULL` case.
+   */
+  base_type_info = g_variant_type_info_get (base_type);
+  g_variant_type_info_query (base_type_info, NULL, &base_serialised_fixed_size);
+  g_variant_type_info_unref (base_type_info);
+
+  base_serialised_size = g_variant_get_size (base_value);
+  n_suffix_zeros = (base_serialised_fixed_size > 0) ? depth - 1 : depth;
+  g_assert (base_serialised_size <= G_MAXSIZE - n_suffix_zeros);
+  serialised_size = base_serialised_size + n_suffix_zeros;
+
+  g_assert (serialised_size >= base_serialised_size);
+
+  /* Serialise the base value. */
+  serialised = g_malloc (serialised_size);
+  g_variant_store (base_value, serialised);
+
+  /* Zero-out the suffix zeros to complete the serialisation of the maybe wrappers. */
+  for (i = base_serialised_size; i < serialised_size; i++)
+    serialised[i] = 0;
+
+  bytes = g_bytes_new_take (g_steal_pointer (&serialised), serialised_size);
+  value = g_variant_new_from_bytes (type, bytes, trusted);
+  g_bytes_unref (bytes);
+
+  g_variant_unref (base_value);
+
+  return g_steal_pointer (&value);
 }
 
 typedef struct
@@ -893,7 +977,7 @@ typedef struct
   AST ast;
 
   AST **children;
-  gint n_children;
+  size_t n_children;
 } Array;
 
 static gchar *
@@ -926,12 +1010,12 @@ array_get_value (AST                 *ast,
   Array *array = (Array *) ast;
   const GVariantType *childtype;
   GVariantBuilder builder;
-  gint i;
+  size_t i;
 
   if (!g_variant_type_is_array (type))
     return ast_type_error (ast, type, error);
 
-  g_variant_builder_init (&builder, type);
+  g_variant_builder_init_static (&builder, type);
   childtype = g_variant_type_element (type);
 
   for (i = 0; i < array->n_children; i++)
@@ -1012,7 +1096,7 @@ typedef struct
   AST ast;
 
   AST **children;
-  gint n_children;
+  size_t n_children;
 } Tuple;
 
 static gchar *
@@ -1022,7 +1106,7 @@ tuple_get_pattern (AST     *ast,
   Tuple *tuple = (Tuple *) ast;
   gchar *result = NULL;
   gchar **parts;
-  gint i;
+  size_t i;
 
   parts = g_new (gchar *, tuple->n_children + 4);
   parts[tuple->n_children + 1] = (gchar *) ")";
@@ -1052,12 +1136,12 @@ tuple_get_value (AST                 *ast,
   Tuple *tuple = (Tuple *) ast;
   const GVariantType *childtype;
   GVariantBuilder builder;
-  gint i;
+  size_t i;
 
   if (!g_variant_type_is_tuple (type))
     return ast_type_error (ast, type, error);
 
-  g_variant_builder_init (&builder, type);
+  g_variant_builder_init_static (&builder, type);
   childtype = g_variant_type_first (type);
 
   for (i = 0; i < tuple->n_children; i++)
@@ -1244,8 +1328,15 @@ typedef struct
 
   AST **keys;
   AST **values;
-  gint n_children;
+
+  /* Iff this is DICTIONARY_N_CHILDREN_FREESTANDING_ENTRY then this struct
+   * represents a single freestanding dict entry (`{1, "one"}`) rather than a
+   * full dict. In the freestanding case, @keys and @values have exactly one
+   * member each. */
+  size_t n_children;
 } Dictionary;
+
+#define DICTIONARY_N_CHILDREN_FREESTANDING_ENTRY ((size_t) -1)
 
 static gchar *
 dictionary_get_pattern (AST     *ast,
@@ -1261,7 +1352,7 @@ dictionary_get_pattern (AST     *ast,
     return g_strdup ("Ma{**}");
 
   key_pattern = ast_array_get_pattern (dict->keys,
-                                       abs (dict->n_children),
+                                       (dict->n_children == DICTIONARY_N_CHILDREN_FREESTANDING_ENTRY) ? 1 : dict->n_children,
                                        error);
 
   if (key_pattern == NULL)
@@ -1292,7 +1383,7 @@ dictionary_get_pattern (AST     *ast,
     return NULL;
 
   result = g_strdup_printf ("M%s{%c%s}",
-                            dict->n_children > 0 ? "a" : "",
+                            (dict->n_children > 0 && dict->n_children != DICTIONARY_N_CHILDREN_FREESTANDING_ENTRY) ? "a" : "",
                             key_char, value_pattern);
   g_free (value_pattern);
 
@@ -1306,7 +1397,7 @@ dictionary_get_value (AST                 *ast,
 {
   Dictionary *dict = (Dictionary *) ast;
 
-  if (dict->n_children == -1)
+  if (dict->n_children == DICTIONARY_N_CHILDREN_FREESTANDING_ENTRY)
     {
       const GVariantType *subtype;
       GVariantBuilder builder;
@@ -1315,7 +1406,7 @@ dictionary_get_value (AST                 *ast,
       if (!g_variant_type_is_dict_entry (type))
         return ast_type_error (ast, type, error);
 
-      g_variant_builder_init (&builder, type);
+      g_variant_builder_init_static (&builder, type);
 
       subtype = g_variant_type_key (type);
       if (!(subvalue = ast_get_value (dict->keys[0], subtype, error)))
@@ -1339,7 +1430,7 @@ dictionary_get_value (AST                 *ast,
     {
       const GVariantType *entry, *key, *val;
       GVariantBuilder builder;
-      gint i;
+      size_t i;
 
       if (!g_variant_type_is_subtype_of (type, G_VARIANT_TYPE_DICTIONARY))
         return ast_type_error (ast, type, error);
@@ -1348,7 +1439,7 @@ dictionary_get_value (AST                 *ast,
       key = g_variant_type_key (entry);
       val = g_variant_type_value (entry);
 
-      g_variant_builder_init (&builder, type);
+      g_variant_builder_init_static (&builder, type);
 
       for (i = 0; i < dict->n_children; i++)
         {
@@ -1380,12 +1471,12 @@ static void
 dictionary_free (AST *ast)
 {
   Dictionary *dict = (Dictionary *) ast;
-  gint n_children;
+  size_t n_children;
 
-  if (dict->n_children > -1)
-    n_children = dict->n_children;
-  else
+  if (dict->n_children == DICTIONARY_N_CHILDREN_FREESTANDING_ENTRY)
     n_children = 1;
+  else
+    n_children = dict->n_children;
 
   ast_array_free (dict->keys, n_children);
   ast_array_free (dict->values, n_children);
@@ -1403,7 +1494,7 @@ dictionary_parse (TokenStream  *stream,
     maybe_wrapper, dictionary_get_value,
     dictionary_free
   };
-  gint n_keys, n_values;
+  size_t n_keys, n_values;
   gboolean only_one;
   Dictionary *dict;
   AST *first;
@@ -1446,7 +1537,7 @@ dictionary_parse (TokenStream  *stream,
         goto error;
 
       g_assert (n_keys == 1 && n_values == 1);
-      dict->n_children = -1;
+      dict->n_children = DICTIONARY_N_CHILDREN_FREESTANDING_ENTRY;
 
       return (AST *) dict;
     }
@@ -1479,6 +1570,7 @@ dictionary_parse (TokenStream  *stream,
     }
 
   g_assert (n_keys == n_values);
+  g_assert (n_keys != DICTIONARY_N_CHILDREN_FREESTANDING_ENTRY);
   dict->n_children = n_keys;
 
   return (AST *) dict;
@@ -1554,12 +1646,16 @@ string_free (AST *ast)
 }
 
 /* Accepts exactly @length hexadecimal digits. No leading sign or `0x`/`0X` prefix allowed.
- * No leading/trailing space allowed. */
+ * No leading/trailing space allowed.
+ *
+ * It's OK to pass a length greater than the actual length of the src buffer,
+ * provided src must be null-terminated.
+ */
 static gboolean
 unicode_unescape (const gchar  *src,
-                  gint         *src_ofs,
+                  size_t       *src_ofs,
                   gchar        *dest,
-                  gint         *dest_ofs,
+                  size_t       *dest_ofs,
                   gsize         length,
                   SourceRef    *ref,
                   GError      **error)
@@ -1620,7 +1716,7 @@ string_parse (TokenStream  *stream,
   gsize length;
   gchar quote;
   gchar *str;
-  gint i, j;
+  size_t i, j;
 
   token_stream_start_ref (stream, &ref);
   token = token_stream_get (stream);
@@ -1628,6 +1724,9 @@ string_parse (TokenStream  *stream,
   length = strlen (token);
   quote = token[0];
 
+  /* The output will always be at least one byte smaller than the input,
+   * because we skip over the initial quote character.
+   */
   str = g_malloc (length);
   g_assert (quote == '"' || quote == '\'');
   j = 0;
@@ -1750,7 +1849,7 @@ bytestring_parse (TokenStream  *stream,
   gsize length;
   gchar quote;
   gchar *str;
-  gint i, j;
+  size_t i, j;
 
   token_stream_start_ref (stream, &ref);
   token = token_stream_get (stream);
@@ -1759,6 +1858,9 @@ bytestring_parse (TokenStream  *stream,
   length = strlen (token);
   quote = token[1];
 
+  /* The output will always be smaller than the input, because we skip over the
+   * initial b and the quote character.
+   */
   str = g_malloc (length);
   g_assert (quote == '"' || quote == '\'');
   j = 0;
@@ -2412,7 +2514,7 @@ parse (TokenStream  *stream,
  *
  * A single #GVariant is parsed from the content of @text.
  *
- * The format is described [here][gvariant-text].
+ * The format is described [here](gvariant-text-format.html).
  *
  * The memory at @limit will never be accessed and the parser behaves as
  * if the character at @limit is the nul terminator.  This has the
@@ -2432,13 +2534,14 @@ parse (TokenStream  *stream,
  *
  * In the event that the parsing is successful, the resulting #GVariant
  * is returned. It is never floating, and must be freed with
- * g_variant_unref().
+ * [method@GLib.Variant.unref].
  *
  * In case of any error, %NULL will be returned.  If @error is non-%NULL
  * then it will be set to reflect the error that occurred.
  *
- * Officially, the language understood by the parser is "any string
- * produced by g_variant_print()".
+ * Officially, the language understood by the parser is “any string
+ * produced by [method@GLib.Variant.print]”. This explicitly includes
+ * `g_variant_print()`’s annotated types like `int64 -1000`.
  *
  * There may be implementation specific restrictions on deeply nested values,
  * which would result in a %G_VARIANT_PARSE_ERROR_RECURSION error. #GVariant is
@@ -2522,7 +2625,7 @@ g_variant_parse (const GVariantType  *type,
  *
  * Note that the arguments in @app must be of the correct width for their types
  * specified in @format when collected into the #va_list. See
- * the [GVariant varargs documentation][gvariant-varargs].
+ * the [GVariant varargs documentation](gvariant-format-strings.html#varargs).
  *
  * In order to behave correctly in all cases it is necessary for the
  * calling function to g_variant_ref_sink() the return result before
@@ -2581,7 +2684,7 @@ g_variant_new_parsed_va (const gchar *format,
  *
  * Note that the arguments must be of the correct width for their types
  * specified in @format. This can be achieved by casting them. See
- * the [GVariant varargs documentation][gvariant-varargs].
+ * the [GVariant varargs documentation](gvariant-format-strings.html#varargs).
  *
  * Consider this simple example:
  * |[<!-- language="C" --> 
@@ -2634,7 +2737,7 @@ g_variant_new_parsed (const gchar *format,
  *
  * Note that the arguments must be of the correct width for their types
  * specified in @format_string. This can be achieved by casting them. See
- * the [GVariant varargs documentation][gvariant-varargs].
+ * the [GVariant varargs documentation](gvariant-format-strings.html#varargs).
  *
  * This function might be used as follows:
  *
@@ -2645,7 +2748,7 @@ g_variant_new_parsed (const gchar *format,
  *   GVariantBuilder builder;
  *   int i;
  *
- *   g_variant_builder_init (&builder, G_VARIANT_TYPE_ARRAY);
+ *   g_variant_builder_init_static (&builder, G_VARIANT_TYPE_ARRAY);
  *   g_variant_builder_add_parsed (&builder, "{'width', <%i>}", 600);
  *   g_variant_builder_add_parsed (&builder, "{'title', <%s>}", "foo");
  *   g_variant_builder_add_parsed (&builder, "{'transparency', <0.5>}");
@@ -2670,7 +2773,7 @@ g_variant_builder_add_parsed (GVariantBuilder *builder,
 static gboolean
 parse_num (const gchar *num,
            const gchar *limit,
-           guint       *result)
+           size_t      *result)
 {
   gchar *endptr;
   gint64 bignum;
@@ -2680,10 +2783,12 @@ parse_num (const gchar *num,
   if (endptr != limit)
     return FALSE;
 
+  /* The upper bound here is more restrictive than it technically needs to be,
+   * but should be enough for any practical situation: */
   if (bignum < 0 || bignum > G_MAXINT)
     return FALSE;
 
-  *result = (guint) bignum;
+  *result = (size_t) bignum;
 
   return TRUE;
 }
@@ -2694,7 +2799,7 @@ add_last_line (GString     *err,
 {
   const gchar *last_nl;
   gchar *chomped;
-  gint i;
+  size_t i;
 
   /* This is an error at the end of input.  If we have a file
    * with newlines, that's probably the empty string after the
@@ -2839,7 +2944,7 @@ g_variant_parse_error_print_context (GError      *error,
 
   if (dash == NULL || colon < dash)
     {
-      guint point;
+      size_t point;
 
       /* we have a single point */
       if (!parse_num (error->message, colon, &point))
@@ -2857,7 +2962,7 @@ g_variant_parse_error_print_context (GError      *error,
       /* We have one or two ranges... */
       if (comma && comma < colon)
         {
-          guint start1, end1, start2, end2;
+          size_t start1, end1, start2, end2;
           const gchar *dash2;
 
           /* Two ranges */
@@ -2873,7 +2978,7 @@ g_variant_parse_error_print_context (GError      *error,
         }
       else
         {
-          guint start, end;
+          size_t start, end;
 
           /* One range */
           if (!parse_num (error->message, dash, &start) || !parse_num (dash + 1, colon, &end))

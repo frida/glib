@@ -35,11 +35,6 @@ G_BEGIN_DECLS
 #define G_IS_WIN32_INPUT_STREAM_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_WIN32_INPUT_STREAM))
 #define G_WIN32_INPUT_STREAM_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_WIN32_INPUT_STREAM, GWin32InputStreamClass))
 
-/**
- * GWin32InputStream:
- *
- * Implements #GInputStream for reading from selectable Windows file handles
- **/
 typedef struct _GWin32InputStream         GWin32InputStream;
 typedef struct _GWin32InputStreamClass    GWin32InputStreamClass;
 typedef struct _GWin32InputStreamPrivate  GWin32InputStreamPrivate;
@@ -68,7 +63,7 @@ struct _GWin32InputStreamClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType          g_win32_input_stream_get_type         (void) G_GNUC_CONST;
+GType          g_win32_input_stream_get_type         (void);
 
 GIO_AVAILABLE_IN_ALL
 GInputStream * g_win32_input_stream_new              (void              *handle,

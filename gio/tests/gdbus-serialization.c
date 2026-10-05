@@ -543,7 +543,7 @@ get_and_check_serialization (GVariant *value)
   /* First check that the serialization to the D-Bus wire format is correct - do this for both byte orders */
   for (n = 0; n < 2; n++)
     {
-      GDBusMessageByteOrder byte_order;
+      GDBusMessageByteOrder byte_order = G_DBUS_MESSAGE_BYTE_ORDER_BIG_ENDIAN;
       switch (n)
         {
         case 0:
@@ -914,18 +914,105 @@ test_message_serialize_header_checks (void)
   g_object_unref (message);
 
   /*
-   * check that we can't serialize messages with SIGNATURE set to a non-signature-typed value
+   * check we can't serialize messages with an INVALID header
    */
   message = g_dbus_message_new_signal ("/the/path", "The.Interface", "TheMember");
-  g_dbus_message_set_header (message, G_DBUS_MESSAGE_HEADER_FIELD_SIGNATURE, g_variant_new_boolean (FALSE));
+  g_dbus_message_set_header (message, G_DBUS_MESSAGE_HEADER_FIELD_INVALID, g_variant_new_boolean (FALSE));
   blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
 
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
-  g_assert_cmpstr (error->message, ==, "Signature header found but is not of type signature");
+  g_assert_cmpstr (error->message, ==, "Cannot serialize message: SIGNAL message: INVALID header field supplied");
   g_assert_null (blob);
 
   g_clear_error (&error);
   g_clear_object (&message);
+
+  /*
+   * check that we can't serialize messages with various fields set to incorrectly typed values
+   */
+  const struct
+    {
+      GDBusMessageHeaderField field;
+      const char *invalid_value;  /* as a GVariant in text form */
+      const char *expected_error_message;
+    }
+  field_type_tests[] =
+    {
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_PATH,
+        "'/correct/value/but/wrong/type'",
+        "Cannot serialize message: SIGNAL message: PATH header field is invalid; expected a value of type ‘o’"
+      },
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_INTERFACE,
+        "@u 5",
+        "Cannot serialize message: SIGNAL message: INTERFACE header field is invalid; expected a value of type ‘s’"
+      },
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_INTERFACE,
+        "'valid type, but not an interface name'",
+        "Cannot serialize message: SIGNAL message: INTERFACE header field does not contain a valid interface name"
+      },
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_MEMBER,
+        "@u 5",
+        "Cannot serialize message: SIGNAL message: MEMBER header field is invalid; expected a value of type ‘s’"
+      },
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_MEMBER,
+        "'valid type, but not a member name'",
+        "Cannot serialize message: SIGNAL message: MEMBER header field does not contain a valid member name"
+      },
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_ERROR_NAME,
+        "@u 5",
+        "Cannot serialize message: SIGNAL message: ERROR_NAME header field is invalid; expected a value of type ‘s’"
+      },
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_ERROR_NAME,
+        "'valid type, but not an error name'",
+        "Cannot serialize message: SIGNAL message: ERROR_NAME header field does not contain a valid error name"
+      },
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_REPLY_SERIAL,
+        "'oops'",
+        "Cannot serialize message: SIGNAL message: REPLY_SERIAL header field is invalid; expected a value of type ‘u’"
+      },
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_DESTINATION,
+        "@u 5",
+        "Cannot serialize message: SIGNAL message: DESTINATION header field is invalid; expected a value of type ‘s’"
+      },
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_SENDER,
+        "@u 5",
+        "Cannot serialize message: SIGNAL message: SENDER header field is invalid; expected a value of type ‘s’"
+      },
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_SIGNATURE,
+        "false",
+        "Cannot serialize message: SIGNAL message: SIGNATURE header field is invalid; expected a value of type ‘g’"
+      },
+      {
+        G_DBUS_MESSAGE_HEADER_FIELD_NUM_UNIX_FDS,
+        "'five'",
+        "Cannot serialize message: SIGNAL message: NUM_UNIX_FDS header field is invalid; expected a value of type ‘u’"
+      },
+    };
+
+  for (size_t i = 0; i < G_N_ELEMENTS (field_type_tests); i++)
+    {
+      message = g_dbus_message_new_signal ("/the/path", "The.Interface", "TheMember");
+      g_dbus_message_set_header (message, field_type_tests[i].field, g_variant_new_parsed (field_type_tests[i].invalid_value));
+      blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
+
+      g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+      g_assert_cmpstr (error->message, ==, field_type_tests[i].expected_error_message);
+      g_assert_null (blob);
+
+      g_clear_error (&error);
+      g_clear_object (&message);
+    }
 
   /*
    * check we can't serialize signal messages with INTERFACE, PATH or MEMBER unset / set to reserved value
@@ -936,14 +1023,14 @@ test_message_serialize_header_checks (void)
   g_dbus_message_set_interface (message, NULL);
   blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
-  g_assert_cmpstr (error->message, ==, "Cannot serialize message: SIGNAL message: PATH, INTERFACE or MEMBER header field is missing");
+  g_assert_cmpstr (error->message, ==, "Cannot serialize message: SIGNAL message: INTERFACE header field is missing or invalid");
   g_clear_error (&error);
   g_assert_null (blob);
   /* interface reserved value => error */
-  g_dbus_message_set_interface (message, "org.freedesktop.DBus.Local");
+  g_dbus_message_set_interface (message, DBUS_INTERFACE_LOCAL);
   blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
-  g_assert_cmpstr (error->message, ==, "Cannot serialize message: SIGNAL message: The INTERFACE header field is using the reserved value org.freedesktop.DBus.Local");
+  g_assert_cmpstr (error->message, ==, "Cannot serialize message: SIGNAL message: INTERFACE header field is using the reserved value " DBUS_INTERFACE_LOCAL);
   g_clear_error (&error);
   g_assert_null (blob);
   /* reset interface */
@@ -953,14 +1040,14 @@ test_message_serialize_header_checks (void)
   g_dbus_message_set_path (message, NULL);
   blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
-  g_assert_cmpstr (error->message, ==, "Cannot serialize message: SIGNAL message: PATH, INTERFACE or MEMBER header field is missing");
+  g_assert_cmpstr (error->message, ==, "Cannot serialize message: SIGNAL message: PATH header field is missing or invalid");
   g_clear_error (&error);
   g_assert_null (blob);
   /* path reserved value => error */
-  g_dbus_message_set_path (message, "/org/freedesktop/DBus/Local");
+  g_dbus_message_set_path (message, DBUS_PATH_LOCAL);
   blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
-  g_assert_cmpstr (error->message, ==, "Cannot serialize message: SIGNAL message: The PATH header field is using the reserved value /org/freedesktop/DBus/Local");
+  g_assert_cmpstr (error->message, ==, "Cannot serialize message: SIGNAL message: PATH header field is using the reserved value " DBUS_PATH_LOCAL);
   g_clear_error (&error);
   g_assert_null (blob);
   /* reset path */
@@ -970,7 +1057,7 @@ test_message_serialize_header_checks (void)
   g_dbus_message_set_member (message, NULL);
   blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
-  g_assert_cmpstr (error->message, ==, "Cannot serialize message: SIGNAL message: PATH, INTERFACE or MEMBER header field is missing");
+  g_assert_cmpstr (error->message, ==, "Cannot serialize message: SIGNAL message: MEMBER header field is missing or invalid");
   g_clear_error (&error);
   g_assert_null (blob);
   /* reset member */
@@ -988,7 +1075,7 @@ test_message_serialize_header_checks (void)
   g_dbus_message_set_path (message, NULL);
   blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
-  g_assert_cmpstr (error->message, ==, "Cannot serialize message: METHOD_CALL message: PATH or MEMBER header field is missing");
+  g_assert_cmpstr (error->message, ==, "Cannot serialize message: METHOD_CALL message: PATH header field is missing or invalid");
   g_clear_error (&error);
   g_assert_null (blob);
   /* reset path */
@@ -998,7 +1085,7 @@ test_message_serialize_header_checks (void)
   g_dbus_message_set_member (message, NULL);
   blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
-  g_assert_cmpstr (error->message, ==, "Cannot serialize message: METHOD_CALL message: PATH or MEMBER header field is missing");
+  g_assert_cmpstr (error->message, ==, "Cannot serialize message: METHOD_CALL message: MEMBER header field is missing or invalid");
   g_clear_error (&error);
   g_assert_null (blob);
   /* reset member */
@@ -1018,7 +1105,7 @@ test_message_serialize_header_checks (void)
   g_dbus_message_set_header (reply, G_DBUS_MESSAGE_HEADER_FIELD_REPLY_SERIAL, NULL);
   blob = g_dbus_message_to_blob (reply, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
-  g_assert_cmpstr (error->message, ==, "Cannot serialize message: METHOD_RETURN message: REPLY_SERIAL header field is missing");
+  g_assert_cmpstr (error->message, ==, "Cannot serialize message: METHOD_RETURN message: REPLY_SERIAL header field is missing or invalid");
   g_clear_error (&error);
   g_assert_null (blob);
   g_object_unref (reply);
@@ -1029,7 +1116,7 @@ test_message_serialize_header_checks (void)
   g_dbus_message_set_error_name (reply, NULL);
   blob = g_dbus_message_to_blob (reply, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
-  g_assert_cmpstr (error->message, ==, "Cannot serialize message: ERROR message: REPLY_SERIAL or ERROR_NAME header field is missing");
+  g_assert_cmpstr (error->message, ==, "Cannot serialize message: ERROR message: ERROR_NAME header field is missing or invalid");
   g_clear_error (&error);
   g_assert_null (blob);
   /* reset ERROR_NAME */
@@ -1038,11 +1125,203 @@ test_message_serialize_header_checks (void)
   g_dbus_message_set_header (reply, G_DBUS_MESSAGE_HEADER_FIELD_REPLY_SERIAL, NULL);
   blob = g_dbus_message_to_blob (reply, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
   g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
-  g_assert_cmpstr (error->message, ==, "Cannot serialize message: ERROR message: REPLY_SERIAL or ERROR_NAME header field is missing");
+  g_assert_cmpstr (error->message, ==, "Cannot serialize message: ERROR message: REPLY_SERIAL header field is missing or invalid");
   g_clear_error (&error);
   g_assert_null (blob);
   g_object_unref (reply);
   g_object_unref (message);
+}
+
+static void
+test_message_serialize_header_checks_valid (void)
+{
+  GDBusMessage *message = NULL, *reply = NULL;
+  GError *local_error = NULL;
+  guchar *blob;
+  gsize blob_size;
+
+  g_test_summary ("Test that validation allows well-formed messages of all the different types");
+
+  /* Method call */
+  message = g_dbus_message_new_method_call ("Some.Name", "/the/path", "org.some.Interface", "TheMethod");
+  g_dbus_message_set_serial (message, 666);
+  blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &local_error);
+  g_assert_no_error (local_error);
+  g_assert_nonnull (blob);
+  g_free (blob);
+
+  /* Method return */
+  reply = g_dbus_message_new_method_reply (message);
+  blob = g_dbus_message_to_blob (reply, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &local_error);
+  g_assert_no_error (local_error);
+  g_assert_nonnull (blob);
+  g_free (blob);
+  g_clear_object (&reply);
+
+  /* Error */
+  reply = g_dbus_message_new_method_error (message, "Error.Name", "Some error message");
+  blob = g_dbus_message_to_blob (reply, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &local_error);
+  g_assert_no_error (local_error);
+  g_assert_nonnull (blob);
+  g_free (blob);
+
+  g_clear_object (&reply);
+  g_clear_object (&message);
+
+  /* Signal */
+  message = g_dbus_message_new_signal ("/the/path", "org.some.Interface", "SignalName");
+  blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &local_error);
+  g_assert_no_error (local_error);
+  g_assert_nonnull (blob);
+  g_free (blob);
+  g_clear_object (&message);
+
+  /* Also check that an unknown message type is allowed */
+  message = g_dbus_message_new ();
+  g_dbus_message_set_message_type (message, 123);
+  blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &local_error);
+  g_assert_no_error (local_error);
+  g_assert_nonnull (blob);
+  g_free (blob);
+  g_clear_object (&message);
+
+  /* Even one with a well-defined field on it */
+  message = g_dbus_message_new ();
+  g_dbus_message_set_message_type (message, 123);
+  g_dbus_message_set_header (message, G_DBUS_MESSAGE_HEADER_FIELD_NUM_UNIX_FDS, g_variant_new_uint32 (0));
+  blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &local_error);
+  g_assert_no_error (local_error);
+  g_assert_nonnull (blob);
+  g_free (blob);
+  g_clear_object (&message);
+}
+
+static void
+test_message_serialize_over_long_signature (void)
+{
+  GDBusMessage *message = NULL;
+  GError *error = NULL;
+  guchar *blob = NULL;
+  gsize blob_size = 0;
+  char *long_signature = NULL;
+
+  long_signature = g_strnfill (256, 'y');
+
+  message = g_dbus_message_new_signal ("/the/path", "The.Interface", "TheMember");
+  g_dbus_message_set_header (message,
+                             G_DBUS_MESSAGE_HEADER_FIELD_SIGNATURE,
+                             g_variant_new_signature (long_signature));
+  blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
+
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_cmpstr (error->message, ==,
+                   "Cannot serialize message: D-Bus signature exceeds maximum length of 255 bytes");
+  g_assert_null (blob);
+
+  g_clear_error (&error);
+  g_clear_object (&message);
+
+  message = g_dbus_message_new_signal ("/the/path", "The.Interface", "TheMember");
+  g_dbus_message_set_body (message, g_variant_new ("(g)", long_signature));
+  blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
+
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_cmpstr (error->message, ==,
+                   "D-Bus signature exceeds maximum length of 255 bytes");
+  g_assert_null (blob);
+
+  g_free (long_signature);
+  g_clear_error (&error);
+  g_clear_object (&message);
+}
+
+static void
+test_message_serialize_over_long_variant_signature (void)
+{
+  GDBusMessage *message = NULL;
+  GError *error = NULL;
+  GVariantType *long_tuple_type = NULL;
+  guchar *blob = NULL;
+  gsize blob_size = 0;
+  char *long_signature = NULL;
+  char *long_tuple_type_string = NULL;
+  guint8 *data = NULL;
+
+  long_signature = g_strnfill (256, 'y');
+  long_tuple_type_string = g_strdup_printf ("(%s)", long_signature);
+  long_tuple_type = g_variant_type_new (long_tuple_type_string);
+  data = g_malloc0 (256);
+
+  message = g_dbus_message_new_method_call (NULL, "/the/path", NULL, "TheMember");
+  g_dbus_message_set_body (message,
+                           g_variant_new ("(@v)",
+                                          g_variant_new_variant (
+                                              g_variant_new_from_data (long_tuple_type,
+                                                                       data,
+                                                                       256,
+                                                                       TRUE,
+                                                                       NULL,
+                                                                       NULL))));
+  blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
+
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_cmpstr (error->message, ==,
+                   "D-Bus signature exceeds maximum length of 255 bytes");
+  g_assert_null (blob);
+
+  g_free (data);
+  g_free (long_tuple_type_string);
+  g_free (long_signature);
+  g_clear_error (&error);
+  g_clear_object (&message);
+  g_variant_type_free (long_tuple_type);
+}
+
+static void
+test_message_serialize_body_signature_checks (void)
+{
+  GDBusMessage *message = NULL;
+  GError *error = NULL;
+  guchar *blob = NULL;
+  gsize blob_size = 0;
+
+  message = g_dbus_message_new_method_call (NULL, "/the/path", NULL, "TheMember");
+  g_dbus_message_set_body (message, g_variant_new ("(s)", "hello"));
+  g_dbus_message_set_signature (message, NULL);
+  blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
+
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_cmpstr (error->message, ==,
+                   "Message body has signature “(s)” but there is no signature header");
+  g_assert_null (blob);
+
+  g_clear_error (&error);
+  g_clear_object (&message);
+
+  message = g_dbus_message_new_method_call (NULL, "/the/path", NULL, "TheMember");
+  g_dbus_message_set_body (message, g_variant_new ("(s)", "hello"));
+  g_dbus_message_set_signature (message, "u");
+  blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
+
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_cmpstr (error->message, ==,
+                   "Message body has type signature “(s)” but signature in the header field is “(u)”");
+  g_assert_null (blob);
+
+  g_clear_error (&error);
+  g_clear_object (&message);
+
+  message = g_dbus_message_new_method_call (NULL, "/the/path", NULL, "TheMember");
+  g_dbus_message_set_signature (message, "s");
+  blob = g_dbus_message_to_blob (message, &blob_size, G_DBUS_CAPABILITY_FLAGS_NONE, &error);
+
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_cmpstr (error->message, ==,
+                   "Message body is empty but signature in the header field is “(s)”");
+  g_assert_null (blob);
+
+  g_clear_error (&error);
+  g_clear_object (&message);
 }
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -1111,7 +1390,7 @@ test_message_serialize_double_array (void)
 
   g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=732754");
 
-  g_variant_builder_init (&builder, G_VARIANT_TYPE ("ad"));
+  g_variant_builder_init_static (&builder, G_VARIANT_TYPE ("ad"));
   g_variant_builder_add (&builder, "d", (gdouble)0.0);
   g_variant_builder_add (&builder, "d", (gdouble)8.0);
   g_variant_builder_add (&builder, "d", (gdouble)22.0);
@@ -1488,7 +1767,7 @@ test_message_parse_truncated (void)
   g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2528");
 
   message = g_dbus_message_new ();
-  g_variant_builder_init (&builder, G_VARIANT_TYPE ("(asbynqiuxtd)"));
+  g_variant_builder_init_static (&builder, G_VARIANT_TYPE ("(asbynqiuxtd)"));
   g_variant_builder_open (&builder, G_VARIANT_TYPE ("as"));
   g_variant_builder_add (&builder, "s", "fourtytwo");
   g_variant_builder_close (&builder);
@@ -1596,7 +1875,7 @@ test_message_serialize_empty_structure (void)
   g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/2557");
 
   message = g_dbus_message_new ();
-  g_variant_builder_init (&builder, G_VARIANT_TYPE ("(a())"));
+  g_variant_builder_init_static (&builder, G_VARIANT_TYPE ("(a())"));
   g_variant_builder_open (&builder, G_VARIANT_TYPE ("a()"));
   g_variant_builder_add (&builder, "()");
   g_variant_builder_close (&builder);
@@ -1615,6 +1894,127 @@ test_message_serialize_empty_structure (void)
   g_clear_object (&message);
 }
 
+static void
+test_message_parse_missing_header (void)
+{
+  const guint8 data[] = {
+    'l',  /* little-endian byte order */
+    0x01,  /* message type (method call) */
+    0x00,  /* message flags (none) */
+    0x01,  /* major protocol version */
+    0x12, 0x00, 0x00, 0x00,  /* body length (in bytes) */
+    0x20, 0x20, 0x20, 0x20,  /* message serial */
+    /* a{yv} of header fields: */
+    0x24, 0x00, 0x00, 0x00,  /* array length (in bytes), must be a multiple of 8 */
+      0x01,  /* array key (PATH, required for method call messages) */
+      /* Variant array value: */
+      0x01,  /* signature length */
+      'o',  /* one complete type */
+      0x00,  /* nul terminator */
+      /* (Variant array value payload) */
+      0x01, 0x00, 0x00, 0x00,
+      '/', 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x30,  /* array key (MEMBER, required for method call messages; CORRUPTED from 0x03) */
+      /* Variant array value: */
+      0x01,  /* signature length */
+      's',  /* one complete type */
+      0x00,  /* nul terminator */
+      /* (Variant array value payload) */
+      0x03, 0x00, 0x00, 0x00,
+      'H', 'e', 'y', 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x08,  /* array key (SIGNATURE) */
+      /* Variant array value: */
+      0x01,  /* signature length */
+      'g',  /* one complete type */
+      0x00,  /* nul terminator */
+      /* (Variant array value payload) */
+      0x02, 's', 's', 0x00,
+    /* Some arbitrary valid content inside the message body: */
+    0x03, 0x00, 0x00, 0x00,
+    'h', 'e', 'y', 0x00,
+    0x05, 0x00, 0x00, 0x00,
+    't', 'h', 'e', 'r', 'e', 0x00
+  };
+
+  gsize size = sizeof (data);
+  GDBusMessage *message = NULL;
+  GError *local_error = NULL;
+
+  g_test_summary ("Test that missing (required) headers prompt an error.");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/3061");
+
+  message = g_dbus_message_new_from_blob ((guchar *) data, size,
+                                          G_DBUS_CAPABILITY_FLAGS_NONE,
+                                          &local_error);
+  g_assert_error (local_error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_null (message);
+
+  g_clear_error (&local_error);
+}
+
+static void
+test_message_parse_invalid_header_type (void)
+{
+  const guint8 data[] = {
+    'l',  /* little-endian byte order */
+    0x01,  /* message type (method call) */
+    0x00,  /* message flags (none) */
+    0x01,  /* major protocol version */
+    0x12, 0x00, 0x00, 0x00,  /* body length (in bytes) */
+    0x20, 0x20, 0x20, 0x20,  /* message serial */
+    /* a{yv} of header fields: */
+    0x24, 0x00, 0x00, 0x00,  /* array length (in bytes), must be a multiple of 8 */
+      0x01,  /* array key (PATH, required for method call messages) */
+      /* Variant array value: */
+      0x01,  /* signature length */
+      'o',  /* one complete type */
+      0x00,  /* nul terminator */
+      /* (Variant array value payload) */
+      0x01, 0x00, 0x00, 0x00,
+      '/', 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x03,  /* array key (MEMBER, required for method call messages) */
+      /* Variant array value: */
+      0x01,  /* signature length */
+      't',  /* one complete type; CORRUPTED, MEMBER should be 's' */
+      0x00,  /* nul terminator */
+      /* (Padding to 64-bit alignment of 't)' */
+      0x00, 0x00, 0x00, 0x00,
+      /* (Variant array value payload) */
+      'H', 'e', 'y', 0x00,
+      0x00, 0x00, 0x00, 0x00,
+      0x08,  /* array key (SIGNATURE) */
+      /* Variant array value: */
+      0x01,  /* signature length */
+      'g',  /* one complete type */
+      0x00,  /* nul terminator */
+      /* (Variant array value payload) */
+      0x02, 's', 's', 0x00,
+    /* Some arbitrary valid content inside the message body: */
+    0x03, 0x00, 0x00, 0x00,
+    'h', 'e', 'y', 0x00,
+    0x05, 0x00, 0x00, 0x00,
+    't', 'h', 'e', 'r', 'e', 0x00
+  };
+
+  gsize size = sizeof (data);
+  GDBusMessage *message = NULL;
+  GError *local_error = NULL;
+
+  g_test_summary ("Test that the type of well-known headers is checked.");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/3061");
+
+  message = g_dbus_message_new_from_blob ((guchar *) data, size,
+                                          G_DBUS_CAPABILITY_FLAGS_NONE,
+                                          &local_error);
+  g_assert_error (local_error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
+  g_assert_null (message);
+
+  g_clear_error (&local_error);
+}
+
 /* ---------------------------------------------------------------------------------------------------- */
 
 int
@@ -1624,7 +2024,7 @@ main (int   argc,
   g_setenv ("LC_ALL", "C", TRUE);
   setlocale (LC_ALL, "C");
 
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   g_test_add_func ("/gdbus/message-serialize/basic",
                    test_message_serialize_basic);
@@ -1634,6 +2034,14 @@ main (int   argc,
                    test_message_serialize_invalid);
   g_test_add_func ("/gdbus/message-serialize/header-checks",
                    test_message_serialize_header_checks);
+  g_test_add_func ("/gdbus/message-serialize/header-checks/valid",
+                   test_message_serialize_header_checks_valid);
+  g_test_add_func ("/gdbus/message-serialize/over-long-signature",
+                   test_message_serialize_over_long_signature);
+  g_test_add_func ("/gdbus/message-serialize/over-long-variant-signature",
+                   test_message_serialize_over_long_variant_signature);
+  g_test_add_func ("/gdbus/message-serialize/body-signature-checks",
+                   test_message_serialize_body_signature_checks);
   g_test_add_func ("/gdbus/message-serialize/double-array",
                    test_message_serialize_double_array);
   g_test_add_func ("/gdbus/message-serialize/empty-structure",
@@ -1657,6 +2065,10 @@ main (int   argc,
                    test_message_parse_truncated);
   g_test_add_func ("/gdbus/message-parse/empty-structure",
                    test_message_parse_empty_structure);
+  g_test_add_func ("/gdbus/message-parse/missing-header",
+                   test_message_parse_missing_header);
+  g_test_add_func ("/gdbus/message-parse/invalid-header-type",
+                   test_message_parse_invalid_header_type);
 
   return g_test_run();
 }

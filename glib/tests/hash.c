@@ -909,8 +909,8 @@ test_recursive_remove_all_subprocess (void)
 static void
 test_recursive_remove_all (void)
 {
-  g_test_trap_subprocess ("/hash/recursive-remove-all/subprocess", 1000000,
-                          G_TEST_SUBPROCESS_DEFAULT);
+  g_test_trap_subprocess ("/hash/recursive-remove-all/subprocess",
+                          0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_passed ();
 }
 
@@ -1271,6 +1271,52 @@ test_steal_extended (void)
   g_assert_cmpuint (g_hash_table_size (hash), ==, 5);
 
   g_hash_table_unref (hash);
+
+  hash = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+
+  g_hash_table_add (hash, g_strdup ("a"));
+  g_hash_table_add (hash, g_strdup ("b"));
+  g_hash_table_add (hash, g_strdup ("c"));
+  g_hash_table_add (hash, g_strdup ("d"));
+  g_hash_table_add (hash, g_strdup ("e"));
+
+  g_assert_true (g_hash_table_steal_extended (hash, "a", (gpointer *) &stolen_key,
+                                              (gpointer *) &stolen_value));
+  g_assert_cmpstr (stolen_key, ==, "a");
+  g_assert_cmpstr (stolen_value, ==, "a");
+  g_clear_pointer (&stolen_key, g_free);
+  stolen_value = NULL;
+
+  g_assert_true (g_hash_table_steal_extended (hash, "b", (gpointer *) &stolen_key,
+                                              NULL));
+  g_assert_cmpstr (stolen_key, ==, "b");
+  g_clear_pointer (&stolen_key, g_free);
+
+  g_assert_true (g_hash_table_steal_extended (hash, "c", NULL,
+                                              (gpointer *) &stolen_value));
+  g_assert_cmpstr (stolen_value, ==, "c");
+  g_clear_pointer (&stolen_value, g_free);
+
+  g_assert_true (g_hash_table_steal_extended (hash, "d", (gpointer *) &stolen_key,
+                                              (gpointer *) &stolen_value));
+  g_assert_cmpstr (stolen_key, ==, "d");
+  g_assert_cmpstr (stolen_value, ==, "d");
+  g_clear_pointer (&stolen_key, g_free);
+  stolen_value = NULL;
+
+  /* So far, the GHashTable was used like a set (g_hash_table_add()), where all key/values were
+   * identical. Adding one entry where key/value differs, blows the internal representation
+   * up, and the hash table tracks two separate key/value arrays. */
+  g_hash_table_replace (hash, g_strdup ("x"), NULL);
+
+  g_assert_true (g_hash_table_steal_extended (hash, "e", (gpointer *) &stolen_key,
+                                              (gpointer *) &stolen_value));
+  g_assert_cmpstr (stolen_key, ==, "e");
+  g_assert_cmpstr (stolen_value, ==, "e");
+  g_clear_pointer (&stolen_key, g_free);
+  stolen_value = NULL;
+
+  g_hash_table_unref (hash);
 }
 
 /* Test that passing %NULL to the optional g_hash_table_steal_extended()
@@ -1425,7 +1471,7 @@ test_new_similar (void)
 
 struct _GHashTable
 {
-  gsize            size;
+  guint            size;
   gint             mod;
   guint            mask;
   gint             nnodes;
@@ -1443,7 +1489,7 @@ struct _GHashTable
   gint             ref_count;  /* (atomic) */
 
 #ifndef G_DISABLE_ASSERT
-  int              version;
+  guintptr         version;
 #endif
   GDestroyNotify   key_destroy_func;
   GDestroyNotify   value_destroy_func;
@@ -1692,6 +1738,163 @@ test_set_to_strv (void)
   g_strfreev (strv);
 }
 
+static void
+test_set_get_keys_as_ptr_array (void)
+{
+  GHashTable *set;
+  GPtrArray *array;
+
+  set = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  g_hash_table_add (set, g_strdup ("xyz"));
+  g_hash_table_add (set, g_strdup ("xyz"));
+  g_hash_table_add (set, g_strdup ("abc"));
+
+  array = g_hash_table_get_keys_as_ptr_array (set);
+  g_hash_table_steal_all (set);
+  g_hash_table_unref (set);
+  g_ptr_array_set_free_func (array, g_free);
+
+  g_assert_cmpint (array->len, ==, 2);
+  g_ptr_array_add (array, NULL);
+
+  g_assert_true (
+    g_strv_equal ((const gchar * const[]) { "xyz", "abc", NULL },
+                  (const gchar * const*) array->pdata) ||
+    g_strv_equal ((const gchar * const[]) { "abc", "xyz", NULL },
+                  (const gchar * const*) array->pdata)
+  );
+
+  g_clear_pointer (&array, g_ptr_array_unref);
+}
+
+static void
+test_set_get_values_as_ptr_array (void)
+{
+  GHashTable *table;
+  GPtrArray *array;
+
+  table = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  g_hash_table_insert (table, g_strdup ("xyz"), GUINT_TO_POINTER (0));
+  g_hash_table_insert (table, g_strdup ("xyz"), GUINT_TO_POINTER (1));
+  g_hash_table_insert (table, g_strdup ("abc"), GUINT_TO_POINTER (2));
+
+  array = g_hash_table_get_values_as_ptr_array (table);
+  g_clear_pointer (&table, g_hash_table_unref);
+
+  g_assert_cmpint (array->len, ==, 2);
+  g_assert_true (g_ptr_array_find (array, GUINT_TO_POINTER (1), NULL));
+  g_assert_true (g_ptr_array_find (array, GUINT_TO_POINTER (2), NULL));
+
+  g_assert_true (
+    memcmp ((gpointer []) { GUINT_TO_POINTER (1), GUINT_TO_POINTER (2) },
+            array->pdata, array->len * sizeof (gpointer)) == 0 ||
+    memcmp ((gpointer []) { GUINT_TO_POINTER (2), GUINT_TO_POINTER (1) },
+            array->pdata, array->len * sizeof (gpointer)) == 0
+  );
+
+  g_clear_pointer (&array, g_ptr_array_unref);
+}
+
+static void
+test_steal_all_keys (void)
+{
+  GHashTable *table;
+  GPtrArray *array;
+
+  table = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  g_hash_table_insert (table, g_strdup ("xyz"), GUINT_TO_POINTER (0));
+  g_hash_table_insert (table, g_strdup ("xyz"), GUINT_TO_POINTER (1));
+  g_hash_table_insert (table, g_strdup ("abc"), GUINT_TO_POINTER (2));
+
+  array = g_hash_table_steal_all_keys (table);
+  g_assert_cmpuint (g_hash_table_size (table), ==, 0);
+
+  g_hash_table_insert (table, g_strdup ("do-not-leak-me"), GUINT_TO_POINTER (5));
+  g_clear_pointer (&table, g_hash_table_unref);
+
+  g_assert_cmpint (array->len, ==, 2);
+  g_ptr_array_add (array, NULL);
+
+  g_assert_true (
+    g_strv_equal ((const gchar * const[]) { "xyz", "abc", NULL },
+                  (const gchar * const*) array->pdata) ||
+    g_strv_equal ((const gchar * const[]) { "abc", "xyz", NULL },
+                  (const gchar * const*) array->pdata)
+  );
+
+  g_clear_pointer (&array, g_ptr_array_unref);
+
+  table = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
+  g_hash_table_insert (table, GUINT_TO_POINTER (0), g_strdup ("xyz"));
+  g_hash_table_insert (table, GUINT_TO_POINTER (1), g_strdup ("xyz"));
+  g_hash_table_insert (table, GUINT_TO_POINTER (2), g_strdup ("abc"));
+
+  array = g_hash_table_steal_all_keys (table);
+  g_assert_cmpuint (g_hash_table_size (table), ==, 0);
+
+  g_hash_table_insert (table, GUINT_TO_POINTER (5), g_strdup ("do-not-leak-me"));
+  g_clear_pointer (&table, g_hash_table_unref);
+
+  g_assert_cmpint (array->len, ==, 3);
+  g_assert_true (g_ptr_array_find (array, GUINT_TO_POINTER (0), NULL));
+  g_assert_true (g_ptr_array_find (array, GUINT_TO_POINTER (1), NULL));
+  g_assert_true (g_ptr_array_find (array, GUINT_TO_POINTER (2), NULL));
+
+  g_clear_pointer (&array, g_ptr_array_unref);
+}
+
+static void
+test_steal_all_values (void)
+{
+  GHashTable *table;
+  GPtrArray *array;
+
+  table = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+  g_hash_table_insert (table, g_strdup ("xyz"), GUINT_TO_POINTER (0));
+  g_hash_table_insert (table, g_strdup ("xyz"), GUINT_TO_POINTER (1));
+  g_hash_table_insert (table, g_strdup ("abc"), GUINT_TO_POINTER (2));
+
+  array = g_hash_table_steal_all_values (table);
+  g_assert_cmpuint (g_hash_table_size (table), ==, 0);
+
+  g_hash_table_insert (table, g_strdup ("do-not-leak-me"), GUINT_TO_POINTER (5));
+  g_clear_pointer (&table, g_hash_table_unref);
+
+  g_assert_cmpint (array->len, ==, 2);
+  g_assert_true (g_ptr_array_find (array, GUINT_TO_POINTER (1), NULL));
+  g_assert_true (g_ptr_array_find (array, GUINT_TO_POINTER (2), NULL));
+
+  g_assert_true (
+    memcmp ((gpointer []) { GUINT_TO_POINTER (1), GUINT_TO_POINTER (2) },
+            array->pdata, array->len * sizeof (gpointer)) == 0 ||
+    memcmp ((gpointer []) { GUINT_TO_POINTER (2), GUINT_TO_POINTER (1) },
+            array->pdata, array->len * sizeof (gpointer)) == 0
+  );
+
+  g_clear_pointer (&array, g_ptr_array_unref);
+
+  table = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
+  g_hash_table_insert (table, GUINT_TO_POINTER (0), g_strdup ("xyz"));
+  g_hash_table_insert (table, GUINT_TO_POINTER (1), g_strdup ("foo"));
+  g_hash_table_insert (table, GUINT_TO_POINTER (2), g_strdup ("abc"));
+
+  array = g_hash_table_steal_all_values (table);
+  g_assert_cmpuint (g_hash_table_size (table), ==, 0);
+
+  g_hash_table_insert (table, GUINT_TO_POINTER (5), g_strdup ("do-not-leak-me"));
+  g_clear_pointer (&table, g_hash_table_unref);
+
+  g_assert_cmpint (array->len, ==, 3);
+  g_assert_true (
+    g_ptr_array_find_with_equal_func (array, "xyz", g_str_equal, NULL));
+  g_assert_true (
+    g_ptr_array_find_with_equal_func (array, "foo", g_str_equal, NULL));
+  g_assert_true (
+    g_ptr_array_find_with_equal_func (array, "abc", g_str_equal, NULL));
+
+  g_clear_pointer (&array, g_ptr_array_unref);
+}
+
 static gboolean
 is_prime (guint p)
 {
@@ -1764,6 +1967,8 @@ main (int argc, char *argv[])
   g_test_add_func ("/hash/foreach-steal", test_foreach_steal);
   g_test_add_func ("/hash/steal-extended", test_steal_extended);
   g_test_add_func ("/hash/steal-extended/optional", test_steal_extended_optional);
+  g_test_add_func ("/hash/steal-all-keys", test_steal_all_keys);
+  g_test_add_func ("/hash/steal-all-values", test_steal_all_values);
   g_test_add_func ("/hash/lookup-extended", test_lookup_extended);
   g_test_add_func ("/hash/new-similar", test_new_similar);
 
@@ -1774,6 +1979,8 @@ main (int argc, char *argv[])
   g_test_add_func ("/hash/iter-replace", test_iter_replace);
   g_test_add_func ("/hash/set-insert-corruption", test_set_insert_corruption);
   g_test_add_func ("/hash/set-to-strv", test_set_to_strv);
+  g_test_add_func ("/hash/get-keys-as-ptr-array", test_set_get_keys_as_ptr_array);
+  g_test_add_func ("/hash/get-values-as-ptr-array", test_set_get_values_as_ptr_array);
   g_test_add_func ("/hash/primes", test_primes);
 
   return g_test_run ();

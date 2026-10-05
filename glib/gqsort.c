@@ -128,23 +128,23 @@ msort_with_tmp (const struct msort_param *p, void *b, size_t n)
     case 2:
       while (n1 > 0 && n2 > 0)
 	{
-	  unsigned long *tmpl = (unsigned long *) tmp;
-	  unsigned long *bl;
+	  guintptr *tmpl = (guintptr *) tmp;
+	  guintptr *bl;
 
 	  tmp += s;
 	  if ((*cmp) (b1, b2, arg) <= 0)
 	    {
-	      bl = (unsigned long *) b1;
+	      bl = (guintptr *) b1;
 	      b1 += s;
 	      --n1;
 	    }
 	  else
 	    {
-	      bl = (unsigned long *) b2;
+	      bl = (guintptr *) b2;
 	      b2 += s;
 	      --n2;
 	    }
-	  while (tmpl < (unsigned long *) tmp)
+	  while (tmpl < (guintptr *) tmp)
 	    *tmpl++ = *bl++;
 	}
       break;
@@ -265,15 +265,15 @@ msort_r (void *b, size_t n, size_t s, GCompareDataFunc cmp, void *arg)
   else
     {
       if ((s & (sizeof (guint32) - 1)) == 0
-	  && (guintptr) b % ALIGNOF_GUINT32 == 0)
+	  && (gsize) (guintptr) b % G_ALIGNOF(guint32) == 0)
 	{
 	  if (s == sizeof (guint32))
 	    p.var = 0;
 	  else if (s == sizeof (guint64)
-		   && (guintptr) b % ALIGNOF_GUINT64 == 0)
+		   && (gsize) (guintptr) b % G_ALIGNOF(guint64) == 0)
 	    p.var = 1;
-	  else if ((s & (sizeof (unsigned long) - 1)) == 0
-		   && (guintptr) b % ALIGNOF_UNSIGNED_LONG == 0)
+	  else if ((s & (sizeof (void *) - 1)) == 0
+		   && (gsize) (guintptr) b % G_ALIGNOF(void *) == 0)
 	    p.var = 2;
 	}
       msort_with_tmp (&p, b, n);
@@ -286,13 +286,17 @@ msort_r (void *b, size_t n, size_t s, GCompareDataFunc cmp, void *arg)
  * @pbase: (not nullable): start of array to sort
  * @total_elems: elements in the array
  * @size: size of each element
- * @compare_func: function to compare elements
+ * @compare_func: (scope call): function to compare elements
  * @user_data: data to pass to @compare_func
  *
- * This is just like the standard C qsort() function, but
- * the comparison routine accepts a user data argument.
+ * This is just like the standard C [`qsort()`](man:qsort(3)) function, but
+ * the comparison routine accepts a user data argument
+ * (like [`qsort_r()`](man:qsort_r(3))).
  *
- * This is guaranteed to be a stable sort since version 2.32.
+ * Unlike `qsort()`, this is guaranteed to be a stable sort (since GLib 2.32).
+ *
+ * Deprecated: 2.82: `total_elems` is too small to represent larger arrays; use
+ *   [func@GLib.sort_array] instead
  */
 void
 g_qsort_with_data (gconstpointer    pbase,
@@ -301,5 +305,46 @@ g_qsort_with_data (gconstpointer    pbase,
                    GCompareDataFunc compare_func,
                    gpointer         user_data)
 {
-  msort_r ((gpointer)pbase, total_elems, size, compare_func, user_data);
+  g_sort_array (pbase, total_elems, size, compare_func, user_data);
+}
+
+/**
+ * g_sort_array:
+ * @array: (not nullable) (array length=n_elements): start of array to sort
+ * @n_elements: number of elements in the array
+ * @element_size: size of each element
+ * @compare_func: (scope call): function to compare elements
+ * @user_data: data to pass to @compare_func
+ *
+ * This is just like the standard C [`qsort()`](man:qsort(3)) function, but
+ * the comparison routine accepts a user data argument
+ * (like [`qsort_r()`](man:qsort_r(3))).
+ *
+ * Unlike `qsort()`, this is guaranteed to be a stable sort.
+ *
+ * An example of sorting an array of strings (a strv):
+ * ```
+ * static int
+ * strcmp_data (const void *a,
+ *              const void *b,
+ *              void       *user_data)
+ * {
+ *   return strcmp (*((const char * const *) a), *((const char * const *) b));
+ * }
+ *
+ * char **my_strv = …;
+ * size_t my_strv_length = g_strv_length (my_strv);
+ * g_sort_array (my_strv, (my_strv_length, sizeof (*my_strv), strcmp_data, NULL);
+ * ```
+ *
+ * Since: 2.82
+ */
+void
+g_sort_array (const void       *array,
+              size_t            n_elements,
+              size_t            element_size,
+              GCompareDataFunc  compare_func,
+              void             *user_data)
+{
+  msort_r ((void *) array, n_elements, element_size, compare_func, user_data);
 }

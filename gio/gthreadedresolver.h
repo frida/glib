@@ -21,41 +21,23 @@
 #ifndef __G_THREADED_RESOLVER_H__
 #define __G_THREADED_RESOLVER_H__
 
+#include <gio/gio.h>
 #include <gio/gresolver.h>
 
 G_BEGIN_DECLS
 
+/**
+ * GThreadedResolver:
+ *
+ * #GThreadedResolver is an implementation of #GResolver which calls the libc
+ * lookup functions in threads to allow them to run asynchronously.
+ *
+ * Since: 2.20
+ */
 #define G_TYPE_THREADED_RESOLVER         (g_threaded_resolver_get_type ())
-#define G_THREADED_RESOLVER(o)           (G_TYPE_CHECK_INSTANCE_CAST ((o), G_TYPE_THREADED_RESOLVER, GThreadedResolver))
-#define G_THREADED_RESOLVER_CLASS(k)     (G_TYPE_CHECK_CLASS_CAST((k), G_TYPE_THREADED_RESOLVER, GThreadedResolverClass))
-#define G_IS_THREADED_RESOLVER(o)        (G_TYPE_CHECK_INSTANCE_TYPE ((o), G_TYPE_THREADED_RESOLVER))
-#define G_IS_THREADED_RESOLVER_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_THREADED_RESOLVER))
-#define G_THREADED_RESOLVER_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_THREADED_RESOLVER, GThreadedResolverClass))
-
-typedef struct {
-  GResolver parent_instance;
-} GThreadedResolver;
-
-typedef struct {
-  GResolverClass parent_class;
-
-} GThreadedResolverClass;
 
 GIO_AVAILABLE_IN_ALL
-GType g_threaded_resolver_get_type (void) G_GNUC_CONST;
-
-/* Used for a private test API */
-#ifdef G_OS_UNIX
-GIO_AVAILABLE_IN_ALL
-GList *g_resolver_records_from_res_query (const gchar      *rrname,
-                                          gint              rrtype,
-                                          const guint8     *answer,
-                                          gssize            len,
-                                          gint              herr,
-                                          GError          **error);
-GIO_AVAILABLE_IN_ALL
-gint g_resolver_record_type_to_rrtype (GResolverRecordType type);
-#endif
+G_DECLARE_FINAL_TYPE (GThreadedResolver, g_threaded_resolver, G, THREADED_RESOLVER, GResolver)
 
 G_END_DECLS
 

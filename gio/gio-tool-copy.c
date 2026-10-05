@@ -40,6 +40,7 @@ static gboolean preserve = FALSE;
 static gboolean backup = FALSE;
 static gboolean no_dereference = FALSE;
 static gboolean default_permissions = FALSE;
+static gboolean default_modified_time = FALSE;
 
 static const GOptionEntry entries[] = {
   { "no-target-directory", 'T', 0, G_OPTION_ARG_NONE, &no_target_directory, N_("No target directory"), NULL },
@@ -49,11 +50,13 @@ static const GOptionEntry entries[] = {
   { "backup", 'b', 0, G_OPTION_ARG_NONE, &backup, N_("Backup existing destination files"), NULL },
   { "no-dereference", 'P', 0, G_OPTION_ARG_NONE, &no_dereference, N_("Never follow symbolic links"), NULL },
   { "default-permissions", 0, 0, G_OPTION_ARG_NONE, &default_permissions, N_("Use default permissions for the destination"), NULL },
+  { "default-modified-time", 0, 0, G_OPTION_ARG_NONE, &default_modified_time, N_("Use default file modification timestamps for the destination"), NULL },
   G_OPTION_ENTRY_NULL
 };
 
 static gint64 start_time;
 static gint64 previous_time;
+static goffset previous_num_bytes;
 
 static void
 show_progress (goffset current_num_bytes,
@@ -61,7 +64,9 @@ show_progress (goffset current_num_bytes,
                gpointer user_data)
 {
   gint64 tv;
-  char *current_size, *total_size, *rate;
+  char *current_size, *total_size, *current_rate, *average_rate;
+  goffset bytes_since_last;
+  gint64 time_since_last;
 
   tv = g_get_monotonic_time ();
   if (tv - previous_time < (G_USEC_PER_SEC / 5) &&
@@ -70,16 +75,35 @@ show_progress (goffset current_num_bytes,
 
   current_size = g_format_size (current_num_bytes);
   total_size = g_format_size (total_num_bytes);
-  rate = g_format_size (current_num_bytes /
-                        MAX ((tv - start_time) / G_USEC_PER_SEC, 1));
+
+  average_rate = g_format_size (current_num_bytes * G_USEC_PER_SEC /
+                                MAX ((tv - start_time), 1));
+
+  bytes_since_last = current_num_bytes - previous_num_bytes;
+  time_since_last = tv - previous_time;
+  current_rate = g_format_size ((bytes_since_last * G_USEC_PER_SEC) /
+                                MAX (time_since_last, 1));
+
   g_print ("\r\033[K");
-  g_print (_("Transferred %s out of %s (%s/s)"), current_size, total_size, rate);
+
+  if (current_num_bytes == total_num_bytes)
+    {
+      g_print (_("Copied %s (average: %s/s)"),
+               current_size, average_rate);
+    }
+  else
+    {
+      g_print (_("Copied %s out of %s (%s/s; average: %s/s)"),
+               current_size, total_size, current_rate, average_rate);
+    }
 
   previous_time = tv;
+  previous_num_bytes = current_num_bytes;
 
   g_free (current_size);
   g_free (total_size);
-  g_free (rate);
+  g_free (current_rate);
+  g_free (average_rate);
 }
 
 int
@@ -181,9 +205,12 @@ handle_copy (int argc, char *argv[], gboolean do_help)
         flags |= G_FILE_COPY_ALL_METADATA;
       if (default_permissions)
         flags |= G_FILE_COPY_TARGET_DEFAULT_PERMS;
+      if (default_modified_time)
+        flags |= G_FILE_COPY_TARGET_DEFAULT_MODIFIED_TIME;
 
       error = NULL;
       start_time = g_get_monotonic_time ();
+      previous_num_bytes = 0;
 
       if (!g_file_copy (source, target, flags, NULL, progress ? show_progress : NULL, NULL, &error))
         {
@@ -203,6 +230,7 @@ handle_copy (int argc, char *argv[], gboolean do_help)
                 {
                   flags |= G_FILE_COPY_OVERWRITE;
                   start_time = g_get_monotonic_time ();
+                  previous_num_bytes = 0;
                   if (!g_file_copy (source, target, flags, NULL, progress ? show_progress : NULL, NULL, &error))
                     goto copy_failed;
                 }

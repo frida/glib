@@ -38,12 +38,6 @@ G_BEGIN_DECLS
 #define G_IS_MOUNT_OPERATION_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_MOUNT_OPERATION))
 #define G_MOUNT_OPERATION_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_MOUNT_OPERATION, GMountOperationClass))
 
-/**
- * GMountOperation:
- *
- * Class for providing authentication methods for mounting operations,
- * such as mounting a file locally, or authenticating with a server.
- **/
 typedef struct _GMountOperationClass   GMountOperationClass;
 typedef struct _GMountOperationPrivate GMountOperationPrivate;
 
@@ -121,7 +115,7 @@ struct _GMountOperationClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType             g_mount_operation_get_type      (void) G_GNUC_CONST;
+GType             g_mount_operation_get_type      (void);
 GIO_AVAILABLE_IN_ALL
 GMountOperation * g_mount_operation_new           (void);
 

@@ -41,18 +41,7 @@
 /* {{{1 Documentation */
 
 /**
- * SECTION:threads-deprecated
- * @title: Deprecated thread API
- * @short_description: old thread APIs (for reference only)
- * @see_also: #GThread
- *
- * These APIs are deprecated.  You should not use them in new code.
- * This section remains only to assist with understanding code that was
- * written to use these APIs at some point in the past.
- **/
-
-/**
- * GThreadPriority:
+ * GThreadPriority: (skip):
  * @G_THREAD_PRIORITY_LOW: a priority lower than normal
  * @G_THREAD_PRIORITY_NORMAL: the default priority
  * @G_THREAD_PRIORITY_HIGH: a priority higher than normal
@@ -64,7 +53,7 @@
  */
 
 /**
- * GThreadFunctions:
+ * GThreadFunctions: (skip):
  * @mutex_new: virtual function pointer for g_mutex_new()
  * @mutex_lock: virtual function pointer for g_mutex_lock()
  * @mutex_trylock: virtual function pointer for g_mutex_trylock()
@@ -94,7 +83,7 @@
  */
 
 /**
- * G_THREADS_IMPL_POSIX:
+ * G_THREADS_IMPL_POSIX: (skip):
  *
  * This macro is defined if POSIX style threads are used.
  *
@@ -103,7 +92,7 @@
  */
 
 /**
- * G_THREADS_IMPL_WIN32:
+ * G_THREADS_IMPL_WIN32: (skip):
  *
  * This macro is defined if Windows style threads are used.
  *
@@ -146,7 +135,7 @@ GThreadFunctions g_thread_functions_for_glib_use =
 static guint64
 gettime (void)
 {
-  return g_get_monotonic_time () * 1000;
+  return (guint64) g_get_monotonic_time () * 1000;
 }
 
 guint64 (*g_thread_gettime) (void) = gettime;
@@ -155,7 +144,7 @@ guint64 (*g_thread_gettime) (void) = gettime;
 gboolean         g_threads_got_initialized = TRUE;
 
 /**
- * g_thread_init:
+ * g_thread_init: (skip):
  * @vtable: a function table of type #GThreadFunctions, that provides
  *     the entry points to the thread system to be used. Since 2.32,
  *     this parameter is ignored and should always be %NULL
@@ -169,15 +158,17 @@ gboolean         g_threads_got_initialized = TRUE;
  * Since version 2.32, GLib does not support custom thread implementations
  * anymore and the @vtable parameter is ignored and you should pass %NULL.
  *
- * <note><para>g_thread_init() must not be called directly or indirectly
- * in a callback from GLib. Also no mutexes may be currently locked while
- * calling g_thread_init().</para></note>
+ * ::: note
+ *     g_thread_init() must not be called directly or indirectly in a
+ *     callback from GLib. Also no mutexes may be currently locked
+ *     while calling g_thread_init().
  *
- * <note><para>To use g_thread_init() in your program, you have to link
- * with the libraries that the command <command>pkg-config --libs
- * gthread-2.0</command> outputs. This is not the case for all the
- * other thread-related functions of GLib. Those can be used without
- * having to link with the thread libraries.</para></note>
+ * ::: note
+ *     To use g_thread_init() in your program, you have to link with
+ *     the libraries that the command `pkg-config --libs gthread-2.0`
+ *     outputs. This is not the case for all the other thread-related
+ *     functions of GLib. Those can be used without having to link
+ *     with the thread libraries.
  *
  * Deprecated:2.32: This function is no longer necessary. The GLib
  *     threading system is automatically initialized at the start
@@ -185,7 +176,11 @@ gboolean         g_threads_got_initialized = TRUE;
  */
 
 /**
- * g_thread_get_initialized:
+ * g_thread_init_with_errorcheck_mutexes: (skip):
+ */
+
+/**
+ * g_thread_get_initialized: (skip):
  *
  * Indicates if g_thread_init() has been called.
  *
@@ -216,7 +211,7 @@ G_LOCK_DEFINE_STATIC (g_thread);
 /* Misc. GThread functions {{{1 */
 
 /**
- * g_thread_set_priority:
+ * g_thread_set_priority: (skip):
  * @thread: a #GThread.
  * @priority: ignored
  *
@@ -231,8 +226,8 @@ g_thread_set_priority (GThread         *thread,
 }
 
 /**
- * g_thread_foreach:
- * @thread_func: function to call for all #GThread structures
+ * g_thread_foreach: (skip):
+ * @thread_func: (scope call): function to call for all #GThread structures
  * @user_data: second argument to @thread_func
  *
  * Call @thread_func on all #GThreads that have been
@@ -315,7 +310,7 @@ g_deprecated_thread_proxy (gpointer data)
 }
 
 /**
- * g_thread_create:
+ * g_thread_create: (skip):
  * @func: a function to execute in the new thread
  * @data: an argument to supply to the new thread
  * @joinable: should this thread be joinable?
@@ -348,7 +343,7 @@ g_thread_create (GThreadFunc   func,
 }
 
 /**
- * g_thread_create_full:
+ * g_thread_create_full: (skip):
  * @func: a function to execute in the new thread.
  * @data: an argument to supply to the new thread.
  * @stack_size: a stack size for the new thread.
@@ -376,7 +371,7 @@ g_thread_create_full (GThreadFunc       func,
   GThread *thread;
 
   thread = g_thread_new_internal (NULL, g_deprecated_thread_proxy,
-                                  func, data, stack_size, NULL, error);
+                                  func, data, stack_size, error);
 
   if (thread && !joinable)
     {
@@ -397,7 +392,7 @@ g_once_init_enter_impl (volatile gsize *location)
 /* GStaticMutex {{{1 ------------------------------------------------------ */
 
 /**
- * GStaticMutex:
+ * GStaticMutex: (skip):
  *
  * A #GStaticMutex works like a #GMutex.
  *
@@ -448,7 +443,7 @@ g_once_init_enter_impl (volatile gsize *location)
  */
 
 /**
- * G_STATIC_MUTEX_INIT:
+ * G_STATIC_MUTEX_INIT: (skip):
  *
  * A #GStaticMutex must be initialized with this macro, before it can
  * be used. This macro can used be to initialize a variable, but it
@@ -461,7 +456,7 @@ g_once_init_enter_impl (volatile gsize *location)
  **/
 
 /**
- * g_static_mutex_init:
+ * g_static_mutex_init: (skip):
  * @mutex: a #GStaticMutex to be initialized.
  *
  * Initializes @mutex.
@@ -497,7 +492,7 @@ g_static_mutex_init (GStaticMutex *mutex)
  */
 
 /**
- * g_static_mutex_get_mutex:
+ * g_static_mutex_get_mutex: (skip):
  * @mutex: a #GStaticMutex.
  *
  * For some operations (like g_cond_wait()) you must have a #GMutex
@@ -544,7 +539,7 @@ g_static_mutex_get_mutex_impl (GStaticMutex* mutex)
  */
 
 /**
- * g_static_mutex_lock:
+ * g_static_mutex_lock: (skip):
  * @mutex: a #GStaticMutex.
  *
  * Works like g_mutex_lock(), but for a #GStaticMutex.
@@ -553,7 +548,7 @@ g_static_mutex_get_mutex_impl (GStaticMutex* mutex)
  */
 
 /**
- * g_static_mutex_trylock:
+ * g_static_mutex_trylock: (skip):
  * @mutex: a #GStaticMutex.
  *
  * Works like g_mutex_trylock(), but for a #GStaticMutex.
@@ -564,7 +559,7 @@ g_static_mutex_get_mutex_impl (GStaticMutex* mutex)
  */
 
 /**
- * g_static_mutex_unlock:
+ * g_static_mutex_unlock: (skip):
  * @mutex: a #GStaticMutex.
  *
  * Works like g_mutex_unlock(), but for a #GStaticMutex.
@@ -573,7 +568,7 @@ g_static_mutex_get_mutex_impl (GStaticMutex* mutex)
  */
 
 /**
- * g_static_mutex_free:
+ * g_static_mutex_free: (skip):
  * @mutex: a #GStaticMutex to be freed.
  *
  * Releases all resources allocated to @mutex.
@@ -611,7 +606,7 @@ g_static_mutex_free (GStaticMutex* mutex)
 /* {{{1 GStaticRecMutex */
 
 /**
- * GStaticRecMutex:
+ * GStaticRecMutex: (skip):
  *
  * A #GStaticRecMutex works like a #GStaticMutex, but it can be locked
  * multiple times by one thread. If you enter it n times, you have to
@@ -633,7 +628,7 @@ g_static_mutex_free (GStaticMutex* mutex)
  */
 
 /**
- * G_STATIC_REC_MUTEX_INIT:
+ * G_STATIC_REC_MUTEX_INIT: (skip):
  *
  * A #GStaticRecMutex must be initialized with this macro before it can
  * be used. This macro can used be to initialize a variable, but it
@@ -646,7 +641,7 @@ g_static_mutex_free (GStaticMutex* mutex)
  */
 
 /**
- * g_static_rec_mutex_init:
+ * g_static_rec_mutex_init: (skip):
  * @mutex: a #GStaticRecMutex to be initialized.
  *
  * A #GStaticRecMutex must be initialized with this function before it
@@ -694,7 +689,7 @@ g_static_rec_mutex_get_rec_mutex_impl (GStaticRecMutex* mutex)
 }
 
 /**
- * g_static_rec_mutex_lock:
+ * g_static_rec_mutex_lock: (skip):
  * @mutex: a #GStaticRecMutex to lock.
  *
  * Locks @mutex. If @mutex is already locked by another thread, the
@@ -714,7 +709,7 @@ g_static_rec_mutex_lock (GStaticRecMutex* mutex)
 }
 
 /**
- * g_static_rec_mutex_trylock:
+ * g_static_rec_mutex_trylock: (skip):
  * @mutex: a #GStaticRecMutex to lock.
  *
  * Tries to lock @mutex. If @mutex is already locked by another thread,
@@ -743,7 +738,7 @@ g_static_rec_mutex_trylock (GStaticRecMutex* mutex)
 }
 
 /**
- * g_static_rec_mutex_unlock:
+ * g_static_rec_mutex_unlock: (skip):
  * @mutex: a #GStaticRecMutex to unlock.
  *
  * Unlocks @mutex. Another thread will be allowed to lock @mutex only
@@ -764,7 +759,7 @@ g_static_rec_mutex_unlock (GStaticRecMutex* mutex)
 }
 
 /**
- * g_static_rec_mutex_lock_full:
+ * g_static_rec_mutex_lock_full: (skip):
  * @mutex: a #GStaticRecMutex to lock.
  * @depth: number of times this mutex has to be unlocked to be
  *         completely unlocked.
@@ -788,7 +783,7 @@ g_static_rec_mutex_lock_full (GStaticRecMutex *mutex,
 }
 
 /**
- * g_static_rec_mutex_unlock_full:
+ * g_static_rec_mutex_unlock_full: (skip):
  * @mutex: a #GStaticRecMutex to completely unlock.
  *
  * Completely unlocks @mutex. If another thread is blocked in a
@@ -808,8 +803,8 @@ guint
 g_static_rec_mutex_unlock_full (GStaticRecMutex *mutex)
 {
   GRecMutex *rm;
-  gint depth;
-  gint i;
+  guint depth;
+  guint i;
 
   rm = g_static_rec_mutex_get_rec_mutex_impl (mutex);
 
@@ -825,7 +820,7 @@ g_static_rec_mutex_unlock_full (GStaticRecMutex *mutex)
 }
 
 /**
- * g_static_rec_mutex_free:
+ * g_static_rec_mutex_free: (skip):
  * @mutex: a #GStaticRecMutex to be freed.
  *
  * Releases all resources allocated to a #GStaticRecMutex.
@@ -854,9 +849,9 @@ g_static_rec_mutex_free (GStaticRecMutex *mutex)
 /* GStaticRWLock {{{1 ----------------------------------------------------- */
 
 /**
- * GStaticRWLock:
+ * GStaticRWLock: (skip):
  *
- * The #GStaticRWLock struct represents a read-write lock. A read-write
+ * The [struct@StaticRWLock] struct represents a read-write lock. A read-write
  * lock can be used for protecting data that some portions of code only
  * read from, while others also write. In such situations it is
  * desirable that several readers can read at once, whereas of course
@@ -900,8 +895,8 @@ g_static_rec_mutex_free (GStaticRecMutex *mutex)
  * ]|
  *
  * This example shows an array which can be accessed by many readers
- * (the my_array_get() function) simultaneously, whereas the writers
- * (the my_array_set() function) will only be allowed once at a time
+ * (the `my_array_get()` function) simultaneously, whereas the writers
+ * (the `my_array_set()` function) will only be allowed once at a time
  * and only if no readers currently access the array. This is because
  * of the potentially dangerous resizing of the array. Using these
  * functions is fully multi-thread safe now.
@@ -913,27 +908,27 @@ g_static_rec_mutex_free (GStaticRecMutex *mutex)
  * to finish their operation. As soon as the last reader unlocks the
  * data, the writer will lock it.
  *
- * Even though #GStaticRWLock is not opaque, it should only be used
+ * Even though [struct@StaticRWLock] is not opaque, it should only be used
  * with the following functions.
  *
- * All of the g_static_rw_lock_* functions can be used even if
- * g_thread_init() has not been called. Then they do nothing, apart
- * from g_static_rw_lock_*_trylock, which does nothing but returning %TRUE.
+ * All of the `g_static_rw_lock_*` functions can be used even if
+ * [func@Thread.init] has not been called. Then they do nothing, apart
+ * from `g_static_rw_lock_*_trylock`, which does nothing but returning true.
  *
  * A read-write lock has a higher overhead than a mutex. For example, both
- * g_static_rw_lock_reader_lock() and g_static_rw_lock_reader_unlock() have
- * to lock and unlock a #GStaticMutex, so it takes at least twice the time
- * to lock and unlock a #GStaticRWLock that it does to lock and unlock a
- * #GStaticMutex. So only data structures that are accessed by multiple
+ * [method@StaticRWLock.reader_lock] and [method@StaticRWLock.reader_unlock] have
+ * to lock and unlock a [struct@StaticMutex], so it takes at least twice the time
+ * to lock and unlock a [struct@StaticRWLock] that it does to lock and unlock a
+ * [struct@StaticMutex]. So only data structures that are accessed by multiple
  * readers, and which keep the lock for a considerable time justify a
- * #GStaticRWLock. The above example most probably would fare better with a
- * #GStaticMutex.
+ * [struct@StaticRWLock]. The above example most probably would fare better with a
+ * [struct@StaticMutex].
  *
- * Deprecated: 2.32: Use a #GRWLock instead
+ * Deprecated: 2.32: Use a [struct@RWLock] instead
  **/
 
 /**
- * G_STATIC_RW_LOCK_INIT:
+ * G_STATIC_RW_LOCK_INIT: (skip):
  *
  * A #GStaticRWLock must be initialized with this macro before it can
  * be used. This macro can used be to initialize a variable, but it
@@ -946,7 +941,7 @@ g_static_rec_mutex_free (GStaticRecMutex *mutex)
  */
 
 /**
- * g_static_rw_lock_init:
+ * g_static_rw_lock_init: (skip):
  * @lock: a #GStaticRWLock to be initialized.
  *
  * A #GStaticRWLock must be initialized with this function before it
@@ -983,7 +978,7 @@ g_static_rw_lock_signal (GStaticRWLock* lock)
 }
 
 /**
- * g_static_rw_lock_reader_lock:
+ * g_static_rw_lock_reader_lock: (skip):
  * @lock: a #GStaticRWLock to lock for reading.
  *
  * Locks @lock for reading. There may be unlimited concurrent locks for
@@ -1018,7 +1013,7 @@ g_static_rw_lock_reader_lock (GStaticRWLock* lock)
 }
 
 /**
- * g_static_rw_lock_reader_trylock:
+ * g_static_rw_lock_reader_trylock: (skip):
  * @lock: a #GStaticRWLock to lock for reading
  *
  * Tries to lock @lock for reading. If @lock is already locked for
@@ -1052,7 +1047,7 @@ g_static_rw_lock_reader_trylock (GStaticRWLock* lock)
 }
 
 /**
- * g_static_rw_lock_reader_unlock:
+ * g_static_rw_lock_reader_unlock: (skip):
  * @lock: a #GStaticRWLock to unlock after reading
  *
  * Unlocks @lock. If a thread waits to lock @lock for writing and all
@@ -1077,7 +1072,7 @@ g_static_rw_lock_reader_unlock  (GStaticRWLock* lock)
 }
 
 /**
- * g_static_rw_lock_writer_lock:
+ * g_static_rw_lock_writer_lock: (skip):
  * @lock: a #GStaticRWLock to lock for writing
  *
  * Locks @lock for writing. If @lock is already locked for writing or
@@ -1108,7 +1103,7 @@ g_static_rw_lock_writer_lock (GStaticRWLock* lock)
 }
 
 /**
- * g_static_rw_lock_writer_trylock:
+ * g_static_rw_lock_writer_trylock: (skip):
  * @lock: a #GStaticRWLock to lock for writing
  *
  * Tries to lock @lock for writing. If @lock is already locked (for
@@ -1141,7 +1136,7 @@ g_static_rw_lock_writer_trylock (GStaticRWLock* lock)
 }
 
 /**
- * g_static_rw_lock_writer_unlock:
+ * g_static_rw_lock_writer_unlock: (skip):
  * @lock: a #GStaticRWLock to unlock after writing.
  *
  * Unlocks @lock. If a thread is waiting to lock @lock for writing and
@@ -1168,7 +1163,7 @@ g_static_rw_lock_writer_unlock (GStaticRWLock* lock)
 }
 
 /**
- * g_static_rw_lock_free:
+ * g_static_rw_lock_free: (skip):
  * @lock: a #GStaticRWLock to be freed.
  *
  * Releases all resources allocated to @lock.
@@ -1201,7 +1196,7 @@ g_static_rw_lock_free (GStaticRWLock* lock)
 /* GPrivate {{{1 ------------------------------------------------------ */
 
 /**
- * g_private_new:
+ * g_private_new: (skip) (constructor) (not method):
  * @notify: a #GDestroyNotify
  *
  * Creates a new #GPrivate.
@@ -1209,7 +1204,7 @@ g_static_rw_lock_free (GStaticRWLock* lock)
  * Deprecated:2.32: dynamic allocation of #GPrivate is a bad idea.  Use
  *                  static storage and G_PRIVATE_INIT() instead.
  *
- * Returns: a newly allocated #GPrivate (which can never be destroyed)
+ * Returns: (transfer full): a newly allocated #GPrivate (which can never be destroyed)
  */
 GPrivate *
 g_private_new (GDestroyNotify notify)
@@ -1252,7 +1247,7 @@ g_static_private_cleanup (gpointer data)
 GPrivate static_private_private = G_PRIVATE_INIT (g_static_private_cleanup);
 
 /**
- * GStaticPrivate:
+ * GStaticPrivate: (skip):
  *
  * A #GStaticPrivate works almost like a #GPrivate, but it has one
  * significant advantage. It doesn't need to be created at run-time
@@ -1282,7 +1277,7 @@ GPrivate static_private_private = G_PRIVATE_INIT (g_static_private_cleanup);
  */
 
 /**
- * G_STATIC_PRIVATE_INIT:
+ * G_STATIC_PRIVATE_INIT: (skip):
  *
  * Every #GStaticPrivate must be initialized with this macro, before it
  * can be used.
@@ -1293,7 +1288,7 @@ GPrivate static_private_private = G_PRIVATE_INIT (g_static_private_cleanup);
  */
 
 /**
- * g_static_private_init:
+ * g_static_private_init: (skip):
  * @private_key: a #GStaticPrivate to be initialized
  *
  * Initializes @private_key. Alternatively you can initialize it with
@@ -1306,7 +1301,7 @@ g_static_private_init (GStaticPrivate *private_key)
 }
 
 /**
- * g_static_private_get:
+ * g_static_private_get: (skip):
  * @private_key: a #GStaticPrivate
  *
  * Works like g_private_get() only for a #GStaticPrivate.
@@ -1349,7 +1344,7 @@ g_static_private_get (GStaticPrivate *private_key)
 }
 
 /**
- * g_static_private_set:
+ * g_static_private_set: (skip):
  * @private_key: a #GStaticPrivate
  * @data: the new pointer
  * @notify: a function to be called with the pointer whenever the
@@ -1415,7 +1410,7 @@ g_static_private_set (GStaticPrivate *private_key,
 }
 
 /**
- * g_static_private_free:
+ * g_static_private_free: (skip):
  * @private_key: a #GStaticPrivate to be freed
  *
  * Releases all resources allocated to @private_key.
@@ -1448,11 +1443,11 @@ g_static_private_free (GStaticPrivate *private_key)
 /* GMutex {{{1 ------------------------------------------------------ */
 
 /**
- * g_mutex_new:
+ * g_mutex_new: (skip) (constructor) (not method):
  *
  * Allocates and initializes a new #GMutex.
  *
- * Returns: a newly allocated #GMutex. Use g_mutex_free() to free
+ * Returns: (transfer full): a newly allocated #GMutex. Use g_mutex_free() to free
  *
  * Deprecated: 2.32: GMutex can now be statically allocated, or embedded
  * in structures and initialised with g_mutex_init().
@@ -1469,7 +1464,7 @@ g_mutex_new (void)
 }
 
 /**
- * g_mutex_free:
+ * g_mutex_free: (skip):
  * @mutex: a #GMutex
  *
  * Destroys a @mutex that has been created with g_mutex_new().
@@ -1490,11 +1485,11 @@ g_mutex_free (GMutex *mutex)
 /* GCond {{{1 ------------------------------------------------------ */
 
 /**
- * g_cond_new:
+ * g_cond_new: (skip) (constructor) (not method):
  *
  * Allocates and initializes a new #GCond.
  *
- * Returns: a newly allocated #GCond. Free with g_cond_free()
+ * Returns: (transfer full): a newly allocated #GCond. Free with g_cond_free()
  *
  * Deprecated: 2.32: GCond can now be statically allocated, or embedded
  * in structures and initialised with g_cond_init().
@@ -1511,7 +1506,7 @@ g_cond_new (void)
 }
 
 /**
- * g_cond_free:
+ * g_cond_free: (skip):
  * @cond: a #GCond
  *
  * Destroys a #GCond that has been created with g_cond_new().
@@ -1530,7 +1525,7 @@ g_cond_free (GCond *cond)
 }
 
 /**
- * g_cond_timed_wait:
+ * g_cond_timed_wait: (skip):
  * @cond: a #GCond
  * @mutex: a #GMutex that is currently locked
  * @abs_time: a #GTimeVal, determining the final time

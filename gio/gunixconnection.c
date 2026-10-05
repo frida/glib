@@ -31,19 +31,15 @@
 #endif
 
 /**
- * SECTION:gunixconnection
- * @title: GUnixConnection
- * @short_description: A UNIX domain GSocketConnection
- * @include: gio/gunixconnection.h
- * @see_also: #GSocketConnection.
+ * GUnixConnection:
  *
- * This is the subclass of #GSocketConnection that is created
+ * This is the subclass of [class@Gio.SocketConnection] that is created
  * for UNIX domain sockets.
  *
  * It contains functions to do some of the UNIX socket specific
  * functionality like passing file descriptors.
  *
- * Since GLib 2.72, #GUnixConnection is available on all platforms. It requires
+ * Since GLib 2.72, `GUnixConnection` is available on all platforms. It requires
  * underlying system support (such as Windows 10 with `AF_UNIX`) at run time.
  *
  * Before GLib 2.72, `<gio/gunixconnection.h>` belonged to the UNIX-specific GIO
@@ -52,13 +48,6 @@
  *
  * Since: 2.22
  */
-
-/**
- * GUnixConnection:
- *
- * #GUnixConnection is an opaque data structure and can only be accessed
- * using the following functions.
- **/
 
 G_DEFINE_TYPE_WITH_CODE (GUnixConnection, g_unix_connection,
 			 G_TYPE_SOCKET_CONNECTION,
@@ -177,10 +166,11 @@ g_unix_connection_receive_fd (GUnixConnection  *connection,
       gint i;
 
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-        ngettext("Expecting 1 control message, got %d",
-                 "Expecting 1 control message, got %d",
-                 nscm),
-        nscm);
+                   g_dngettext (NULL,
+                                "Expecting 1 control message, got %d",
+                                "Expecting 1 control message, got %d",
+                                nscm),
+                   nscm);
 
       for (i = 0; i < nscm; i++)
         g_object_unref (scms[i]);
@@ -211,9 +201,10 @@ g_unix_connection_receive_fd (GUnixConnection  *connection,
       gint i;
 
       g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                   ngettext("Expecting one fd, but got %d\n",
-                            "Expecting one fd, but got %d\n",
-                            nfd),
+                   g_dngettext (NULL,
+                                "Expecting one fd, but got %d\n",
+                                "Expecting one fd, but got %d\n",
+                                nfd),
                    nfd);
 
       for (i = 0; i < nfd; i++)
@@ -414,8 +405,9 @@ send_credentials_async_thread (GTask         *task,
  * g_unix_connection_send_credentials_async:
  * @connection: A #GUnixConnection.
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
- * @callback: (scope async): a #GAsyncReadyCallback to call when the request is satisfied
- * @user_data: (closure): the data to pass to callback function
+ * @callback: (scope async): a #GAsyncReadyCallback
+ *   to call when the request is satisfied
+ * @user_data: the data to pass to callback function
  *
  * Asynchronously send credentials.
  *
@@ -595,9 +587,10 @@ g_unix_connection_receive_credentials (GUnixConnection      *connection,
           g_set_error (error,
                        G_IO_ERROR,
                        G_IO_ERROR_FAILED,
-                       ngettext("Expecting 1 control message, got %d",
-                                "Expecting 1 control message, got %d",
-                                nscm),
+                       g_dngettext (NULL,
+                                    "Expecting 1 control message, got %d",
+                                    "Expecting 1 control message, got %d",
+                                    nscm),
                        nscm);
           goto out;
         }
@@ -686,8 +679,9 @@ receive_credentials_async_thread (GTask         *task,
  * g_unix_connection_receive_credentials_async:
  * @connection: A #GUnixConnection.
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
- * @callback: (scope async): a #GAsyncReadyCallback to call when the request is satisfied
- * @user_data: (closure): the data to pass to callback function
+ * @callback: (scope async): a #GAsyncReadyCallback
+ *   to call when the request is satisfied
+ * @user_data: the data to pass to callback function
  *
  * Asynchronously receive credentials.
  *

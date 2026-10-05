@@ -33,17 +33,14 @@
 
 
 /**
- * SECTION:gemblemedicon
- * @short_description: Icon with emblems
- * @include: gio/gio.h
- * @see_also: #GIcon, #GLoadableIcon, #GThemedIcon, #GEmblem
+ * GEmblemedIcon:
  *
- * #GEmblemedIcon is an implementation of #GIcon that supports
+ * `GEmblemedIcon` is an implementation of [iface@Gio.Icon] that supports
  * adding an emblem to an icon. Adding multiple emblems to an
- * icon is ensured via g_emblemed_icon_add_emblem(). 
+ * icon is ensured via [method@Gio.EmblemedIcon.add_emblem].
  *
- * Note that #GEmblemedIcon allows no control over the position
- * of the emblems. See also #GEmblem for more information.
+ * Note that `GEmblemedIcon` allows no control over the position
+ * of the emblems. See also [class@Gio.Emblem] for more information.
  **/
 
 enum {
@@ -126,10 +123,15 @@ g_emblemed_icon_class_init (GEmblemedIconClass *klass)
   gobject_class->set_property = g_emblemed_icon_set_property;
   gobject_class->get_property = g_emblemed_icon_get_property;
 
+  /**
+   * GEmblemedIcon:gicon:
+   *
+   * The [iface@Gio.Icon] to attach emblems to.
+   *
+   * Since: 2.18
+   */
   properties[PROP_GICON] =
-    g_param_spec_object ("gicon",
-                         P_("The base GIcon"),
-                         P_("The GIcon to attach emblems to"),
+    g_param_spec_object ("gicon", NULL, NULL,
                          G_TYPE_ICON,
                          G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS);
 
@@ -354,6 +356,9 @@ g_emblemed_icon_from_tokens (gchar  **tokens,
   GEmblemedIcon *emblemed_icon;
   int n;
 
+  /* This is guaranteed by the GIcon interface */
+  g_assert (num_tokens >= 0);
+
   emblemed_icon = NULL;
 
   if (version != 0)
@@ -422,7 +427,7 @@ g_emblemed_icon_serialize (GIcon *icon)
   if (!icon_data)
     return NULL;
 
-  g_variant_builder_init (&builder, G_VARIANT_TYPE ("(va(va{sv}))"));
+  g_variant_builder_init_static (&builder, G_VARIANT_TYPE ("(va(va{sv}))"));
 
   g_variant_builder_add (&builder, "v", icon_data);
   g_variant_unref (icon_data);

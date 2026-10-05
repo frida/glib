@@ -32,14 +32,6 @@ G_BEGIN_DECLS
 #define G_IS_DBUS_INTERFACE(o)        (G_TYPE_CHECK_INSTANCE_TYPE ((o), G_TYPE_DBUS_INTERFACE))
 #define G_DBUS_INTERFACE_GET_IFACE(o) (G_TYPE_INSTANCE_GET_INTERFACE((o), G_TYPE_DBUS_INTERFACE, GDBusInterfaceIface))
 
-/**
- * GDBusInterface:
- *
- * Base type for D-Bus interfaces.
- *
- * Since: 2.30
- */
-
 typedef struct _GDBusInterfaceIface GDBusInterfaceIface;
 
 /**
@@ -67,7 +59,7 @@ struct _GDBusInterfaceIface
 };
 
 GIO_AVAILABLE_IN_ALL
-GType                 g_dbus_interface_get_type         (void) G_GNUC_CONST;
+GType                 g_dbus_interface_get_type         (void);
 GIO_AVAILABLE_IN_ALL
 GDBusInterfaceInfo   *g_dbus_interface_get_info         (GDBusInterface      *interface_);
 GIO_AVAILABLE_IN_ALL

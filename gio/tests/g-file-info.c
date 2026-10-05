@@ -43,7 +43,7 @@
 static void
 test_assigned_values (GFileInfo *info)
 {
-  const char *name, *display_name, *mistake;
+  const char *name, *name_filepath, *display_name, *mistake;
   guint64 size;
   GFileType type;
   
@@ -56,12 +56,14 @@ test_assigned_values (GFileInfo *info)
   /*  Retrieve data back and compare */
   
   name = g_file_info_get_attribute_byte_string (info, G_FILE_ATTRIBUTE_STANDARD_NAME);
+  name_filepath = g_file_info_get_attribute_file_path (info, G_FILE_ATTRIBUTE_STANDARD_NAME);
   display_name = g_file_info_get_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME);
   mistake = g_file_info_get_attribute_string (info, G_FILE_ATTRIBUTE_STANDARD_COPY_NAME);
   size = g_file_info_get_attribute_uint64 (info, G_FILE_ATTRIBUTE_STANDARD_SIZE);
   type = g_file_info_get_file_type (info);
   
   g_assert_cmpstr (name, ==, TEST_NAME);
+  g_assert_cmpstr (name_filepath, ==, name);
   g_assert_cmpstr (display_name, ==, TEST_DISPLAY_NAME);
   g_assert_null (mistake);
   g_assert_cmpint (size, ==, TEST_SIZE);
@@ -102,7 +104,12 @@ test_g_file_info (void)
   g_strfreev (attr_list);
 
   test_assigned_values (info);
-	
+
+  /* Test the file path encoding functions */
+  g_file_info_set_attribute_file_path (info, G_FILE_ATTRIBUTE_STANDARD_NAME, "something different");
+  g_assert_cmpstr (g_file_info_get_attribute_file_path (info, G_FILE_ATTRIBUTE_STANDARD_NAME), ==, "something different");
+  g_file_info_set_attribute_file_path (info, G_FILE_ATTRIBUTE_STANDARD_NAME, TEST_NAME);
+
   /*  Test dups */
   info_dup = g_file_info_dup (info);
   g_assert_nonnull (info_dup);
@@ -537,6 +544,67 @@ test_g_file_info_creation_time (void)
   g_date_time_unref (dt_before_epoch_returned);
 }
 
+static void
+test_g_file_info_icons (void)
+{
+  GFile *file = NULL;
+  GFileIOStream *io_stream = NULL;
+  GError *error = NULL;
+  GFileInfo *info, *fast_info;
+  GIcon *icon, *symbolic_icon;
+  GIcon *fast_icon, *fast_symbolic_icon;
+
+  g_test_summary ("Test fetching icons for a file.");
+
+  file = g_file_new_tmp ("g-file-info-test-XXXXXX", &io_stream, &error);
+  g_assert_no_error (error);
+
+  info = g_file_query_info (file,
+                            G_FILE_ATTRIBUTE_STANDARD_NAME ","
+                            G_FILE_ATTRIBUTE_STANDARD_ICON ","
+                            G_FILE_ATTRIBUTE_STANDARD_SYMBOLIC_ICON,
+                            G_FILE_QUERY_INFO_NONE,
+                            NULL, &error);
+  g_assert_no_error (error);
+
+  g_assert_true (g_file_info_has_attribute (info, G_FILE_ATTRIBUTE_STANDARD_ICON));
+  g_assert_true (g_file_info_has_attribute (info, G_FILE_ATTRIBUTE_STANDARD_SYMBOLIC_ICON));
+
+  icon = g_file_info_get_icon (info);
+  symbolic_icon = g_file_info_get_symbolic_icon (info);
+
+  g_assert_nonnull (icon);
+  g_assert_nonnull (symbolic_icon);
+
+  /* Query icons with fast content type to skip implicit normal content type */
+  fast_info = g_file_query_info (file,
+                                 G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE ","
+                                 G_FILE_ATTRIBUTE_STANDARD_NAME ","
+                                 G_FILE_ATTRIBUTE_STANDARD_ICON ","
+                                 G_FILE_ATTRIBUTE_STANDARD_SYMBOLIC_ICON,
+                                 G_FILE_QUERY_INFO_NONE,
+                                 NULL, &error);
+  g_assert_no_error (error);
+
+  g_assert_false (g_file_info_has_attribute (fast_info, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE));
+  g_assert_true (g_file_info_has_attribute (fast_info, G_FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE));
+  g_assert_true (g_file_info_has_attribute (fast_info, G_FILE_ATTRIBUTE_STANDARD_ICON));
+  g_assert_true (g_file_info_has_attribute (fast_info, G_FILE_ATTRIBUTE_STANDARD_SYMBOLIC_ICON));
+
+  fast_icon = g_file_info_get_icon (fast_info);
+  fast_symbolic_icon = g_file_info_get_symbolic_icon (fast_info);
+
+  g_assert_nonnull (fast_icon);
+  g_assert_nonnull (fast_symbolic_icon);
+
+  /* Clean up. */
+  g_clear_object (&io_stream);
+  g_file_delete (file, NULL, NULL);
+  g_clear_object (&file);
+  g_clear_object (&info);
+  g_clear_object (&fast_info);
+}
+
 #ifdef G_OS_WIN32
 static void
 test_internal_enhanced_stdio (void)
@@ -785,7 +853,7 @@ test_internal_enhanced_stdio (void)
 
       g_remove (ps);
 
-      f = g_fopen (ps, "wb");
+      f = g_fopen (ps, "wbe");
       g_assert_nonnull (f);
 
       h = (HANDLE) _get_osfhandle (fileno (f));
@@ -868,7 +936,7 @@ test_internal_enhanced_stdio (void)
 
   g_assert_true (SystemTimeToFileTime (&st, &ft));
 
-  f = g_fopen (p0, "w");
+  f = g_fopen (p0, "we");
   g_assert_nonnull (f);
 
   h = (HANDLE) _get_osfhandle (fileno (f));
@@ -881,7 +949,7 @@ test_internal_enhanced_stdio (void)
 
   fclose (f);
 
-  f = g_fopen (p1, "w");
+  f = g_fopen (p1, "we");
   g_assert_nonnull (f);
 
   fclose (f);
@@ -1095,6 +1163,116 @@ test_xattrs (void)
   g_object_unref (file);
 }
 
+static void
+test_set_modified_date_time_precision (void)
+{
+  GDateTime *modified = NULL;
+  GFile *file = NULL;
+  GFileIOStream *stream = NULL;
+  GFileInfo *info = NULL;
+  GError *local_error = NULL;
+
+
+  g_test_summary ("Test that g_file_info_set_modified_date_time() preserves microseconds");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/3116");
+
+  file = g_file_new_tmp ("g-file-info-test-set-modified-date-time-precision-XXXXXX", &stream, &local_error);
+  g_assert_no_error (local_error);
+
+  modified = g_date_time_new_from_iso8601 ("2000-01-01T00:00:00.123456Z", NULL);
+
+  info = g_file_query_info (file,
+  G_FILE_ATTRIBUTE_TIME_MODIFIED ","
+        G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC ","
+        G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC, G_FILE_QUERY_INFO_NONE, NULL, &local_error);
+  g_assert_no_error (local_error);
+
+  g_file_info_set_modification_date_time (info, modified);
+  g_assert_true (g_file_set_attributes_from_info (file, info, G_FILE_QUERY_INFO_NONE, NULL, &local_error));
+  g_assert_no_error (local_error);
+
+  g_clear_object (&info);
+  g_clear_pointer (&modified, g_date_time_unref);
+
+  info = g_file_query_info (file,
+  G_FILE_ATTRIBUTE_TIME_MODIFIED ","
+        G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC ","
+        G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC, G_FILE_QUERY_INFO_NONE, NULL, &local_error);
+  g_assert_no_error (local_error);
+
+  g_assert_cmpuint (g_file_info_get_attribute_uint32 (info, G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC), ==, 123456);
+
+  g_clear_object (&stream);
+  g_clear_object (&info);
+  g_clear_object (&file);
+}
+
+static void
+test_set_symlink_target (void)
+{
+  GFile *file = NULL;
+  GFileIOStream *stream = NULL;
+  GFileInfo *info = NULL;
+  GError *local_error = NULL;
+
+  g_test_summary ("Test that g_file_info_set_symlink_target() sets symlink target correctly");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/3897");
+
+  /* Create a temp file to reserve a unique filename for the test */
+  file = g_file_new_tmp ("g-file-info-test-set-symlink-XXXXXX", &stream, &local_error);
+  g_assert_no_error (local_error);
+
+  /* Remove the file and recreate it as a symlink */
+  g_file_delete (file, NULL, NULL);
+
+  if (!g_file_make_symbolic_link (file, "initial-target", NULL, &local_error) &&
+      g_error_matches (local_error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED))
+    {
+      g_clear_error (&local_error);
+      g_test_skip ("Skipping testing symbolic links as they’re not supported on this system");
+      return;
+    }
+
+  g_assert_no_error (local_error);
+
+  info = g_file_query_info (file, G_FILE_ATTRIBUTE_STANDARD_SYMLINK_TARGET,
+                            G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, &local_error);
+  g_assert_no_error (local_error);
+
+  /* Try setting the symlink target when there isn’t one already set via GIO */
+  g_file_info_set_symlink_target (info, "symlink-target");
+  g_file_set_attributes_from_info (file, info, G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, &local_error);
+  g_assert_no_error (local_error);
+
+  g_clear_object (&info);
+
+  info = g_file_query_info (file, G_FILE_ATTRIBUTE_STANDARD_SYMLINK_TARGET,
+                            G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, &local_error);
+  g_assert_no_error (local_error);
+
+  g_assert_cmpstr (g_file_info_get_symlink_target (info), ==, "symlink-target");
+
+  /* Now try setting it again when there is one already */
+  g_file_info_set_symlink_target (info, "symlink-target2");
+  g_file_set_attributes_from_info (file, info, G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, &local_error);
+  g_assert_no_error (local_error);
+
+  g_clear_object (&info);
+
+  info = g_file_query_info (file, G_FILE_ATTRIBUTE_STANDARD_SYMLINK_TARGET,
+                            G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS, NULL, &local_error);
+  g_assert_no_error (local_error);
+
+  g_assert_cmpstr (g_file_info_get_symlink_target (info), ==, "symlink-target2");
+
+  /* Clean up */
+  g_file_delete (file, NULL, NULL);
+
+  g_clear_object (&stream);
+  g_clear_object (&info);
+  g_clear_object (&file);
+}
+
 int
 main (int   argc,
       char *argv[])
@@ -1105,10 +1283,13 @@ main (int   argc,
   g_test_add_func ("/g-file-info/test_g_file_info/modification-time", test_g_file_info_modification_time);
   g_test_add_func ("/g-file-info/test_g_file_info/access-time", test_g_file_info_access_time);
   g_test_add_func ("/g-file-info/test_g_file_info/creation-time", test_g_file_info_creation_time);
+  g_test_add_func ("/g-file-info/test_g_file_info/icons", test_g_file_info_icons);
 #ifdef G_OS_WIN32
   g_test_add_func ("/g-file-info/internal-enhanced-stdio", test_internal_enhanced_stdio);
 #endif
   g_test_add_func ("/g-file-info/xattrs", test_xattrs);
+  g_test_add_func ("/g-file-info/set-modified-date-time-precision", test_set_modified_date_time_precision);
+  g_test_add_func ("/g-file-info/set-symlink-target", test_set_symlink_target);
   
   return g_test_run();
 }

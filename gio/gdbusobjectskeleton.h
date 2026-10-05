@@ -37,14 +37,6 @@ G_BEGIN_DECLS
 typedef struct _GDBusObjectSkeletonClass   GDBusObjectSkeletonClass;
 typedef struct _GDBusObjectSkeletonPrivate GDBusObjectSkeletonPrivate;
 
-/**
- * GDBusObjectSkeleton:
- *
- * The #GDBusObjectSkeleton structure contains private data and should only be
- * accessed using the provided API.
- *
- * Since: 2.30
- */
 struct _GDBusObjectSkeleton
 {
   /*< private >*/
@@ -75,7 +67,7 @@ struct _GDBusObjectSkeletonClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType                g_dbus_object_skeleton_get_type                  (void) G_GNUC_CONST;
+GType                g_dbus_object_skeleton_get_type                  (void);
 GIO_AVAILABLE_IN_ALL
 GDBusObjectSkeleton *g_dbus_object_skeleton_new                       (const gchar            *object_path);
 GIO_AVAILABLE_IN_ALL

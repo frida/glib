@@ -101,12 +101,6 @@ struct _GPollFD
 #endif
   gushort 	events;
   gushort 	revents;
-#ifdef G_POLLFD_KQUEUE
-  gpointer      handle;
-#endif
-#ifdef G_OS_NONE
-  gpointer      user_data;
-#endif
 };
 
 /**

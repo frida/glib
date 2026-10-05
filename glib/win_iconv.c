@@ -19,22 +19,15 @@
  * be used for encoding validation purpose.
  */
 
-/* Use GLib memory allocation */
-#include "gmem.h"
-
-#undef malloc
-#undef calloc
-#undef free
-#define malloc  g_malloc
-#define calloc  g_malloc0_n
-#define free    g_free
-
 /* for WC_NO_BEST_FIT_CHARS */
 #ifndef WINVER
 # define WINVER 0x0500
 #endif
 
-#define STRICT
+#ifndef STRICT
+# define STRICT
+#endif
+
 #include <windows.h>
 #include <errno.h>
 #include <string.h>
@@ -1097,7 +1090,7 @@ ucs4_to_utf16(uint wc, ushort *wbuf, int *wbufsize)
 /*
  * Check if codepage is one of those for which the dwFlags parameter
  * to MultiByteToWideChar() must be zero. Return zero or
- * MB_ERR_INVALID_CHARS.  The docs in Platform SDK for for Windows
+ * MB_ERR_INVALID_CHARS.  The docs in Platform SDK for Windows
  * Server 2003 R2 claims that also codepage 65001 is one of these, but
  * that doesn't seem to be the case. The MSDN docs for MSVS2008 leave
  * out 65001 (UTF-8), and that indeed seems to be the case on XP, it
@@ -1138,7 +1131,7 @@ must_use_null_useddefaultchar(int codepage)
 static char *
 strrstr(const char *str, const char *token)
 {
-    int len = strlen(token);
+    size_t len = strlen(token);
     const char *p = str + strlen(str);
 
     while (str <= --p)

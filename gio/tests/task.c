@@ -129,12 +129,19 @@ test_basic (void)
 
 /* test_error */
 
+typedef struct {
+  GQuark expected_domain;
+  int expected_code;
+  char *expected_message;
+  gssize int_result;
+} TaskErrorResult;
+
 static void
 error_callback (GObject      *object,
                 GAsyncResult *result,
                 gpointer      user_data)
 {
-  gssize *result_out = user_data;
+  TaskErrorResult *result_inout = user_data;
   GError *error = NULL;
 
   g_assert (object == NULL);
@@ -143,13 +150,12 @@ error_callback (GObject      *object,
   g_assert (g_task_had_error (G_TASK (result)));
   g_assert_false (g_task_get_completed (G_TASK (result)));
 
-  *result_out = g_task_propagate_int (G_TASK (result), &error);
-  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_FAILED);
+  result_inout->int_result = g_task_propagate_int (G_TASK (result), &error);
+  g_assert_error (error, result_inout->expected_domain, result_inout->expected_code);
+  g_assert_cmpstr (error->message, ==, result_inout->expected_message);
   g_error_free (error);
 
   g_assert (g_task_had_error (G_TASK (result)));
-
-  g_main_loop_quit (loop);
 }
 
 static gboolean
@@ -159,7 +165,7 @@ error_return (gpointer user_data)
 
   g_task_return_new_error (task,
                            G_IO_ERROR, G_IO_ERROR_FAILED,
-                           "Failed");
+                           "Failed %p", task);
   g_object_unref (task);
 
   return FALSE;
@@ -177,15 +183,17 @@ static void
 test_error (void)
 {
   GTask *task;
-  gssize result;
+  TaskErrorResult result;
   gboolean first_task_data_destroyed = FALSE;
   gboolean second_task_data_destroyed = FALSE;
-  gboolean notification_emitted = FALSE;
 
   task = g_task_new (NULL, NULL, error_callback, &result);
+  result = (TaskErrorResult){
+    .expected_domain = G_IO_ERROR,
+    .expected_code = G_IO_ERROR_FAILED,
+    .expected_message = g_strdup_printf ("Failed %p", task),
+  };
   g_object_add_weak_pointer (G_OBJECT (task), (gpointer *)&task);
-  g_signal_connect (task, "notify::completed",
-                    (GCallback) completed_cb, &notification_emitted);
 
   g_assert (first_task_data_destroyed == FALSE);
   g_task_set_task_data (task, &first_task_data_destroyed, error_destroy_notify);
@@ -197,12 +205,59 @@ test_error (void)
   g_assert (second_task_data_destroyed == FALSE);
 
   g_idle_add (error_return, task);
-  g_main_loop_run (loop);
+  wait_for_completed_notification (task);
 
-  g_assert_cmpint (result, ==, -1);
+  g_assert_cmpint (result.int_result, ==, -1);
   g_assert (second_task_data_destroyed == TRUE);
-  g_assert_true (notification_emitted);
   g_assert (task == NULL);
+  g_free (result.expected_message);
+}
+
+static void
+test_error_literal (void)
+{
+  GTask *task;
+  TaskErrorResult result;
+
+  task = g_task_new (NULL, NULL, error_callback, &result);
+  result = (TaskErrorResult){
+    .expected_domain = G_IO_ERROR,
+    .expected_code = G_IO_ERROR_FAILED,
+    .expected_message = "Literal Failure",
+  };
+
+  g_task_return_new_error_literal (task,
+                                   result.expected_domain,
+                                   result.expected_code,
+                                   "Literal Failure");
+
+  wait_for_completed_notification (task);
+  g_assert_cmpint (result.int_result, ==, -1);
+
+  g_assert_finalize_object (task);
+}
+
+static void
+test_error_literal_from_variable (void)
+{
+  GTask *task;
+  TaskErrorResult result;
+
+  task = g_task_new (NULL, NULL, error_callback, &result);
+  result = (TaskErrorResult){
+    .expected_domain = G_IO_ERROR,
+    .expected_code = G_IO_ERROR_FAILED,
+    .expected_message = "Literal Failure",
+  };
+
+  g_task_return_new_error_literal (task,
+                                   result.expected_domain,
+                                   result.expected_code,
+                                   result.expected_message);
+
+  wait_for_completed_notification (task);
+  g_assert_cmpint (result.int_result, ==, -1);
+  g_assert_finalize_object (task);
 }
 
 /* test_return_from_same_iteration: calling g_task_return_* from the
@@ -867,7 +922,7 @@ enum {
   CANCEL_BEFORE     = (1 << 1),
   CANCEL_AFTER      = (1 << 2),
   CHECK_CANCELLABLE = (1 << 3)
-};
+} G_GNUC_FLAG_ENUM;
 #define NUM_CANCEL_TESTS (CANCEL_BEFORE | CANCEL_AFTER | CHECK_CANCELLABLE)
 
 static void
@@ -1296,19 +1351,19 @@ test_run_in_thread_priority (void)
   g_task_set_task_data (task, &seq_a, NULL);
   g_task_run_in_thread (task, set_sequence_number_thread);
   g_object_unref (task);
-  
+
   task = g_task_new (NULL, NULL, quit_main_loop_callback, NULL);
   g_task_set_task_data (task, &seq_b, NULL);
   g_task_set_priority (task, G_PRIORITY_LOW);
   g_task_run_in_thread (task, set_sequence_number_thread);
   g_object_unref (task);
-  
+
   task = g_task_new (NULL, NULL, NULL, NULL);
   g_task_set_task_data (task, &seq_c, NULL);
   g_task_set_priority (task, G_PRIORITY_HIGH);
   g_task_run_in_thread (task, set_sequence_number_thread);
   g_object_unref (task);
-  
+
   cancellable = g_cancellable_new ();
   task = g_task_new (NULL, cancellable, NULL, NULL);
   g_task_set_task_data (task, &seq_d, NULL);
@@ -1415,7 +1470,7 @@ test_run_in_thread_overflow (void)
   GCancellable *cancellable;
   GTask *task;
   gchar buf[NUM_OVERFLOW_TASKS + 1];
-  gint i;
+  size_t i;
 
   /* Queue way too many tasks and then sleep for a bit. The first 10
    * tasks will be dispatched to threads and will then block on
@@ -1461,13 +1516,13 @@ test_run_in_thread_overflow (void)
    * plausibly get (and we hope that if gtask is actually broken then
    * it will exceed those limits).
    */
-  g_assert_cmpint (i, >=, 10);
+  g_assert_cmpuint (i, >=, 10);
   if (g_test_slow ())
-    g_assert_cmpint (i, <, 50);
+    g_assert_cmpuint (i, <, 50);
   else
-    g_assert_cmpint (i, <, 20);
+    g_assert_cmpuint (i, <, 20);
 
-  g_assert_cmpint (i + strspn (buf + i, "X"), ==, NUM_OVERFLOW_TASKS);
+  g_assert_cmpuint (i + strspn (buf + i, "X"), ==, NUM_OVERFLOW_TASKS);
 }
 
 /* test_return_on_cancel */
@@ -2045,7 +2100,7 @@ test_return_pointer (void)
 
   g_assert_null (task);
   g_assert_null (object);
-  
+
   /* If we read back the return value, we steal its ref */
   object = (GObject *)g_dummy_object_new ();
   g_assert_cmpint (object->ref_count, ==, 1);
@@ -2110,6 +2165,28 @@ test_return_value (void)
   g_assert_cmpint (object->ref_count, ==, 1);
   g_object_unref (object);
   g_assert_null (object);
+}
+
+static void
+test_return_prefixed_error (void)
+{
+  GTask *task;
+  GError *original_error = NULL;
+  GError *error = NULL;
+
+  g_set_error (&original_error, G_IO_ERROR, G_IO_ERROR_UNKNOWN, "oh no!");
+
+  task = g_task_new (NULL, NULL, NULL, NULL);
+  g_task_return_prefixed_error (task, original_error, "task %s: ", "failed");
+
+  wait_for_completed_notification (task);
+
+  g_assert_null (g_task_propagate_pointer (task, &error));
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_UNKNOWN);
+  g_assert_cmpstr (error->message, ==, "task failed: oh no!");
+
+  g_assert_finalize_object (task);
+  g_clear_error (&error);
 }
 
 /* test_object_keepalive: GTask takes a ref on its source object */
@@ -2451,6 +2528,175 @@ test_attach_source_set_name (void)
   g_object_unref (task);
 }
 
+static void
+test_finalize_without_return (void)
+{
+  GTask *task = NULL;
+  guint n_calls = 0;
+
+  /* With a callback set. */
+  task = g_task_new (NULL, NULL, task_complete_cb, &n_calls);
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "GTask * (source object: *, source tag: *) finalized without "
+                         "ever returning (using g_task_return_*()). This potentially "
+                         "indicates a bug in the program.");
+  g_object_unref (task);
+  g_test_assert_expected_messages ();
+
+  /* With a callback and task name set. */
+  task = g_task_new (NULL, NULL, task_complete_cb, &n_calls);
+  g_task_set_static_name (task, "oogly boogly");
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_CRITICAL,
+                         "GTask oogly boogly (source object: *, source tag: *) finalized without "
+                         "ever returning (using g_task_return_*()). This potentially "
+                         "indicates a bug in the program.");
+  g_object_unref (task);
+  g_test_assert_expected_messages ();
+
+  /* Without a callback set. */
+  task = g_task_new (NULL, NULL, NULL, NULL);
+
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_DEBUG,
+                         "GTask * (source object: *, source tag: *) finalized without "
+                         "ever returning (using g_task_return_*()). This potentially "
+                         "indicates a bug in the program.");
+  g_object_unref (task);
+  g_test_assert_expected_messages ();
+}
+
+/* Thread pool stress test that creates new threads when existing ones are blocked */
+/* Thread pool stress test that creates new threads when existing ones are blocked */
+#define STRESS_POOL_SIZE 10
+#define STRESS_FAST_TASKS 10
+#define STRESS_FAST_TASK_DURATION_USEC 200000
+#define STRESS_TASKS_CREATE_TIMEOUT_MSEC 1000
+#define STRESS_TASKS_END_TIMEOUT_MSEC 5000
+
+static gint stress_fast_created = 0;
+static gint stress_fast_completed = 0;
+static guint stress_task_end_timeout_id = 0;
+
+static void
+stress_blocking_thread (GTask *task,
+                        gpointer source_object,
+                        gpointer task_data,
+                        GCancellable *cancellable)
+{
+  g_test_message ("Blocking task started");
+  g_usleep (60 * G_USEC_PER_SEC);
+  g_task_return_boolean (task, TRUE);
+}
+
+static void
+stress_fast_thread (GTask *task,
+                    gpointer source_object,
+                    gpointer task_data,
+                    GCancellable *cancellable)
+{
+  gint64 start_time = GPOINTER_TO_INT (task_data);
+  guint elapsed_ms = (guint)(g_get_monotonic_time () - start_time) / 1000;
+
+  g_test_message ("Fast task started in %u ms", elapsed_ms);
+  g_usleep (STRESS_FAST_TASK_DURATION_USEC);
+
+  g_task_return_int (task, elapsed_ms);
+}
+
+static gboolean
+on_stress_task_end_timeout (gpointer user_data)
+{
+  stress_task_end_timeout_id = 0;
+
+  g_warning ("FAILED: Only %d fast tasks completed!", stress_fast_completed);
+  g_main_loop_quit (loop);
+
+  return G_SOURCE_REMOVE;
+}
+
+static void
+stress_fast_callback (GObject *source,
+                      GAsyncResult *result,
+                      gpointer user_data)
+{
+  GError *error = NULL;
+
+  stress_fast_completed++;
+
+  g_task_propagate_int (G_TASK (result), &error);
+  g_assert_no_error (error);
+
+  g_test_message ("Fast tasks completed: %d/%d", stress_fast_completed, STRESS_FAST_TASKS);
+  g_clear_handle_id (&stress_task_end_timeout_id, g_source_remove);
+
+  if (stress_fast_completed >= STRESS_FAST_TASKS)
+    {
+      g_test_message ("SUCCESS: All %d fast tasks completed!", stress_fast_completed);
+      g_main_loop_quit (loop);
+    }
+  else
+    {
+      stress_task_end_timeout_id = g_timeout_add (STRESS_TASKS_END_TIMEOUT_MSEC,
+                                                  on_stress_task_end_timeout,
+                                                  GINT_TO_POINTER (STRESS_FAST_TASKS));
+    }
+}
+
+static gboolean
+on_stress_task_create_timeout (gpointer user_data)
+{
+  GTask *task;
+
+  stress_fast_created++;
+  g_test_message ("Creating fast tasks %d/%d...", stress_fast_created, STRESS_FAST_TASKS);
+
+  task = g_task_new (NULL, NULL, stress_fast_callback, NULL);
+
+  g_task_set_task_data (task, GINT_TO_POINTER (g_get_monotonic_time ()), NULL);
+  g_task_run_in_thread (task, stress_fast_thread);
+  g_object_unref (task);
+
+  if (stress_task_end_timeout_id == 0)
+    {
+      stress_task_end_timeout_id = g_timeout_add (STRESS_TASKS_END_TIMEOUT_MSEC,
+                                                  on_stress_task_end_timeout,
+                                                  GINT_TO_POINTER (STRESS_FAST_TASKS));
+    }
+
+  return stress_fast_created < STRESS_FAST_TASKS ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
+}
+
+static void
+test_thread_pool_stress (void)
+{
+  gint i;
+
+  if (!g_test_thorough ())
+    {
+      g_test_skip ("Skipping thread pool stress test in non-thorough mode");
+      return;
+    }
+
+  g_test_message ("Creating %d blocking tasks...", STRESS_POOL_SIZE);
+  for (i = 0; i < STRESS_POOL_SIZE; i++)
+    {
+      GTask *task = g_task_new (NULL, NULL, NULL, NULL);
+      g_task_run_in_thread (task, stress_blocking_thread);
+      g_object_unref (task);
+    }
+
+  g_timeout_add (STRESS_TASKS_CREATE_TIMEOUT_MSEC,
+                 on_stress_task_create_timeout,
+                 GINT_TO_POINTER (STRESS_FAST_TASKS));
+
+  g_debug ("Running main loop...");
+
+  g_main_loop_run (loop);
+
+  g_assert_cmpint (stress_fast_completed, >=, STRESS_FAST_TASKS);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -2464,6 +2710,8 @@ main (int argc, char **argv)
 
   g_test_add_func ("/gtask/basic", test_basic);
   g_test_add_func ("/gtask/error", test_error);
+  g_test_add_func ("/gtask/error-literal", test_error_literal);
+  g_test_add_func ("/gtask/error-literal-from-variable", test_error_literal_from_variable);
   g_test_add_func ("/gtask/return-from-same-iteration", test_return_from_same_iteration);
   g_test_add_func ("/gtask/return-from-toplevel", test_return_from_toplevel);
   g_test_add_func ("/gtask/return-from-anon-thread", test_return_from_anon_thread);
@@ -2487,6 +2735,7 @@ main (int argc, char **argv)
   g_test_add_func ("/gtask/return-on-cancel-atomic", test_return_on_cancel_atomic);
   g_test_add_func ("/gtask/return-pointer", test_return_pointer);
   g_test_add_func ("/gtask/return-value", test_return_value);
+  g_test_add_func ("/gtask/return-prefixed-error", test_return_prefixed_error);
   g_test_add_func ("/gtask/object-keepalive", test_object_keepalive);
   g_test_add_func ("/gtask/legacy-error", test_legacy_error);
   g_test_add_func ("/gtask/return/in-idle/error-first", test_return_in_idle_error_first);
@@ -2494,6 +2743,8 @@ main (int argc, char **argv)
   g_test_add_func ("/gtask/return/error-first", test_return_error_first);
   g_test_add_func ("/gtask/return/value-first", test_return_value_first);
   g_test_add_func ("/gtask/attach-source/set-name", test_attach_source_set_name);
+  g_test_add_func ("/gtask/finalize-without-return", test_finalize_without_return);
+  g_test_add_func ("/gtask/thread-pool-stress", test_thread_pool_stress);
 
   ret = g_test_run();
 

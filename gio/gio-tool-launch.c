@@ -23,7 +23,7 @@
 
 #include <gio/gio.h>
 
-#if defined(G_OS_UNIX) && !defined(G_OS_DARWIN)
+#if defined(G_OS_UNIX) && !defined(__APPLE__)
 #include <gio/gdesktopappinfo.h>
 #endif
 
@@ -40,7 +40,7 @@ handle_launch (int argc, char *argv[], gboolean do_help)
 {
   GOptionContext *context;
   GError *error = NULL;
-#if defined(G_OS_UNIX) && !defined(G_OS_DARWIN)
+#if defined(G_OS_UNIX) && !defined(__APPLE__)
   int i;
   GAppInfo *app = NULL;
   GAppLaunchContext *app_context = NULL;
@@ -83,30 +83,30 @@ handle_launch (int argc, char *argv[], gboolean do_help)
 
   g_option_context_free (context);
 
-#if !defined(G_OS_UNIX) || defined(G_OS_DARWIN)
+#if !defined(G_OS_UNIX) || defined(__APPLE__)
   print_error (_("The launch command is not currently supported on this platform"));
   retval = 1;
 #else
   retval = 0;
-  desktop_file = argv[1];
+  desktop_file = g_canonicalize_filename (argv[1], NULL);
 
-  /* Use keyfile api for loading desktop app in order to check for
-  *  - not existing file.
-  *  - invalid keyfile format.
-  */
+  /* Use g_key_file_load_from_file() to give better user feedback (missing vs.
+   * malformed file), then load it with g_desktop_app_info_new_from_filename()
+   * to set the constructor-only filename property required for expanding %k.
+   */
   keyfile = g_key_file_new ();
   if (!g_key_file_load_from_file (keyfile, desktop_file, G_KEY_FILE_NONE, &error))
     {
-      print_error (_("Unable to load ‘%s‘: %s"), desktop_file, error->message);
+      print_error (_("Unable to load ‘%s’: %s"), desktop_file, error->message);
       g_clear_error (&error);
       retval = 1;
     }
   else
     {
-      app = (GAppInfo*)g_desktop_app_info_new_from_keyfile (keyfile);
+      app = (GAppInfo *)g_desktop_app_info_new_from_filename (desktop_file);
       if (!app)
         {
-          print_error (_("Unable to load application information for ‘%s‘"), desktop_file);
+          print_error (_("Unable to load application information for ‘%s’"), desktop_file);
           retval = 1;
         }
       else
@@ -128,6 +128,7 @@ handle_launch (int argc, char *argv[], gboolean do_help)
       g_clear_object (&app);
     }
   g_key_file_free (keyfile);
+  g_free (desktop_file);
 #endif
   return retval;
 }

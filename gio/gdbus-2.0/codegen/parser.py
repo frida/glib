@@ -4,6 +4,8 @@
 #
 # Copyright (C) 2008-2011 Red Hat, Inc.
 #
+# SPDX-License-Identifier: LGPL-2.1-or-later
+#
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
 # License as published by the Free Software Foundation; either
@@ -20,6 +22,7 @@
 # Author: David Zeuthen <davidz@redhat.com>
 
 import xml.parsers.expat
+import textwrap
 
 from . import dbustypes
 from .utils import print_error
@@ -64,14 +67,12 @@ class DBusXMLParser:
 
     def handle_comment(self, data):
         comment_state = DBusXMLParser.COMMENT_STATE_BEGIN
-        lines = data.split("\n")
+        lines = textwrap.dedent(data).split("\n")
         symbol = ""
         body = ""
         in_para = False
         params = {}
         for line in lines:
-            orig_line = line
-            line = line.lstrip()
             if comment_state == DBusXMLParser.COMMENT_STATE_BEGIN:
                 if len(line) > 0:
                     colon_index = line.find(": ")
@@ -95,7 +96,7 @@ class DBusXMLParser:
                         if not in_para:
                             body += "\n"
                             in_para = True
-                        body += f"{orig_line}\n"
+                        body += f"{line}\n"
                     else:
                         param = line[1:colon_index]
                         docs = line[colon_index + 2 :]
@@ -106,12 +107,12 @@ class DBusXMLParser:
                         if not in_para:
                             body += "\n"
                             in_para = True
-                        body += orig_line + "\n"
+                        body += line + "\n"
             elif comment_state == DBusXMLParser.COMMENT_STATE_BODY:
                 if len(line) > 0:
                     if not in_para:
                         in_para = True
-                    body += orig_line + "\n"
+                    body += line + "\n"
                 else:
                     if in_para:
                         body += "\n"

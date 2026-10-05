@@ -63,7 +63,7 @@ typedef struct
   GIOStreamClass parent_class;
 } MyIOStreamClass;
 
-static GType my_io_stream_get_type (void) G_GNUC_CONST;
+static GType my_io_stream_get_type (void);
 
 G_DEFINE_TYPE (MyIOStream, my_io_stream, G_TYPE_IO_STREAM)
 
@@ -142,7 +142,7 @@ typedef struct
 #define MY_IS_SLOW_CLOSE_OUTPUT_STREAM(o) \
   (G_TYPE_CHECK_INSTANCE_TYPE ((o), MY_TYPE_SLOW_CLOSE_OUTPUT_STREAM))
 
-static GType my_slow_close_output_stream_get_type (void) G_GNUC_CONST;
+static GType my_slow_close_output_stream_get_type (void);
 
 G_DEFINE_TYPE (MySlowCloseOutputStream, my_slow_close_output_stream,
                G_TYPE_FILTER_OUTPUT_STREAM)
@@ -306,9 +306,9 @@ test_once (Fixture       *f,
   GDBusMessage *message;
   gboolean pipe_res;
 
-  pipe_res = g_unix_open_pipe (f->server_to_client, FD_CLOEXEC, &f->error);
+  pipe_res = g_unix_open_pipe (f->server_to_client, O_CLOEXEC, &f->error);
   g_assert (pipe_res);
-  pipe_res = g_unix_open_pipe (f->client_to_server, FD_CLOEXEC, &f->error);
+  pipe_res = g_unix_open_pipe (f->client_to_server, O_CLOEXEC, &f->error);
   g_assert (pipe_res);
 
   f->server_iostream = my_io_stream_new_for_fds (f->client_to_server[0],
@@ -385,7 +385,7 @@ int
 main (int   argc,
       char *argv[])
 {
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   g_test_add ("/gdbus/close-pending", Fixture, "close",
       setup, test_many_times, teardown);

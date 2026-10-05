@@ -29,7 +29,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#ifdef HAVE_UNISTD_H
+#ifdef G_OS_UNIX
 #include <unistd.h>
 #endif
 
@@ -49,7 +49,7 @@
 #include "gstdio.h"
 #include "gstdioprivate.h"
 
-#if !defined (G_OS_UNIX) && !defined (G_OS_WIN32) && !defined (G_OS_NONE)
+#if !defined (G_OS_UNIX) && !defined (G_OS_WIN32)
 #error Please port this to your operating system
 #endif
 
@@ -145,11 +145,15 @@ w32_error_to_errno (DWORD error_code)
  * "wb+". The 'b' needs to be appended to "w+", i.e. "w+b". Note
  * that otherwise these 2 modes are supposed to be aliases, hence
  * swappable at will. TODO: Is this still true?
+ *
+ * It also doesn’t accept `e`, which Unix uses for O_CLOEXEC. This function
+ * rewrites that to `N` — see
+ * https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/fopen-wfopen?view=msvc-170
  */
 static void
 _g_win32_fix_mode (wchar_t *mode)
 {
-  wchar_t *ptr;
+  wchar_t *ptr, *e_ptr, *comma_ptr;
   wchar_t temp;
 
   ptr = wcschr (mode, L'+');
@@ -159,6 +163,13 @@ _g_win32_fix_mode (wchar_t *mode)
       mode[1] = *ptr;
       *ptr = temp;
     }
+
+  /* Rewrite `e` (O_CLOEXEC) to `N`, if it occurs before any extended attributes
+   * (https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/fopen-wfopen?view=msvc-170#unicode-support) */
+  e_ptr = wcschr (mode, L'e');
+  comma_ptr = wcschr (mode, L',');
+  if (e_ptr != NULL && (comma_ptr == NULL || e_ptr < comma_ptr))
+    *e_ptr = L'N';
 }
 
 /* From
@@ -315,9 +326,7 @@ _g_win32_fill_statbuf_from_handle_info (const wchar_t                    *filena
 static void
 _g_win32_fill_privatestat (const struct __stat64            *statbuf,
                            const BY_HANDLE_FILE_INFORMATION *handle_info,
-#if _WIN32_WINNT >= 0x0600
                            const FILE_STANDARD_INFO         *std_info,
-#endif
                            DWORD                             reparse_tag,
                            GWin32PrivateStat                *buf)
 {
@@ -331,11 +340,7 @@ _g_win32_fill_privatestat (const struct __stat64            *statbuf,
   buf->attributes = handle_info->dwFileAttributes;
   buf->st_nlink = handle_info->nNumberOfLinks;
   buf->st_size = (((guint64) handle_info->nFileSizeHigh) << 32) | handle_info->nFileSizeLow;
-#if _WIN32_WINNT >= 0x0600
   buf->allocated_size = std_info->AllocationSize.QuadPart;
-#else
-  buf->allocated_size = buf->st_size;
-#endif
 
   buf->reparse_tag = reparse_tag;
 
@@ -594,9 +599,7 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
 {
   struct __stat64 statbuf;
   BY_HANDLE_FILE_INFORMATION handle_info;
-#if _WIN32_WINNT >= 0x0600
   FILE_STANDARD_INFO std_info;
-#endif
   gboolean is_symlink = FALSE;
   wchar_t *filename_target = NULL;
   DWORD immediate_attributes;
@@ -645,7 +648,6 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
                                                  &handle_info);
   error_code = GetLastError ();
 
-#if _WIN32_WINNT >= 0x0600
   if (succeeded_so_far)
     {
       succeeded_so_far = GetFileInformationByHandleEx (file_handle,
@@ -654,7 +656,6 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
                                                        sizeof (std_info));
       error_code = GetLastError ();
     }
-#endif
 
   if (!succeeded_so_far)
     {
@@ -690,9 +691,7 @@ _g_win32_stat_utf16_no_trailing_slashes (const gunichar2    *filename,
   g_free (filename_target);
   _g_win32_fill_privatestat (&statbuf,
                              &handle_info,
-#if _WIN32_WINNT >= 0x0600
                              &std_info,
-#endif
                              reparse_tag,
                              buf);
 
@@ -709,9 +708,7 @@ _g_win32_stat_fd (int                 fd,
   DWORD error_code;
   struct __stat64 statbuf;
   BY_HANDLE_FILE_INFORMATION handle_info;
-#if _WIN32_WINNT >= 0x0600
   FILE_STANDARD_INFO std_info;
-#endif
   DWORD reparse_tag = 0;
   gboolean is_symlink = FALSE;
 
@@ -724,7 +721,6 @@ _g_win32_stat_fd (int                 fd,
                                                  &handle_info);
   error_code = GetLastError ();
 
-#if _WIN32_WINNT >= 0x0600
   if (succeeded_so_far)
     {
       succeeded_so_far = GetFileInformationByHandleEx (file_handle,
@@ -733,7 +729,6 @@ _g_win32_stat_fd (int                 fd,
                                                        sizeof (std_info));
       error_code = GetLastError ();
     }
-#endif
 
   if (!succeeded_so_far)
     {
@@ -752,9 +747,7 @@ _g_win32_stat_fd (int                 fd,
 
   _g_win32_fill_privatestat (&statbuf,
                              &handle_info,
-#if _WIN32_WINNT >= 0x0600
                              &std_info,
-#endif
                              reparse_tag,
                              buf);
 
@@ -1254,9 +1247,6 @@ g_mkdir (const gchar *filename,
     
   errno = save_errno;
   return retval;
-#elif defined (G_OS_NONE)
-  errno = ENOSYS;
-  return -1;
 #else
   return mkdir (filename, mode);
 #endif
@@ -1583,6 +1573,13 @@ g_rmdir (const gchar *filename)
  * used by GLib are different. Convenience functions like g_file_set_contents_full()
  * avoid this problem.
  *
+ * Since GLib 2.86, the `e` option is supported in @mode on all platforms. On
+ * Unix platforms it will set `O_CLOEXEC` on the opened file descriptor. On
+ * Windows platforms it will be converted to the
+ * [`N` modifier](https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/fopen-wfopen?view=msvc-170).
+ * It is recommended to set `e` unconditionally, unless you know the returned
+ * file should be shared between this process and a new fork.
+ *
  * Returns: A `FILE*` if the file was successfully opened, or %NULL if
  *     an error occurred
  * 
@@ -1638,6 +1635,9 @@ g_fopen (const gchar *filename,
  * opens a file and associates it with an existing stream.
  * 
  * See your C library manual for more details about freopen().
+ *
+ * Since GLib 2.86, the `e` option is supported in @mode on all platforms. See
+ * the documentation for [func@GLib.fopen] for more details.
  *
  * Returns: A FILE* if the file was successfully opened, or %NULL if
  *     an error occurred.
@@ -1760,11 +1760,8 @@ g_utime (const gchar    *filename,
 
   errno = save_errno;
   return retval;
-#elif defined (HAVE_UTIME)
-  return utime (filename, utb);
 #else
-  errno = ENOSYS;
-  return -1;
+  return utime (filename, utb);
 #endif
 }
 
@@ -1784,8 +1781,12 @@ g_utime (const gchar    *filename,
  *
  * It is a bug to call this function with an invalid file descriptor.
  *
- * Since 2.76, this function is guaranteed to be async-signal-safe if (and only
- * if) @error is %NULL and @fd is a valid open file descriptor.
+ * On POSIX platforms since GLib 2.76, this function is async-signal safe
+ * if (and only if) @error is %NULL and @fd is a valid open file descriptor.
+ * This makes it safe to call from a signal handler or a #GSpawnChildSetupFunc
+ * under those conditions.
+ * See [`signal(7)`](man:signal(7)) and
+ * [`signal-safety(7)`](man:signal-safety(7)) for more details.
  *
  * Returns: %TRUE on success, %FALSE if there was an error.
  *
@@ -1819,6 +1820,9 @@ g_close (gint       fd,
            * https://bugzilla.gnome.org/show_bug.cgi?id=682819
            * http://utcc.utoronto.ca/~cks/space/blog/unix/CloseEINTR
            * https://sites.google.com/site/michaelsafyan/software-engineering/checkforeintrwheninvokingclosethinkagain
+           *
+           * `close$NOCANCEL()` in gstdioprivate.h, on macOS, ensures that the fd is
+           * closed even if it did return EINTR.
            */
           return TRUE;
         }
@@ -1857,63 +1861,6 @@ g_close (gint       fd,
 
   return TRUE;
 }
-
-/**
- * g_clear_fd: (skip)
- * @fd_ptr: (not nullable): a pointer to a file descriptor
- * @error: Used to return an error on failure
- *
- * If @fd_ptr points to a file descriptor, close it and return
- * whether closing it was successful, like g_close().
- * If @fd_ptr points to a negative number, return %TRUE without closing
- * anything.
- * In both cases, set @fd_ptr to `-1` before returning.
- *
- * Like g_close(), if closing the file descriptor fails, the error is
- * stored in both %errno and @error. If this function succeeds,
- * %errno is undefined.
- *
- * This function is async-signal-safe if @error is %NULL and @fd_ptr
- * points to either a negative number or a valid file descriptor.
- *
- * It is a programming error for @fd_ptr to point to a non-negative
- * number that is not a valid file descriptor.
- *
- * A typical use of this function is to clean up a file descriptor at
- * the end of its scope, whether it has been set successfully or not:
- *
- * |[
- * gboolean
- * operate_on_fd (GError **error)
- * {
- *   gboolean ret = FALSE;
- *   int fd = -1;
- *
- *   fd = open_a_fd (error);
- *
- *   if (fd < 0)
- *     goto out;
- *
- *   if (!do_something (fd, error))
- *     goto out;
- *
- *   if (!g_clear_fd (&fd, error))
- *     goto out;
- *
- *   ret = TRUE;
- *
- * out:
- *   // OK to call even if fd was never opened or was already closed
- *   g_clear_fd (&fd, NULL);
- *   return ret;
- * }
- * ]|
- *
- * This function is also useful in conjunction with #g_autofd.
- *
- * Returns: %TRUE on success
- * Since: 2.76
- */
 
 /**
  * g_autofd: (skip)

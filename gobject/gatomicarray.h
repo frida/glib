@@ -27,7 +27,16 @@
 
 G_BEGIN_DECLS
 
-#define G_ATOMIC_ARRAY_DATA_SIZE(mem) (*((gsize *) (mem) - 1))
+typedef union _GAtomicArrayMetadata
+{
+  gsize size;
+  /* We have to ensure that the memory location is sufficiently aligned to
+   * store any object. With C11 this would be max_align_t, but in practise
+   * gpointer is sufficient for all known architectures. We could change
+   * this to `_Alignas(max_align_t) char pad` once we depend on C11. */
+  gpointer _alignment_padding;
+} GAtomicArrayMetadata;
+#define G_ATOMIC_ARRAY_DATA_SIZE(mem) (((GAtomicArrayMetadata *) (mem) - 1)->size)
 
 typedef struct _GAtomicArray GAtomicArray;
 struct _GAtomicArray {
@@ -45,14 +54,14 @@ void     _g_atomic_array_update (GAtomicArray *array,
 
 #define G_ATOMIC_ARRAY_DO_TRANSACTION(_array, _type, _C_) G_STMT_START {	\
     gpointer *_datap  = &(_array)->data;				\
-    _type *transaction_data, *__check;						\
+    _type *transaction_data, *_check;						\
 										\
-    __check = g_atomic_pointer_get (_datap);					\
+    _check = g_atomic_pointer_get (_datap);					\
     do {									\
-      transaction_data = __check;						\
+      transaction_data = _check;						\
       {_C_;}									\
-      __check = g_atomic_pointer_get (_datap);					\
-    } while (transaction_data != __check);					\
+      _check = g_atomic_pointer_get (_datap);					\
+    } while (transaction_data != _check);					\
   } G_STMT_END
 
 G_END_DECLS

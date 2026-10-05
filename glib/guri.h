@@ -18,8 +18,7 @@
  * <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __G_URI_H__
-#define __G_URI_H__
+#pragma once
 
 #if !defined (__GLIB_H_INSIDE__) && !defined (GLIB_COMPILATION)
 #error "Only <glib.h> can be included directly."
@@ -91,7 +90,7 @@ typedef enum {
   G_URI_FLAGS_ENCODED_PATH    = 1 << 6,
   G_URI_FLAGS_ENCODED_FRAGMENT = 1 << 7,
   G_URI_FLAGS_SCHEME_NORMALIZE GLIB_AVAILABLE_ENUMERATOR_IN_2_68 = 1 << 8,
-} GUriFlags;
+} G_GNUC_FLAG_ENUM GUriFlags;
 
 GLIB_AVAILABLE_IN_2_66
 gboolean     g_uri_split            (const gchar  *uri_ref,
@@ -212,7 +211,7 @@ typedef enum {
   G_URI_HIDE_AUTH_PARAMS = 1 << 2,
   G_URI_HIDE_QUERY       = 1 << 3,
   G_URI_HIDE_FRAGMENT    = 1 << 4,
-} GUriHideFlags;
+} G_GNUC_FLAG_ENUM GUriHideFlags;
 
 GLIB_AVAILABLE_IN_2_66
 char *       g_uri_to_string         (GUri          *uri);
@@ -262,7 +261,7 @@ typedef enum {
   G_URI_PARAMS_CASE_INSENSITIVE = 1 << 0,
   G_URI_PARAMS_WWW_FORM         = 1 << 1,
   G_URI_PARAMS_PARSE_RELAXED    = 1 << 2,
-} GUriParamsFlags;
+} G_GNUC_FLAG_ENUM GUriParamsFlags;
 
 GLIB_AVAILABLE_IN_2_66
 GHashTable *g_uri_parse_params       (const gchar    *params,
@@ -419,5 +418,3 @@ char *      g_uri_escape_bytes     (const guint8 *unescaped,
 G_GNUC_END_IGNORE_DEPRECATIONS
 
 G_END_DECLS
-
-#endif /* __G_URI_H__ */

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <gio/gio.h>
 #include <gio/gfiledescriptorbased.h>
+#include <glib/gstdio.h>
 #ifdef G_OS_UNIX
 #include <sys/stat.h>
 #endif
@@ -57,6 +58,22 @@ test_build_filename (void)
   g_object_unref (file);
 
   file = g_file_new_build_filename ("testfile", NULL);
+  test_basic_for_file (file, "/testfile");
+  g_object_unref (file);
+}
+
+static void
+test_build_filenamev (void)
+{
+  GFile *file;
+
+  const gchar *args[] = { ".", "some", "directory", "testfile", NULL };
+  file = g_file_new_build_filenamev (args);
+  test_basic_for_file (file, "/some/directory/testfile");
+  g_object_unref (file);
+
+  const gchar *brgs[] = { "testfile", NULL };
+  file = g_file_new_build_filenamev (brgs);
   test_basic_for_file (file, "/testfile");
   g_object_unref (file);
 }
@@ -452,15 +469,13 @@ created_cb (GObject      *source,
                                data);
 }
 
-static gboolean
+static void
 stop_timeout (gpointer user_data)
 {
   CreateDeleteData *data = user_data;
 
   data->timed_out = TRUE;
   g_main_context_wakeup (data->context);
-
-  return G_SOURCE_REMOVE;
 }
 
 /*
@@ -518,7 +533,7 @@ test_create_delete (gconstpointer d)
 
   /* Use the global default main context */
   data->context = NULL;
-  data->timeout = g_timeout_add_seconds (10, stop_timeout, data);
+  data->timeout = g_timeout_add_seconds_once (10, stop_timeout, data);
 
   g_file_create_async (data->file, 0, 0, NULL, created_cb, data);
 
@@ -1077,6 +1092,13 @@ test_replace_symlink_using_etag (void)
  * See https://gitlab.gnome.org/GNOME/glib/-/issues/2325 */
 #ifdef __linux__
 
+/* Different arrangements of parent tmp directory. */
+typedef enum
+{
+  FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
+  FILE_TEST_DIRECTORY_SETUP_TYPE_READ_ONLY,
+} FileTestDirectorySetupType;
+
 /* Different kinds of file which create_test_file() can create. */
 typedef enum
 {
@@ -1310,6 +1332,65 @@ check_test_file (GFile             *test_file,
 
 #endif  /* __linux__ */
 
+#ifdef __linux__
+/*
+ * check_cap_dac_override:
+ * @tmpdir: A temporary directory in which we can create and delete files
+ *
+ * Check whether the current process can bypass DAC permissions.
+ *
+ * Traditionally, "privileged" processes (those with effective uid 0)
+ * could do this (and bypass many other checks), and "unprivileged"
+ * processes could not.
+ *
+ * In Linux, the special powers of euid 0 are divided into many
+ * capabilities: see `capabilities(7)`. The one we are interested in
+ * here is `CAP_DAC_OVERRIDE`.
+ *
+ * We do this generically instead of actually looking at the capability
+ * bits, so that the right thing will happen on non-Linux Unix
+ * implementations, in particular if they have something equivalent to
+ * but not identical to Linux permissions.
+ *
+ * Returns: %TRUE if we have Linux `CAP_DAC_OVERRIDE` or equivalent
+ *  privileges
+ */
+static gboolean
+check_cap_dac_override (const char *tmpdir)
+{
+  gchar *dac_denies_write;
+  gchar *inside;
+  gboolean have_cap;
+
+  dac_denies_write = g_build_filename (tmpdir, "dac-denies-write", NULL);
+  inside = g_build_filename (dac_denies_write, "inside", NULL);
+
+  g_assert_no_errno (mkdir (dac_denies_write, S_IRWXU));
+  g_assert_no_errno (chmod (dac_denies_write, 0));
+
+  if (mkdir (inside, S_IRWXU) == 0)
+    {
+      g_test_message ("Looks like we have CAP_DAC_OVERRIDE or equivalent");
+      g_assert_no_errno (rmdir (inside));
+      have_cap = TRUE;
+    }
+  else
+    {
+      int saved_errno = errno;
+
+      g_test_message ("We do not have CAP_DAC_OVERRIDE or equivalent");
+      g_assert_cmpint (saved_errno, ==, EACCES);
+      have_cap = FALSE;
+    }
+
+  g_assert_no_errno (chmod (dac_denies_write, S_IRWXU));
+  g_assert_no_errno (rmdir (dac_denies_write));
+  g_free (dac_denies_write);
+  g_free (inside);
+  return have_cap;
+}
+#endif
+
 /* A big test for g_file_replace() and g_file_replace_readwrite(). The
  * @test_data is a boolean: %TRUE to test g_file_replace_readwrite(), %FALSE to
  * test g_file_replace(). The test setup and checks are identical for both
@@ -1346,10 +1427,12 @@ test_replace (gconstpointer test_data)
       const gchar *replace_etag;  /* (nullable) */
 
       /* File system setup. */
+      FileTestDirectorySetupType setup_directory_type;
       FileTestSetupType setup_source_type;
       guint setup_source_mode;
       FileTestSetupType setup_backup_type;
       guint setup_backup_mode;
+      gboolean skip_if_cap_dac_override;
 
       /* Expected results. */
       gboolean expected_success;
@@ -1372,56 +1455,63 @@ test_replace (gconstpointer test_data)
        * file created to check it’s not modified */
       {
         FALSE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
-        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, FALSE,
         TRUE, 0, 0,
         1, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, NULL,
       },
       {
         FALSE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         FALSE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         FALSE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_DIRECTORY, 0,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_IS_DIRECTORY,
         2, FILE_TEST_SETUP_TYPE_DIRECTORY, 0, NULL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         FALSE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_NOT_REGULAR_FILE,
         2, FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode, NULL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         FALSE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SYMLINK_DANGLING, 0,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         3, FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode, "source-target",
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         FALSE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         3, FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode, "source-target",
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
@@ -1431,8 +1521,9 @@ test_replace (gconstpointer test_data)
        * regular non-empty file; replacement should fail */
       {
         FALSE, G_FILE_CREATE_NONE, "incorrect etag",
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_WRONG_ETAG,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
@@ -1443,48 +1534,54 @@ test_replace (gconstpointer test_data)
        * file created to check it’s either replaced or the operation fails */
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
-        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, FALSE,
         TRUE, 0, 0,
         1, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, NULL,
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, default_public_mode, NULL,
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_DIRECTORY, 0,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_IS_DIRECTORY,
         2, FILE_TEST_SETUP_TYPE_DIRECTORY, 0, NULL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_NOT_REGULAR_FILE,
         2, FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode, NULL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SYMLINK_DANGLING, 0,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         /* The final situation here is a bit odd; the backup file is a bit
          * pointless as the original source file was a dangling symlink.
@@ -1499,8 +1596,9 @@ test_replace (gconstpointer test_data)
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         /* FIXME: The permissions for the backup file are just the default umask,
          * but should probably be the same as the permissions for the source
@@ -1515,56 +1613,63 @@ test_replace (gconstpointer test_data)
        * created to check it’s either replaced or the operation fails */
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_DIRECTORY, 0,
+        FILE_TEST_SETUP_TYPE_DIRECTORY, 0, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_CANT_CREATE_BACKUP,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
         FILE_TEST_SETUP_TYPE_DIRECTORY, 0, NULL,
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode,
+        FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_SYMLINK_DANGLING, 0,
+        FILE_TEST_SETUP_TYPE_SYMLINK_DANGLING, 0, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode,
+        FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode, FALSE,
         TRUE, 0, 0,
         /* the third file is `source~-target`, the original target of the old
          * backup symlink */
@@ -1577,56 +1682,63 @@ test_replace (gconstpointer test_data)
        * mostly with a backup file created to check it’s not modified */
       {
         FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
-        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, FALSE,
         TRUE, 0, 0,
         1, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, NULL,
       },
       {
         FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_DIRECTORY, 0,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_IS_DIRECTORY,
         2, FILE_TEST_SETUP_TYPE_DIRECTORY, 0, NULL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_NOT_REGULAR_FILE,
         2, FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode, NULL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SYMLINK_DANGLING, 0,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         /* the third file is `source-target`, the original target of the old
          * source file */
@@ -1639,8 +1751,9 @@ test_replace (gconstpointer test_data)
        * should fail */
       {
         FALSE, G_FILE_CREATE_REPLACE_DESTINATION, "incorrect etag",
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_WRONG_ETAG,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
@@ -1652,56 +1765,63 @@ test_replace (gconstpointer test_data)
        * operation fails */
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
-        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, FALSE,
         TRUE, 0, 0,
         1, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, NULL,
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, default_public_mode, NULL,
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_DIRECTORY, 0,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_IS_DIRECTORY,
         2, FILE_TEST_SETUP_TYPE_DIRECTORY, 0, NULL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_NOT_REGULAR_FILE,
         2, FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode, NULL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_backup_contents,
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SYMLINK_DANGLING, 0,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_SYMLINK_DANGLING, 0, "source-target",
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         /* the third file is `source-target`, the original target of the old
          * source file */
@@ -1715,56 +1835,63 @@ test_replace (gconstpointer test_data)
        * operation fails */
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
+        FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_DIRECTORY, 0,
+        FILE_TEST_SETUP_TYPE_DIRECTORY, 0, FALSE,
         FALSE, G_IO_ERROR, G_IO_ERROR_CANT_CREATE_BACKUP,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
         FILE_TEST_SETUP_TYPE_DIRECTORY, 0, NULL,
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode,
+        FILE_TEST_SETUP_TYPE_SOCKET, default_public_mode, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_SYMLINK_DANGLING, 0,
+        FILE_TEST_SETUP_TYPE_SYMLINK_DANGLING, 0, FALSE,
         TRUE, 0, 0,
         2, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, original_source_contents,
       },
       {
         TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode,
+        FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode, FALSE,
         TRUE, 0, 0,
         /* the third file is `source~-target`, the original target of the old
          * backup symlink */
@@ -1775,16 +1902,18 @@ test_replace (gconstpointer test_data)
       /* several different setups with replace_flags == PRIVATE */
       {
         FALSE, G_FILE_CREATE_PRIVATE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
-        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, FALSE,
         TRUE, 0, 0,
         1, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_private_mode, new_contents,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, NULL,
       },
       {
         FALSE, G_FILE_CREATE_PRIVATE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, FALSE,
         TRUE, 0, 0,
         /* the file isn’t being replaced, so it should keep its existing permissions */
         1, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode, new_contents,
@@ -1792,29 +1921,75 @@ test_replace (gconstpointer test_data)
       },
       {
         FALSE, G_FILE_CREATE_PRIVATE | G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
-        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, FALSE,
         TRUE, 0, 0,
         1, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_private_mode, new_contents,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, NULL,
       },
       {
         FALSE, G_FILE_CREATE_PRIVATE | G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_public_mode,
-        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, FALSE,
         TRUE, 0, 0,
         1, FILE_TEST_SETUP_TYPE_REGULAR_NONEMPTY, default_private_mode, new_contents,
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, NULL,
       },
 
       /* make the initial source file unreadable, so the replace operation
-       * should fail */
+       * should fail
+       *
+       * Permissions are ignored if we have CAP_DAC_OVERRIDE or equivalent,
+       * and in particular if we're root. In this scenario,we need to skip it */
       {
         FALSE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_NORMAL,
         FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, 0  /* most restrictive permissions */,
-        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, TRUE,
         FALSE, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
         1, FILE_TEST_SETUP_TYPE_REGULAR_EMPTY, 0, NULL,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, NULL,
+      },
+
+      /* A symlink in an unwriteable directory, with the need to replace the
+       * destination and make a backup, tests the fallback backup code path. It
+       * can’t succeed, because even if the file replace would work, the backup
+       * file cannot be created in a read-only directory. */
+      {
+        TRUE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_READ_ONLY,
+        FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, TRUE,
+        FALSE, G_IO_ERROR, G_IO_ERROR_CANT_CREATE_BACKUP,
+        2, FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode, "source-target",
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, NULL,
+      },
+
+      /* Same as above, but without trying to create a backup. We expect this to
+       * fail because replacing the destination requires deleting and
+       * re-creating the file, which can’t happen in a read-only directory. */
+      {
+        FALSE, G_FILE_CREATE_REPLACE_DESTINATION, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_READ_ONLY,
+        FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, TRUE,
+        FALSE, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+        2, FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode, "source-target",
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, NULL,
+      },
+
+      /* Same as above, but without trying to create a backup or trying to
+       * replace the file. */
+      {
+        FALSE, G_FILE_CREATE_NONE, NULL,
+        FILE_TEST_DIRECTORY_SETUP_TYPE_READ_ONLY,
+        FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode,
+        FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, TRUE,
+        TRUE, 0, 0,
+        /* the second file is the source-target file, which should contain the new_contents */
+        2, FILE_TEST_SETUP_TYPE_SYMLINK_VALID, default_public_mode, "source-target",
         FILE_TEST_SETUP_TYPE_NONEXISTENT, 0, NULL,
       },
     };
@@ -1844,11 +2019,33 @@ test_replace (gconstpointer test_data)
       tmpdir = g_file_new_for_path (tmpdir_path);
 
       g_test_message ("Test %" G_GSIZE_FORMAT ", using temporary directory %s", i, tmpdir_path);
+
+      if (tests[i].skip_if_cap_dac_override && check_cap_dac_override (tmpdir_path))
+        {
+          g_test_message ("Skipping test as process has CAP_DAC_OVERRIDE capability and the test checks permissions");
+
+          g_file_delete (tmpdir, NULL, &local_error);
+          g_assert_no_error (local_error);
+          g_clear_object (&tmpdir);
+          g_free (tmpdir_path);
+
+          continue;
+        }
+
       g_free (tmpdir_path);
 
       /* Set up the test directory. */
       source_file = create_test_file (tmpdir, "source", tests[i].setup_source_type, tests[i].setup_source_mode);
       backup_file = create_test_file (tmpdir, "source~", tests[i].setup_backup_type, tests[i].setup_backup_mode);
+
+      /* Make the tmpdir read-only if desired. */
+      if (tests[i].setup_directory_type == FILE_TEST_DIRECTORY_SETUP_TYPE_READ_ONLY)
+        {
+          g_file_set_attribute_uint32 (tmpdir, G_FILE_ATTRIBUTE_UNIX_MODE,
+                                       0500, G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+                                       NULL, &local_error);
+          g_assert_no_error (local_error);
+        }
 
       /* Replace the source file. Check the error state only after finishing
        * writing, as the replace operation is split across g_file_replace() and
@@ -1951,6 +2148,14 @@ test_replace (gconstpointer test_data)
 
       /* Tidy up. Ignore failure apart from when deleting the directory, which
        * should be empty. */
+      if (tests[i].setup_directory_type == FILE_TEST_DIRECTORY_SETUP_TYPE_READ_ONLY)
+        {
+          g_file_set_attribute_uint32 (tmpdir, G_FILE_ATTRIBUTE_UNIX_MODE,
+                                       0700, G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+                                       NULL, &local_error);
+          g_assert_no_error (local_error);
+        }
+
       g_file_delete (source_file, NULL, NULL);
       g_file_delete (backup_file, NULL, NULL);
 
@@ -2361,12 +2566,15 @@ test_copy_preserve_mode (void)
       { 0600, 0600, TRUE, G_FILE_COPY_OVERWRITE | G_FILE_COPY_NOFOLLOW_SYMLINKS },
       /* The same behaviour should hold if the destination file is not being
        * overwritten because it doesn’t already exist: */
+      { 0600, 0600, FALSE, G_FILE_COPY_NOFOLLOW_SYMLINKS | G_FILE_COPY_TARGET_DEFAULT_MODIFIED_TIME | G_FILE_COPY_ALL_METADATA },
       { 0600, 0600, FALSE, G_FILE_COPY_NOFOLLOW_SYMLINKS | G_FILE_COPY_ALL_METADATA },
       { 0600, 0600, FALSE, G_FILE_COPY_NOFOLLOW_SYMLINKS },
       /* Anything with %G_FILE_COPY_TARGET_DEFAULT_PERMS should use the current
        * umask for the destination file: */
       { 0600, 0666 & ~current_umask, TRUE, G_FILE_COPY_TARGET_DEFAULT_PERMS | G_FILE_COPY_OVERWRITE | G_FILE_COPY_NOFOLLOW_SYMLINKS | G_FILE_COPY_ALL_METADATA },
       { 0600, 0666 & ~current_umask, TRUE, G_FILE_COPY_TARGET_DEFAULT_PERMS | G_FILE_COPY_OVERWRITE | G_FILE_COPY_NOFOLLOW_SYMLINKS },
+      { 0600, 0666 & ~current_umask, FALSE, G_FILE_COPY_TARGET_DEFAULT_PERMS | G_FILE_COPY_NOFOLLOW_SYMLINKS | G_FILE_COPY_TARGET_DEFAULT_MODIFIED_TIME | G_FILE_COPY_ALL_METADATA },
+      { 0600, 0666 & ~current_umask, FALSE, G_FILE_COPY_TARGET_DEFAULT_PERMS | G_FILE_COPY_NOFOLLOW_SYMLINKS | G_FILE_COPY_TARGET_DEFAULT_MODIFIED_TIME },
       { 0600, 0666 & ~current_umask, FALSE, G_FILE_COPY_TARGET_DEFAULT_PERMS | G_FILE_COPY_NOFOLLOW_SYMLINKS | G_FILE_COPY_ALL_METADATA },
       { 0600, 0666 & ~current_umask, FALSE, G_FILE_COPY_TARGET_DEFAULT_PERMS | G_FILE_COPY_NOFOLLOW_SYMLINKS },
     };
@@ -2375,7 +2583,7 @@ test_copy_preserve_mode (void)
   /* Reset the umask after querying it above. There’s no way to query it without
    * changing it. */
   umask (current_umask);
-  g_test_message ("Current umask: %u", current_umask);
+  g_test_message ("Current umask: %u", (unsigned int) current_umask);
 
   for (i = 0; i < G_N_ELEMENTS (vectors); i++)
     {
@@ -2439,75 +2647,197 @@ test_copy_preserve_mode (void)
 #endif
 }
 
-static gchar *
-splice_to_string (GInputStream   *stream,
-                  GError        **error)
+typedef struct
 {
-  GMemoryOutputStream *buffer = NULL;
-  char *ret = NULL;
+  goffset current_num_bytes;
+  goffset total_num_bytes;
+} CopyProgressData;
 
-  buffer = (GMemoryOutputStream*)g_memory_output_stream_new (NULL, 0, g_realloc, g_free);
-  if (g_output_stream_splice ((GOutputStream*)buffer, stream, 0, NULL, error) < 0)
-    goto out;
+static void
+file_copy_progress_cb (goffset  current_num_bytes,
+                       goffset  total_num_bytes,
+                       gpointer user_data)
+{
+  CopyProgressData *prev_data = user_data;
 
-  if (!g_output_stream_write ((GOutputStream*)buffer, "\0", 1, NULL, error))
-    goto out;
+  g_assert_cmpuint (total_num_bytes, ==, prev_data->total_num_bytes);
+  g_assert_cmpuint (current_num_bytes, >=, prev_data->current_num_bytes);
 
-  if (!g_output_stream_close ((GOutputStream*)buffer, NULL, error))
-    goto out;
-
-  ret = g_memory_output_stream_steal_data (buffer);
- out:
-  g_clear_object (&buffer);
-  return ret;
+  /* Update it for the next callback. */
+  prev_data->current_num_bytes = current_num_bytes;
 }
 
-static gboolean
-get_size_from_du (const gchar *path, guint64 *size)
+static void
+test_copy_progress (void)
 {
-  GSubprocess *du;
-  gboolean ok;
-  gchar *result;
-  gchar *endptr;
+  GFile *src_tmpfile = NULL;
+  GFile *dest_tmpfile = NULL;
+  GFileIOStream *iostream;
+  GOutputStream *ostream;
+  GError *local_error = NULL;
+  const guint8 buffer[] = { 1, 2, 3, 4, 5 };
+  CopyProgressData progress_data;
+
+  src_tmpfile = g_file_new_tmp ("tmp-copy-progressXXXXXX",
+                                &iostream, &local_error);
+  g_assert_no_error (local_error);
+
+  /* Write some content to the file for testing. */
+  ostream = g_io_stream_get_output_stream (G_IO_STREAM (iostream));
+  g_output_stream_write (ostream, buffer, sizeof (buffer), NULL, &local_error);
+  g_assert_no_error (local_error);
+
+  g_io_stream_close ((GIOStream *) iostream, NULL, &local_error);
+  g_assert_no_error (local_error);
+  g_clear_object (&iostream);
+
+  /* Grab a unique destination filename. */
+  dest_tmpfile = g_file_new_tmp ("tmp-copy-progressXXXXXX",
+                                 &iostream, &local_error);
+  g_assert_no_error (local_error);
+  g_io_stream_close ((GIOStream *) iostream, NULL, &local_error);
+  g_assert_no_error (local_error);
+  g_clear_object (&iostream);
+
+  /* Set the progress data to an initial offset of zero. The callback will
+   * assert that progress is non-decreasing and reaches the total length of
+   * the file. */
+  progress_data.current_num_bytes = 0;
+  progress_data.total_num_bytes = sizeof (buffer);
+
+  /* Copy the file with progress reporting. */
+  g_file_copy (src_tmpfile, dest_tmpfile, G_FILE_COPY_OVERWRITE,
+               NULL, file_copy_progress_cb, &progress_data, &local_error);
+  g_assert_no_error (local_error);
+
+  g_assert_cmpuint (progress_data.current_num_bytes, ==, progress_data.total_num_bytes);
+  g_assert_cmpuint (progress_data.total_num_bytes, ==, sizeof (buffer));
+
+  /* Clean up. */
+  (void) g_file_delete (src_tmpfile, NULL, NULL);
+  (void) g_file_delete (dest_tmpfile, NULL, NULL);
+
+  g_clear_object (&src_tmpfile);
+  g_clear_object (&dest_tmpfile);
+}
+
+typedef struct
+{
+  GError *error;
+  gboolean done;
+  gboolean res;
+} CopyAsyncData;
+
+static void
+test_copy_async_cb (GObject *object,
+                    GAsyncResult *result,
+                    void *user_data)
+{
+  GFile *file = G_FILE (object);
+  CopyAsyncData *data = user_data;
   GError *error = NULL;
-  gchar *du_path = NULL;
 
-#ifndef G_OS_DARWIN
-  du_path = g_find_program_in_path ("du");
-#endif
+  data->res = g_file_move_finish (file, result, &error);
+  data->error = g_steal_pointer (&error);
+  data->done = TRUE;
+}
 
-  /* If we can’t find du, don’t try and run the test. */
-  if (du_path == NULL)
-    return FALSE;
+typedef struct
+{
+  goffset total_num_bytes;
+} CopyAsyncProgressData;
 
-  g_free (du_path);
+static void
+test_copy_async_progress_cb (goffset current_num_bytes,
+                             goffset total_num_bytes,
+                             void *user_data)
+{
+  CopyAsyncProgressData *data = user_data;
+  data->total_num_bytes = total_num_bytes;
+}
 
-  du = g_subprocess_new (G_SUBPROCESS_FLAGS_STDOUT_PIPE,
-                         &error,
-                         "du", "--bytes", "-s", path, NULL);
+/* Exercise copy_async_with_closures() */
+static void
+test_copy_async_with_closures (void)
+{
+  CopyAsyncData data = { 0 };
+  CopyAsyncProgressData progress_data = { 0 };
+  GFile *source;
+  GFileIOStream *iostream;
+  GOutputStream *ostream;
+  GFile *destination;
+  gchar *destination_path;
+  GError *error = NULL;
+  gboolean res;
+  const guint8 buffer[] = { 1, 2, 3, 4, 5 };
+  GClosure *progress_closure;
+  GClosure *ready_closure;
+
+  source = g_file_new_tmp ("g_file_copy_async_with_closures_XXXXXX", &iostream, NULL);
+
+  destination_path = g_build_path (G_DIR_SEPARATOR_S, g_get_tmp_dir (), "g_file_copy_async_with_closures_target", NULL);
+  destination = g_file_new_for_path (destination_path);
+
+  g_assert_nonnull (source);
+  g_assert_nonnull (iostream);
+
+  res = g_file_query_exists (source, NULL);
+  g_assert_true (res);
+  res = g_file_query_exists (destination, NULL);
+  g_assert_false (res);
+
+  /* Write a known number of bytes to the file, so we can test the progress
+   * callback against it */
+  ostream = g_io_stream_get_output_stream (G_IO_STREAM (iostream));
+  g_output_stream_write (ostream, buffer, sizeof (buffer), NULL, &error);
   g_assert_no_error (error);
 
-  result = splice_to_string (g_subprocess_get_stdout_pipe (du), &error);
+  progress_closure = g_cclosure_new (G_CALLBACK (test_copy_async_progress_cb), &progress_data, NULL);
+  ready_closure = g_cclosure_new (G_CALLBACK (test_copy_async_cb), &data, NULL);
+
+  g_file_copy_async_with_closures (source,
+                                   destination,
+                                   G_FILE_COPY_NONE,
+                                   0,
+                                   NULL,
+                                   progress_closure,
+                                   ready_closure);
+
+  while (!data.done)
+    g_main_context_iteration (NULL, TRUE);
+
+  g_assert_no_error (data.error);
+  g_assert_true (data.res);
+  g_assert_cmpuint (progress_data.total_num_bytes, ==, sizeof (buffer));
+
+  res = g_file_query_exists (source, NULL);
+  g_assert_true (res);
+  res = g_file_query_exists (destination, NULL);
+  g_assert_true (res);
+
+  res = g_io_stream_close (G_IO_STREAM (iostream), NULL, &error);
   g_assert_no_error (error);
+  g_assert_true (res);
+  g_object_unref (iostream);
 
-  *size = g_ascii_strtoll (result, &endptr, 10);
-
-  g_subprocess_wait (du, NULL, &error);
+  res = g_file_delete (source, NULL, &error);
   g_assert_no_error (error);
+  g_assert_true (res);
 
-  ok = g_subprocess_get_successful (du);
+  res = g_file_delete (destination, NULL, &error);
+  g_assert_no_error (error);
+  g_assert_true (res);
 
-  g_object_unref (du);
-  g_free (result);
+  g_object_unref (source);
+  g_object_unref (destination);
 
-  return ok;
+  g_free (destination_path);
 }
 
 static void
 test_measure (void)
 {
   GFile *file;
-  guint64 size;
   guint64 num_bytes;
   guint64 num_dirs;
   guint64 num_files;
@@ -2517,12 +2847,6 @@ test_measure (void)
 
   path = g_test_build_filename (G_TEST_DIST, "desktop-files", NULL);
   file = g_file_new_for_path (path);
-
-  if (!get_size_from_du (path, &size))
-    {
-      g_test_message ("du not found or fail to run, skipping byte measurement");
-      size = 0;
-    }
 
   ok = g_file_measure_disk_usage (file,
                                   G_FILE_MEASURE_APPARENT_SIZE,
@@ -2536,10 +2860,9 @@ test_measure (void)
   g_assert_true (ok);
   g_assert_no_error (error);
 
-  if (size > 0)
-    g_assert_cmpuint (num_bytes, ==, size);
+  g_assert_cmpuint (num_bytes, ==, 96702);
   g_assert_cmpuint (num_dirs, ==, 6);
-  g_assert_cmpuint (num_files, ==, 32);
+  g_assert_cmpuint (num_files, ==, 34);
 
   g_object_unref (file);
   g_free (path);
@@ -2589,8 +2912,7 @@ measure_done (GObject      *source,
   g_assert_true (ok);
   g_assert_no_error (error);
 
-  if (data->expected_bytes > 0)
-    g_assert_cmpuint (data->expected_bytes, ==, num_bytes);
+  g_assert_cmpuint (data->expected_bytes, ==, num_bytes);
   g_assert_cmpuint (data->expected_dirs, ==, num_dirs);
   g_assert_cmpuint (data->expected_files, ==, num_files);
 
@@ -2619,17 +2941,11 @@ test_measure_async (void)
 
   path = g_test_build_filename (G_TEST_DIST, "desktop-files", NULL);
   file = g_file_new_for_path (path);
-
-  if (!get_size_from_du (path, &data->expected_bytes))
-    {
-      g_test_message ("du not found or fail to run, skipping byte measurement");
-      data->expected_bytes = 0;
-    }
-
   g_free (path);
 
+  data->expected_bytes = 96702;
   data->expected_dirs = 6;
-  data->expected_files = 32;
+  data->expected_files = 34;
 
   g_file_measure_disk_usage_async (file,
                                    G_FILE_MEASURE_APPARENT_SIZE,
@@ -2641,7 +2957,7 @@ test_measure_async (void)
 static void
 test_load_bytes (void)
 {
-  gchar filename[] = "g_file_load_bytes_XXXXXX";
+  char *filename = NULL;
   GError *error = NULL;
   GBytes *bytes;
   GFile *file;
@@ -2649,12 +2965,14 @@ test_load_bytes (void)
   int fd;
   int ret;
 
+  filename = g_build_filename (g_get_tmp_dir (), "g_file_load_bytes_XXXXXX", NULL);
   fd = g_mkstemp (filename);
   g_assert_cmpint (fd, !=, -1);
   len = strlen ("test_load_bytes");
   ret = write (fd, "test_load_bytes", len);
   g_assert_cmpint (ret, ==, len);
-  close (fd);
+  g_clear_fd (&fd, &error);
+  g_assert_no_error (error);
 
   file = g_file_new_for_path (filename);
   bytes = g_file_load_bytes (file, NULL, NULL, &error);
@@ -2667,6 +2985,7 @@ test_load_bytes (void)
 
   g_bytes_unref (bytes);
   g_object_unref (file);
+  g_free (filename);
 }
 
 typedef struct
@@ -2696,17 +3015,20 @@ static void
 test_load_bytes_async (void)
 {
   LoadBytesAsyncData data = { 0 };
-  gchar filename[] = "g_file_load_bytes_XXXXXX";
+  char *filename = NULL;
+  GError *error = NULL;
   int len;
   int fd;
   int ret;
 
+  filename = g_build_filename (g_get_tmp_dir (), "g_file_load_bytes_XXXXXX", NULL);
   fd = g_mkstemp (filename);
   g_assert_cmpint (fd, !=, -1);
   len = strlen ("test_load_bytes_async");
   ret = write (fd, "test_load_bytes_async", len);
   g_assert_cmpint (ret, ==, len);
-  close (fd);
+  g_clear_fd (&fd, &error);
+  g_assert_no_error (error);
 
   data.main_loop = g_main_loop_new (NULL, FALSE);
   data.file = g_file_new_for_path (filename);
@@ -2721,6 +3043,174 @@ test_load_bytes_async (void)
   g_object_unref (data.file);
   g_bytes_unref (data.bytes);
   g_main_loop_unref (data.main_loop);
+  g_free (filename);
+}
+
+#if GLIB_SIZEOF_SIZE_T > 4
+static const gsize testfile_4gb_size = ((gsize) 1 << 32) + (1 << 16); /* 4GB + a bit */
+#else
+/* Have to make do with something smaller on 32-bit platforms */
+static const gsize testfile_4gb_size = G_MAXSIZE;
+#endif
+
+/* @filename will be modified as per g_mkstemp() */
+static gboolean
+create_testfile_4gb_or_skip (char *filename)
+{
+  GError *error = NULL;
+  int fd;
+  int ret;
+
+  /* Reading each 4GB test file takes about 5s on a fast machine, and another 7s
+   * to compare its contents once it’s been read. That’s too slow for a normal
+   * test run, and there’s no way to speed it up. */
+  if (!g_test_slow ())
+    {
+      g_test_skip ("Skipping slow >4GB file test");
+      return FALSE;
+    }
+
+  fd = g_mkstemp (filename);
+  g_assert_cmpint (fd, !=, -1);
+  ret = ftruncate (fd, testfile_4gb_size);
+  g_clear_fd (&fd, &error);
+  g_assert_no_error (error);
+  if (ret == 1)
+    {
+      g_test_skip ("Could not create testfile >4GB");
+      g_assert_no_errno (g_unlink (filename));
+      return FALSE;
+    }
+
+  return TRUE;
+}
+
+static void
+check_testfile_4gb_contents (const char *data,
+                             gsize       len)
+{
+  gsize i;
+
+  g_assert_nonnull (data);
+  g_assert_cmpuint (testfile_4gb_size, ==, len);
+
+  for (i = 0; i < testfile_4gb_size; i++)
+    {
+      if (data[i] != 0)
+        break;
+    }
+  g_assert_cmpint (i, ==, testfile_4gb_size);
+}
+
+static void
+test_load_contents_4gb (void)
+{
+  char *filename = NULL;
+  GError *error = NULL;
+  gboolean result;
+  char *data;
+  gsize len;
+  GFile *file;
+
+  filename = g_build_filename (g_get_tmp_dir (), "g_file_load_contents_4gb_XXXXXX", NULL);
+  if (!create_testfile_4gb_or_skip (filename))
+    {
+      g_free (filename);
+      return;
+    }
+
+  file = g_file_new_for_path (filename);
+  result = g_file_load_contents (file, NULL, &data, &len, NULL, &error);
+  g_assert_no_error (error);
+  g_assert_true (result);
+
+  check_testfile_4gb_contents (data, len);
+
+  g_file_delete (file, NULL, NULL);
+
+  g_free (data);
+  g_object_unref (file);
+  g_free (filename);
+}
+
+static void
+load_contents_4gb_cb (GObject      *object,
+                      GAsyncResult *result,
+                      gpointer      user_data)
+{
+  GAsyncResult **result_out = user_data;
+
+  g_assert (*result_out == NULL);
+  *result_out = g_object_ref (result);
+
+  g_main_context_wakeup (NULL);
+}
+
+static void
+test_load_contents_4gb_async (void)
+{
+  char *filename = NULL;
+  GFile *file;
+  GAsyncResult *async_result = NULL;
+  GError *error = NULL;
+  char *data;
+  gsize len;
+  gboolean ret;
+
+  filename = g_build_filename (g_get_tmp_dir (), "g_file_load_contents_4gb_async_XXXXXX", NULL);
+  if (!create_testfile_4gb_or_skip (filename))
+    {
+      g_free (filename);
+      return;
+    }
+
+  file = g_file_new_for_path (filename);
+  g_file_load_contents_async (file, NULL, load_contents_4gb_cb, &async_result);
+
+  while (async_result == NULL)
+    g_main_context_iteration (NULL, TRUE);
+
+  ret = g_file_load_contents_finish (file, async_result, &data, &len, NULL, &error);
+  g_assert_no_error (error);
+  g_assert_true (ret);
+
+  check_testfile_4gb_contents (data, len);
+
+  g_file_delete (file, NULL, NULL);
+
+  g_free (data);
+  g_object_unref (async_result);
+  g_object_unref (file);
+  g_free (filename);
+}
+
+static void
+test_load_bytes_4gb (void)
+{
+  char *filename = NULL;
+  GError *error = NULL;
+  GBytes *bytes;
+  GFile *file;
+
+  filename = g_build_filename (g_get_tmp_dir (), "g_file_load_bytes_4gb_XXXXXX", NULL);
+  if (!create_testfile_4gb_or_skip (filename))
+    {
+      g_free (filename);
+      return;
+    }
+
+  file = g_file_new_for_path (filename);
+  bytes = g_file_load_bytes (file, NULL, NULL, &error);
+  g_assert_no_error (error);
+  g_assert_true (bytes);
+
+  check_testfile_4gb_contents (g_bytes_get_data (bytes, NULL), g_bytes_get_size (bytes));
+
+  g_file_delete (file, NULL, NULL);
+
+  g_bytes_unref (bytes);
+  g_object_unref (file);
+  g_free (filename);
 }
 
 static void
@@ -3290,6 +3780,9 @@ test_build_attribute_list_for_copy (void)
       G_FILE_COPY_TARGET_DEFAULT_PERMS,
       G_FILE_COPY_ALL_METADATA,
       G_FILE_COPY_ALL_METADATA | G_FILE_COPY_TARGET_DEFAULT_PERMS,
+      G_FILE_COPY_ALL_METADATA | G_FILE_COPY_TARGET_DEFAULT_MODIFIED_TIME,
+      G_FILE_COPY_TARGET_DEFAULT_MODIFIED_TIME | G_FILE_COPY_TARGET_DEFAULT_PERMS,
+      G_FILE_COPY_TARGET_DEFAULT_MODIFIED_TIME,
     };
   gsize i;
   char *attrs;
@@ -3331,8 +3824,16 @@ test_build_attribute_list_for_copy (void)
         }
 #endif
 #ifdef HAVE_UTIMES
-      g_assert_nonnull (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED ","));
-      g_assert_nonnull (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC ","));
+      if (flags & G_FILE_COPY_TARGET_DEFAULT_MODIFIED_TIME)
+        {
+          g_assert_null (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED ","));
+          g_assert_null (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC ","));
+        }
+      else
+        {
+          g_assert_nonnull (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED ","));
+          g_assert_nonnull (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED_USEC ","));
+        }
       if (flags & G_FILE_COPY_ALL_METADATA)
         {
           g_assert_nonnull (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_ACCESS ","));
@@ -3345,8 +3846,16 @@ test_build_attribute_list_for_copy (void)
         }
 #endif
 #ifdef HAVE_UTIMENSAT
-      g_assert_nonnull (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED ","));
-      g_assert_nonnull (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC ","));
+      if (flags & G_FILE_COPY_TARGET_DEFAULT_MODIFIED_TIME)
+        {
+          g_assert_null (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED ","));
+          g_assert_null (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC ","));
+        }
+      else
+        {
+          g_assert_nonnull (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED ","));
+          g_assert_nonnull (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_MODIFIED_NSEC ","));
+        }
       if (flags & G_FILE_COPY_ALL_METADATA)
         {
           g_assert_nonnull (g_strstr_len (attrs_with_commas, -1, "," G_FILE_ATTRIBUTE_TIME_ACCESS ","));
@@ -3470,6 +3979,80 @@ test_move_async (void)
   g_free (destination_path);
 }
 
+/* Same test as for move_async(), but for move_async_with_closures() */
+static void
+test_move_async_with_closures (void)
+{
+  MoveAsyncData data = { 0 };
+  MoveAsyncProgressData progress_data = { 0 };
+  GFile *source;
+  GFileIOStream *iostream;
+  GOutputStream *ostream;
+  GFile *destination;
+  gchar *destination_path;
+  GError *error = NULL;
+  gboolean res;
+  const guint8 buffer[] = { 1, 2, 3, 4, 5 };
+  GClosure *progress_closure;
+  GClosure *ready_closure;
+
+  source = g_file_new_tmp ("g_file_move_async_with_closures_XXXXXX", &iostream, NULL);
+
+  destination_path = g_build_path (G_DIR_SEPARATOR_S, g_get_tmp_dir (), "g_file_move_async_with_closures_target", NULL);
+  destination = g_file_new_for_path (destination_path);
+
+  g_assert_nonnull (source);
+  g_assert_nonnull (iostream);
+
+  res = g_file_query_exists (source, NULL);
+  g_assert_true (res);
+  res = g_file_query_exists (destination, NULL);
+  g_assert_false (res);
+
+  /* Write a known number of bytes to the file, so we can test the progress
+   * callback against it */
+  ostream = g_io_stream_get_output_stream (G_IO_STREAM (iostream));
+  g_output_stream_write (ostream, buffer, sizeof (buffer), NULL, &error);
+  g_assert_no_error (error);
+
+  progress_closure = g_cclosure_new (G_CALLBACK (test_move_async_progress_cb), &progress_data, NULL);
+  ready_closure = g_cclosure_new (G_CALLBACK (test_move_async_cb), &data, NULL);
+
+  g_file_move_async_with_closures (source,
+                                   destination,
+                                   G_FILE_COPY_NONE,
+                                   0,
+                                   NULL,
+                                   progress_closure,
+                                   ready_closure);
+
+  while (!data.done)
+    g_main_context_iteration (NULL, TRUE);
+
+  g_assert_no_error (data.error);
+  g_assert_true (data.res);
+  g_assert_cmpuint (progress_data.total_num_bytes, ==, sizeof (buffer));
+
+  res = g_file_query_exists (source, NULL);
+  g_assert_false (res);
+  res = g_file_query_exists (destination, NULL);
+  g_assert_true (res);
+
+  res = g_io_stream_close (G_IO_STREAM (iostream), NULL, &error);
+  g_assert_no_error (error);
+  g_assert_true (res);
+  g_object_unref (iostream);
+
+  res = g_file_delete (destination, NULL, &error);
+  g_assert_no_error (error);
+  g_assert_true (res);
+
+  g_object_unref (source);
+  g_object_unref (destination);
+
+  g_free (destination_path);
+}
+
 static GAppInfo *
 create_command_line_app_info (const char *name,
                               const char *command_line,
@@ -3490,6 +4073,20 @@ create_command_line_app_info (const char *name,
   return g_steal_pointer (&info);
 }
 
+static gboolean
+skip_missing_update_desktop_database (void)
+{
+  gchar *path = g_find_program_in_path ("update-desktop-database");
+
+  if (path == NULL)
+    {
+      g_test_skip ("update-desktop-database is required to run this test");
+      return TRUE;
+    }
+  g_free (path);
+  return FALSE;
+}
+
 static void
 test_query_default_handler_uri (void)
 {
@@ -3499,10 +4096,8 @@ test_query_default_handler_uri (void)
   GFile *file;
   GFile *invalid_file;
 
-#if defined(G_OS_WIN32) || defined(G_OS_DARWIN)
-  g_test_skip ("Default URI handlers are not currently supported on Windows or macOS");
-  return;
-#endif
+  if (skip_missing_update_desktop_database ())
+    return;
 
   info = create_command_line_app_info ("Gio File Handler", "true",
                                        "x-scheme-handler/gio-file");
@@ -3537,10 +4132,14 @@ test_query_zero_length_content_type (void)
   GFileIOStream *iostream;
 
   g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=755795");
-  /* This is historic behaviour. See:
+  /* Historically, GLib used to explicitly consider zero-size files as text/plain,
+   * so they opened in a text editor. In 2.76, we changed that to application/x-zerosize,
+   * because that’s what xdgmime uses:
    * - https://gitlab.gnome.org/GNOME/glib/-/blob/2.74.0/gio/glocalfileinfo.c#L1360-1369
-   * - https://bugzilla.gnome.org/show_bug.cgi?id=755795 */
-  g_test_summary ("empty files should always be considered text/plain");
+   * - https://bugzilla.gnome.org/show_bug.cgi?id=755795
+   * - https://gitlab.gnome.org/GNOME/glib/-/issues/2777
+   */
+  g_test_summary ("empty files should always be considered application/x-zerosize");
 
   empty_file = g_file_new_tmp ("empty-file-XXXXXX", &iostream, &error);
   g_assert_no_error (error);
@@ -3556,8 +4155,8 @@ test_query_zero_length_content_type (void)
                        NULL, &error);
   g_assert_no_error (error);
 
-#ifndef G_OS_DARWIN
-  g_assert_cmpstr (g_file_info_get_content_type (file_info), ==, "text/plain");
+#ifndef __APPLE__
+  g_assert_cmpstr (g_file_info_get_content_type (file_info), ==, "application/x-zerosize");
 #else
   g_assert_cmpstr (g_file_info_get_content_type (file_info), ==, "public.text");
 #endif
@@ -3580,10 +4179,8 @@ test_query_default_handler_file (void)
   const char buffer[] = "Text file!\n";
   const guint8 binary_buffer[] = "\xde\xad\xbe\xff";
 
-#if defined(G_OS_WIN32) || defined(G_OS_DARWIN)
-  g_test_skip ("Default URI handlers are not currently supported on Windows or macOS");
-  return;
-#endif
+  if (skip_missing_update_desktop_database ())
+    return;
 
   text_file = g_file_new_tmp ("query-default-handler-XXXXXX", &iostream, &error);
   g_assert_no_error (error);
@@ -3676,10 +4273,8 @@ test_query_default_handler_file_async (void)
   const guint8 binary_buffer[] = "\xde\xad\xbe\xff";
   GError *error = NULL;
 
-#if defined(G_OS_WIN32) || defined(G_OS_DARWIN)
-  g_test_skip ("Default URI handlers are not currently supported on Windows or macOS");
-  return;
-#endif
+  if (skip_missing_update_desktop_database ())
+    return;
 
   data.loop = g_main_loop_new (NULL, FALSE);
 
@@ -3766,10 +4361,8 @@ test_query_default_handler_uri_async (void)
   GFile *file;
   GFile *invalid_file;
 
-#if defined(G_OS_WIN32) || defined(G_OS_DARWIN)
-  g_test_skip ("Default URI handlers are not currently supported on Windows or macOS");
-  return;
-#endif
+  if (skip_missing_update_desktop_database ())
+    return;
 
   info = create_command_line_app_info ("Gio File Handler", "true",
                                        "x-scheme-handler/gio-file");
@@ -3815,6 +4408,76 @@ test_query_default_handler_uri_async (void)
   g_object_unref (invalid_file);
 }
 
+static void
+test_enumerator_cancellation (void)
+{
+  GCancellable *cancellable;
+  GFileEnumerator *enumerator;
+  GFileInfo *info;
+  GFile *dir;
+  GError *error = NULL;
+
+  dir = g_file_new_for_path (g_get_tmp_dir ());
+  g_assert_nonnull (dir);
+
+  enumerator = g_file_enumerate_children (dir,
+                                          G_FILE_ATTRIBUTE_STANDARD_NAME,
+                                          G_FILE_QUERY_INFO_NONE,
+                                          NULL,
+                                          &error);
+  g_assert_nonnull (enumerator);
+
+  cancellable = g_cancellable_new ();
+  g_cancellable_cancel (cancellable);
+  info = g_file_enumerator_next_file (enumerator, cancellable, &error);
+  g_assert_null (info);
+  g_assert_error (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+
+  g_error_free (error);
+  g_object_unref (cancellable);
+  g_object_unref (enumerator);
+  g_object_unref (dir);
+}
+
+static void
+test_path_from_uri_helper (const gchar *uri,
+			   const gchar *expected_path)
+{
+  GFile *file;
+  gchar *path;
+  gchar *expected_platform_path;
+
+  expected_platform_path = g_strdup (expected_path);
+#ifdef G_OS_WIN32
+  for (gchar *p = expected_platform_path; *p; p++)
+    {
+      if (*p == '/')
+	*p = '\\';
+    }
+#endif
+
+  file = g_file_new_for_uri (uri);
+  path = g_file_get_path (file);
+  g_assert_cmpstr (path, ==, expected_platform_path);
+  g_free (path);
+  g_object_unref (file);
+  g_free (expected_platform_path);
+}
+
+static void
+test_from_uri_ignores_fragment (void)
+{
+  test_path_from_uri_helper ("file:///tmp/foo#bar", "/tmp/foo");
+  test_path_from_uri_helper ("file:///tmp/foo#bar?baz", "/tmp/foo");
+}
+
+static void
+test_from_uri_ignores_query_string (void)
+{
+  test_path_from_uri_helper ("file:///tmp/foo?bar", "/tmp/foo");
+  test_path_from_uri_helper ("file:///tmp/foo?bar#baz", "/tmp/foo");
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -3824,6 +4487,7 @@ main (int argc, char *argv[])
 
   g_test_add_func ("/file/basic", test_basic);
   g_test_add_func ("/file/build-filename", test_build_filename);
+  g_test_add_func ("/file/build-filenamev", test_build_filenamev);
   g_test_add_func ("/file/parent", test_parent);
   g_test_add_func ("/file/child", test_child);
   g_test_add_func ("/file/empty-path", test_empty_path);
@@ -3845,10 +4509,15 @@ main (int argc, char *argv[])
   g_test_add_func ("/file/async-delete", test_async_delete);
   g_test_add_func ("/file/async-make-symlink", test_async_make_symlink);
   g_test_add_func ("/file/copy-preserve-mode", test_copy_preserve_mode);
+  g_test_add_func ("/file/copy/progress", test_copy_progress);
+  g_test_add_func ("/file/copy-async-with-closures", test_copy_async_with_closures);
   g_test_add_func ("/file/measure", test_measure);
   g_test_add_func ("/file/measure-async", test_measure_async);
   g_test_add_func ("/file/load-bytes", test_load_bytes);
   g_test_add_func ("/file/load-bytes-async", test_load_bytes_async);
+  g_test_add_func ("/file/load-bytes-4gb", test_load_bytes_4gb);
+  g_test_add_func ("/file/load-contents-4gb", test_load_contents_4gb);
+  g_test_add_func ("/file/load-contents-4gb-async", test_load_contents_4gb_async);
   g_test_add_func ("/file/writev", test_writev);
   g_test_add_func ("/file/writev/no-bytes-written", test_writev_no_bytes_written);
   g_test_add_func ("/file/writev/no-vectors", test_writev_no_vectors);
@@ -3862,11 +4531,16 @@ main (int argc, char *argv[])
   g_test_add_func ("/file/writev/async_all-cancellation", test_writev_async_all_cancellation);
   g_test_add_func ("/file/build-attribute-list-for-copy", test_build_attribute_list_for_copy);
   g_test_add_func ("/file/move_async", test_move_async);
+  g_test_add_func ("/file/move-async-with-closures", test_move_async_with_closures);
   g_test_add_func ("/file/query-zero-length-content-type", test_query_zero_length_content_type);
   g_test_add_func ("/file/query-default-handler-file", test_query_default_handler_file);
   g_test_add_func ("/file/query-default-handler-file-async", test_query_default_handler_file_async);
   g_test_add_func ("/file/query-default-handler-uri", test_query_default_handler_uri);
   g_test_add_func ("/file/query-default-handler-uri-async", test_query_default_handler_uri_async);
+  g_test_add_func ("/file/enumerator-cancellation", test_enumerator_cancellation);
+  g_test_add_func ("/file/from-uri/ignores-query-string", test_from_uri_ignores_query_string);
+  g_test_add_func ("/file/from-uri/ignores-fragment", test_from_uri_ignores_fragment);
 
   return g_test_run ();
 }
+

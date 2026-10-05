@@ -26,6 +26,17 @@
 
 #include "gio-tool.h"
 
+#ifdef HAVE_COCOA
+#define TRASH_SUMMARY N_("Move files or directories to the trash.")
+#define EMPTY_DESCRIPTION N_("Empty the trash (not supported on macOS)")
+#define LIST_DESCRIPTION N_("List files in the trash with their original locations (not supported on macOS)")
+#define RESTORE_DESCRIPTION N_("Restore a file from trash to its original location (not supported on macOS)")
+#else
+#define TRASH_SUMMARY N_("Move/Restore files or directories to the trash.")
+#define EMPTY_DESCRIPTION N_("Empty the trash")
+#define LIST_DESCRIPTION N_("List files in the trash with their original locations")
+#define RESTORE_DESCRIPTION N_("Restore a file from trash to its original location (possibly recreating the directory)")
+#endif
 
 static gboolean global_force = FALSE;
 static gboolean empty = FALSE;
@@ -33,21 +44,41 @@ static gboolean restore = FALSE;
 static gboolean list = FALSE;
 static const GOptionEntry entries[] = {
   { "force", 'f', 0, G_OPTION_ARG_NONE, &global_force, N_("Ignore nonexistent files, never prompt"), NULL },
-  { "empty", 0, 0, G_OPTION_ARG_NONE, &empty, N_("Empty the trash"), NULL },
-  { "list", 0, 0, G_OPTION_ARG_NONE, &list, N_("List files in the trash with their original locations"), NULL },
-  { "restore", 0, 0, G_OPTION_ARG_NONE, &restore, N_("Restore a file from trash to its original location (possibly "
-                                                     "recreating the directory)"), NULL },
+  { "empty", 0, 0, G_OPTION_ARG_NONE, &empty, EMPTY_DESCRIPTION, NULL },
+  { "list", 0, 0, G_OPTION_ARG_NONE, &list, LIST_DESCRIPTION, NULL },
+  { "restore", 0, 0, G_OPTION_ARG_NONE, &restore, RESTORE_DESCRIPTION, NULL },
   G_OPTION_ENTRY_NULL
 };
 
-static void
-delete_trash_file (GFile *file, gboolean del_file, gboolean del_children)
+#ifdef HAVE_COCOA
+static gboolean
+ensure_supported_on_macos (GOptionContext *context,
+                           GError **error)
+{
+  if (restore || list || empty)
+    {
+      show_help (context, _("The options --restore, --list, and --empty are not supported on macOS"));
+      g_set_error_literal (error,
+                           G_IO_ERROR,
+                           G_IO_ERROR_NOT_SUPPORTED,
+                           _("The options --restore, --list, and --empty are not supported on macOS"));
+      return FALSE;
+    }
+
+  return TRUE;
+}
+#endif
+
+static gboolean
+delete_trash_file (GFile *file, gboolean del_file, gboolean del_children, GError **error)
 {
   GFileInfo *info;
   GFile *child;
   GFileEnumerator *enumerator;
+  GError *local_error = NULL;
+  gboolean success = TRUE;
 
-  g_return_if_fail (g_file_has_uri_scheme (file, "trash"));
+  g_return_val_if_fail (g_file_has_uri_scheme (file, "trash"), FALSE);
 
   if (del_children)
     {
@@ -56,30 +87,65 @@ delete_trash_file (GFile *file, gboolean del_file, gboolean del_children)
                                               G_FILE_ATTRIBUTE_STANDARD_TYPE,
                                               G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
                                               NULL,
-                                              NULL);
-      if (enumerator)
+                                              &local_error);
+      if (!enumerator)
         {
-          while ((info = g_file_enumerator_next_file (enumerator, NULL, NULL)) != NULL)
+          g_propagate_error (error, g_steal_pointer (&local_error));
+          return FALSE;
+        }
+
+      while ((info = g_file_enumerator_next_file (enumerator, NULL, &local_error)) != NULL)
+        {
+          child = g_file_get_child (file, g_file_info_get_name (info));
+
+          /* The g_file_delete operation works differently for locations
+           * provided by the trash backend as it prevents modifications of
+           * trashed items. For that reason, it is enough to call
+           * g_file_delete on top-level items only.
+           */
+          if (!delete_trash_file (child, TRUE, FALSE, &local_error))
             {
-              child = g_file_get_child (file, g_file_info_get_name (info));
-
-              /* The g_file_delete operation works differently for locations
-               * provided by the trash backend as it prevents modifications of
-               * trashed items. For that reason, it is enough to call
-               * g_file_delete on top-level items only.
-               */
-              delete_trash_file (child, TRUE, FALSE);
-
               g_object_unref (child);
               g_object_unref (info);
+              success = FALSE;
+              break;
             }
-          g_file_enumerator_close (enumerator, NULL, NULL);
-          g_object_unref (enumerator);
+
+          g_object_unref (child);
+          g_object_unref (info);
         }
+
+      if (local_error)
+        {
+          g_propagate_error (error, g_steal_pointer (&local_error));
+          success = FALSE;
+        }
+
+      if (!g_file_enumerator_close (enumerator, NULL, &local_error))
+        {
+          if (success)
+            g_propagate_error (error, g_steal_pointer (&local_error));
+          else
+            g_clear_error (&local_error);
+          success = FALSE;
+        }
+
+      g_object_unref (enumerator);
+
+      if (!success)
+        return FALSE;
     }
 
   if (del_file)
-    g_file_delete (file, NULL, NULL);
+    {
+      if (!g_file_delete (file, NULL, &local_error))
+        {
+          g_propagate_error (error, g_steal_pointer (&local_error));
+          return FALSE;
+        }
+    }
+
+  return TRUE;
 }
 
 static gboolean
@@ -92,7 +158,7 @@ restore_trash (GFile         *file,
   GFile *target = NULL;
   GFile *dir_target = NULL;
   gboolean ret = FALSE;
-  gchar *orig_path = NULL;
+  const gchar *orig_path = NULL;
   GError *local_error = NULL;
 
   info = g_file_query_info (file, G_FILE_ATTRIBUTE_TRASH_ORIG_PATH, G_FILE_QUERY_INFO_NONE, cancellable, &local_error);
@@ -102,7 +168,7 @@ restore_trash (GFile         *file,
       goto exit_func;
     }
 
-  orig_path = g_file_info_get_attribute_as_string (info, G_FILE_ATTRIBUTE_TRASH_ORIG_PATH);
+  orig_path = g_file_info_get_attribute_byte_string (info, G_FILE_ATTRIBUTE_TRASH_ORIG_PATH);
   if (!orig_path)
     {
       g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, _("Unable to find original path"));
@@ -110,7 +176,6 @@ restore_trash (GFile         *file,
     }
 
   target = g_file_new_for_commandline_arg (orig_path);
-  g_free (orig_path);
 
   dir_target = g_file_get_parent (target);
   if (dir_target)
@@ -173,21 +238,23 @@ trash_list (GFile         *file,
   while ((info = g_file_enumerator_next_file (enumerator, cancellable, &local_error)) != NULL)
     {
       const char *name;
-      char *orig_path;
+      const char *orig_path;
       char *uri;
+      gchar *utf8_path;
       GFile* child;
 
       name = g_file_info_get_name (info);
       child = g_file_get_child (file, name);
       uri = g_file_get_uri (child);
       g_object_unref (child);
-      orig_path = g_file_info_get_attribute_as_string (info, G_FILE_ATTRIBUTE_TRASH_ORIG_PATH);
+      orig_path = g_file_info_get_attribute_byte_string (info, G_FILE_ATTRIBUTE_TRASH_ORIG_PATH);
+      utf8_path = g_filename_to_utf8 (orig_path, -1, NULL, NULL, NULL);
 
-      g_print ("%s\t%s\n", uri, orig_path);
+      g_print ("%s\t%s\n", uri, utf8_path);
 
       g_object_unref (info);
-      g_free (orig_path);
       g_free (uri);
+      g_free (utf8_path);
     }
 
   if (local_error)
@@ -203,6 +270,8 @@ trash_list (GFile         *file,
       g_clear_error (&local_error);
       res = FALSE;
     }
+
+  g_object_unref (enumerator);
 
   return res;
 }
@@ -224,10 +293,12 @@ handle_trash (int argc, char *argv[], gboolean do_help)
   g_free (param);
   g_option_context_set_help_enabled (context, FALSE);
   g_option_context_set_summary (context,
-      _("Move/Restore files or directories to the trash."));
+      _(TRASH_SUMMARY));
+#ifndef HAVE_COCOA
   g_option_context_set_description (context,
       _("Note: for --restore switch, if the original location of the trashed file \n"
         "already exists, it will not be overwritten unless --force is set."));
+#endif
   g_option_context_add_main_entries (context, entries, GETTEXT_PACKAGE);
 
   if (do_help)
@@ -244,6 +315,15 @@ handle_trash (int argc, char *argv[], gboolean do_help)
       g_option_context_free (context);
       return 1;
     }
+
+#ifdef HAVE_COCOA
+  if (!ensure_supported_on_macos (context, &error))
+    {
+      g_clear_error (&error);
+      g_option_context_free (context);
+      return 1;
+    }
+#endif
 
   if (argc > 1)
     {
@@ -294,7 +374,12 @@ handle_trash (int argc, char *argv[], gboolean do_help)
   else if (empty)
     {
       file = g_file_new_for_uri ("trash:");
-      delete_trash_file (file, FALSE, TRUE);
+      if (!delete_trash_file (file, FALSE, TRUE, &error))
+        {
+          print_file_error (file, error->message);
+          g_clear_error (&error);
+          retval = 1;
+        }
       g_object_unref (file);
     }
 

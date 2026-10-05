@@ -122,9 +122,7 @@ _g_dbus_auth_mechanism_class_init (GDBusAuthMechanismClass *klass)
 
   g_object_class_install_property (gobject_class,
                                    PROP_STREAM,
-                                   g_param_spec_object ("stream",
-                                                        P_("IO Stream"),
-                                                        P_("The underlying GIOStream used for I/O"),
+                                   g_param_spec_object ("stream", NULL, NULL,
                                                         G_TYPE_IO_STREAM,
                                                         G_PARAM_READABLE |
                                                         G_PARAM_WRITABLE |
@@ -144,9 +142,7 @@ _g_dbus_auth_mechanism_class_init (GDBusAuthMechanismClass *klass)
    */
   g_object_class_install_property (gobject_class,
                                    PROP_CREDENTIALS,
-                                   g_param_spec_object ("credentials",
-                                                        P_("Credentials"),
-                                                        P_("The credentials of the remote peer"),
+                                   g_param_spec_object ("credentials", NULL, NULL,
                                                         G_TYPE_CREDENTIALS,
                                                         G_PARAM_READABLE |
                                                         G_PARAM_WRITABLE |
@@ -326,6 +322,13 @@ _g_dbus_auth_mechanism_client_data_send (GDBusAuthMechanism *mechanism,
 {
   g_return_val_if_fail (G_IS_DBUS_AUTH_MECHANISM (mechanism), NULL);
   return G_DBUS_AUTH_MECHANISM_GET_CLASS (mechanism)->client_data_send (mechanism, out_data_len);
+}
+
+gchar *
+_g_dbus_auth_mechanism_client_get_reject_reason (GDBusAuthMechanism *mechanism)
+{
+  g_return_val_if_fail (G_IS_DBUS_AUTH_MECHANISM (mechanism), NULL);
+  return G_DBUS_AUTH_MECHANISM_GET_CLASS (mechanism)->client_get_reject_reason (mechanism);
 }
 
 void

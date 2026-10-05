@@ -7,11 +7,16 @@
 
 ## Supported Versions
 
-Upstream GLib only supports the most recent stable release series, and the
-current development release series. Any older stable release series are no
-longer supported, although they may still receive backported security updates
-in long-term support distributions. Such support is up to the distributions,
-though.
+Upstream GLib only supports the most recent stable release series, the previous
+stable release series, and the current development release series. Any older
+stable release series are no longer supported, although they may still receive
+backported security updates in long-term support distributions. Such support is
+up to the distributions, though.
+
+The previous stable release series will generally receive fixes only for high
+impact security issues, at maintainer discretion. Since such issues are rare,
+it's expected that there may be no backports or releases on the previous stable
+branch.
 
 Under GLib’s versioning scheme, stable release series have an *even* minor
 component (for example, 2.66.0, 2.66.1, 2.68.3), and development release series
@@ -63,9 +68,7 @@ are then:
 ## Security Announcements
 
 Security announcements are made publicly via the
-[`distributor` tag on discourse.gnome.org](https://discourse.gnome.org/tag/distributor)
-and cross-posted to the
-[distributor-list](https://mail.gnome.org/mailman/listinfo/distributor-list).
+[`distributor` tag on discourse.gnome.org](https://discourse.gnome.org/tag/distributor).
 
 Announcements for security issues with wide applicability or high impact may
 additionally be made via

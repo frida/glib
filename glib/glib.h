@@ -64,8 +64,8 @@
 #include <glib/gmessages.h>
 #include <glib/gnode.h>
 #include <glib/goption.h>
+#include <glib/gpathbuf.h>
 #include <glib/gpattern.h>
-#include <glib/gplatformaudit.h>
 #include <glib/gpoll.h>
 #include <glib/gprimes.h>
 #include <glib/gqsort.h>
@@ -102,7 +102,6 @@
 #include <glib/gvarianttype.h>
 #include <glib/gversion.h>
 #include <glib/gversionmacros.h>
-#include <glib/gwait.h>
 
 #ifdef G_PLATFORM_WIN32
 #include <glib/gwin32.h>
@@ -119,30 +118,5 @@
 #include <glib/glib-typeof.h>
 
 #undef __GLIB_H_INSIDE__
-
-G_BEGIN_DECLS
-
-GLIB_AVAILABLE_IN_2_68
-void                            glib_init                               (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            glib_enable_io_features                 (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            glib_shutdown                           (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            glib_deinit                             (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            glib_prepare_to_fork                    (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            glib_recover_from_fork_in_parent        (void);
-
-GLIB_AVAILABLE_IN_2_68
-void                            glib_recover_from_fork_in_child         (void);
-
-G_END_DECLS
 
 #endif /* __G_LIB_H__ */

@@ -34,11 +34,6 @@ G_BEGIN_DECLS
 #define G_IS_UNIX_INPUT_STREAM_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_UNIX_INPUT_STREAM))
 #define G_UNIX_INPUT_STREAM_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_UNIX_INPUT_STREAM, GUnixInputStreamClass))
 
-/**
- * GUnixInputStream:
- *
- * Implements #GInputStream for reading from selectable unix file descriptors
- **/
 typedef struct _GUnixInputStream         GUnixInputStream;
 typedef struct _GUnixInputStreamClass    GUnixInputStreamClass;
 typedef struct _GUnixInputStreamPrivate  GUnixInputStreamPrivate;
@@ -67,7 +62,7 @@ struct _GUnixInputStreamClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType          g_unix_input_stream_get_type     (void) G_GNUC_CONST;
+GType          g_unix_input_stream_get_type     (void);
 
 GIO_AVAILABLE_IN_ALL
 GInputStream * g_unix_input_stream_new          (gint              fd,

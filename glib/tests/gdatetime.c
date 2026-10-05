@@ -1,6 +1,7 @@
 /* gdatetime-tests.c
  *
  * Copyright (C) 2009-2010 Christian Hergert <chris@dronelabs.com>
+ * Copyright 2023 GNOME Foundation Inc.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  *
@@ -16,6 +17,10 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this library; if not, see <http://www.gnu.org/licenses/>.
+ *
+ * Authors:
+ *  - Christian Hergert <chris@dronelabs.com>
+ *  - Philip Withnall <pwithnall@gnome.org>
  */
 
 #include "config.h"
@@ -28,6 +33,8 @@
 #include <glib/gstdio.h>
 #include <locale.h>
 
+#include "gdatetime-private.h"
+
 #ifdef G_OS_WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -35,6 +42,11 @@
 #ifndef NAN
 #define NAN HUGE_VAL * 0.0f
 #endif
+#endif
+
+#ifdef HAVE_UNSHARE
+#include <sched.h>
+#include <unistd.h>
 #endif
 
 #define ASSERT_DATE(dt,y,m,d) G_STMT_START { \
@@ -133,6 +145,54 @@ test_GDateTime_now (void)
 }
 
 static void
+test_GDateTime_set_date_time (void)
+{
+  GDateTime *beginning = g_date_time_new_from_iso8601 ("1970-01-01T00:00:00Z", NULL);
+  GDateTime *beginning_elsewhere = g_date_time_new_from_iso8601 ("1970-01-01T12:00:00+12:00", NULL);
+  GDateTime *millennium = g_date_time_new_from_iso8601 ("2000-01-01T00:00:00Z", NULL);
+  GDateTime *test = NULL;
+  gboolean was_set = FALSE;
+
+  g_assert_nonnull (beginning);
+  g_assert_nonnull (beginning_elsewhere);
+  g_assert_nonnull (millennium);
+  g_assert_true (g_date_time_equal (beginning, beginning_elsewhere));
+
+  was_set = g_set_date_time (&test, millennium);
+  g_assert_true (was_set);
+  g_assert_false (g_date_time_equal (test, beginning));
+  g_assert_true (g_date_time_equal (test, millennium));
+
+  was_set = g_set_date_time (&test, beginning);
+  g_assert_true (was_set);
+  g_assert_true (g_date_time_equal (test, beginning));
+  g_assert_false (g_date_time_equal (test, millennium));
+
+  was_set = g_set_date_time (&test, beginning);
+  g_assert_false (was_set);
+  g_assert_true (g_date_time_equal (test, beginning));
+  g_assert_false (g_date_time_equal (test, millennium));
+
+  was_set = g_set_date_time (&test, beginning_elsewhere);
+  g_assert_true (was_set);
+  g_assert_true (g_date_time_equal (test, beginning_elsewhere));
+  g_assert_false (g_date_time_equal (test, millennium));
+
+  was_set = g_set_date_time (&test, millennium);
+  g_assert_true (was_set);
+  g_assert_false (g_date_time_equal (test, beginning));
+  g_assert_true (g_date_time_equal (test, millennium));
+
+  was_set = g_set_date_time (&test, NULL);
+  g_assert_true (was_set);
+  g_assert_null (test);
+
+  g_date_time_unref (beginning);
+  g_date_time_unref (beginning_elsewhere);
+  g_date_time_unref (millennium);
+}
+
+static void
 test_GDateTime_new_from_unix (void)
 {
   GDateTime *dt;
@@ -207,7 +267,7 @@ test_GDateTime_invalid (void)
   g_test_bug ("http://bugzilla.gnome.org/702674");
 
   dt = g_date_time_new_utc (2013, -2147483647, 31, 17, 15, 48);
-  g_assert (dt == NULL);
+  g_assert_null (dt);
 }
 
 static void
@@ -215,6 +275,7 @@ test_GDateTime_compare (void)
 {
   GDateTime *dt1, *dt2;
   gint       i;
+  GTimeZone *utc_plus_one = g_time_zone_new_identifier ("+01:00");
 
   dt1 = g_date_time_new_utc (2000, 1, 1, 0, 0, 0);
 
@@ -236,6 +297,13 @@ test_GDateTime_compare (void)
   dt2 = g_date_time_new_utc (2000, 1, 1, 0, 0, 0);
   g_assert_cmpint (0, ==, g_date_time_compare (dt1, dt2));
   g_date_time_unref (dt2);
+
+  /* Check that the same instant in a different time zone compares equal too */
+  dt2 = g_date_time_new (utc_plus_one, 2000, 1, 1, 1, 0, 0);
+  g_assert_cmpint (0, ==, g_date_time_compare (dt1, dt2));
+  g_date_time_unref (dt2);
+
+  g_time_zone_unref (utc_plus_one);
   g_date_time_unref (dt1);
 }
 
@@ -247,13 +315,13 @@ test_GDateTime_equal (void)
 
   dt1 = g_date_time_new_local (2009, 10, 19, 0, 0, 0);
   dt2 = g_date_time_new_local (2009, 10, 19, 0, 0, 0);
-  g_assert (g_date_time_equal (dt1, dt2));
+  g_assert_true (g_date_time_equal (dt1, dt2));
   g_date_time_unref (dt1);
   g_date_time_unref (dt2);
 
   dt1 = g_date_time_new_local (2009, 10, 18, 0, 0, 0);
   dt2 = g_date_time_new_local (2009, 10, 19, 0, 0, 0);
-  g_assert (!g_date_time_equal (dt1, dt2));
+  g_assert_false (g_date_time_equal (dt1, dt2));
   g_date_time_unref (dt1);
   g_date_time_unref (dt2);
 
@@ -267,7 +335,7 @@ test_GDateTime_equal (void)
   dt2 = g_date_time_new_utc (2010, 5, 24, 11, 0, 0);
   g_assert_cmpint (g_date_time_get_utc_offset (dt2), ==, 0);
 
-  g_assert (g_date_time_equal (dt1, dt2));
+  g_assert_true (g_date_time_equal (dt1, dt2));
   g_date_time_unref (dt1);
 
   /* America/Recife is in UTC-0300 */
@@ -280,7 +348,7 @@ test_GDateTime_equal (void)
   dt1 = g_date_time_new (tz, 2010, 5, 24,  8, 0, 0);
   g_time_zone_unref (tz);
   g_assert_cmpint (g_date_time_get_utc_offset (dt1) / G_USEC_PER_SEC, ==, (-3 * 3600));
-  g_assert (g_date_time_equal (dt1, dt2));
+  g_assert_true (g_date_time_equal (dt1, dt2));
   g_date_time_unref (dt1);
   g_date_time_unref (dt2);
 }
@@ -403,7 +471,7 @@ test_GDateTime_new_from_timeval (void)
   dt = g_date_time_new_from_timeval_local (&tv);
 
   if (g_test_verbose ())
-    g_printerr ("\nDT%04d-%02d-%02dT%02d:%02d:%02d%s\n",
+    g_test_message ("DT%04d-%02d-%02dT%02d:%02d:%02d%s",
              g_date_time_get_year (dt),
              g_date_time_get_month (dt),
              g_date_time_get_day_of_month (dt),
@@ -501,7 +569,7 @@ test_GDateTime_new_from_timeval_utc (void)
   dt = g_date_time_new_from_timeval_utc (&tv);
 
   if (g_test_verbose ())
-    g_printerr ("\nDT%04d-%02d-%02dT%02d:%02d:%02d%s\n",
+    g_test_message ("DT%04d-%02d-%02dT%02d:%02d:%02d%s",
              g_date_time_get_year (dt),
              g_date_time_get_month (dt),
              g_date_time_get_day_of_month (dt),
@@ -859,6 +927,23 @@ test_GDateTime_new_from_iso8601 (void)
    * NaN */
   dt = g_date_time_new_from_iso8601 ("0005306 000001,666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666666600080000-00", NULL);
   g_assert_null (dt);
+
+  /* Various invalid timezone offsets which look like they could be in
+   * `+hh:mm`, `-hh:mm`, `+hhmm`, `-hhmm`, `+hh` or `-hh` format */
+  dt = g_date_time_new_from_iso8601 ("2025-02-18T18:14:00+01:xx", NULL);
+  g_assert_null (dt);
+  dt = g_date_time_new_from_iso8601 ("2025-02-18T18:14:00+xx:00", NULL);
+  g_assert_null (dt);
+  dt = g_date_time_new_from_iso8601 ("2025-02-18T18:14:00+xx:xx", NULL);
+  g_assert_null (dt);
+  dt = g_date_time_new_from_iso8601 ("2025-02-18T18:14:00+01xx", NULL);
+  g_assert_null (dt);
+  dt = g_date_time_new_from_iso8601 ("2025-02-18T18:14:00+xx00", NULL);
+  g_assert_null (dt);
+  dt = g_date_time_new_from_iso8601 ("2025-02-18T18:14:00+xxxx", NULL);
+  g_assert_null (dt);
+  dt = g_date_time_new_from_iso8601 ("2025-02-18T18:14:00+xx", NULL);
+  g_assert_null (dt);
 }
 
 typedef struct {
@@ -1117,6 +1202,24 @@ test_GDateTime_add_full (void)
   TEST_ADD_FULL (2010,  8, 25, 22, 45, 0,
                     0,  1,  6,  1, 25, 0,
                  2010, 10,  2,  0, 10, 0);
+
+#define TEST_ADD_FULL_ERROR(y,m,d,h,mi,s,ay,am,ad,ah,ami,as) G_STMT_START { \
+  GDateTime *dt; \
+  dt = g_date_time_new_utc (y, m, d, h, mi, s); \
+  g_assert_null (g_date_time_add_full (dt, ay, am, ad, ah, ami, as)); \
+  g_date_time_unref (dt); \
+} G_STMT_END
+
+  TEST_ADD_FULL_ERROR (     1, 12,  1,  0,  0, 0,
+                           -1,  0,  0,  0,  0, 0);
+  TEST_ADD_FULL_ERROR (     1, 12,  1,  0,  0, 0,
+                        10000,  0,  0,  0,  0, 0);
+  TEST_ADD_FULL_ERROR (  9999, 12,  1,  0,  0, 0,
+                       -10000,  0,  0,  0,  0, 0);
+  TEST_ADD_FULL_ERROR (     1, 12,  1,  0,  0, 0,
+                            0,  0, 3660001,  0,  0, 0);
+  TEST_ADD_FULL_ERROR (  9999, 12,  1,  0,  0, 0,
+                            0,  0, -3660001,  0,  0, 0);
 }
 
 static void
@@ -1263,7 +1366,7 @@ test_GDateTime_new_full (void)
                    g_time_zone_get_identifier (dt_tz));
   SetThreadUILanguage (currLangId);
 #endif
-  g_assert (!g_date_time_is_daylight_savings (dt));
+  g_assert_false (g_date_time_is_daylight_savings (dt));
   g_date_time_unref (dt);
   g_time_zone_unref (tz);
 
@@ -1399,15 +1502,15 @@ test_GDateTime_new_from_unix_utc (void)
 
 #if 0
   dt = g_date_time_new_from_unix_utc (t);
-  g_assert (dt == NULL);
+  g_assert_null (dt);
 #endif
 
-  t = t / 1e6;  /* oops, this was microseconds */
+  t = t / G_USEC_PER_SEC;  /* oops, this was microseconds */
 
   dt = g_date_time_new_from_unix_utc (t);
-  g_assert (dt != NULL);
+  g_assert_nonnull (dt);
 
-  g_assert (dt == g_date_time_ref (dt));
+  g_assert_true (dt == g_date_time_ref (dt));
   g_date_time_unref (dt);
   g_assert_cmpint (g_date_time_to_unix (dt), ==, t);
   g_date_time_unref (dt);
@@ -1536,15 +1639,8 @@ test_GDateTime_get_day_of_year (void)
 static void
 test_GDateTime_printf (void)
 {
-/* 64 seems big, but one zoneinfo file, Factory, has an abbreviation
- * that long, and it will cause the test to fail if dst isn't big
- * enough.
- */
   gchar *old_lc_all;
   gchar *old_lc_messages;
-  gchar dst[64];
-  struct tm tt;
-  time_t t;
 
 #ifdef G_OS_WIN32
   gchar *current_tz = NULL;
@@ -1552,51 +1648,44 @@ test_GDateTime_printf (void)
 #endif
 
 #define TEST_PRINTF(f,o)                        G_STMT_START {  \
-GDateTime *__dt = g_date_time_new_local (2009, 10, 24, 0, 0, 0);\
-  gchar *__p = g_date_time_format (__dt, (f));                  \
-  g_assert_cmpstr (__p, ==, (o));                               \
+  const char *expected = (o);                                   \
+  GDateTime *__dt = g_date_time_new_utc (2009, 10, 24, 0, 0, 0);\
+  gchar *actual = g_date_time_format (__dt, (f));               \
+  g_test_message ("%s -> expected: %s", (f), expected);         \
+  g_test_message ("%s -> actual:   %s", (f), actual);           \
+  g_assert_cmpstr (actual, ==, expected);                       \
   g_date_time_unref (__dt);                                     \
-  g_free (__p);                                 } G_STMT_END
+  g_free (actual);                              } G_STMT_END
 
 #define TEST_PRINTF_DATE(y,m,d,f,o)             G_STMT_START {  \
-  GDateTime *dt = g_date_time_new_local (y, m, d, 0, 0, 0);     \
-  gchar *p = g_date_time_format (dt, (f));                      \
-  gchar *o_casefold = g_utf8_casefold (o, -1);                  \
-  gchar *p_casefold = g_utf8_casefold (p, -1);                  \
-  g_assert_cmpstr (p_casefold, ==, (o_casefold));               \
+  const char *expected = (o);                                   \
+  GDateTime *dt = g_date_time_new_utc (y, m, d, 0, 0, 0);       \
+  gchar *actual = g_date_time_format (dt, (f));                 \
+  gchar *expected_casefold = g_utf8_casefold (expected, -1);    \
+  gchar *actual_casefold = g_utf8_casefold (actual, -1);        \
+  g_test_message ("%s -> expected: %s", (f), expected);         \
+  g_test_message ("%s -> actual:   %s", (f), actual);           \
+  g_assert_cmpstr (expected_casefold, ==, (actual_casefold));   \
   g_date_time_unref (dt);                                       \
-  g_free (p_casefold);                                          \
-  g_free (o_casefold);                                          \
-  g_free (p);                                   } G_STMT_END
+  g_free (expected_casefold);                                   \
+  g_free (actual_casefold);                                     \
+  g_free (actual);                                   } G_STMT_END
 
 #define TEST_PRINTF_TIME(h,m,s,f,o)             G_STMT_START { \
-  GDateTime *dt = g_date_time_new_local (2009, 10, 24, (h), (m), (s)); \
-  gchar *p = g_date_time_format (dt, (f));                      \
-  g_assert_cmpstr (p, ==, (o));                                 \
+  GDateTime *dt = g_date_time_new_utc (2009, 10, 24, (h), (m), (s)); \
+  const char *expected = (o);                                   \
+  gchar *actual = g_date_time_format (dt, (f));                 \
+  g_test_message ("%s -> expected: %s", (f), expected);         \
+  g_test_message ("%s -> actual:   %s", (f), actual);           \
+  g_assert_cmpstr (actual, ==, expected);                       \
   g_date_time_unref (dt);                                       \
-  g_free (p);                                   } G_STMT_END
+  g_free (actual);                              } G_STMT_END
 
   old_lc_all = g_strdup (g_getenv ("LC_ALL"));
   g_unsetenv ("LC_ALL");
 
   old_lc_messages = g_strdup (g_getenv ("LC_MESSAGES"));
   g_setenv ("LC_MESSAGES", "C", TRUE);
-
-  /*
-   * This is a little helper to make sure we can compare timezones to
-   * that of the generated timezone.
-   */
-  t = time (NULL);
-  g_assert_cmpint (t, !=, (time_t) -1);
-  memset (&tt, 0, sizeof(tt));
-  get_localtime_tm (t, &tt);
-  tt.tm_year = 2009 - 1900;
-  tt.tm_mon = 9; /* 0 indexed */
-  tt.tm_mday = 24;
-  t = mktime (&tt);
-  memset (&tt, 0, sizeof(tt));
-  get_localtime_tm (t, &tt);
-  strftime (dst, sizeof(dst), "%Z", &tt);
 
   TEST_PRINTF ("%a", "Sat");
   TEST_PRINTF ("%A", "Saturday");
@@ -1642,9 +1731,10 @@ GDateTime *__dt = g_date_time_new_local (2009, 10, 24, 0, 0, 0);\
   TEST_PRINTF ("%", "");
   TEST_PRINTF ("%9", NULL);
 #ifdef G_OS_UNIX
-  TEST_PRINTF ("%Z", dst);
+  TEST_PRINTF ("%Z", "UTC");
+  TEST_PRINTF ("%#Z %Z", "utc UTC");
 #elif defined G_OS_WIN32
-  g_assert (GetDynamicTimeZoneInformation (&dtz_info) != TIME_ZONE_ID_INVALID);
+  g_assert_cmpint (GetDynamicTimeZoneInformation (&dtz_info), !=, TIME_ZONE_ID_INVALID);
   if (wcscmp (dtz_info.StandardName, L"") != 0)
     current_tz = g_utf16_to_utf8 (dtz_info.StandardName, -1, NULL, NULL, NULL);
   else
@@ -1694,14 +1784,16 @@ test_non_utf8_printf (void)
    */
   TEST_PRINTF ("%a", "\345\234\237");
   TEST_PRINTF ("%A", "\345\234\237\346\233\234\346\227\245");
-#ifndef G_OS_DARWIN /* OSX just returns the number */
+#ifndef __APPLE__ /* OSX just returns the number */
   TEST_PRINTF ("%b", "10\346\234\210");
 #endif
   TEST_PRINTF ("%B", "10\346\234\210");
+  TEST_PRINTF ("%c", "2009年10月24日 00時00分00秒");
+  TEST_PRINTF ("%C", "20");
   TEST_PRINTF ("%d", "24");
   TEST_PRINTF_DATE (2009, 1, 1, "%d", "01");
   TEST_PRINTF ("%e", "24"); // fixme
-#ifndef G_OS_DARWIN /* OSX just returns the number */
+#ifndef __APPLE__ /* OSX just returns the number */
   TEST_PRINTF ("%h", "10\346\234\210");
 #endif
   TEST_PRINTF ("%H", "00");
@@ -1718,7 +1810,7 @@ test_non_utf8_printf (void)
   TEST_PRINTF_TIME (10, 13, 13, "%l", "10");
   TEST_PRINTF ("%m", "10");
   TEST_PRINTF ("%M", "00");
-#ifndef G_OS_DARWIN /* OSX returns latin "AM", not japanese */
+#ifndef __APPLE__ /* OSX returns latin "AM", not japanese */
   TEST_PRINTF ("%p", "\345\215\210\345\211\215");
   TEST_PRINTF_TIME (13, 13, 13, "%p", "\345\215\210\345\276\214");
   TEST_PRINTF ("%P", "\345\215\210\345\211\215");
@@ -1731,7 +1823,7 @@ test_non_utf8_printf (void)
   TEST_PRINTF ("%S", "00");
   TEST_PRINTF ("%t", "	");
   TEST_PRINTF ("%u", "6");
-#ifndef G_OS_DARWIN /* OSX returns YYYY/MM/DD in ASCII */
+#ifndef __APPLE__ /* OSX returns YYYY/MM/DD in ASCII */
   TEST_PRINTF ("%x", "2009\345\271\26410\346\234\21024\346\227\245");
 #endif
   TEST_PRINTF ("%X", "00\346\231\20200\345\210\20600\347\247\222");
@@ -1741,6 +1833,21 @@ test_non_utf8_printf (void)
   TEST_PRINTF ("%%", "%");
   TEST_PRINTF ("%", "");
   TEST_PRINTF ("%9", NULL);
+#if defined(HAVE_LANGINFO_ERA) && (G_BYTE_ORDER == G_LITTLE_ENDIAN || GLIB_SIZEOF_VOID_P == 4)
+  TEST_PRINTF ("%Ec", "平成21年10月24日 00時00分00秒");
+  TEST_PRINTF ("%EC", "平成");
+  TEST_PRINTF ("%Ex", "平成21年10月24日");
+  TEST_PRINTF ("%EX", "00時00分00秒");
+  TEST_PRINTF ("%Ey", "21");
+  TEST_PRINTF ("%EY", "平成21年");
+#else
+  TEST_PRINTF ("%Ec", "2009年10月24日 00時00分00秒");
+  TEST_PRINTF ("%EC", "20");
+  TEST_PRINTF ("%Ex", "2009\345\271\26410\346\234\21024\346\227\245");
+  TEST_PRINTF ("%EX", "00\346\231\20200\345\210\20600\347\247\222");
+  TEST_PRINTF ("%Ey", "09");
+  TEST_PRINTF ("%EY", "2009");
+#endif
 
   setlocale (LC_ALL, oldlocale);
   g_free (oldlocale);
@@ -1792,6 +1899,30 @@ test_modifiers (void)
   TEST_PRINTF_DATE (2009, 1, 21, "%-e", "21");
   TEST_PRINTF_DATE (2009, 1, 21, "%0e", "21");
 
+  TEST_PRINTF_DATE (2009, 1, 1, "%a", "Thu");
+  TEST_PRINTF_DATE (2009, 1, 1, "%^a", "THU");
+  TEST_PRINTF_DATE (2009, 1, 1, "%#a", "THU");
+
+  TEST_PRINTF_DATE (2009, 1, 1, "%A", "Thursday");
+  TEST_PRINTF_DATE (2009, 1, 1, "%^A", "THURSDAY");
+  TEST_PRINTF_DATE (2009, 1, 1, "%#A", "THURSDAY");
+
+  TEST_PRINTF_DATE (2009, 1, 1, "%b", "Jan");
+  TEST_PRINTF_DATE (2009, 1, 1, "%^b", "JAN");
+  TEST_PRINTF_DATE (2009, 1, 1, "%#b", "JAN");
+
+  TEST_PRINTF_DATE (2009, 1, 1, "%B", "January");
+  TEST_PRINTF_DATE (2009, 1, 1, "%^B", "JANUARY");
+  TEST_PRINTF_DATE (2009, 1, 1, "%#B", "JANUARY");
+
+  TEST_PRINTF_DATE (2009, 1, 1, "%h", "Jan");
+  TEST_PRINTF_DATE (2009, 1, 1, "%^h", "JAN");
+  TEST_PRINTF_DATE (2009, 1, 1, "%#h", "JAN");
+
+  TEST_PRINTF_DATE (2009, 1, 1, "%Z", "UTC");
+  TEST_PRINTF_DATE (2009, 1, 1, "%^Z", "UTC");
+  TEST_PRINTF_DATE (2009, 1, 1, "%#Z", "utc");
+
   TEST_PRINTF_TIME ( 1, 0, 0,  "%H", "01");
   TEST_PRINTF_TIME ( 1, 0, 0, "%_H", " 1");
   TEST_PRINTF_TIME ( 1, 0, 0, "%-H", "1");
@@ -1824,7 +1955,16 @@ test_modifiers (void)
   TEST_PRINTF_TIME (23, 0, 0, "%-l", "11");
   TEST_PRINTF_TIME (23, 0, 0, "%0l", "11");
 
+  TEST_PRINTF_TIME (1, 0, 0, "%p", "AM");
+  TEST_PRINTF_TIME (1, 0, 0, "%^p", "AM");
+  TEST_PRINTF_TIME (1, 0, 0, "%#p", "am");
+
+  TEST_PRINTF_TIME (1, 0, 0, "%P", "am");
+  TEST_PRINTF_TIME (1, 0, 0, "%^P", "AM");
+  TEST_PRINTF_TIME (1, 0, 0, "%#P", "am");
+
   oldlocale = g_strdup (setlocale (LC_ALL, NULL));
+
   setlocale (LC_ALL, "fa_IR.utf-8");
 #ifdef HAVE_LANGINFO_OUTDIGIT
   if (strstr (setlocale (LC_ALL, NULL), "fa_IR") != NULL)
@@ -1843,6 +1983,61 @@ test_modifiers (void)
 #else
     g_test_skip ("langinfo not available, skipping O modifier tests");
 #endif
+
+  setlocale (LC_ALL, "gu_IN.utf-8");
+#ifdef HAVE_LANGINFO_OUTDIGIT
+  if (strstr (setlocale (LC_ALL, NULL), "gu_IN") != NULL)
+    {
+      TEST_PRINTF_TIME (23, 0, 0, "%OH", "૨૩");    /* '23' */
+      TEST_PRINTF_TIME (23, 0, 0, "%OI", "૧૧");    /* '11' */
+      TEST_PRINTF_TIME (23, 0, 0, "%OM", "૦૦");    /* '00' */
+
+      TEST_PRINTF_DATE (2011, 7, 1, "%Om", "૦૭");  /* '07' */
+      TEST_PRINTF_DATE (2011, 7, 1, "%0Om", "૦૭"); /* '07' */
+      TEST_PRINTF_DATE (2011, 7, 1, "%-Om", "૭");         /* '7' */
+      TEST_PRINTF_DATE (2011, 7, 1, "%_Om", " ૭");        /* ' 7' */
+    }
+  else
+    g_test_skip ("locale gu_IN not available, skipping O modifier tests");
+#else
+    g_test_skip ("langinfo not available, skipping O modifier tests");
+#endif
+
+  setlocale (LC_ALL, "en_GB.utf-8");
+  if (strstr (setlocale (LC_ALL, NULL), "en_GB") != NULL)
+    {
+#ifndef __APPLE__
+      TEST_PRINTF_DATE (2009, 1, 1, "%c", "thu 01 jan 2009 00:00:00 utc");
+      TEST_PRINTF_DATE (2009, 1, 1, "%Ec", "thu 01 jan 2009 00:00:00 utc");
+#else
+      /* macOS uses a figure space (U+2007) to pad the day */
+      TEST_PRINTF_DATE (2009, 1, 1, "%c", "thu " "\xe2\x80\x87" "1 jan 00:00:00 2009");
+      TEST_PRINTF_DATE (2009, 1, 1, "%Ec", "thu " "\xe2\x80\x87" "1 jan 00:00:00 2009");
+#endif
+
+      TEST_PRINTF_DATE (2009, 1, 1, "%C", "20");
+      TEST_PRINTF_DATE (2009, 1, 1, "%EC", "20");
+
+#ifndef __APPLE__
+      TEST_PRINTF_DATE (2009, 1, 2, "%x", "02/01/09");
+      TEST_PRINTF_DATE (2009, 1, 2, "%Ex", "02/01/09");
+#else
+      TEST_PRINTF_DATE (2009, 1, 2, "%x", "02/01/2009");
+      TEST_PRINTF_DATE (2009, 1, 2, "%Ex", "02/01/2009");
+#endif
+
+      TEST_PRINTF_TIME (1, 2, 3, "%X", "01:02:03");
+      TEST_PRINTF_TIME (1, 2, 3, "%EX", "01:02:03");
+
+      TEST_PRINTF_DATE (2009, 1, 1, "%y", "09");
+      TEST_PRINTF_DATE (2009, 1, 1, "%Ey", "09");
+
+      TEST_PRINTF_DATE (2009, 1, 1, "%Y", "2009");
+      TEST_PRINTF_DATE (2009, 1, 1, "%EY", "2009");
+    }
+  else
+    g_test_skip ("locale en_GB not available, skipping E modifier tests");
+
   setlocale (LC_ALL, oldlocale);
   g_free (oldlocale);
 }
@@ -2011,13 +2206,13 @@ test_GDateTime_dst (void)
 #endif
   g_assert_nonnull (tz);
   dt1 = g_date_time_new (tz, 2009, 8, 15, 3, 0, 1);
-  g_assert (g_date_time_is_daylight_savings (dt1));
+  g_assert_true (g_date_time_is_daylight_savings (dt1));
   g_assert_cmpint (g_date_time_get_utc_offset (dt1) / G_USEC_PER_SEC, ==, 3600);
   g_assert_cmpint (g_date_time_get_hour (dt1), ==, 3);
 
   /* add 6 months to clear the DST flag but keep the same time */
   dt2 = g_date_time_add_months (dt1, 6);
-  g_assert (!g_date_time_is_daylight_savings (dt2));
+  g_assert_false (g_date_time_is_daylight_savings (dt2));
   g_assert_cmpint (g_date_time_get_utc_offset (dt2) / G_USEC_PER_SEC, ==, 0);
   g_assert_cmpint (g_date_time_get_hour (dt2), ==, 3);
 
@@ -2026,11 +2221,11 @@ test_GDateTime_dst (void)
 
   /* now do the reverse: start with a non-DST state and move to DST */
   dt1 = g_date_time_new (tz, 2009, 2, 15, 2, 0, 1);
-  g_assert (!g_date_time_is_daylight_savings (dt1));
+  g_assert_false (g_date_time_is_daylight_savings (dt1));
   g_assert_cmpint (g_date_time_get_hour (dt1), ==, 2);
 
   dt2 = g_date_time_add_months (dt1, 6);
-  g_assert (g_date_time_is_daylight_savings (dt2));
+  g_assert_true (g_date_time_is_daylight_savings (dt2));
   g_assert_cmpint (g_date_time_get_hour (dt2), ==, 2);
 
   g_date_time_unref (dt2);
@@ -2097,7 +2292,7 @@ test_all_dates (void)
             dt = g_date_time_new (timezone, year, month, day, 0, 0, 0);
 
 #if 0
-            g_printerr ("%04d-%02d-%02d = %04d-W%02d-%d = %04d-%03d\n",
+            g_test_message ("%04d-%02d-%02d = %04d-W%02d-%d = %04d-%03d",
                      year, month, day,
                      week_year, week_num, weekday,
                      year, day_of_year);
@@ -2180,6 +2375,172 @@ test_all_dates (void)
     }
 
   g_time_zone_unref (timezone);
+}
+
+static void
+test_date_time_eras_japan (void)
+{
+#if defined(HAVE_LANGINFO_ERA) && (G_BYTE_ORDER == G_LITTLE_ENDIAN || GLIB_SIZEOF_VOID_P == 4)
+  gchar *oldlocale;
+
+  oldlocale = g_strdup (setlocale (LC_ALL, NULL));
+  setlocale (LC_ALL, "ja_JP.utf-8");
+  if (strstr (setlocale (LC_ALL, NULL), "ja_JP") == NULL)
+    {
+      g_test_skip ("locale ja_JP.utf-8 not available, skipping Japanese era tests");
+      g_free (oldlocale);
+      return;
+    }
+
+  /* See https://en.wikipedia.org/wiki/Japanese_era_name
+   * First test the Reiwa era (令和) */
+  TEST_PRINTF_DATE (2023, 06, 01, "%Ec", "令和05年06月01日 00時00分00秒");
+  TEST_PRINTF_DATE (2023, 06, 01, "%EC", "令和");
+  TEST_PRINTF_DATE (2023, 06, 01, "%Ex", "令和05年06月01日");
+  TEST_PRINTF_DATE (2023, 06, 01, "%EX", "00時00分00秒");
+  TEST_PRINTF_DATE (2023, 06, 01, "%Ey", "05");
+  TEST_PRINTF_DATE (2023, 06, 01, "%EY", "令和05年");
+
+  /* Heisei era (平成) */
+  TEST_PRINTF_DATE (2019, 04, 30, "%Ec", "平成31年04月30日 00時00分00秒");
+  TEST_PRINTF_DATE (2019, 04, 30, "%EC", "平成");
+  TEST_PRINTF_DATE (2019, 04, 30, "%Ex", "平成31年04月30日");
+  TEST_PRINTF_DATE (2019, 04, 30, "%EX", "00時00分00秒");
+  TEST_PRINTF_DATE (2019, 04, 30, "%Ey", "31");
+  TEST_PRINTF_DATE (2019, 04, 30, "%EY", "平成31年");
+
+  /* Shōwa era (昭和) */
+  TEST_PRINTF_DATE (1926, 12, 25, "%Ec", "昭和元年12月25日 00時00分00秒");
+  TEST_PRINTF_DATE (1926, 12, 25, "%EC", "昭和");
+  TEST_PRINTF_DATE (1926, 12, 25, "%Ex", "昭和元年12月25日");
+  TEST_PRINTF_DATE (1926, 12, 25, "%EX", "00時00分00秒");
+  TEST_PRINTF_DATE (1926, 12, 25, "%Ey", "01");
+  TEST_PRINTF_DATE (1926, 12, 25, "%EY", "昭和元年");
+
+  setlocale (LC_ALL, oldlocale);
+  g_free (oldlocale);
+#else
+  g_test_skip ("nl_langinfo(ERA) not supported, skipping era tests");
+#endif
+}
+
+static void
+test_date_time_eras_thailand (void)
+{
+#if defined(HAVE_LANGINFO_ERA) && (G_BYTE_ORDER == G_LITTLE_ENDIAN || GLIB_SIZEOF_VOID_P == 4)
+  gchar *oldlocale;
+
+  oldlocale = g_strdup (setlocale (LC_ALL, NULL));
+  setlocale (LC_ALL, "th_TH.utf-8");
+  if (strstr (setlocale (LC_ALL, NULL), "th_TH") == NULL)
+    {
+      g_test_skip ("locale th_TH.utf-8 not available, skipping Thai era tests");
+      g_free (oldlocale);
+      return;
+    }
+
+  /* See https://en.wikipedia.org/wiki/Thai_solar_calendar */
+  TEST_PRINTF_DATE (2023, 06, 01, "%Ec", "วันพฤหัสบดีที่  1 มิถุนายน พ.ศ. 2566, 00.00.00 น.");
+  TEST_PRINTF_DATE (2023, 06, 01, "%EC", "พ.ศ.");
+  TEST_PRINTF_DATE (2023, 06, 01, "%Ex", " 1 มิ.ย. 2566");
+  TEST_PRINTF_DATE (2023, 06, 01, "%EX", "00.00.00 น.");
+  TEST_PRINTF_DATE (2023, 06, 01, "%Ey", "2566");
+  TEST_PRINTF_DATE (2023, 06, 01, "%EY", "พ.ศ. 2566");
+
+  TEST_PRINTF_DATE (01, 06, 01, "%Ex", " 1 มิ.ย. 544");
+
+  setlocale (LC_ALL, oldlocale);
+  g_free (oldlocale);
+#else
+  g_test_skip ("nl_langinfo(ERA) not supported, skipping era tests");
+#endif
+}
+
+static void
+test_date_time_eras_parsing (void)
+{
+  struct
+    {
+      const char *desc;
+      gboolean expected_success;
+      size_t expected_n_segments;
+    }
+  vectors[] =
+    {
+      /* Some successful parsing: */
+      { "", TRUE, 0 },
+      /* From https://github.com/bminor/glibc/blob/9fd3409842b3e2d31cff5dbd6f96066c430f0aa2/localedata/locales/th_TH#L233: */
+      { "+:1:-543/01/01:+*:พ.ศ.:%EC %Ey", TRUE, 1 },
+      /* From https://github.com/bminor/glibc/blob/9fd3409842b3e2d31cff5dbd6f96066c430f0aa2/localedata/locales/ja_JP#L14967C5-L14977C60: */
+      { "+:2:2020/01/01:+*:令和:%EC%Ey年;"
+        "+:1:2019/05/01:2019/12/31:令和:%EC元年;"
+        "+:2:1990/01/01:2019/04/30:平成:%EC%Ey年;"
+        "+:1:1989/01/08:1989/12/31:平成:%EC元年;"
+        "+:2:1927/01/01:1989/01/07:昭和:%EC%Ey年;"
+        "+:1:1926/12/25:1926/12/31:昭和:%EC元年;"
+        "+:2:1913/01/01:1926/12/24:大正:%EC%Ey年;"
+        "+:1:1912/07/30:1912/12/31:大正:%EC元年;"
+        "+:6:1873/01/01:1912/07/29:明治:%EC%Ey年;"
+        "+:1:0001/01/01:1872/12/31:西暦:%EC%Ey年;"
+        "+:1:-0001/12/31:-*:紀元前:%EC%Ey年", TRUE, 11 },
+      { "-:2:2020/01/01:-*:令和:%EC%Ey年", TRUE, 1 },
+      { "+:2:2020/01/01:2020/01/01:令和:%EC%Ey年", TRUE, 1 },
+      { "+:2:+2020/01/01:+*:令和:%EC%Ey年", TRUE, 1 },
+      /* Some errors: */
+      { ".:2:2020/01/01:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+.2:2020/01/01:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+", FALSE, 0 },
+      { "+:", FALSE, 0 },
+      { "+::", FALSE, 0 },
+      { "+:200", FALSE, 0 },
+      { "+:2nonsense", FALSE, 0 },
+      { "+:2nonsense:", FALSE, 0 },
+      { "+:2:", FALSE, 0 },
+      { "+:2::", FALSE, 0 },
+      { "+:2:2020-01/01:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020nonsense/01/01:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:18446744073709551615/01/01:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020/01-01:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020/01nonsense/01:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020/01:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020/00/01:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020/13/01:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020/01/00:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020/01/32:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020/01/01nonsense:+*:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020/01/01", FALSE, 0 },
+      { "+:2:2020/01/01:", FALSE, 0 },
+      { "+:2:2020/01/01::", FALSE, 0 },
+      { "+:2:2020/01/01:2021-01-01:令和:%EC%Ey年", FALSE, 0 },
+      { "+:2:2020/01/01:+*", FALSE, 0 },
+      { "+:2:2020/01/01:+*:", FALSE, 0 },
+      { "+:2:2020/01/01:+*::", FALSE, 0 },
+      { "+:2:2020/01/01:+*:令和", FALSE, 0 },
+      { "+:2:2020/01/01:+*:令和:", FALSE, 0 },
+      { "+:2:2020/01/01:+*:令和:;", FALSE, 0 },
+    };
+
+  for (size_t i = 0; i < G_N_ELEMENTS (vectors); i++)
+    {
+      GPtrArray *segments = NULL;
+
+      g_test_message ("Vector %" G_GSIZE_FORMAT ": %s", i, vectors[i].desc);
+
+      segments = _g_era_description_parse (vectors[i].desc);
+
+      if (vectors[i].expected_success)
+        {
+          g_assert_nonnull (segments);
+          g_assert_cmpuint (segments->len, ==, vectors[i].expected_n_segments);
+        }
+      else
+        {
+          g_assert_null (segments);
+        }
+
+      g_clear_pointer (&segments, g_ptr_array_unref);
+    }
 }
 
 static void
@@ -2384,7 +2745,7 @@ check_and_set_locale (int          category,
   setlocale (category, name);
   if (strstr (setlocale (category, NULL), name) == NULL)
     {
-      g_print ("Unavailable '%s' locale\n", name);
+      g_test_message ("Unavailable '%s' locale", name);
       g_test_skip ("required locale not available, skipping tests");
       return FALSE;
     }
@@ -2615,7 +2976,7 @@ test_adjust_time (void)
   i2 = g_time_zone_adjust_time (tz, G_TIME_TYPE_DAYLIGHT, &u2);
 
   g_assert_cmpint (i1, ==, i2);
-  g_assert (u == u2);
+  g_assert_cmpint (u, ==, u2);
 
   g_date_time_unref (dt);
 
@@ -2629,7 +2990,7 @@ test_adjust_time (void)
 
   i1 = g_time_zone_adjust_time (tz, G_TIME_TYPE_DAYLIGHT, &u2);
   g_assert_cmpint (i1, >=, 0);
-  g_assert (u == u2);
+  g_assert_cmpint (u, ==, u2);
 
   g_time_zone_unref (tz);
 }
@@ -2646,7 +3007,7 @@ test_no_header (void)
   g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, "UTC");
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 0), ==, "UTC");
   g_assert_cmpint (g_time_zone_get_offset (tz, 0), ==, 0);
-  g_assert (!g_time_zone_is_dst (tz, 0));
+  g_assert_false (g_time_zone_is_dst (tz, 0));
 
   g_time_zone_unref (tz);
 }
@@ -2666,6 +3027,8 @@ test_posix_parse (void)
 {
   GTimeZone *tz;
   GDateTime *gdt1, *gdt2;
+  gint i1, i2;
+  const char *expect_id;
 
   /* Check that an unknown zone name falls back to UTC. */
   G_GNUC_BEGIN_IGNORE_DEPRECATIONS
@@ -2674,7 +3037,7 @@ test_posix_parse (void)
   g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, "UTC");
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 0), ==, "UTC");
   g_assert_cmpint (g_time_zone_get_offset (tz, 0), ==, 0);
-  g_assert (!g_time_zone_is_dst (tz, 0));
+  g_assert_false (g_time_zone_is_dst (tz, 0));
   g_time_zone_unref (tz);
 
   /* An existent zone name should not fall back to UTC. */
@@ -2684,22 +3047,44 @@ test_posix_parse (void)
   g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, "PST8");
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 0), ==, "PST");
   g_assert_cmpint (g_time_zone_get_offset (tz, 0), ==, - 8 * 3600);
-  g_assert (!g_time_zone_is_dst (tz, 0));
+  g_assert_false (g_time_zone_is_dst (tz, 0));
   g_time_zone_unref (tz);
 
 /* This fails rules_from_identifier on Unix (though not on Windows)
- * but passes anyway because PST8PDT is a zone name.
+ * but can pass anyway because PST8PDT is a legacy System V zone name.
  */
   tz = g_time_zone_new_identifier ("PST8PDT");
+  expect_id = "PST8PDT";
+
+#ifndef G_OS_WIN32
+  /* PST8PDT is in tzdata's "backward" set, packaged as tzdata-legacy and
+   * not always present in some OSs; fall back to the equivalent geographical
+   * name if the "backward" time zones are absent. */
+  if (tz == NULL)
+    {
+      g_test_message ("Legacy PST8PDT time zone not available, falling back");
+      tz = g_time_zone_new_identifier ("America/Los_Angeles");
+      expect_id = "America/Los_Angeles";
+    }
+#endif
+
   g_assert_nonnull (tz);
-  g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, "PST8PDT");
-  g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 0), ==, "PST");
-  g_assert_cmpint (g_time_zone_get_offset (tz, 0), ==, - 8 * 3600);
-  g_assert (!g_time_zone_is_dst (tz, 0));
-  g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 1), ==, "PDT");
-  g_assert_cmpint (g_time_zone_get_offset (tz, 1), ==,- 7 * 3600);
-  g_assert (g_time_zone_is_dst (tz, 1));
+  g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, expect_id);
+  /* a date in winter = non-DST */
+  gdt1 = g_date_time_new (tz, 2024, 1, 1, 0, 0, 0);
+  i1 = g_time_zone_find_interval (tz, G_TIME_TYPE_STANDARD, g_date_time_to_unix (gdt1));
+  /* a date in summer = DST */
+  gdt2 = g_date_time_new (tz, 2024, 7, 1, 0, 0, 0);
+  i2 = g_time_zone_find_interval (tz, G_TIME_TYPE_DAYLIGHT, g_date_time_to_unix (gdt2));
+  g_assert_cmpstr (g_time_zone_get_abbreviation (tz, i1), ==, "PST");
+  g_assert_cmpint (g_time_zone_get_offset (tz, i1), ==, - 8 * 3600);
+  g_assert_false (g_time_zone_is_dst (tz, i1));
+  g_assert_cmpstr (g_time_zone_get_abbreviation (tz, i2), ==, "PDT");
+  g_assert_cmpint (g_time_zone_get_offset (tz, i2), ==,- 7 * 3600);
+  g_assert_true (g_time_zone_is_dst (tz, i2));
   g_time_zone_unref (tz);
+  g_date_time_unref (gdt1);
+  g_date_time_unref (gdt2);
 
   tz = g_time_zone_new_identifier ("PST8PDT6:32:15");
 #ifdef G_OS_WIN32
@@ -2707,15 +3092,15 @@ test_posix_parse (void)
   g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, "PST8PDT6:32:15");
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 0), ==, "PST");
   g_assert_cmpint (g_time_zone_get_offset (tz, 0), ==, - 8 * 3600);
-  g_assert (!g_time_zone_is_dst (tz, 0));
+  g_assert_false (g_time_zone_is_dst (tz, 0));
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 1), ==, "PDT");
   g_assert_cmpint (g_time_zone_get_offset (tz, 1), ==, - 6 * 3600 - 32 *60 - 15);
-  g_assert (g_time_zone_is_dst (tz, 1));
+  g_assert_true (g_time_zone_is_dst (tz, 1));
   gdt1 = g_date_time_new (tz, 2012, 12, 6, 11, 15, 23.0);
   gdt2 = g_date_time_new (tz, 2012, 6, 6, 11, 15, 23.0);
-  g_assert (!g_date_time_is_daylight_savings (gdt1));
+  g_assert_false (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) /  1000000, ==, -28800);
-  g_assert (g_date_time_is_daylight_savings (gdt2));
+  g_assert_true (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, -23535);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
@@ -2729,23 +3114,23 @@ test_posix_parse (void)
   g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, "NZST-12:00:00NZDT-13:00:00,M10.1.0,M3.3.0");
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 0), ==, "NZST");
   g_assert_cmpint (g_time_zone_get_offset (tz, 0), ==, 12 * 3600);
-  g_assert (!g_time_zone_is_dst (tz, 0));
+  g_assert_false (g_time_zone_is_dst (tz, 0));
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 1), ==, "NZDT");
   g_assert_cmpint (g_time_zone_get_offset (tz, 1), ==, 13 * 3600);
-  g_assert (g_time_zone_is_dst (tz, 1));
+  g_assert_true (g_time_zone_is_dst (tz, 1));
   gdt1 = g_date_time_new (tz, 2012, 3, 18, 0, 15, 23.0);
   gdt2 = g_date_time_new (tz, 2012, 3, 18, 3, 15, 23.0);
-  g_assert (g_date_time_is_daylight_savings (gdt1));
+  g_assert_true (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) / 1000000, ==, 46800);
-  g_assert (!g_date_time_is_daylight_savings (gdt2));
+  g_assert_false (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, 43200);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
   gdt1 = g_date_time_new (tz, 2012, 10, 7, 3, 15, 23.0);
   gdt2 = g_date_time_new (tz, 2012, 10, 7, 1, 15, 23.0);
-  g_assert (g_date_time_is_daylight_savings (gdt1));
+  g_assert_true (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) / 1000000, ==, 46800);
-  g_assert (!g_date_time_is_daylight_savings (gdt2));
+  g_assert_false (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, 43200);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
@@ -2756,23 +3141,23 @@ test_posix_parse (void)
   g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, "NZST-12:00:00NZDT-13:00:00,279,76");
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 0), ==, "NZST");
   g_assert_cmpint (g_time_zone_get_offset (tz, 0), ==, 12 * 3600);
-  g_assert (!g_time_zone_is_dst (tz, 0));
+  g_assert_false (g_time_zone_is_dst (tz, 0));
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 1), ==, "NZDT");
   g_assert_cmpint (g_time_zone_get_offset (tz, 1), ==, 13 * 3600);
-  g_assert (g_time_zone_is_dst (tz, 1));
+  g_assert_true (g_time_zone_is_dst (tz, 1));
   gdt1 = g_date_time_new (tz, 2012, 3, 18, 0, 15, 23.0);
   gdt2 = g_date_time_new (tz, 2012, 3, 18, 3, 15, 23.0);
-  g_assert (g_date_time_is_daylight_savings (gdt1));
+  g_assert_true (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) / 1000000, ==, 46800);
-  g_assert (!g_date_time_is_daylight_savings (gdt2));
+  g_assert_false (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, 43200);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
   gdt1 = g_date_time_new (tz, 2012, 10, 7, 3, 15, 23.0);
   gdt2 = g_date_time_new (tz, 2012, 10, 7, 1, 15, 23.0);
-  g_assert (g_date_time_is_daylight_savings (gdt1));
+  g_assert_true (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) / 1000000, ==, 46800);
-  g_assert (!g_date_time_is_daylight_savings (gdt2));
+  g_assert_false (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, 43200);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
@@ -2783,23 +3168,23 @@ test_posix_parse (void)
   g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, "NZST-12:00:00NZDT-13:00:00,J279,J76");
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 0), ==, "NZST");
   g_assert_cmpint (g_time_zone_get_offset (tz, 0), ==, 12 * 3600);
-  g_assert (!g_time_zone_is_dst (tz, 0));
+  g_assert_false (g_time_zone_is_dst (tz, 0));
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 1), ==, "NZDT");
   g_assert_cmpint (g_time_zone_get_offset (tz, 1), ==, 13 * 3600);
-  g_assert (g_time_zone_is_dst (tz, 1));
+  g_assert_true (g_time_zone_is_dst (tz, 1));
   gdt1 = g_date_time_new (tz, 2012, 3, 18, 0, 15, 23.0);
   gdt2 = g_date_time_new (tz, 2012, 3, 18, 3, 15, 23.0);
-  g_assert (g_date_time_is_daylight_savings (gdt1));
+  g_assert_true (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) / 1000000, ==, 46800);
-  g_assert (!g_date_time_is_daylight_savings (gdt2));
+  g_assert_false (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, 43200);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
   gdt1 = g_date_time_new (tz, 2012, 10, 7, 3, 15, 23.0);
   gdt2 = g_date_time_new (tz, 2012, 10, 7, 1, 15, 23.0);
-  g_assert (g_date_time_is_daylight_savings (gdt1));
+  g_assert_true (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) / 1000000, ==, 46800);
-  g_assert (!g_date_time_is_daylight_savings (gdt2));
+  g_assert_false (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, 43200);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
@@ -2810,47 +3195,47 @@ test_posix_parse (void)
   g_assert_cmpstr (g_time_zone_get_identifier (tz), ==, "NZST-12:00:00NZDT-13:00:00,M10.1.0/07:00,M3.3.0/07:00");
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 0), ==, "NZST");
   g_assert_cmpint (g_time_zone_get_offset (tz, 0), ==, 12 * 3600);
-  g_assert (!g_time_zone_is_dst (tz, 0));
+  g_assert_false (g_time_zone_is_dst (tz, 0));
   g_assert_cmpstr (g_time_zone_get_abbreviation (tz, 1), ==, "NZDT");
   g_assert_cmpint (g_time_zone_get_offset (tz, 1), ==, 13 * 3600);
-  g_assert (g_time_zone_is_dst (tz, 1));
+  g_assert_true (g_time_zone_is_dst (tz, 1));
   gdt1 = g_date_time_new (tz, 2012, 3, 18, 5, 15, 23.0);
   gdt2 = g_date_time_new (tz, 2012, 3, 18, 8, 15, 23.0);
-  g_assert (g_date_time_is_daylight_savings (gdt1));
+  g_assert_true (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) / 1000000, ==, 46800);
-  g_assert (!g_date_time_is_daylight_savings (gdt2));
+  g_assert_false (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, 43200);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
   gdt1 = g_date_time_new (tz, 2012, 10, 7, 8, 15, 23.0);
   gdt2 = g_date_time_new (tz, 2012, 10, 7, 6, 15, 23.0);
-  g_assert (g_date_time_is_daylight_savings (gdt1));
+  g_assert_true (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) / 1000000, ==, 46800);
-  g_assert (!g_date_time_is_daylight_savings (gdt2));
+  g_assert_false (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, 43200);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
   gdt1 = g_date_time_new (tz, 1902, 10, 7, 8, 15, 23.0);
   gdt2 = g_date_time_new (tz, 1902, 10, 7, 6, 15, 23.0);
-  g_assert (!g_date_time_is_daylight_savings (gdt1));
+  g_assert_false (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) / 1000000, ==, 43200);
-  g_assert (!g_date_time_is_daylight_savings (gdt2));
+  g_assert_false (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, 43200);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
   gdt1 = g_date_time_new (tz, 2142, 10, 7, 8, 15, 23.0);
   gdt2 = g_date_time_new (tz, 2142, 10, 7, 6, 15, 23.0);
-  g_assert (g_date_time_is_daylight_savings (gdt1));
+  g_assert_true (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) / 1000000, ==, 46800);
-  g_assert (!g_date_time_is_daylight_savings (gdt2));
+  g_assert_false (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, 43200);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
   gdt1 = g_date_time_new (tz, 3212, 10, 7, 8, 15, 23.0);
   gdt2 = g_date_time_new (tz, 3212, 10, 7, 6, 15, 23.0);
-  g_assert (!g_date_time_is_daylight_savings (gdt1));
+  g_assert_false (g_date_time_is_daylight_savings (gdt1));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt1) / 1000000, ==, 43200);
-  g_assert (!g_date_time_is_daylight_savings (gdt2));
+  g_assert_false (g_date_time_is_daylight_savings (gdt2));
   g_assert_cmpint (g_date_time_get_utc_offset (gdt2) / 1000000, ==, 43200);
   g_date_time_unref (gdt1);
   g_date_time_unref (gdt2);
@@ -3139,6 +3524,256 @@ test_time_zone_caching (void)
   g_assert_true (tz1 == tz2);
 }
 
+static void
+test_date_time_unix_usec (void)
+{
+  gint64 usecs = g_get_real_time ();
+  gint64 secs = usecs / G_USEC_PER_SEC;
+  GDateTime *dt;
+  GDateTime *local;
+
+  dt = g_date_time_new_from_unix_utc (secs);
+  g_assert_cmpint (g_date_time_to_unix_usec (dt), ==, secs * G_USEC_PER_SEC);
+  g_assert_cmpint (g_date_time_to_unix (dt), ==, secs);
+  g_date_time_unref (dt);
+
+  dt = g_date_time_new_from_unix_utc_usec (usecs);
+  g_assert_cmpint (g_date_time_to_unix_usec (dt), ==, usecs);
+  g_assert_cmpint (g_date_time_to_unix (dt), ==, secs);
+  g_date_time_unref (dt);
+
+  local = g_date_time_new_from_unix_local (secs);
+  dt = g_date_time_to_utc (local);
+  g_assert_cmpint (g_date_time_to_unix_usec (dt), ==, secs * G_USEC_PER_SEC);
+  g_assert_cmpint (g_date_time_to_unix (dt), ==, secs);
+  g_date_time_unref (dt);
+  g_date_time_unref (local);
+
+  local = g_date_time_new_from_unix_local_usec (usecs);
+  dt = g_date_time_to_utc (local);
+  g_assert_cmpint (g_date_time_to_unix_usec (dt), ==, usecs);
+  g_assert_cmpint (g_date_time_to_unix (dt), ==, secs);
+  g_date_time_unref (dt);
+  g_date_time_unref (local);
+}
+
+typedef struct
+{
+  char *rootdir;
+  gboolean expect_null;
+} LocaltimeFixture;
+
+static void
+localtime_teardown (LocaltimeFixture *fixture,
+                    gconstpointer     data)
+{
+  g_free (fixture->rootdir);
+}
+
+#ifdef HAVE_UNSHARE
+/* Creates:
+ * $tmp/etc/
+ * $tmp/usr/share/zoneinfo/Europe/Zurich
+ */
+static char *
+mkdir_localtime_root (GError **error)
+{
+  size_t len;
+  char *root, *path;
+  char *contents = NULL;
+
+  root = g_dir_make_tmp ("glib-localtime-root-XXXXXXX", error);
+  if (!root)
+    return NULL;
+
+  path = g_build_filename (root, "etc", NULL);
+  if (g_mkdir_with_parents (path, 0755) != 0)
+    {
+      int errsv = errno;
+      g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
+                   "Failed to create ‘%s’: %s", path, g_strerror (errsv));
+      g_free (path);
+      g_free (root);
+      return NULL;
+    }
+  g_free (path);
+
+  path = g_build_filename (root, "usr", "share", "zoneinfo", "Europe", NULL);
+  if (g_mkdir_with_parents (path, 0755) != 0)
+    {
+      int errsv = errno;
+      g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errsv),
+                   "Failed to create ‘%s’: %s", path, g_strerror (errsv));
+      g_free (path);
+      g_free (root);
+      return NULL;
+    }
+  g_free (path);
+
+  path = g_test_build_filename (G_TEST_DIST, "time-zones", "Zurich", NULL);
+  if (!g_file_get_contents (path, &contents, &len, error))
+    {
+      g_free (path);
+      g_free (root);
+      return NULL;
+    }
+  g_free (path);
+
+  path = g_build_filename (root, "usr", "share", "zoneinfo", "Europe", "Zurich", NULL);
+  if (!g_file_set_contents (path, contents, len, error))
+    {
+      g_free (contents);
+      g_free (path);
+      g_free (root);
+      return NULL;
+    }
+  g_free (contents);
+  g_free (path);
+
+  return root;
+}
+#endif
+
+static void
+localtime_regular_setup (LocaltimeFixture *fixture,
+                         gconstpointer     data)
+{
+#ifdef HAVE_UNSHARE
+  char *path;
+  GError *error = NULL;
+
+  fixture->rootdir = mkdir_localtime_root (&error);
+  g_assert_no_error (error);
+
+  path = g_build_filename (fixture->rootdir, "etc", "localtime", NULL);
+  g_assert_no_errno (symlink ("../usr/share/zoneinfo/Europe/Zurich", path));
+  g_free (path);
+
+  fixture->expect_null = FALSE;
+#endif
+}
+
+static void
+localtime_symlink_setup (LocaltimeFixture *fixture,
+                         gconstpointer     data)
+{
+#ifdef HAVE_UNSHARE
+  char *path;
+  GError *error = NULL;
+
+  fixture->rootdir = mkdir_localtime_root (&error);
+  g_assert_no_error (error);
+
+  path = g_build_filename (fixture->rootdir, "usr", "share", "zoneinfo", "Europe", "Busingen", NULL);
+  g_assert_no_errno (symlink ("Zurich", path));
+  g_free (path);
+
+  path = g_build_filename (fixture->rootdir, "etc", "localtime", NULL);
+  g_assert_no_errno (symlink ("../usr/share/zoneinfo/Europe/Busingen", path));
+  g_free (path);
+
+  fixture->expect_null = FALSE;
+#endif
+}
+
+static void
+localtime_symlink_loop_setup (LocaltimeFixture *fixture,
+                              gconstpointer     data)
+{
+#ifdef HAVE_UNSHARE
+  char *path;
+  GError *error = NULL;
+
+  fixture->rootdir = mkdir_localtime_root (&error);
+  g_assert_no_error (error);
+
+  path = g_build_filename (fixture->rootdir, "usr", "share", "zoneinfo", "Europe", "Busingen", NULL);
+  g_assert_no_errno (symlink ("Rome", path));
+  g_free (path);
+
+  path = g_build_filename (fixture->rootdir, "usr", "share", "zoneinfo", "Europe", "Rome", NULL);
+  g_assert_no_errno (symlink ("Busingen", path));
+  g_free (path);
+
+  path = g_build_filename (fixture->rootdir, "etc", "localtime", NULL);
+  g_assert_no_errno (symlink ("../usr/share/zoneinfo/Europe/Busingen", path));
+  g_free (path);
+
+  fixture->expect_null = TRUE;
+#endif
+}
+
+static void
+localtime_not_a_symlink_setup (LocaltimeFixture *fixture,
+                               gconstpointer     data)
+{
+#ifdef HAVE_UNSHARE
+  char *path;
+  char *contents;
+  size_t len;
+  GError *error = NULL;
+
+  fixture->rootdir = mkdir_localtime_root (&error);
+  g_assert_nonnull (fixture->rootdir);
+  g_assert_no_error (error);
+
+  path = g_build_filename (fixture->rootdir, "usr", "share", "zoneinfo", "Europe", "Zurich", NULL);
+  g_file_get_contents (path, &contents, &len, &error);
+  g_assert_no_error (error);
+  g_free (path);
+
+  path = g_build_filename (fixture->rootdir, "etc", "localtime", NULL);
+  g_file_set_contents (path, contents, len, &error);
+  g_assert_no_error (error);
+  g_free (path);
+  g_free (contents);
+
+  fixture->expect_null = TRUE;
+#endif
+}
+
+static void
+test_unix_localtime (LocaltimeFixture *fixture,
+                     gconstpointer     data)
+{
+#ifndef G_OS_UNIX
+  g_test_skip ("unix specific behaviour, skipping test on non-unix");
+  return;
+#elif !defined(HAVE_UNSHARE)
+  g_test_skip ("requires Linux unshare() syscall, skipping test");
+  return;
+#else
+  if (g_test_subprocess ())
+    {
+      int ret;
+      GTimeZone *tz;
+
+      ret = unshare (CLONE_NEWUSER);
+      if (ret != 0)
+        {
+          g_test_skip ("" /* message from subprocess is not visible*/);
+          return;
+        }
+
+      ret = chroot (fixture->rootdir);
+      if (ret != 0)
+        {
+          g_test_skip ("" /* message from subprocess is not visible*/);
+          return;
+        }
+
+      tz = g_time_zone_new_identifier (NULL);
+      g_assert_cmpint ((tz == NULL), ==, fixture->expect_null);
+      return;
+    }
+
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_INHERIT_DESCRIPTORS);
+  if (g_test_trap_has_skipped ())
+    g_test_skip ("Could not create user namespace, skipping test");
+  else
+    g_test_trap_assert_passed ();
+#endif
+}
 
 gint
 main (gint   argc,
@@ -3152,7 +3787,8 @@ main (gint   argc,
    * categories. Unset it to avoid interference with tests. */
   g_unsetenv ("CHARSET");
 
-  g_test_init (&argc, &argv, NULL);
+  setlocale (LC_ALL, "C.UTF-8");
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   /* GDateTime Tests */
   bind_textdomain_codeset ("glib20", "UTF-8");
@@ -3190,6 +3826,7 @@ main (gint   argc,
   g_test_add_func ("/GDateTime/new_from_iso8601/2", test_GDateTime_new_from_iso8601_2);
   g_test_add_func ("/GDateTime/new_full", test_GDateTime_new_full);
   g_test_add_func ("/GDateTime/now", test_GDateTime_now);
+  g_test_add_func ("/GDateTime/set_date_time", test_GDateTime_set_date_time);
   g_test_add_func ("/GDateTime/test-6-days-until-end-of-the-month", test_6_days_until_end_of_the_month);
   g_test_add_func ("/GDateTime/printf", test_GDateTime_printf);
   g_test_add_func ("/GDateTime/non_utf8_printf", test_non_utf8_printf);
@@ -3219,6 +3856,11 @@ main (gint   argc,
   g_test_add_func ("/GDateTime/dst", test_GDateTime_dst);
   g_test_add_func ("/GDateTime/test_z", test_z);
   g_test_add_func ("/GDateTime/test-all-dates", test_all_dates);
+  g_test_add_func ("/GDateTime/eras/japan", test_date_time_eras_japan);
+  g_test_add_func ("/GDateTime/eras/thailand", test_date_time_eras_thailand);
+  g_test_add_func ("/GDateTime/eras/parsing", test_date_time_eras_parsing);
+  g_test_add_func ("/GDateTime/unix_usec", test_date_time_unix_usec);
+
   g_test_add_func ("/GTimeZone/find-interval", test_find_interval);
   g_test_add_func ("/GTimeZone/adjust-time", test_adjust_time);
   g_test_add_func ("/GTimeZone/no-header", test_no_header);
@@ -3229,6 +3871,10 @@ main (gint   argc,
   g_test_add_func ("/GTimeZone/new-offset", test_new_offset);
   g_test_add_func ("/GTimeZone/parse-rfc8536", test_time_zone_parse_rfc8536);
   g_test_add_func ("/GTimeZone/caching", test_time_zone_caching);
+  g_test_add ("/GTimeZone/unix_localtime/regular", LocaltimeFixture, NULL, localtime_regular_setup, test_unix_localtime, localtime_teardown);
+  g_test_add ("/GTimeZone/unix_localtime/symlink", LocaltimeFixture, NULL, localtime_symlink_setup, test_unix_localtime, localtime_teardown);
+  g_test_add ("/GTimeZone/unix_localtime/symlink-loop", LocaltimeFixture, NULL, localtime_symlink_loop_setup, test_unix_localtime, localtime_teardown);
+  g_test_add ("/GTimeZone/unix_localtime/not-a-symlink", LocaltimeFixture, NULL, localtime_not_a_symlink_setup, test_unix_localtime, localtime_teardown);
 
   return g_test_run ();
 }

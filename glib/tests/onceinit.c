@@ -71,14 +71,14 @@ initializer1 (void)
 static gpointer
 initializer2 (void)
 {
-  static gsize initialized = 0;
-  if (g_once_init_enter (&initialized))
+  static void *initialized = NULL;
+  if (g_once_init_enter_pointer (&initialized))
     {
       void *pointer_value = &dummy_value;
       assert_singleton_execution2 ();
-      g_once_init_leave (&initialized, (gsize) pointer_value);
+      g_once_init_leave_pointer (&initialized, pointer_value);
     }
-  return (void*) initialized;
+  return initialized;
 }
 
 static void
@@ -266,16 +266,22 @@ test_onceinit (void)
       g_cond_broadcast (&tcond);
     }
 
+  for (i = 0; i < N_THREADS; i++)
+    g_thread_join (threads[i]);
+
   /* call multiple (unoptimized) initializers from multiple threads */
   g_mutex_lock (&tmutex);
   g_atomic_int_set (&thread_call_count, 0);
 
   for (i = 0; i < N_THREADS; i++)
-    g_thread_new (NULL, stress_concurrent_initializers, NULL);
+    threads[i] = g_thread_new (NULL, stress_concurrent_initializers, NULL);
   g_mutex_unlock (&tmutex);
 
   while (g_atomic_int_get (&thread_call_count) < 256 * 4 * N_THREADS)
     g_usleep (50 * 1000); /* wait for all 5 threads to complete */
+
+  for (i = 0; i < N_THREADS; i++)
+    g_thread_join (threads[i]);
 }
 
 int

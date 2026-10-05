@@ -41,38 +41,38 @@
 #define G_ICON_SERIALIZATION_MAGIC0 ". "
 
 /**
- * SECTION:gicon
- * @short_description: Interface for icons
- * @include: gio/gio.h
+ * GIcon:
  *
- * #GIcon is a very minimal interface for icons. It provides functions
+ * `GIcon` is a very minimal interface for icons. It provides functions
  * for checking the equality of two icons, hashing of icons and
  * serializing an icon to and from strings.
  *
- * #GIcon does not provide the actual pixmap for the icon as this is out 
- * of GIO's scope, however implementations of #GIcon may contain the name 
- * of an icon (see #GThemedIcon), or the path to an icon (see #GLoadableIcon). 
+ * `GIcon` does not provide the actual pixmap for the icon as this is out
+ * of GIO's scope, however implementations of `GIcon` may contain the name
+ * of an icon (see [class@Gio.ThemedIcon]), or the path to an icon
+ * (see [iface@Gio.LoadableIcon]).
  *
- * To obtain a hash of a #GIcon, see g_icon_hash().
+ * To obtain a hash of a `GIcon`, see [method@Gio.Icon.hash].
  *
- * To check if two #GIcons are equal, see g_icon_equal().
+ * To check if two `GIcon`s are equal, see [method@Gio.Icon.equal].
  *
- * For serializing a #GIcon, use g_icon_serialize() and
- * g_icon_deserialize().
+ * For serializing a `GIcon`, use [method@Gio.Icon.serialize] and
+ * [func@Gio.Icon.deserialize].
  *
- * If you want to consume #GIcon (for example, in a toolkit) you must
+ * If you want to consume `GIcon` (for example, in a toolkit) you must
  * be prepared to handle at least the three following cases:
- * #GLoadableIcon, #GThemedIcon and #GEmblemedIcon.  It may also make
- * sense to have fast-paths for other cases (like handling #GdkPixbuf
- * directly, for example) but all compliant #GIcon implementations
- * outside of GIO must implement #GLoadableIcon.
+ * [iface@Gio.LoadableIcon], [class@Gio.ThemedIcon] and [class@Gio.EmblemedIcon].
+ * It may also make sense to have fast-paths for other cases (like handling
+ * [`GdkPixbuf`](https://docs.gtk.org/gdk-pixbuf/class.Pixbuf.html) directly,
+ * for example) but all compliant `GIcon` implementations outside of GIO must
+ * implement [iface@Gio.LoadableIcon].
  *
- * If your application or library provides one or more #GIcon
+ * If your application or library provides one or more `GIcon`
  * implementations you need to ensure that your new implementation also
- * implements #GLoadableIcon.  Additionally, you must provide an
- * implementation of g_icon_serialize() that gives a result that is
- * understood by g_icon_deserialize(), yielding one of the built-in icon
- * types.
+ * implements [iface@Gio.LoadableIcon].  Additionally, you must provide an
+ * implementation of [method@Gio.Icon.serialize] that gives a result that is
+ * understood by [func@Gio.Icon.deserialize], yielding one of the built-in
+ * icon types.
  **/
 
 typedef GIconIface GIconInterface;
@@ -84,14 +84,13 @@ g_icon_default_init (GIconInterface *iface)
 }
 
 /**
- * g_icon_hash:
+ * g_icon_hash: (virtual hash)
  * @icon: (not nullable) (type Gio.Icon): #gconstpointer to an icon object.
  * 
  * Gets a hash for an icon.
  *
- * Virtual: hash
  * Returns: a #guint containing a hash for the @icon, suitable for 
- * use in a #GHashTable or similar data structure.
+ *   use in a #GHashTable or similar data structure.
  **/
 guint
 g_icon_hash (gconstpointer icon)
@@ -283,15 +282,19 @@ g_icon_new_from_tokens (char   **tokens,
   GIconIface *icon_iface;
   gint version;
   char *endp;
-  int num_tokens;
-  int i;
+  unsigned int num_tokens;
+  unsigned int i;
 
   icon = NULL;
   klass = NULL;
 
   num_tokens = g_strv_length (tokens);
 
-  if (num_tokens < 1)
+  /* Unfortunately we have to set an upper bound on `num_tokens`, as
+   * `GIcon.from_tokens()` takes the number of tokens as an `int` (for
+   * historical reasons), and that can’t be changed (e.g. to `size_t`) without
+   * breaking API. */
+  if (num_tokens < 1 || num_tokens > INT_MAX)
     {
       g_set_error (error,
                    G_IO_ERROR,
@@ -379,7 +382,7 @@ g_icon_new_from_tokens (char   **tokens,
       g_free (escaped);
     }
   
-  icon = icon_iface->from_tokens (tokens + 1, num_tokens - 1, version, error);
+  icon = icon_iface->from_tokens (tokens + 1, (int) num_tokens - 1, version, error);
 
  out:
   if (klass != NULL)
@@ -497,7 +500,7 @@ g_icon_deserialize_emblem (GVariant *value)
           origin_class = g_type_class_ref (G_TYPE_EMBLEM_ORIGIN);
           origin_value = g_enum_get_value_by_nick (origin_class, origin_nick);
           if (origin_value)
-            emblem = g_emblem_new_with_origin (emblem_icon, origin_value->value);
+            emblem = g_emblem_new_with_origin (emblem_icon, (GEmblemOrigin) origin_value->value);
           g_type_class_unref (origin_class);
         }
 

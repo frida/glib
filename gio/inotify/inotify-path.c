@@ -5,6 +5,8 @@
    Copyright (C) 2006 John McCutchan
    Copyright (C) 2009 Codethink Limited
 
+   SPDX-License-Identifier: LGPL-2.1-or-later
+
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
    License as published by the Free Software Foundation; either
@@ -28,11 +30,7 @@
 /* Don't put conflicting kernel types in the global namespace: */
 #define __KERNEL_STRICT_NAMES
 
-#ifdef HAVE_SYS_INOTIFY_H
 #include <sys/inotify.h>
-#else
-#include "inotify-compat.h"
-#endif
 #include <string.h>
 #include <glib.h>
 #include "inotify-kernel.h"
@@ -243,8 +241,17 @@ ip_watched_file_stop (ip_watched_file_t *file)
 {
   if (file->wd >= 0)
     {
-      _ik_ignore (file->path, file->wd);
-      ip_unmap_wd_file (file->wd, file);
+      gint32 wd = file->wd;
+
+      /* Drop this file from the wd list first, then only remove the kernel
+       * watch if no other watched file (reached via a different path that
+       * resolves to the same inode, e.g. a link) still shares this wd.
+       * Otherwise we would tear down a watch that is still in use. */
+      ip_unmap_wd_file (wd, file);
+
+      if (g_hash_table_lookup (wd_file_hash, GINT_TO_POINTER (wd)) == NULL)
+        _ik_ignore (file->path, wd);
+
       file->wd = -1;
     }
 }
@@ -384,13 +391,24 @@ _ip_stop_watching (inotify_sub *sub)
     return TRUE;
   
   ip_unmap_sub_dir (sub, dir);
-  
+
   /* No one is subscribing to this directory any more */
   if (dir->subs == NULL)
     {
-      _ik_ignore (dir->path, dir->wd);
-      ip_unmap_wd_dir (dir->wd, dir);
+      gint32 wd = dir->wd;
+
+      /* Drop this directory from the wd list first, then only remove the
+       * kernel watch if no other watched directory (reached via a different
+       * path that resolves to the same inode, e.g. a symlink) still shares
+       * this wd. Since inotify watches are keyed by inode, removing the wd
+       * while it is still shared would silently stop events for the other,
+       * still-active monitors. */
+      ip_unmap_wd_dir (wd, dir);
       ip_unmap_path_dir (dir->path, dir);
+
+      if (g_hash_table_lookup (wd_dir_hash, GINT_TO_POINTER (wd)) == NULL)
+        _ik_ignore (dir->path, wd);
+
       ip_watched_dir_free (dir);
     }
   
@@ -414,7 +432,7 @@ ip_watched_dir_new (const char *path,
 static void
 ip_watched_dir_free (ip_watched_dir_t *dir)
 {
-  g_assert_cmpint (g_hash_table_size (dir->files_hash), ==, 0);
+  g_assert (g_hash_table_size (dir->files_hash) == 0);
   g_assert (dir->subs == NULL);
   g_free (dir->path);
   g_hash_table_unref (dir->files_hash);
@@ -484,7 +502,7 @@ ip_event_dispatch (GList      *dir_list,
 	   */
 	  if (sub->hardlinks)
 	    {
-	      event->mask &= ~IP_INOTIFY_FILE_MASK;
+	      event->mask &= (guint32) ~IP_INOTIFY_FILE_MASK;
 	      if (!event->mask)
 		continue;
 	    }

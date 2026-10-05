@@ -112,7 +112,7 @@ typedef void  (*GClosureNotify)		(gpointer	 data,
  *  callback of @closure
  * @invocation_hint: (nullable): the invocation hint given as the
  *  last argument to g_closure_invoke()
- * @user_data: (nullable): additional data specified when
+ * @marshal_data: (nullable): additional data specified when
  *  registering the marshaller, see g_closure_set_marshal() and
  *  g_closure_set_meta_marshal()
  * 
@@ -123,7 +123,7 @@ typedef void  (*GClosureMarshal)	(GClosure	*closure,
 					 guint           n_param_values,
 					 const GValue   *param_values,
 					 gpointer        invocation_hint,
-					 gpointer	 user_data);
+					 gpointer	 marshal_data);
 
 /**
  * GVaClosureMarshal:
@@ -169,15 +169,7 @@ struct _GClosureNotifyData
   gpointer       data;
   GClosureNotify notify;
 };
-/**
- * GClosure:
- * @in_marshal: Indicates whether the closure is currently being invoked with 
- *  g_closure_invoke()
- * @is_invalid: Indicates whether the closure has been invalidated by 
- *  g_closure_invalidate()
- * 
- * A #GClosure represents a callback supplied by the programmer.
- */
+
 struct _GClosure
 {
   /*< private >*/

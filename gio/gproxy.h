@@ -42,19 +42,12 @@ G_BEGIN_DECLS
  * G_PROXY_EXTENSION_POINT_NAME:
  *
  * Extension point for proxy functionality.
- * See [Extending GIO][extending-gio].
+ * See [Extending GIO](overview.html#extending-gio).
  *
  * Since: 2.26
  */
 #define G_PROXY_EXTENSION_POINT_NAME "gio-proxy"
 
-/**
- * GProxy:
- *
- * Interface that handles proxy connection and payload.
- *
- * Since: 2.26
- */
 typedef struct _GProxyInterface GProxyInterface;
 
 /**
@@ -97,7 +90,7 @@ struct _GProxyInterface
 };
 
 GIO_AVAILABLE_IN_ALL
-GType      g_proxy_get_type                 (void) G_GNUC_CONST;
+GType      g_proxy_get_type                 (void);
 
 GIO_AVAILABLE_IN_ALL
 GProxy    *g_proxy_get_default_for_protocol (const gchar *protocol);

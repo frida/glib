@@ -17,6 +17,8 @@
  * along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "config.h"
+
 #include <glib.h>
 
 #ifndef G_OS_UNIX
@@ -26,11 +28,70 @@
 #include <glib/gstdio.h>
 #include <gio/gio.h>
 #include <gio/gunixmounts.h>
+#include <fcntl.h>
+
+#ifdef HAVE_COCOA
+static gchar *
+create_home_tmp_file (const gchar *tmpl)
+{
+  GFile *file = NULL;
+  GFileIOStream *stream = NULL;
+  GError *error = NULL;
+  gchar *path;
+
+  file = g_file_new_tmp (tmpl, &stream, &error);
+  g_assert_no_error (error);
+  path = g_strdup (g_file_peek_path (file));
+
+  g_assert_true (g_io_stream_close (G_IO_STREAM (stream), NULL, &error));
+  g_assert_no_error (error);
+
+  g_object_unref (stream);
+  g_object_unref (file);
+
+  return path;
+}
+
+static void
+remove_trashed_home_file (const gchar *basename)
+{
+  g_autofree gchar *trashed_path = NULL;
+
+  trashed_path = g_build_filename (g_get_home_dir (), ".Trash", basename, NULL);
+  g_remove (trashed_path);
+}
+
+static void
+test_trash_macos_native (void)
+{
+  g_autofree gchar *filepath = NULL;
+  g_autofree gchar *basename = NULL;
+  g_autofree gchar *legacy_trash_path = NULL;
+  g_autoptr (GFile) file = NULL;
+  GError *error = NULL;
+
+  filepath = create_home_tmp_file ("test-trash-macos-XXXXXX");
+  basename = g_path_get_basename (filepath);
+  legacy_trash_path = g_build_filename (g_get_user_data_dir (), "Trash", "files", basename, NULL);
+  file = g_file_new_for_path (filepath);
+
+  g_assert_true (g_file_trash (file, NULL, &error));
+  g_assert_no_error (error);
+  g_assert_false (g_file_test (filepath, G_FILE_TEST_EXISTS));
+  g_assert_false (g_file_test (legacy_trash_path, G_FILE_TEST_EXISTS));
+
+  remove_trashed_home_file (basename);
+}
+#endif
 
 /* Test that g_file_trash() returns G_IO_ERROR_NOT_SUPPORTED for files on system mounts. */
 static void
 test_trash_not_supported (void)
 {
+#ifdef HAVE_COCOA
+  g_test_skip ("This test covers the freedesktop trash implementation, not the macOS native backend");
+  return;
+#else
   GFile *file;
   GFileIOStream *stream;
   GUnixMountEntry *mount;
@@ -65,10 +126,10 @@ test_trash_not_supported (void)
       return;
     }
 
-  mount = g_unix_mount_for (g_file_peek_path (file), NULL);
-  g_assert_true (mount == NULL || g_unix_mount_is_system_internal (mount));
-  g_test_message ("Mount: %s", (mount != NULL) ? g_unix_mount_get_mount_path (mount) : "(null)");
-  g_clear_pointer (&mount, g_unix_mount_free);
+  mount = g_unix_mount_entry_for (g_file_peek_path (file), NULL);
+  g_assert_true (mount == NULL || g_unix_mount_entry_is_system_internal (mount));
+  g_test_message ("Mount: %s", (mount != NULL) ? g_unix_mount_entry_get_mount_path (mount) : "(null)");
+  g_clear_pointer (&mount, g_unix_mount_entry_free);
 
   /* g_file_trash() shouldn't be supported on system internal mounts,
    * because those are not monitored by gvfsd-trash.
@@ -96,12 +157,17 @@ test_trash_not_supported (void)
   g_object_unref (info);
   g_object_unref (stream);
   g_object_unref (file);
+#endif
 }
 
-/* Test that symlinks are properly expaned when looking for topdir (e.g. for trash folder). */
+/* Test that symlinks are properly expanded when looking for topdir (e.g. for trash folder). */
 static void
 test_trash_symlinks (void)
 {
+#ifdef HAVE_COCOA
+  g_test_skip ("This test covers topdir lookup for the freedesktop trash implementation, which is not supported on macOS");
+  return;
+#else
   GFile *symlink;
   GUnixMountEntry *target_mount, *tmp_mount, *symlink_mount, *target_over_symlink_mount;
   gchar *target, *tmp, *target_over_symlink;
@@ -118,7 +184,7 @@ test_trash_symlinks (void)
       return;
     }
 
-  target_mount = g_unix_mount_for (target, NULL);
+  target_mount = g_unix_mount_entry_for (target, NULL);
 
   if (target_mount == NULL)
     {
@@ -128,32 +194,32 @@ test_trash_symlinks (void)
     }
 
   g_assert_nonnull (target_mount);
-  g_test_message ("Target: %s (mount: %s)", target, g_unix_mount_get_mount_path (target_mount));
+  g_test_message ("Target: %s (mount: %s)", target, g_unix_mount_entry_get_mount_path (target_mount));
 
   tmp = g_dir_make_tmp ("test-trashXXXXXX", &error);
   g_assert_no_error (error);
   g_assert_nonnull (tmp);
-  tmp_mount = g_unix_mount_for (tmp, NULL);
+  tmp_mount = g_unix_mount_entry_for (tmp, NULL);
 
   if (tmp_mount == NULL)
     {
       g_test_skip_printf ("Unable to determine mount point for %s", tmp);
-      g_unix_mount_free (target_mount);
+      g_unix_mount_entry_free (target_mount);
       g_free (target);
       g_free (tmp);
       return;
     }
 
   g_assert_nonnull (tmp_mount);
-  g_test_message ("Tmp: %s (mount: %s)", tmp, g_unix_mount_get_mount_path (tmp_mount));
+  g_test_message ("Tmp: %s (mount: %s)", tmp, g_unix_mount_entry_get_mount_path (tmp_mount));
 
-  if (g_unix_mount_compare (target_mount, tmp_mount) == 0)
+  if (g_unix_mount_entry_compare (target_mount, tmp_mount) == 0)
     {
       g_test_skip ("The tmp has to be on another mount than the home to run this test");
 
-      g_unix_mount_free (tmp_mount);
+      g_unix_mount_entry_free (tmp_mount);
       g_free (tmp);
-      g_unix_mount_free (target_mount);
+      g_unix_mount_entry_free (target_mount);
       g_free (target);
 
       return;
@@ -163,29 +229,154 @@ test_trash_symlinks (void)
   g_file_make_symbolic_link (symlink, g_get_home_dir (), NULL, &error);
   g_assert_no_error (error);
 
-  symlink_mount = g_unix_mount_for (g_file_peek_path (symlink), NULL);
+  symlink_mount = g_unix_mount_entry_for (g_file_peek_path (symlink), NULL);
   g_assert_nonnull (symlink_mount);
-  g_test_message ("Symlink: %s (mount: %s)", g_file_peek_path (symlink), g_unix_mount_get_mount_path (symlink_mount));
+  g_test_message ("Symlink: %s (mount: %s)", g_file_peek_path (symlink), g_unix_mount_entry_get_mount_path (symlink_mount));
 
-  g_assert_cmpint (g_unix_mount_compare (symlink_mount, tmp_mount), ==, 0);
+  g_assert_cmpint (g_unix_mount_entry_compare (symlink_mount, tmp_mount), ==, 0);
 
   target_over_symlink = g_build_filename (g_file_peek_path (symlink),
                                           ".local",
                                           NULL);
-  target_over_symlink_mount = g_unix_mount_for (target_over_symlink, NULL);
+  target_over_symlink_mount = g_unix_mount_entry_for (target_over_symlink, NULL);
   g_assert_nonnull (symlink_mount);
-  g_test_message ("Target over symlink: %s (mount: %s)", target_over_symlink, g_unix_mount_get_mount_path (target_over_symlink_mount));
+  g_test_message ("Target over symlink: %s (mount: %s)", target_over_symlink, g_unix_mount_entry_get_mount_path (target_over_symlink_mount));
 
-  g_assert_cmpint (g_unix_mount_compare (target_over_symlink_mount, target_mount), ==, 0);
+  g_assert_cmpint (g_unix_mount_entry_compare (target_over_symlink_mount, target_mount), ==, 0);
 
-  g_unix_mount_free (target_over_symlink_mount);
-  g_unix_mount_free (symlink_mount);
+  g_unix_mount_entry_free (target_over_symlink_mount);
+  g_unix_mount_entry_free (symlink_mount);
   g_free (target_over_symlink);
   g_object_unref (symlink);
-  g_unix_mount_free (tmp_mount);
+  g_unix_mount_entry_free (tmp_mount);
   g_free (tmp);
-  g_unix_mount_free (target_mount);
+  g_unix_mount_entry_free (target_mount);
   g_free (target);
+#endif
+}
+
+/* Build a base name of exactly @target_len bytes by repeating @unit (which may
+ * contain multi-byte UTF-8).  @target_len must be a whole multiple of the unit
+ * length so the result never ends mid-character. */
+static gchar *
+build_long_filename (const char *unit,
+                     gsize target_len)
+{
+  gsize unit_len = strlen (unit);
+  GString *s = g_string_sized_new (target_len);
+  gsize i;
+
+  g_assert_cmpuint (target_len % unit_len, ==, 0);
+
+  for (i = 0; i < target_len / unit_len; i++)
+    g_string_append (s, unit);
+
+  return g_string_free (s, FALSE);
+}
+
+/* Create, trash and clean up a file named @long_filename, which is assumed to
+ * be long enough to trigger the front-truncation path. */
+static void
+trash_long_filename (const char *long_filename)
+{
+  gchar *filepath;
+  int fd;
+  GFile *file;
+  GError *error = NULL;
+
+  /* The test assumes that test file is located on ext fs. */
+  filepath = g_build_filename (g_get_home_dir (), long_filename, NULL);
+  fd = g_open (filepath, O_CREAT | O_RDONLY, 0666);
+  if (fd == -1)
+    {
+      g_test_skip ("Failed to create test file");
+      g_free (filepath);
+      return;
+    }
+  (void) g_close (fd, NULL);
+  file = g_file_new_for_path (filepath);
+  g_file_trash (file, NULL, &error);
+  g_unlink (filepath);
+  g_assert_no_error (error);
+
+  /* Delete trashed version of test file */
+#ifdef HAVE_COCOA
+  {
+    g_autofree gchar *basename = g_path_get_basename (filepath);
+    remove_trashed_home_file (basename);
+  }
+#else
+  {
+    GFileEnumerator *enumerator;
+    GFile *trash;
+
+    trash = g_file_new_for_uri ("trash:///");
+    enumerator = g_file_enumerate_children (trash,
+                                            G_FILE_ATTRIBUTE_STANDARD_NAME ","
+                                            G_FILE_ATTRIBUTE_TRASH_ORIG_PATH,
+                                            G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+                                            NULL, NULL);
+
+    if (enumerator)
+      {
+        GFileInfo *info;
+
+        while ((info = g_file_enumerator_next_file (enumerator, NULL, NULL)) != NULL)
+          {
+            const char *origpath = g_file_info_get_attribute_byte_string (info, G_FILE_ATTRIBUTE_TRASH_ORIG_PATH);
+
+            if (strcmp (filepath, origpath) == 0)
+              {
+                GFile *item = g_file_get_child (trash, g_file_info_get_name (info));
+                g_file_delete (item, NULL, NULL);
+                g_object_unref (item);
+                g_object_unref (info);
+                break;
+              }
+
+            g_object_unref (info);
+          }
+
+        g_file_enumerator_close (enumerator, NULL, NULL);
+        g_object_unref (enumerator);
+      }
+    g_object_unref (trash);
+  }
+#endif
+
+  g_free (filepath);
+  g_object_unref (file);
+  g_clear_error (&error);
+}
+
+/* Test that long filenames are handled correctly, including multi-byte UTF-8
+ * names whose truncation point may fall inside a character. */
+static void
+test_trash_long_filename (void)
+{
+  /* Each name is longer than NAME_MAX - strlen (".trashinfo") so that trashing
+   * exercises the front-truncation path.  The multi-byte entries check that the
+   * cut is aligned to a UTF-8 character boundary (split vs. not split). */
+  const struct
+    {
+      const char *unit;
+      size_t target_len;
+    }
+  cases[] =
+    {
+      { "a", 255 },                /* ASCII, exactly NAME_MAX */
+      { "a", 246 },                /* ASCII, just over the threshold */
+      { "\xe4\xb8\xad", 249 },     /* 3-byte UTF-8, cut splits a character */
+      { "\xe4\xb8\xad" "aa", 250 }, /* mixed, cut on a character boundary */
+    };
+
+  for (size_t i = 0; i < G_N_ELEMENTS (cases); i++)
+    {
+      gchar *long_filename = build_long_filename (cases[i].unit,
+                                                 cases[i].target_len);
+      trash_long_filename (long_filename);
+      g_free (long_filename);
+    }
 }
 
 int
@@ -193,8 +384,12 @@ main (int argc, char *argv[])
 {
   g_test_init (&argc, &argv, NULL);
 
+#ifdef HAVE_COCOA
+  g_test_add_func ("/trash/macos/native", test_trash_macos_native);
+#endif
   g_test_add_func ("/trash/not-supported", test_trash_not_supported);
   g_test_add_func ("/trash/symlinks", test_trash_symlinks);
+  g_test_add_func ("/trash/long-filename", test_trash_long_filename);
 
   return g_test_run ();
 }

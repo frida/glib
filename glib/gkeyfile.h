@@ -54,7 +54,7 @@ typedef enum
   G_KEY_FILE_NONE              = 0,
   G_KEY_FILE_KEEP_COMMENTS     = 1 << 0,
   G_KEY_FILE_KEEP_TRANSLATIONS = 1 << 1
-} GKeyFileFlags;
+} G_GNUC_FLAG_ENUM GKeyFileFlags;
 
 GLIB_AVAILABLE_IN_ALL
 GKeyFile *g_key_file_new                    (void);
@@ -78,6 +78,18 @@ gboolean  g_key_file_load_from_data         (GKeyFile             *key_file,
 					     gsize                 length,
 					     GKeyFileFlags         flags,
 					     GError              **error);
+
+GLIB_AVAILABLE_IN_2_90
+gboolean g_key_file_load_unix_configurations (GKeyFile            *key_file,
+                                              const gchar         *project,
+                                              const gchar         *etc_subdir,
+                                              const gchar         *run_subdir,
+                                              const gchar         *usr_subdir,
+                                              const gchar         *config_name,
+                                              const gchar         *config_suffix,
+                                              GKeyFileFlags        flags,
+                                              GError             **error);
+
 GLIB_AVAILABLE_IN_2_50
 gboolean  g_key_file_load_from_bytes        (GKeyFile             *key_file,
                                              GBytes               *bytes,

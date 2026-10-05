@@ -38,14 +38,6 @@ G_BEGIN_DECLS
 #define G_BINDING(obj)          (G_TYPE_CHECK_INSTANCE_CAST ((obj), G_TYPE_BINDING, GBinding))
 #define G_IS_BINDING(obj)       (G_TYPE_CHECK_INSTANCE_TYPE ((obj), G_TYPE_BINDING))
 
-/**
- * GBinding:
- *
- * GBinding is an opaque structure whose members
- * cannot be accessed directly.
- *
- * Since: 2.26
- */
 typedef struct _GBinding        GBinding;
 
 /**
@@ -102,12 +94,12 @@ typedef enum { /*< prefix=G_BINDING >*/
   G_BINDING_BIDIRECTIONAL  = 1 << 0,
   G_BINDING_SYNC_CREATE    = 1 << 1,
   G_BINDING_INVERT_BOOLEAN = 1 << 2
-} GBindingFlags;
+} G_GNUC_FLAG_ENUM GBindingFlags;
 
 GOBJECT_AVAILABLE_IN_ALL
-GType                 g_binding_flags_get_type      (void) G_GNUC_CONST;
+GType                 g_binding_flags_get_type      (void);
 GOBJECT_AVAILABLE_IN_ALL
-GType                 g_binding_get_type            (void) G_GNUC_CONST;
+GType                 g_binding_get_type            (void);
 
 GOBJECT_AVAILABLE_IN_ALL
 GBindingFlags         g_binding_get_flags           (GBinding *binding);

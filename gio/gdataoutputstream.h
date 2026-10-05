@@ -38,12 +38,6 @@ G_BEGIN_DECLS
 #define G_IS_DATA_OUTPUT_STREAM_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_DATA_OUTPUT_STREAM))
 #define G_DATA_OUTPUT_STREAM_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_DATA_OUTPUT_STREAM, GDataOutputStreamClass))
 
-/**
- * GDataOutputStream:
- *
- * An implementation of #GBufferedOutputStream that allows for high-level
- * data manipulation of arbitrary data (including binary operations).
- **/
 typedef struct _GDataOutputStream         GDataOutputStream;
 typedef struct _GDataOutputStreamClass    GDataOutputStreamClass;
 typedef struct _GDataOutputStreamPrivate  GDataOutputStreamPrivate;
@@ -71,7 +65,7 @@ struct _GDataOutputStreamClass
 
 
 GIO_AVAILABLE_IN_ALL
-GType                g_data_output_stream_get_type       (void) G_GNUC_CONST;
+GType                g_data_output_stream_get_type       (void);
 GIO_AVAILABLE_IN_ALL
 GDataOutputStream *  g_data_output_stream_new            (GOutputStream         *base_stream);
 

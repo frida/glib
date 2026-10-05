@@ -102,6 +102,8 @@
 #include <gio/giomodule.h>
 #include <gio/gioscheduler.h>
 #include <gio/giostream.h>
+#include <gio/giptosmessage.h>
+#include <gio/gipv6tclassmessage.h>
 #include <gio/glistmodel.h>
 #include <gio/gliststore.h>
 #include <gio/gloadableicon.h>
@@ -182,27 +184,5 @@
 #include <gio/gio-autocleanups.h>
 
 #undef __GIO_GIO_H_INSIDE__
-
-G_BEGIN_DECLS
-
-GIO_AVAILABLE_IN_2_68
-void                            gio_init (void);
-
-GIO_AVAILABLE_IN_2_68
-void                            gio_shutdown (void);
-
-GIO_AVAILABLE_IN_2_68
-void                            gio_deinit (void);
-
-GIO_AVAILABLE_IN_2_68
-void                            gio_prepare_to_fork (void);
-
-GIO_AVAILABLE_IN_2_68
-void                            gio_recover_from_fork_in_parent (void);
-
-GIO_AVAILABLE_IN_2_68
-void                            gio_recover_from_fork_in_child (void);
-
-G_END_DECLS
 
 #endif /* __G_IO_H__ */

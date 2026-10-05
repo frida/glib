@@ -36,7 +36,6 @@
   #include <io.h>
   #include <fcntl.h>
   #include <process.h>
-  #define STRICT
   #include <windows.h>
   #define pipe(fds) _pipe(fds, 4096, _O_BINARY)
 #endif
@@ -270,12 +269,12 @@ spawn_process (int children_nb)
   wcl.hCursor = NULL;
   wcl.hbrBackground = NULL;
   wcl.lpszMenuName = NULL;
-  wcl.lpszClassName = "io-channel-basic";
+  wcl.lpszClassName = L"io-channel-basic";
 
   klass = RegisterClass (&wcl);
   g_assert_cmpint (klass, !=, 0);
 
-  hwnd = CreateWindow (MAKEINTATOM(klass), "io-channel-basic", 0, 0, 0, 10, 10,
+  hwnd = CreateWindow (MAKEINTATOM (klass), L"io-channel-basic", 0, 0, 0, 10, 10,
                        NULL, NULL, wcl.hInstance, NULL);
   g_assert_nonnull (hwnd);
 

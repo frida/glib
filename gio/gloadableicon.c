@@ -29,13 +29,10 @@
 
 
 /**
- * SECTION:gloadableicon
- * @short_description: Loadable Icons
- * @include: gio/gio.h
- * @see_also: #GIcon, #GThemedIcon
+ * GLoadableIcon:
  * 
- * Extends the #GIcon interface and adds the ability to 
- * load icons from streams.
+ * `GLoadableIcon` extends the [iface@Gio.Icon] interface and adds the ability
+ * to load icons from streams.
  **/
 
 static void          g_loadable_icon_real_load_async  (GLoadableIcon        *icon,
@@ -95,9 +92,9 @@ g_loadable_icon_load (GLoadableIcon  *icon,
  * @icon: a #GLoadableIcon.
  * @size: an integer.
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore. 
- * @callback: (scope async): a #GAsyncReadyCallback to call when the
- *            request is satisfied
- * @user_data: (closure): the data to pass to callback function
+ * @callback: (scope async): a #GAsyncReadyCallback
+ *   to call when the request is satisfied
+ * @user_data: the data to pass to callback function
  * 
  * Loads an icon asynchronously. To finish this function, see 
  * g_loadable_icon_load_finish(). For the synchronous, blocking 

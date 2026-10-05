@@ -237,7 +237,7 @@ test_spawn_async_with_fds (void)
               break;
             case PIPE:
 #ifdef G_OS_UNIX
-              g_unix_open_pipe (test_pipe[j], FD_CLOEXEC, &error);
+              g_unix_open_pipe (test_pipe[j], O_CLOEXEC, &error);
               g_assert_no_error (error);
 #else
               g_assert_cmpint (_pipe (test_pipe[j], 4096, _O_BINARY), >=, 0);
@@ -316,6 +316,39 @@ test_spawn_async_with_fds (void)
 
   g_ptr_array_free (argv, TRUE);
   g_free (arg);
+}
+
+static void
+test_spawn_async_with_invalid_fds (void)
+{
+  const gchar *argv[] = { echo_prog_path, "thread 0", NULL };
+  gint source_fds[1000];
+  GError *local_error = NULL;
+  gboolean retval;
+  gsize i;
+
+  /* Create an identity mapping from [0, …, 999]. This is very likely going to
+   * conflict with the internal FDs, as it covers a lot of the FD space
+   * (including stdin, stdout and stderr, though we don’t care about them in
+   * this test).
+   *
+   * Skip the test if we somehow avoid a collision. */
+  for (i = 0; i < G_N_ELEMENTS (source_fds); i++)
+    source_fds[i] = i;
+
+  retval = g_spawn_async_with_pipes_and_fds (NULL, argv, NULL, G_SPAWN_DEFAULT,
+                                             NULL, NULL, -1, -1, -1,
+                                             source_fds, source_fds, G_N_ELEMENTS (source_fds),
+                                             NULL, NULL, NULL, NULL,
+                                             &local_error);
+  if (retval)
+    {
+      g_test_skip ("Skipping internal FDs check as test didn’t manage to trigger a collision");
+      return;
+    }
+  g_assert_false (retval);
+  g_assert_error (local_error, G_SPAWN_ERROR, G_SPAWN_ERROR_INVAL);
+  g_error_free (local_error);
 }
 
 static void
@@ -576,6 +609,7 @@ main (int   argc,
   g_test_add_func ("/gthread/spawn-stderr-socket", test_spawn_stderr_socket);
   g_test_add_func ("/gthread/spawn-single-async", test_spawn_async);
   g_test_add_func ("/gthread/spawn-single-async-with-fds", test_spawn_async_with_fds);
+  g_test_add_func ("/gthread/spawn-async-with-invalid-fds", test_spawn_async_with_invalid_fds);
   g_test_add_func ("/gthread/spawn-script", test_spawn_script);
   g_test_add_func ("/gthread/spawn/nonexistent", test_spawn_nonexistent);
   g_test_add_func ("/gthread/spawn-posix-spawn", test_posix_spawn);

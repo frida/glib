@@ -43,11 +43,11 @@ typedef struct _GHookList	GHookList;
 typedef gint		(*GHookCompareFunc)	(GHook		*new_hook,
 						 GHook		*sibling);
 typedef gboolean	(*GHookFindFunc)	(GHook		*hook,
-						 gpointer	 user_data);
+						 gpointer	 data);
 typedef void		(*GHookMarshaller)	(GHook		*hook,
-						 gpointer	 user_data);
+						 gpointer	 marshal_data);
 typedef gboolean	(*GHookCheckMarshaller)	(GHook		*hook,
-						 gpointer	 user_data);
+						 gpointer	 marshal_data);
 typedef void		(*GHookFunc)		(gpointer	 data);
 typedef gboolean	(*GHookCheckFunc)	(gpointer	 data);
 typedef void		(*GHookFinalizeFunc)	(GHookList      *hook_list,
@@ -56,8 +56,10 @@ typedef enum
 {
   G_HOOK_FLAG_ACTIVE	    = 1 << 0,
   G_HOOK_FLAG_IN_CALL	    = 1 << 1,
+  G_HOOK_FLAG_RESERVED1     = 1 << 2, /*< private >*/
+  G_HOOK_FLAG_RESERVED2     = 1 << 3, /*< private >*/
   G_HOOK_FLAG_MASK	    = 0x0f
-} GHookFlagMask;
+} G_GNUC_FLAG_ENUM GHookFlagMask;
 #define G_HOOK_FLAG_USER_SHIFT	(4)
 
 

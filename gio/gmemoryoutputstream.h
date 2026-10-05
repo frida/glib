@@ -38,11 +38,6 @@ G_BEGIN_DECLS
 #define G_IS_MEMORY_OUTPUT_STREAM_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_MEMORY_OUTPUT_STREAM))
 #define G_MEMORY_OUTPUT_STREAM_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_MEMORY_OUTPUT_STREAM, GMemoryOutputStreamClass))
 
-/**
- * GMemoryOutputStream:
- *
- * Implements #GOutputStream for arbitrary memory chunks.
- **/
 typedef struct _GMemoryOutputStreamClass    GMemoryOutputStreamClass;
 typedef struct _GMemoryOutputStreamPrivate  GMemoryOutputStreamPrivate;
 
@@ -83,7 +78,7 @@ typedef gpointer (* GReallocFunc) (gpointer data,
                                    gsize    size);
 
 GIO_AVAILABLE_IN_ALL
-GType          g_memory_output_stream_get_type      (void) G_GNUC_CONST;
+GType          g_memory_output_stream_get_type      (void);
 
 GIO_AVAILABLE_IN_ALL
 GOutputStream *g_memory_output_stream_new           (gpointer             data,

@@ -64,7 +64,7 @@ static void                     mechanism_server_data_receive       (GDBusAuthMe
                                                                      gsize                 data_len);
 static gchar                   *mechanism_server_data_send          (GDBusAuthMechanism   *mechanism,
                                                                      gsize                *out_data_len);
-static gchar                   *mechanism_server_get_reject_reason  (GDBusAuthMechanism   *mechanism);
+static gchar                   *mechanism_server_or_client_get_reject_reason (GDBusAuthMechanism   *mechanism);
 static void                     mechanism_server_shutdown           (GDBusAuthMechanism   *mechanism);
 static GDBusAuthMechanismState  mechanism_client_get_state          (GDBusAuthMechanism   *mechanism);
 static gchar                   *mechanism_client_initiate           (GDBusAuthMechanism   *mechanism,
@@ -111,12 +111,13 @@ _g_dbus_auth_mechanism_external_class_init (GDBusAuthMechanismExternalClass *kla
   mechanism_class->server_initiate           = mechanism_server_initiate;
   mechanism_class->server_data_receive       = mechanism_server_data_receive;
   mechanism_class->server_data_send          = mechanism_server_data_send;
-  mechanism_class->server_get_reject_reason  = mechanism_server_get_reject_reason;
+  mechanism_class->server_get_reject_reason  = mechanism_server_or_client_get_reject_reason;
   mechanism_class->server_shutdown           = mechanism_server_shutdown;
   mechanism_class->client_get_state          = mechanism_client_get_state;
   mechanism_class->client_initiate           = mechanism_client_initiate;
   mechanism_class->client_data_receive       = mechanism_client_data_receive;
   mechanism_class->client_data_send          = mechanism_client_data_send;
+  mechanism_class->client_get_reject_reason  = mechanism_server_or_client_get_reject_reason;
   mechanism_class->client_shutdown           = mechanism_client_shutdown;
 }
 
@@ -321,12 +322,11 @@ mechanism_server_data_send (GDBusAuthMechanism   *mechanism,
 }
 
 static gchar *
-mechanism_server_get_reject_reason (GDBusAuthMechanism   *mechanism)
+mechanism_server_or_client_get_reject_reason (GDBusAuthMechanism   *mechanism)
 {
   GDBusAuthMechanismExternal *m = G_DBUS_AUTH_MECHANISM_EXTERNAL (mechanism);
 
   g_return_val_if_fail (G_IS_DBUS_AUTH_MECHANISM_EXTERNAL (mechanism), NULL);
-  g_return_val_if_fail (m->priv->is_server && !m->priv->is_client, NULL);
   g_return_val_if_fail (m->priv->state == G_DBUS_AUTH_MECHANISM_STATE_REJECTED, NULL);
 
   /* can never end up here because we are never in the REJECTED state */
@@ -382,13 +382,12 @@ mechanism_client_initiate (GDBusAuthMechanism   *mechanism,
        * no way to express an empty authorization identity this way.
        * Instead, we'll reply to the server's first (empty) challenge
        * with an empty authorization identity in our first response.  */
-      g_debug ("Using cross-namespace EXTERNAL authentication (this will deadlock if server is GDBus < 2.73.3)");
     }
   else
     {
       /* Send the Unix uid or Windows SID as an initial response.
-       * This is the only thing that is interoperable with GDBus 2.73.3
-       * servers. */
+       * This is the only thing that is interoperable with GDBus < 2.73.3
+       * servers (RHEL ≤ 9, Debian ≤ 11, Ubuntu ≤ 22.04, SUSE ≤ 15.5). */
 #if defined(G_OS_UNIX)
       GCredentials *credentials;
 

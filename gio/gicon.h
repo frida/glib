@@ -36,11 +36,6 @@ G_BEGIN_DECLS
 #define G_IS_ICON(obj)	       (G_TYPE_CHECK_INSTANCE_TYPE ((obj), G_TYPE_ICON))
 #define G_ICON_GET_IFACE(obj)  (G_TYPE_INSTANCE_GET_INTERFACE ((obj), G_TYPE_ICON, GIconIface))
 
-/**
- * GIcon:
- *
- * An abstract type that specifies an icon.
- **/
 typedef struct _GIconIface GIconIface;
 
 /**
@@ -91,7 +86,7 @@ struct _GIconIface
   /**
    * GIconIface::from_tokens:
    * @tokens: (array length=num_tokens): An array of tokens
-   * @num_tokens: The number of tokens in @tokens
+   * @num_tokens: The number of tokens in @tokens (guaranteed to be non-negative)
    * @version: Version of the serialized tokens
    * @error: Return location for errors, or %NULL to ignore
    *
@@ -110,7 +105,7 @@ struct _GIconIface
 };
 
 GIO_AVAILABLE_IN_ALL
-GType    g_icon_get_type  (void) G_GNUC_CONST;
+GType    g_icon_get_type  (void);
 
 GIO_AVAILABLE_IN_ALL
 guint    g_icon_hash            (gconstpointer  icon);

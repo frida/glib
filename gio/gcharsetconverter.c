@@ -39,22 +39,15 @@ enum {
 };
 
 /**
- * SECTION:gcharsetconverter
- * @short_description: Convert between charsets
- * @include: gio/gio.h
+ * GCharsetConverter:
  *
- * #GCharsetConverter is an implementation of #GConverter based on
- * GIConv.
+ * `GCharsetConverter` is an implementation of [iface@Gio.Converter] based on
+ * [struct@GLib.IConv].
  */
 
 static void g_charset_converter_iface_init          (GConverterIface *iface);
 static void g_charset_converter_initable_iface_init (GInitableIface  *iface);
 
-/**
- * GCharsetConverter:
- *
- * Conversions between character sets.
- */
 struct _GCharsetConverter
 {
   GObject parent_instance;
@@ -81,7 +74,7 @@ g_charset_converter_finalize (GObject *object)
 
   g_free (conv->from);
   g_free (conv->to);
-  if (conv->iconv)
+  if (conv->iconv != NULL && conv->iconv != (GIConv) -1)
     g_iconv_close (conv->iconv);
 
   G_OBJECT_CLASS (g_charset_converter_parent_class)->finalize (object);
@@ -159,27 +152,44 @@ g_charset_converter_class_init (GCharsetConverterClass *klass)
   gobject_class->get_property = g_charset_converter_get_property;
   gobject_class->set_property = g_charset_converter_set_property;
 
+  /**
+   * GCharsetConverter:to-charset:
+   *
+   * The character encoding to convert to.
+   *
+   * Since: 2.24
+   */
   g_object_class_install_property (gobject_class,
 				   PROP_TO_CHARSET,
-				   g_param_spec_string ("to-charset",
-							P_("To Charset"),
-							P_("The character encoding to convert to"),
+				   g_param_spec_string ("to-charset", NULL, NULL,
 							NULL,
 							G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
 							G_PARAM_STATIC_STRINGS));
+
+  /**
+   * GCharsetConverter:from-charset:
+   *
+   * The character encoding to convert from.
+   *
+   * Since: 2.24
+   */
   g_object_class_install_property (gobject_class,
 				   PROP_FROM_CHARSET,
-				   g_param_spec_string ("from-charset",
-							P_("From Charset"),
-							P_("The character encoding to convert from"),
+				   g_param_spec_string ("from-charset", NULL, NULL,
 							NULL,
 							G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
 							G_PARAM_STATIC_STRINGS));
+
+  /**
+   * GCharsetConverter:use-fallback:
+   *
+   * Use fallback (of form `\<hexval>`) for invalid bytes.
+   *
+   * Since: 2.24
+   */
   g_object_class_install_property (gobject_class,
 				   PROP_USE_FALLBACK,
-				   g_param_spec_boolean ("use-fallback",
-							 P_("Fallback enabled"),
-							 P_("Use fallback (of form \\<hexval>) for invalid bytes"),
+				   g_param_spec_boolean ("use-fallback", NULL, NULL,
 							 FALSE,
 							 G_PARAM_READWRITE |
 							 G_PARAM_CONSTRUCT |
@@ -295,8 +305,11 @@ g_charset_converter_convert (GConverter       *converter,
                    &inbufp, &in_left,
                    &outbufp, &out_left);
 
-  *bytes_read = inbufp - (char *)inbuf;
-  *bytes_written = outbufp - (char *)outbuf;
+  g_assert (inbufp >= (char *) inbuf);
+  g_assert (outbufp >= (char *) outbuf);
+
+  *bytes_read = (size_t) (inbufp - (char *) inbuf);
+  *bytes_written = (size_t) (outbufp - (char *) outbuf);
 
   /* Don't report error if we converted anything */
   if (res == (gsize) -1 && *bytes_read == 0)
@@ -330,8 +343,8 @@ g_charset_converter_convert (GConverter       *converter,
 		  guint8 v = *(guint8 *)inbuf;
 		  guint8 *out = (guint8 *)outbuf;
 		  out[0] = '\\';
-		  out[1] = hex[(v & 0xf0) >> 4];
-		  out[2] = hex[(v & 0x0f) >> 0];
+		  out[1] = (guint8) hex[(v & 0xf0) >> 4];
+		  out[2] = (guint8) hex[(v & 0x0f) >> 0];
 		  *bytes_read = 1;
 		  *bytes_written = 3;
 		  in_left--;

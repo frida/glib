@@ -28,24 +28,14 @@
 #include "glistmodel.h"
 
 /**
- * SECTION:gliststore
- * @title: GListStore
- * @short_description: A simple implementation of #GListModel
- * @include: gio/gio.h
+ * GListStore:
  *
- * #GListStore is a simple implementation of #GListModel that stores all
- * items in memory.
+ * `GListStore` is a simple implementation of [iface@Gio.ListModel] that stores
+ * all items in memory.
  *
  * It provides insertions, deletions, and lookups in logarithmic time
  * with a fast path for the common case of iterating the list linearly.
  */
-
-/**
- * GListStore:
- *
- * #GListStore is an opaque data structure and can only be accessed
- * using the following functions.
- **/
 
 struct _GListStore
 {
@@ -165,7 +155,7 @@ g_list_store_class_init (GListStoreClass *klass)
    * Since: 2.44
    **/
   properties[PROP_ITEM_TYPE] =
-    g_param_spec_gtype ("item-type", "", "", G_TYPE_OBJECT,
+    g_param_spec_gtype ("item-type", NULL, NULL, G_TYPE_OBJECT,
                         G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS);
 
   /**
@@ -176,7 +166,7 @@ g_list_store_class_init (GListStoreClass *klass)
    * Since: 2.74
    **/
   properties[PROP_N_ITEMS] =
-    g_param_spec_uint ("n-items", "", "", 0, G_MAXUINT, 0,
+    g_param_spec_uint ("n-items", NULL, NULL, 0, G_MAXUINT, 0,
                        G_PARAM_READABLE | G_PARAM_STATIC_STRINGS);
 
   g_object_class_install_properties (object_class, N_PROPERTIES, properties);
@@ -305,8 +295,8 @@ g_list_store_insert (GListStore *store,
  * g_list_store_insert_sorted:
  * @store: a #GListStore
  * @item: (type GObject): the new item
- * @compare_func: (scope call): pairwise comparison function for sorting
- * @user_data: (closure): user data for @compare_func
+ * @compare_func: (scope call) (closure user_data): pairwise comparison function for sorting
+ * @user_data: user data for @compare_func
  *
  * Inserts @item into @store at a position to be determined by the
  * @compare_func.
@@ -345,8 +335,8 @@ g_list_store_insert_sorted (GListStore       *store,
 /**
  * g_list_store_sort:
  * @store: a #GListStore
- * @compare_func: (scope call): pairwise comparison function for sorting
- * @user_data: (closure): user data for @compare_func
+ * @compare_func: (scope call) (closure user_data): pairwise comparison function for sorting
+ * @user_data: user data for @compare_func
  *
  * Sort the items in @store according to @compare_func.
  *
@@ -441,6 +431,8 @@ g_list_store_remove_all (GListStore *store)
   g_return_if_fail (G_IS_LIST_STORE (store));
 
   n_items = g_sequence_get_length (store->items);
+  if (n_items == 0)
+    return;
   g_sequence_remove_range (g_sequence_get_begin_iter (store->items),
                            g_sequence_get_end_iter (store->items));
 
@@ -487,6 +479,9 @@ g_list_store_splice (GListStore *store,
   n_items = g_sequence_get_length (store->items);
   g_return_if_fail (position + n_removals <= n_items);
 
+  if (n_removals == 0 && n_additions == 0)
+    return;
+
   it = g_sequence_get_iter_at_pos (store->items, position);
 
   if (n_removals)
@@ -530,7 +525,7 @@ simple_equal (gconstpointer a,
 /**
  * g_list_store_find_with_equal_func:
  * @store: a #GListStore
- * @item: (type GObject): an item
+ * @item: (type GObject) (nullable): an item
  * @equal_func: (scope call): A custom equality check function
  * @position: (out) (optional): the first position of @item, if it was found.
  *
@@ -538,6 +533,10 @@ simple_equal (gconstpointer a,
  * comparing them with @equal_func until the first occurrence of @item which
  * matches. If @item was not found, then @position will not be set, and this
  * method will return %FALSE.
+ *
+ * @item is always passed as second parameter to @equal_func.
+ *
+ * Since GLib 2.76 it is possible to pass `NULL` for @item.
  *
  * Returns: Whether @store contains @item. If it was found, @position will be
  * set to the position where @item occurred for the first time.
@@ -559,13 +558,17 @@ g_list_store_find_with_equal_func (GListStore *store,
 /**
  * g_list_store_find_with_equal_func_full:
  * @store: a #GListStore
- * @item: (type GObject): an item
- * @equal_func: (scope call): A custom equality check function
- * @user_data: (closure): user data for @equal_func
+ * @item: (type GObject) (nullable): an item
+ * @equal_func: (scope call) (closure user_data): A custom equality check function
+ * @user_data: user data for @equal_func
  * @position: (out) (optional): the first position of @item, if it was found.
  *
  * Like g_list_store_find_with_equal_func() but with an additional @user_data
  * that is passed to @equal_func.
+ *
+ * @item is always passed as second parameter to @equal_func.
+ *
+ * Since GLib 2.76 it is possible to pass `NULL` for @item.
  *
  * Returns: Whether @store contains @item. If it was found, @position will be
  * set to the position where @item occurred for the first time.
@@ -582,7 +585,7 @@ g_list_store_find_with_equal_func_full (GListStore     *store,
   GSequenceIter *iter, *begin, *end;
 
   g_return_val_if_fail (G_IS_LIST_STORE (store), FALSE);
-  g_return_val_if_fail (g_type_is_a (G_OBJECT_TYPE (item), store->item_type),
+  g_return_val_if_fail (item == NULL || g_type_is_a (G_OBJECT_TYPE (item), store->item_type),
                         FALSE);
   g_return_val_if_fail (equal_func != NULL, FALSE);
 

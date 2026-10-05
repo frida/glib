@@ -21,6 +21,13 @@ Files:
 Copyright: See individual files
 License: CC0-1.0
 
+# .gitignore files are too simple to be copyrightable
+Files:
+ .gitignore
+ **/.gitignore
+Copyright: See individual files
+License: CC0-1.0
+
 # Translation files are explicitly contributed under the license of the project,
 # but by multiple authors
 Files: po/*.po
@@ -34,3 +41,28 @@ Files:
  subprojects/*.wrap
 Copyright: Meson Wrap Database (wrapdb) contributors
 License: CC0-1.0
+
+Files: docs/reference/glib/file-name-encodings*.odg
+Copyright:
+  2004-2006 Federico Mena Quintero <federico@ximian.com>
+  2025 Frank Dana
+License: CC0-1.0
+
+# libgirepository uses cmph as a copylib. Adding copyright/license data to the
+# files there would cause divergence from upstream. See
+# girepository/cmph/README-CMPH-IMPORT.txt.
+Files: girepository/cmph/*
+Copyright: CMPH contributors
+License: LGPL-2.1-only or MPL-1.1
+
+# gnulib is a copylib. Adding copyright/license data to the files there would
+# cause divergence from upstream. See glib/gnulib/README.
+Files: glib/gnulib/*
+Copyright: gnulib contributors
+License: LGPL-2.1-or-later
+
+# libcharset is a copylib. Adding copyright/license data to the files there
+# would cause divergence from upstream. See glib/libcharset/README.
+Files: glib/libcharset/*
+Copyright: libcharset contributors
+License: LGPL-2.1-or-later

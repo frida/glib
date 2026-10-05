@@ -34,16 +34,16 @@
 
 #include "gioerror.h"
 
+#include "gdbusprivate.h"
+
 #include "glibintl.h"
 
 /**
- * SECTION:gdbusobjectmanagerserver
- * @short_description: Service-side object manager
- * @include: gio/gio.h
+ * GDBusObjectManagerServer:
  *
- * #GDBusObjectManagerServer is used to export #GDBusObject instances using
- * the standardized
- * [org.freedesktop.DBus.ObjectManager](http://dbus.freedesktop.org/doc/dbus-specification.html#standard-interfaces-objectmanager)
+ * `GDBusObjectManagerServer` is used to export [iface@Gio.DBusObject] instances
+ * using the standardized
+ * [`org.freedesktop.DBus.ObjectManager`](http://dbus.freedesktop.org/doc/dbus-specification.html#standard-interfaces-objectmanager)
  * interface. For example, remote D-Bus clients can get all objects
  * and properties in a single call. Additionally, any change in the
  * object hierarchy is broadcast using signals. This means that D-Bus
@@ -59,10 +59,11 @@
  * It is supported, but not recommended, to export an object manager at the root
  * path, `/`.
  *
- * See #GDBusObjectManagerClient for the client-side code that is
- * intended to be used with #GDBusObjectManagerServer or any D-Bus
- * object implementing the org.freedesktop.DBus.ObjectManager
- * interface.
+ * See [class@Gio.DBusObjectManagerClient] for the client-side code that is
+ * intended to be used with `GDBusObjectManagerServer` or any D-Bus
+ * object implementing the `org.freedesktop.DBus.ObjectManager` interface.
+ *
+ * Since: 2.30
  */
 
 typedef struct
@@ -210,9 +211,7 @@ g_dbus_object_manager_server_class_init (GDBusObjectManagerServerClass *klass)
    */
   g_object_class_install_property (gobject_class,
                                    PROP_CONNECTION,
-                                   g_param_spec_object ("connection",
-                                                        "Connection",
-                                                        "The connection to export objects on",
+                                   g_param_spec_object ("connection", NULL, NULL,
                                                         G_TYPE_DBUS_CONNECTION,
                                                         G_PARAM_READABLE |
                                                         G_PARAM_WRITABLE |
@@ -227,9 +226,7 @@ g_dbus_object_manager_server_class_init (GDBusObjectManagerServerClass *klass)
    */
   g_object_class_install_property (gobject_class,
                                    PROP_OBJECT_PATH,
-                                   g_param_spec_string ("object-path",
-                                                        "Object Path",
-                                                        "The object path to register the manager object at",
+                                   g_param_spec_string ("object-path", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_READABLE |
                                                         G_PARAM_WRITABLE |
@@ -846,7 +843,7 @@ static const GDBusMethodInfo * const manager_method_info_pointers[] =
 static const GDBusInterfaceInfo manager_interface_info =
 {
   -1,
-  "org.freedesktop.DBus.ObjectManager",
+  DBUS_INTERFACE_OBJECT_MANAGER,
   (GDBusMethodInfo **) manager_method_info_pointers,
   (GDBusSignalInfo **) manager_signal_info_pointers,
   (GDBusPropertyInfo **) NULL,
@@ -872,7 +869,7 @@ manager_method_call (GDBusConnection       *connection,
 
   if (g_strcmp0 (method_name, "GetManagedObjects") == 0)
     {
-      g_variant_builder_init (&array_builder, G_VARIANT_TYPE ("a{oa{sa{sv}}}"));
+      g_variant_builder_init_static (&array_builder, G_VARIANT_TYPE ("a{oa{sa{sv}}}"));
       g_hash_table_iter_init (&object_iter, manager->priv->map_object_path_to_data);
       while (g_hash_table_iter_next (&object_iter, NULL, (gpointer) &data))
         {
@@ -881,7 +878,7 @@ manager_method_call (GDBusConnection       *connection,
           GDBusInterfaceSkeleton *iface;
           const gchar *iter_object_path;
 
-          g_variant_builder_init (&interfaces_builder, G_VARIANT_TYPE ("a{sa{sv}}"));
+          g_variant_builder_init_static (&interfaces_builder, G_VARIANT_TYPE ("a{sa{sv}}"));
           g_hash_table_iter_init (&interface_iter, data->map_iface_name_to_iface);
           while (g_hash_table_iter_next (&interface_iter, NULL, (gpointer) &iface))
             {
@@ -948,7 +945,7 @@ g_dbus_object_manager_server_emit_interfaces_added (GDBusObjectManagerServer *ma
   if (data->manager->priv->connection == NULL)
     goto out;
 
-  g_variant_builder_init (&array_builder, G_VARIANT_TYPE ("a{sa{sv}}"));
+  g_variant_builder_init_static (&array_builder, G_VARIANT_TYPE ("a{sa{sv}}"));
   for (n = 0; interfaces[n] != NULL; n++)
     {
       GDBusInterfaceSkeleton *iface;
@@ -994,7 +991,7 @@ g_dbus_object_manager_server_emit_interfaces_removed (GDBusObjectManagerServer *
   if (data->manager->priv->connection == NULL)
     goto out;
 
-  g_variant_builder_init (&array_builder, G_VARIANT_TYPE ("as"));
+  g_variant_builder_init_static (&array_builder, G_VARIANT_TYPE ("as"));
   for (n = 0; interfaces[n] != NULL; n++)
     g_variant_builder_add (&array_builder, "s", interfaces[n]);
 

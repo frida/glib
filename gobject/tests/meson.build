@@ -41,7 +41,7 @@ gobject_tests = {
   'defaultiface' : {
     'source' : ['defaultiface.c', 'testmodule.c'],
   },
-  'deftype' : {},
+  'deftype' : { 'protocol': 'exitcode' },
   'deprecated-properties' : {},
   'dynamictype' : {
     'source' : ['dynamictype.c', 'testmodule.c'],
@@ -58,7 +58,11 @@ gobject_tests = {
   'binding' : {},
   'bindinggroup' : {},
   'properties' : {},
-  'reference' : {},
+  'properties-introspection' : {},
+  'reference' : {
+    # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
+    'can_fail' : host_system == 'gnu',
+  },
   'flags' : {},
   'value' : {},
   'type' : {},
@@ -76,7 +80,13 @@ gobject_tests = {
   'signalgroup' : {},
   'testing' : {},
   'type-flags' : {},
-  'objects-refcount1' : {},
+  'objects-refcount1' : {
+    'c_args': cc.get_supported_arguments([
+      '-DG_DISABLE_CAST_CHECKS',
+      '-Werror',
+      '-Wcast-align=strict',
+    ]),
+  },
   'objects-refcount2' : {'suite' : ['slow']},
   'properties-refcount1' : {},
   'properties-refcount2' : {'suite' : ['slow']},
@@ -103,6 +113,7 @@ gobject_tests = {
 if have_cxx
   gobject_tests += {
     'cxx' : {
+      'protocol': 'exitcode',
       'source' : ['cxx.cpp'],
       'suite' : ['cpp'],
     },
@@ -111,6 +122,7 @@ if have_cxx
   foreach std, arg: cxx_standards
     gobject_tests += {
       'cxx-@0@'.format(std) : {
+        'protocol': 'exitcode',
         'source' : ['cxx.cpp'],
         'suite' : ['cpp'],
         'cpp_args' : [arg],
@@ -124,19 +136,25 @@ if cc.get_id() != 'msvc'
 endif
 
 python_tests = {
-  'genmarshal.py' : {},
+  'genmarshal.py' : {
+    'env': {'_G_TEST_PROGRAM_RUNNER_PATH': fs.parent(glib_genmarshal.full_path())},
+  },
   'gobject-query.py' : {
+    'depends' : gobject_query,
+    'env': {'_G_TEST_PROGRAM_RUNNER_PATH': fs.parent(gobject_query.full_path())},
     'can_fail' : host_system == 'windows',
   },
-  'mkenums.py' : {},
+  'mkenums.py' : {
+    'env': {'_G_TEST_PROGRAM_RUNNER_PATH': fs.parent(glib_mkenums.full_path())},
+  },
 }
 
 test_env = environment()
 test_env.set('G_TEST_SRCDIR', meson.current_source_dir())
 test_env.set('G_TEST_BUILDDIR', meson.current_build_dir())
 
-test_deps = [libm, thread_dep, libglib_dep, libgobject_dep]
-test_cargs = ['-DG_LOG_DOMAIN="GLib-GObject"', '-UG_DISABLE_ASSERT']
+test_deps = [libm, thread_dep, libglib_dep, libgobject_dep, test_profile_dep]
+test_cargs = ['-DG_LOG_DOMAIN="GLib-GObject"', '-UG_DISABLE_ASSERT', warning_sign_conversion_args]
 test_cpp_args = test_cargs
 
 foreach test_name, extra_args : gobject_tests
@@ -157,8 +175,13 @@ foreach test_name, extra_args : gobject_tests
     )
   endif
 
+  c_args = test_cargs + extra_args.get('c_args', [])
+  if 'cpp' not in extra_args.get('suite', [])
+    c_args += [warning_shorten_64_to_32_args]
+  endif
+
   exe = executable(test_name, source,
-    c_args : test_cargs + extra_args.get('c_args', []),
+    c_args : c_args,
     cpp_args : test_cpp_args + extra_args.get('cpp_args', []),
     dependencies : test_deps + extra_args.get('dependencies', []),
     install_dir: installed_tests_execdir,
@@ -179,21 +202,42 @@ foreach test_name, extra_args : gobject_tests
     timeout = timeout * 10
   endif
 
-  test(test_name, exe, env : test_env, timeout : timeout, suite : suite)
+  test(test_name,
+    exe,
+    protocol : extra_args.get('protocol', test_protocol),
+    env : test_env,
+    timeout : timeout,
+    suite : suite,
+  )
 endforeach
 
+python_test_env = test_env
+python_test_env.prepend('PYTHONPATH', python_test_libraries_path)
+python_test_env.prepend('PYTHONPATH', python_test_libraries_built)
+if python_test_env_common_path.length() > 0
+  python_test_env.prepend('PATH', python_test_env_common_path)
+endif
+
 foreach test_name, extra_args : python_tests
+  depends = [extra_args.get('depends', [])]
   suite = ['gobject', 'no-valgrind']
 
   if extra_args.get('can_fail', false)
     suite += 'failing'
   endif
 
+  local_test_env = python_test_env
+  foreach var, value : extra_args.get('env', {})
+    local_test_env.set(var, value)
+  endforeach
+
   test(
     test_name,
     python,
+    protocol : extra_args.get('protocol', test_protocol),
+    depends: depends,
     args: ['-B', files(test_name)],
-    env: test_env,
+    env: local_test_env,
     suite: suite,
   )
 
@@ -218,12 +262,3 @@ foreach test_name, extra_args : python_tests
     )
   endif
 endforeach
-
-# TAP test runner for Python tests
-if installed_tests_enabled
-  install_data(
-    files('taptestrunner.py'),
-    install_dir: installed_tests_execdir,
-    install_tag: 'tests',
-  )
-endif

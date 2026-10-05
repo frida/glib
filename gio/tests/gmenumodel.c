@@ -7,12 +7,10 @@
 
 #include "glib/glib-private.h"
 
-static gboolean
+static void
 time_out (gpointer unused G_GNUC_UNUSED)
 {
   g_error ("Timed out");
-  /* not reached */
-  return FALSE;
 }
 
 static guint
@@ -22,7 +20,7 @@ add_timeout (guint seconds)
   /* Safety-catch against the main loop having blocked */
   alarm (seconds + 5);
 #endif
-  return g_timeout_add_seconds (seconds, time_out, NULL);
+  return g_timeout_add_seconds_once (seconds, time_out, NULL);
 }
 
 static void
@@ -1009,17 +1007,16 @@ test_dbus_roundtrip (void)
 static void
 test_dbus_peer_roundtrip (void)
 {
-#ifdef _GLIB_ADDRESS_SANITIZER
-  g_test_incomplete ("FIXME: Leaks a GCancellableSource, see glib#2313");
-  (void) peer_connection_up;
-  (void) peer_connection_down;
-#else
   PeerConnection peer;
+
+#ifdef _GLIB_ADDRESS_SANITIZER
+  g_test_message ("Ensure that no GCancellableSource are leaked");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/2313");
+#endif
 
   peer_connection_up (&peer);
   do_roundtrip (peer.server_connection, peer.client_connection);
   peer_connection_down (&peer);
-#endif
 }
 
 static gint items_changed_count;
@@ -1148,17 +1145,52 @@ test_dbus_subscriptions (void)
 static void
 test_dbus_peer_subscriptions (void)
 {
-#ifdef _GLIB_ADDRESS_SANITIZER
-  g_test_incomplete ("FIXME: Leaks a GCancellableSource, see glib#2313");
-  (void) peer_connection_up;
-  (void) peer_connection_down;
-#else
   PeerConnection peer;
+
+#ifdef _GLIB_ADDRESS_SANITIZER
+  g_test_message ("Ensure that no GCancellableSource are leaked");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/2313");
+#endif
 
   peer_connection_up (&peer);
   do_subscriptions (peer.server_connection, peer.client_connection);
   peer_connection_down (&peer);
-#endif
+}
+
+static void
+test_dbus_export_error_handling (void)
+{
+  GRand *rand = NULL;
+  RandomMenu *menu = NULL;
+  GDBusConnection *bus;
+  GError *local_error = NULL;
+  guint id1, id2;
+
+  g_test_summary ("Test that error handling of menu model export failure works");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/3366");
+
+  bus = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, NULL);
+
+  rand = g_rand_new_with_seed (g_test_rand_int ());
+  menu = random_menu_new (rand, 2);
+
+  id1 = g_dbus_connection_export_menu_model (bus, "/", G_MENU_MODEL (menu), &local_error);
+  g_assert_no_error (local_error);
+  g_assert_cmpuint (id1, !=, 0);
+
+  /* Trigger a failure by trying to export on a path which is already in use */
+  id2 = g_dbus_connection_export_menu_model (bus, "/", G_MENU_MODEL (menu), &local_error);
+  g_assert_error (local_error, G_IO_ERROR, G_IO_ERROR_EXISTS);
+  g_assert_cmpuint (id2, ==, 0);
+  g_clear_error (&local_error);
+
+  g_dbus_connection_unexport_menu_model (bus, id1);
+
+  while (g_main_context_iteration (NULL, FALSE));
+
+  g_clear_object (&menu);
+  g_rand_free (rand);
+  g_clear_object (&bus);
 }
 
 static gpointer
@@ -1500,6 +1532,149 @@ test_menuitem (void)
   g_object_unref (submenu);
 }
 
+static GDBusInterfaceInfo *
+org_gtk_Menus_get_interface (void)
+{
+  static GDBusInterfaceInfo *interface_info;
+
+  if (interface_info == NULL)
+    {
+      GError *error = NULL;
+      GDBusNodeInfo *info;
+
+      info = g_dbus_node_info_new_for_xml ("<node>"
+                                           "  <interface name='org.gtk.Menus'>"
+                                           "    <method name='Start'>"
+                                           "      <arg type='au' name='groups' direction='in'/>"
+                                           "      <arg type='a(uuaa{sv})' name='content' direction='out'/>"
+                                           "    </method>"
+                                           "    <method name='End'>"
+                                           "      <arg type='au' name='groups' direction='in'/>"
+                                           "    </method>"
+                                           "    <signal name='Changed'>"
+                                           "      arg type='a(uuuuaa{sv})' name='changes'/>"
+                                           "    </signal>"
+                                           "  </interface>"
+                                           "</node>", &error);
+      if (info == NULL)
+        g_error ("%s\n", error->message);
+      interface_info = g_dbus_node_info_lookup_interface (info, "org.gtk.Menus");
+      g_assert (interface_info != NULL);
+      g_dbus_interface_info_ref (interface_info);
+      g_dbus_node_info_unref (info);
+    }
+
+  return interface_info;
+}
+
+static void
+g_menu_exporter_method_call (GDBusConnection       *connection,
+                             const gchar           *sender,
+                             const gchar           *object_path,
+                             const gchar           *interface_name,
+                             const gchar           *method_name,
+                             GVariant              *parameters,
+                             GDBusMethodInvocation *invocation,
+                             gpointer               user_data)
+{
+  const struct {
+    guint position;
+    guint removed;
+  } data[] = {
+      { -2, 4 },
+      { 0, 3 },
+      { 4, 1 }
+  };
+  gsize i;
+  GError *error = NULL;
+
+  g_dbus_method_invocation_return_value (invocation, g_variant_new_parsed ("@(a(uuaa{sv})) ([(0, 0, [{ 'label': <'test'> }])],)"));
+
+  /* invalid signatures */
+  g_dbus_connection_emit_signal (connection, sender, "/", "org.gtk.Menus", "Changed",
+                                 g_variant_new_parsed ("([(1, 2, 3)],)"), &error);
+  g_assert_no_error (error);
+
+  /* add an item at an invalid position */
+  g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*invalid*");
+  g_dbus_connection_emit_signal (connection, sender, "/", "org.gtk.Menus", "Changed",
+                                 g_variant_new_parsed ("@(a(uuuuaa{sv})) ([(%u, %u, %u, %u, [{ 'label': <'test'> }])],)", 0, 0, 2, 0),
+                                 &error);
+  g_assert_no_error (error);
+
+  for (i = 0; i < G_N_ELEMENTS (data); i++)
+    {
+      GVariant *params;
+
+      g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "*invalid*");
+      params = g_variant_new_parsed ("@(a(uuuuaa{sv})) ([(%u, %u, %u, %u, [])],)", 0, 0, data[i].position, data[i].removed);
+      g_dbus_connection_emit_signal (connection, sender, "/", "org.gtk.Menus", "Changed", params, &error);
+      g_assert_no_error (error);
+    }
+}
+
+static void
+menu_changed (GMenuModel *menu,
+             gint        position,
+              gint        removed,
+              gint        added,
+              gpointer    user_data)
+{
+  unsigned int *counter = user_data;
+
+  *counter += 1;
+}
+
+static void
+test_input_validation (void)
+{
+  const GDBusInterfaceVTable vtable = {
+    g_menu_exporter_method_call, NULL, NULL, { NULL, }
+  };
+  GError *error = NULL;
+  GDBusConnection *bus;
+  GDBusMenuModel *proxy;
+  guint id;
+  const gchar *bus_name;
+  GMainLoop *loop;
+  unsigned int n_signal_emissions = 0;
+  gulong signal_id;
+
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/-/issues/861");
+
+  bus = g_bus_get_sync (G_BUS_TYPE_SESSION, NULL, &error);
+  g_assert_no_error (error);
+
+  id = g_dbus_connection_register_object (bus, "/", org_gtk_Menus_get_interface (),
+                                          &vtable, NULL, NULL, &error);
+  g_assert_no_error (error);
+
+  bus_name = g_dbus_connection_get_unique_name (bus);
+  proxy = g_dbus_menu_model_get (bus, bus_name, "/");
+
+  signal_id = g_signal_connect (proxy, "items-changed", G_CALLBACK (menu_changed), &n_signal_emissions);
+
+  /* get over laziness */
+  g_menu_model_get_n_items (G_MENU_MODEL (proxy));
+
+  loop = g_main_loop_new (NULL, FALSE);
+  g_timeout_add (100, stop_loop, loop);
+  g_main_loop_run (loop);
+
+  /* "items-changed" should only be emitted for the initial contents of
+   * the menu. Subsequent calls are all invalid.
+   */
+  g_assert_cmpuint (n_signal_emissions, ==, 1);
+
+  g_test_assert_expected_messages ();
+
+  g_main_loop_unref (loop);
+  g_dbus_connection_unregister_object (bus, id);
+  g_signal_handler_disconnect (proxy, signal_id);
+  g_object_unref (proxy);
+  g_object_unref (bus);
+}
+
 /* Epilogue {{{1 */
 int
 main (int argc, char **argv)
@@ -1517,12 +1692,14 @@ main (int argc, char **argv)
   g_test_add_func ("/gmenu/dbus/threaded", test_dbus_threaded);
   g_test_add_func ("/gmenu/dbus/peer/roundtrip", test_dbus_peer_roundtrip);
   g_test_add_func ("/gmenu/dbus/peer/subscriptions", test_dbus_peer_subscriptions);
+  g_test_add_func ("/gmenu/dbus/export/error-handling", test_dbus_export_error_handling);
   g_test_add_func ("/gmenu/attributes", test_attributes);
   g_test_add_func ("/gmenu/attributes/iterate", test_attribute_iter);
   g_test_add_func ("/gmenu/links", test_links);
   g_test_add_func ("/gmenu/mutable", test_mutable);
   g_test_add_func ("/gmenu/convenience", test_convenience);
   g_test_add_func ("/gmenu/menuitem", test_menuitem);
+  g_test_add_func ("/gmenu/input-validation", test_input_validation);
 
   ret = g_test_run ();
 

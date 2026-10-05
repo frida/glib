@@ -5,25 +5,24 @@ as GTK and GNOME. It provides data structure handling for C, portability
 wrappers, and interfaces for such runtime functionality as an event loop,
 threads, dynamic loading, and an object system.
 
-The Frida GLib location is:
-  <https://github.com/frida/glib>
-
-The official GLib locations are:
+The official download locations are:
   <https://download.gnome.org/sources/glib>
-  <https://gitlab.gnome.org/GNOME/glib/>
 
 The official web site is:
   <https://www.gtk.org/>
 
 ## Installation
 
-See the file '[INSTALL.md](INSTALL.md)'
+See the file ‘[INSTALL.md](INSTALL.md)’. There is
+[separate and more in-depth documentation](./docs/win32-build.md) for building
+GLib on Windows.
 
 ## Supported versions
 
-Only the most recent unstable and stable release series are supported. All
-older versions are not supported upstream and may contain bugs, some of
-which may be exploitable security vulnerabilities.
+Upstream GLib only supports the most recent stable release series, the previous
+stable release series, and the current development release series. All
+older versions are not supported upstream and may contain bugs, some of which
+may be exploitable security vulnerabilities.
 
 See [SECURITY.md](SECURITY.md) for more details.
 
@@ -74,7 +73,8 @@ Please follow the [contribution guide](./CONTRIBUTING.md) to know how to
 start contributing to GLib.
 
 Patches should be [submitted as merge requests](https://gitlab.gnome.org/GNOME/glib/-/merge_requests/new)
-to gitlab.gnome.org. If the patch fixes an existing issue, please refer to the
+to gitlab.gnome.org. Note that you will need to be logged in to the site to use
+this page. If the patch fixes an existing issue, please refer to the
 issue in your commit message with the following notation (for issue 123):
 ```
 Closes: #123
@@ -83,15 +83,3 @@ Closes: #123
 Otherwise, create a new merge request that introduces the change. Filing a
 separate issue is not required.
 
-## Default branch renamed to `main`
-
-The default development branch of GLib has been renamed to `main`. To update
-your local checkout, use:
-```sh
-git checkout master
-git branch -m master main
-git fetch
-git branch --unset-upstream
-git branch -u origin/main
-git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main
-```

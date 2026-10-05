@@ -60,7 +60,7 @@ typedef enum {
   G_RESOLVER_NAME_LOOKUP_FLAGS_DEFAULT = 0,
   G_RESOLVER_NAME_LOOKUP_FLAGS_IPV4_ONLY = 1 << 0,
   G_RESOLVER_NAME_LOOKUP_FLAGS_IPV6_ONLY = 1 << 1,
-} GResolverNameLookupFlags;
+} G_GNUC_FLAG_ENUM GResolverNameLookupFlags;
 
 struct _GResolverClass {
   GObjectClass parent_class;
@@ -131,7 +131,7 @@ struct _GResolverClass {
    * @flags: extra #GResolverNameLookupFlags to modify the lookup
    * @cancellable: (nullable): a #GCancellable
    * @callback: (scope async): a #GAsyncReadyCallback to call when completed
-   * @user_data: (closure): data to pass to @callback
+   * @user_data: data to pass to @callback
    *
    * Asynchronous version of GResolverClass::lookup_by_name_with_flags
    *
@@ -184,7 +184,7 @@ struct _GResolverClass {
 };
 
 GIO_AVAILABLE_IN_ALL
-GType      g_resolver_get_type                         (void) G_GNUC_CONST;
+GType      g_resolver_get_type                         (void);
 GIO_AVAILABLE_IN_ALL
 GResolver *g_resolver_get_default                      (void);
 GIO_AVAILABLE_IN_ALL
@@ -277,6 +277,11 @@ GList     *g_resolver_lookup_records_finish            (GResolver               
 GIO_AVAILABLE_IN_ALL
 void       g_resolver_free_targets                     (GList                     *targets);
 
+GIO_AVAILABLE_IN_2_78
+unsigned   g_resolver_get_timeout                      (GResolver                 *resolver);
+GIO_AVAILABLE_IN_2_78
+void       g_resolver_set_timeout                      (GResolver                 *resolver,
+                                                        unsigned                   timeout_ms);
 
 /**
  * G_RESOLVER_ERROR:

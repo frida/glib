@@ -3,6 +3,7 @@ glib_tests = {
   'asyncqueue' : {},
   'atomic' : {
     'c_args' : cc.get_id() == 'gcc' ? ['-Wstrict-aliasing=2'] : [],
+    'c_standards': c_standards.keys(),
   },
   'base64' : {},
   'bitlock' : {},
@@ -11,25 +12,37 @@ glib_tests = {
   'cache' : {},
   'charset' : {},
   'checksum' : {},
-  'collate' : {},
+  'collate' : {
+    # musl: collate fail due to missing collation support in musl libc
+    # From https://wiki.musl-libc.org/roadmap#Open_future_goals
+    # "LC_COLLATE support for collation orders other than simple codepoint order"
+    'can_fail' : linux_libc == 'musl',
+  },
   'completion' : {},
   'cond' : {},
-  'convert' : {},
+  'convert' : {
+    # FIXME: musl: /conversion/illegal-sequence: https://gitlab.gnome.org/GNOME/glib/-/issues/3182
+    'can_fail' : linux_libc == 'musl',
+  },
   'dataset' : {},
   'date' : {
-    # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/1392
-    'can_fail' : host_system == 'darwin',
+    # FIXME: darwin: https://gitlab.gnome.org/GNOME/glib/-/issues/1392
+    # musl: /date/month_substring should be skipped but it's not. The fix should
+    # be on musl side: https://www.openwall.com/lists/musl/2023/08/10/3
+    # FIXME: musl: /date/strftime: https://gitlab.gnome.org/GNOME/glib/-/issues/3171
+    'can_fail' : host_system == 'darwin' or linux_libc == 'musl',
   },
   'dir' : {},
-  'environment' : {
-    # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/1392
-    'can_fail' : host_system == 'darwin',
-  },
+  'environment' : {},
   'error' : {},
   'fileutils' : {},
   'gdatetime' : {
+    'source' : ['gdatetime.c', '../gdatetime-private.c'],
     'suite' : ['slow'],
-    'can_fail' : host_system == 'windows',
+    # musl: GDateTime/format_mixed/non_utf8_time_non_utf8_messages should be
+    # skipped but it's not. The fix should be on musl side:
+    # https://www.openwall.com/lists/musl/2023/08/10/3
+    'can_fail' : host_system == 'windows' or linux_libc == 'musl',
   },
   'guuid' : {},
   'gvariant' : {
@@ -48,7 +61,9 @@ glib_tests = {
   'keyfile' : {},
   'list' : {},
   'logging' : {},
-  'macros' : {},
+  'macros' : {
+    'c_standards': c_standards.keys(),
+  },
   'mainloop' : {},
   'mappedfile' : {},
   'mapping' : {},
@@ -63,18 +78,27 @@ glib_tests = {
     'link_args' : cc.get_id() == 'gcc' and cc.version().version_compare('> 6')
       ? ['-Wno-alloc-size-larger-than'] : [],
   },
+  'monotonic-time' : {},
   'mutex' : {},
   'node' : {},
   'once' : {},
   'onceinit' : {},
-  'option-context' : {},
+  'option-context' : {
+    # musl: /option/arg/repetition/locale should be skipped but it's not. The
+    # fix should be on musl side: https://www.openwall.com/lists/musl/2023/08/10/3
+    'can_fail' : linux_libc == 'musl',
+  },
   'option-argv0' : {},
   'overflow' : {},
   'overflow-fallback' : {
     'source' : 'overflow.c',
     'c_args' : ['-D_GLIB_TEST_OVERFLOW_FALLBACK'],
   },
+  'pathbuf' : {},
   'pattern' : {},
+  'print' : {
+    'can_fail' : host_system == 'windows',
+  },
   'private' : {},
   'protocol' : {},
   'queue' : {},
@@ -100,33 +124,45 @@ glib_tests = {
   },
   'shell' : {},
   'slice' : {},
-  'slice-color' : {},
-  'slice-concurrent' : {},
-  'slice-known-pages' : {'suite' : ['no-valgrind']},
-  'slice-glib' : {},
-  'slice-slab' : {},
-  'slice-malloc' : {},
-  'slice-memchunk' : {
-    'source' : ['slice-memchunk.c', 'memchunks.c'],
-  },
-  'slice-eager-freeing' : {},
   'slist' : {},
   'sort' : {},
   'spawn-multithreaded' : {
     'can_fail': glib_build_static and host_system == 'windows',
     'suite': host_system == 'windows' ? ['flaky'] : [],
+    'extra_programs' : ['test-spawn-echo'] + (
+      host_machine.system() == 'windows' ? ['test-spawn-sleep'] : []),
   },
-  'spawn-path-search' : {},
+  'spawn-path-search' : {
+    'extra_programs' : [
+      'spawn-path-search-helper',
+      'spawn-test-helper',
+      'spawn-test-helper-subdir',
+    ],
+  },
   'spawn-singlethread' : {
     'dependencies' : [winsock2],
+    'extra_programs' : ['test-spawn-echo'],
+    # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
+    'can_fail' : host_system == 'gnu',
   },
   'spawn-test' : {
-    'can_fail': host_system == 'windows' and cc.get_id() == 'gcc',
+    'extra_programs' : host_machine.system() == 'windows' ? ['spawn-test-win32-gui'] : [],
+    # FIXME: https://gitlab.gnome.org/GNOME/glib/-/issues/3148
+    'can_fail' : host_system == 'gnu',
   },
   'strfuncs' : {},
-  'string' : {},
+  'string' : {
+    'c_args' : cc.get_id() == 'gcc' ? ['-Werror=sign-conversion'] : [],
+  },
   'strvbuilder' : {},
-  'testing' : {},
+  'testing' : {
+    'args': [ '--verbose' ],
+    'extra_programs' : ['testing-helper'],
+    'c_args' : cc.get_id() == 'gcc' ? ['-Werror=sign-conversion'] : [],
+  },
+  'testing-nonfatal' : {
+    'protocol' : 'exitcode'
+  },
   'test-printf' : {},
   'thread' : {},
   'thread-deprecated' : {},
@@ -137,10 +173,17 @@ glib_tests = {
   'tree' : {},
   'types' : {},
   'utf8-performance' : {},
-  'utf8-pointer' : {},
+  'utf8-pointer' : {
+    'c_args' : cc.get_id() == 'gcc' ? ['-Werror=cast-qual'] : [],
+  },
+  'utf8-private' : {},
   'utf8-validate' : {},
   'utf8-misc' : {},
-  'utils' : {},
+  'utils' : {
+    'c_standards': c_standards.keys(),
+  },
+  'utils-isolated' : {},
+  'utils-unisolated' : {},
   'unicode' : {},
   'unicode-encoding' : {},
   'unicode-normalize': {},
@@ -167,6 +210,7 @@ if have_cxx
     'cxx' : {
       'source' : ['cxx.cpp'],
       'suite': ['cpp'],
+      'dependencies' : [wincodecs],
     }
   }
 
@@ -175,7 +219,8 @@ if have_cxx
       'cxx-@0@'.format(std) : {
         'source' : ['cxx.cpp'],
         'suite' : ['cpp'],
-        'cpp_args' : [arg],
+        'cpp_args' : [arg, '-D_G_EXPECTED_CXX_STANDARD="@0@"'.format(std)],
+        'dependencies' : [wincodecs],
       },
     }
   endforeach
@@ -204,32 +249,51 @@ if host_machine.system() == 'windows'
     }
   endif
   glib_tests += {
-    'win32' : {},
+    'win32' : {
+      'dependencies' : [wincodecs],
+    },
+    'win32-private' : {
+      'dependencies' : [winsock2],
+    },
+    'win32-helper-path-private' : {
+      'source' : 'win32-helper-path.c',
+    },
   }
 else
   glib_tests += {
     'include' : {},
+    'poll-fdset' : {},
     'unix' : {},
   }
   if have_rtld_next and glib_build_shared
+    getpwuid_preload = shared_library('getpwuid-preload',
+                                      'getpwuid-preload.c',
+                                      name_prefix : '',
+                                      dependencies: [libdl_dep, libglib_dep],
+                                      install_dir : installed_tests_execdir,
+                                      install_tag : 'tests',
+                                      install: installed_tests_enabled)
+
+    if host_system != 'darwin'
+      var_preload = 'LD_PRELOAD'
+    else
+      var_preload = 'DYLD_INSERT_LIBRARIES'
+    endif
+
+    asan_env = {}
+    if 'address' in glib_sanitizers
+      asan_env = {'ASAN_OPTIONS': 'verify_asan_link_order=0'}
+    endif
+
     glib_tests += {
       'gutils-user-database' : {
-        'depends' : [
-          shared_library('getpwuid-preload',
-            'getpwuid-preload.c',
-            name_prefix : '',
-            dependencies: libdl_dep,
-            install_dir : installed_tests_execdir,
-            install_tag : 'tests',
-            install: installed_tests_enabled,
-          ),
-        ],
+        'depends' : getpwuid_preload,
         'env' : {
-          'LD_PRELOAD': '@0@/getpwuid-preload.so'.format(meson.current_build_dir()),
-        },
+          var_preload: getpwuid_preload.full_path()
+        } + asan_env,
         'installed_tests_env' : {
-          'LD_PRELOAD': '@0@/getpwuid-preload.so'.format(installed_tests_execdir),
-        },
+          var_preload: installed_tests_execdir / fs.name(getpwuid_preload.full_path())
+        } + asan_env,
       },
     }
   endif
@@ -265,23 +329,125 @@ if installed_tests_enabled
   )
 endif
 
+test_extra_programs = {
+  'assert-msg-test' : {},
+  'markup-example' : {'install' : false},
+  'spawn-path-search-helper' : {},
+  'spawn-test-helper' : {},
+  'testing-helper' : {},
+  # test-spawn-echo helper binary required by the spawn tests above
+  'test-spawn-echo' : {},
+}
+
+if have_dlopen_dlsym and have_rtld_next
+  test_extra_programs += {
+    'messages-low-memory' : {
+      'dependencies' : libdl_dep,
+      'override_options' : ['b_asneeded=false'],
+    },
+  }
+endif
+
+if host_machine.system() == 'windows'
+  # test-spawn-sleep helper binary required by the spawn tests above
+  test_extra_programs += {
+    'test-spawn-sleep' : {},
+    'spawn-test-win32-gui' : { 'win_subsystem': 'windows' },
+  }
+endif
+
+if host_machine.system() == 'windows' or have_dlopen_dlsym
+  constructor_helper = shared_library('constructor-helper',
+                                      'constructor-helper.c',
+                                      dependencies: [libglib_dep],
+                                      install : false)
+  constructor_lib = shared_library('constructor-lib',
+                                   'constructor.c',
+                                   c_args: ['-DPREFIX=lib'],
+                                   dependencies: [libglib_dep],
+                                   link_with: [constructor_helper],
+                                   install : false)
+  glib_tests += {
+    'constructor' : {
+      'install': false,
+      'c_args': ['-DLIB_NAME=' + fs.name(constructor_lib.full_path()),
+                 '-DBUILD_TEST_EXECUTABLE',
+                 '-DPREFIX=app'],
+      'dependencies' : libdl_dep,
+      'depends': constructor_lib,
+      'link_with': [constructor_helper]
+    }
+  }
+endif
+
+foreach test_name, extra_args : glib_tests
+  foreach std: extra_args.get('c_standards', [])
+    if c_standards.has_key(std)
+      glib_tests += {
+        '@0@-c-@1@'.format(test_name, std) : extra_args + {
+          'source' : extra_args.get('source', test_name + '.c'),
+          'suite' : ['cc'] + extra_args.get('suite', []),
+          'override_options' : extra_args.get('override_options', []) + [
+            'c_std=c@0@'.format(std),
+          ],
+          'c_args' : extra_args.get('c_args', []) + [
+            '-D_G_EXPECTED_C_STANDARD="@0@"'.format(std),
+          ],
+        }
+      }
+    endif
+  endforeach
+endforeach
+
 test_env = environment()
 test_env.set('G_TEST_SRCDIR', meson.current_source_dir())
 test_env.set('G_TEST_BUILDDIR', meson.current_build_dir())
 
-test_deps = [libm, thread_dep, libglib_dep]
+test_deps = [libm, thread_dep, libglib_dep, test_profile_dep]
+test_deps_static = [libm, thread_dep, libglib_static_dep, test_profile_dep]
 test_cargs = ['-DG_LOG_DOMAIN="GLib"', '-UG_DISABLE_ASSERT']
 test_cpp_args = test_cargs
+
+test_extra_programs_targets = {}
+foreach program_name, extra_args : test_extra_programs
+  source = extra_args.get('source', program_name + '.c')
+  extra_sources = extra_args.get('extra_sources', [])
+  install = installed_tests_enabled and extra_args.get('install', true)
+  test_extra_programs_targets += {
+    program_name : executable(program_name,
+      sources: [source, extra_sources],
+      c_args : test_cargs,
+      cpp_args: test_cpp_args,
+      override_options : extra_args.get('override_options', []),
+      dependencies : test_deps + extra_args.get('dependencies', []),
+      install_dir : installed_tests_execdir,
+      install_tag : 'tests',
+      install : install,
+      win_subsystem : extra_args.get('win_subsystem', 'console'),
+    )
+  }
+endforeach
+
+subdir('path-test-subdir')
 
 foreach test_name, extra_args : glib_tests
   source = extra_args.get('source', test_name + '.c')
   install = installed_tests_enabled and extra_args.get('install', true)
+  installed_tests_env = extra_args.get('installed_tests_env', {})
 
   if install
     test_conf = configuration_data()
     test_conf.set('installed_tests_dir', installed_tests_execdir)
     test_conf.set('program', test_name)
-    test_conf.set('env', '')
+    test_env_override = ''
+    if installed_tests_env != {}
+      envs = []
+      foreach var, value : installed_tests_env
+        envs += '@0@=\'@1@\''.format(var, value)
+      endforeach
+      test_env_override = '@0@ @1@ '.format(env_program.full_path(), ' '.join(envs))
+    endif
+    test_conf.set('env', test_env_override)
     configure_file(
       input: installed_tests_template_tap,
       output: test_name + '.test',
@@ -291,25 +457,42 @@ foreach test_name, extra_args : glib_tests
     )
   endif
 
+  base_deps = test_name.contains('-private') ? test_deps_static : test_deps
+
   exe = executable(test_name, source,
     c_args : test_cargs + extra_args.get('c_args', []),
     cpp_args : test_cpp_args + extra_args.get('cpp_args', []),
     link_args : extra_args.get('link_args', []),
-    dependencies : test_deps + extra_args.get('dependencies', []),
+    override_options : extra_args.get('override_options', []),
+    dependencies : base_deps + extra_args.get('dependencies', []),
+    link_with : extra_args.get('link_with', []),
     install_dir: installed_tests_execdir,
     install_tag: 'tests',
     install: install,
   )
 
-  suite = ['glib'] + extra_args.get('suite', [])
+  depends = [extra_args.get('depends', []), gspawn_helpers]
+  suite = ['glib', 'core'] + extra_args.get('suite', [])
   timeout = suite.contains('slow') ? test_timeout_slow : test_timeout
 
   if extra_args.get('can_fail', false)
     suite += 'failing'
   endif
 
+  foreach program : extra_args.get('extra_programs', [])
+    depends += test_extra_programs_targets[program]
+  endforeach
+
+  local_test_env = test_env
+  foreach var, value : extra_args.get('env', {})
+    local_test_env.append(var, value)
+  endforeach
+  
   test(test_name, exe,
-    env : test_env,
+    args: extra_args.get('args', []),
+    protocol : extra_args.get('protocol', test_protocol),
+    depends : depends,
+    env : local_test_env,
     timeout : timeout,
     suite : suite,
     should_fail : extra_args.get('should_fail', false),
@@ -327,30 +510,50 @@ endif
 python_tests = {
   'assert-msg-test.py' : {
     'can_fail' : host_system == 'windows',
+    'extra_programs': ['assert-msg-test'],
+    'env': {'_GLIB_TEST_SANITIZERS': ','.join(glib_sanitizers)},
   },
 }
 
-executable('assert-msg-test', ['assert-msg-test.c'],
-  c_args : test_cargs,
-  dependencies :  test_deps,
-  install_dir : installed_tests_execdir,
-  install_tag : 'tests',
-  install : installed_tests_enabled,
-  win_subsystem : extra_args.get('win_subsystem', 'console'),
-)
+if 'messages-low-memory' in test_extra_programs
+  python_tests += {
+    'messages-low-memory.py' : {
+      'extra_programs': ['messages-low-memory'],
+    },
+  }
+endif
+
+python_test_env = test_env
+python_test_env.prepend('PYTHONPATH', python_test_libraries_path)
+python_test_env.prepend('PYTHONPATH', python_test_libraries_built)
+if python_test_env_common_path.length() > 0
+  python_test_env.prepend('PATH', python_test_env_common_path)
+endif
 
 foreach test_name, extra_args : python_tests
-  suite = ['glib', 'no-valgrind']
+  depends = [extra_args.get('depends', [])]
+  suite = ['glib', 'core', 'no-valgrind']
 
   if extra_args.get('can_fail', false)
     suite += 'failing'
   endif
 
+  local_test_env = python_test_env
+  foreach var, value : extra_args.get('env', {})
+    local_test_env.append(var, value)
+  endforeach
+
+  foreach program : extra_args.get('extra_programs', [])
+    depends += test_extra_programs_targets[program]
+  endforeach
+
   test(
     test_name,
     python,
+    protocol : extra_args.get('protocol', test_protocol),
+    depends: depends,
     args: ['-B', files(test_name)],
-    env: test_env,
+    env: local_test_env,
     suite: suite,
   )
 
@@ -376,60 +579,10 @@ foreach test_name, extra_args : python_tests
   endif
 endforeach
 
-executable('spawn-path-search-helper', 'spawn-path-search-helper.c',
-  c_args : test_cargs,
-  dependencies : test_deps,
-  install_dir: installed_tests_execdir,
-  install_tag: 'tests',
-  install: installed_tests_enabled,
-)
-
-executable('spawn-test-helper', 'spawn-test-helper.c',
-  c_args : test_cargs,
-  dependencies : test_deps,
-  install_dir: installed_tests_execdir,
-  install_tag: 'tests',
-  install: installed_tests_enabled,
-)
-
-# test-spawn-echo helper binary required by the spawn tests above
-executable('test-spawn-echo', 'test-spawn-echo.c',
-  c_args : test_cargs,
-  dependencies : test_deps,
-  install_dir: installed_tests_execdir,
-  install_tag: 'tests',
-  install: installed_tests_enabled,
-)
-
-if host_machine.system() == 'windows'
-  # test-spawn-sleep helper binary required by the spawn tests above
-  executable('test-spawn-sleep', 'test-spawn-sleep.c',
-    c_args : test_cargs,
-    dependencies : test_deps,
-    install_dir: installed_tests_execdir,
-    install_tag: 'tests',
-    install: installed_tests_enabled,
-  )
-  executable('spawn-test-win32-gui', 'spawn-test-win32-gui.c',
-    c_args : test_cargs,
-    dependencies : test_deps,
-    install_dir: installed_tests_execdir,
-    install_tag: 'tests',
-    install: installed_tests_enabled,
-    win_subsystem: 'windows',
-  )
-endif
-
-executable('testing-helper', 'testing-helper.c',
-  c_args : test_cargs,
-  dependencies : test_deps,
-  install_dir: installed_tests_execdir,
-  install_tag: 'tests',
-  install: installed_tests_enabled,
-)
-
 # some testing of gtester functionality
-if meson.can_run_host_binaries() and host_system != 'windows'
+# FIXME: Work around Meson not automatically using exe_wrapper around gtester
+# https://github.com/mesonbuild/meson/issues/11029
+if not meson.is_cross_build() and host_system != 'windows'
   xmllint = find_program('xmllint', required: false)
   if xmllint.found()
     tmpsample_xml = custom_target('tmpsample.xml',
@@ -440,9 +593,39 @@ if meson.can_run_host_binaries() and host_system != 'windows'
     test('gtester-xmllint-check', xmllint,
       args : ['--noout', tmpsample_xml],
       env : test_env,
-      suite : ['glib'],
+      suite : ['glib', 'core'],
     )
   endif
 endif
 
-subdir('path-test-subdir')
+if have_bash and have_pkg_config
+  prefix = get_option('prefix')
+  if prefix.endswith(':/')
+    prefix += '/'
+  endif
+  test('glib-2.0-pkg-config',
+    bash,
+    args: [
+      '-xe', '-c',
+      '\n'.join([
+        'pkg-config --validate glib-2.0',
+        'test "$(pkg-config --modversion glib-2.0)" = "@0@"'.format(glib_version),
+        'test "$(pkg-config --variable=prefix glib-2.0)" = "@0@"'.format(
+          get_option('prefix')),
+        'test "$(pkg-config --variable=datadir glib-2.0)" = "@0@"'.format(
+          prefix / get_option('datadir')),
+        'test "$(pkg-config --variable=gobject_query glib-2.0)" = "@0@"'.format(
+          prefix / get_option('bindir') / 'gobject-query'),
+        'test "$(pkg-config --variable=glib_mkenums glib-2.0)" = "@0@"'.format(
+          prefix / get_option('bindir') / 'glib-mkenums'),
+        'test "$(pkg-config --variable=glib_valgrind_suppressions glib-2.0)" = "@0@"'.format(
+          prefix / get_option('datadir') /
+          valgrind_suppression_file_install_subdir / fs.name(valgrind_suppression_file)),
+      ]),
+    ],
+    suite: ['glib', 'core', 'no-valgrind', 'pkg-config'],
+    env: {
+      'PKG_CONFIG_PATH': meson.project_build_root() / 'meson-private',
+    },
+  )
+endif

@@ -43,6 +43,7 @@
 #include "gtestutils.h"
 #include "glib_trace.h"
 #include "glib-init.h"
+#include "glib-private.h"
 
 #define QUARK_BLOCK_SIZE         2048
 #define QUARK_STRING_BLOCK_SIZE (4096 - sizeof (gsize))
@@ -60,46 +61,41 @@ void
 g_quark_init (void)
 {
   g_assert (quark_seq_id == 0);
+  quark_ht = g_hash_table_new (g_str_hash, g_str_equal);
   quarks = g_new (gchar*, QUARK_BLOCK_SIZE);
   quarks[0] = NULL;
   quark_seq_id = 1;
 }
 
 /**
- * SECTION:quarks
- * @title: Quarks
- * @short_description: a 2-way association between a string and a
- *     unique integer identifier
- *
- * Quarks are associations between strings and integer identifiers.
- * Given either the string or the #GQuark identifier it is possible to
- * retrieve the other.
- *
- * Quarks are used for both [datasets][glib-Datasets] and
- * [keyed data lists][glib-Keyed-Data-Lists].
- *
- * To create a new quark from a string, use g_quark_from_string() or
- * g_quark_from_static_string().
- *
- * To find the string corresponding to a given #GQuark, use
- * g_quark_to_string().
- *
- * To find the #GQuark corresponding to a given string, use
- * g_quark_try_string().
- *
- * Another use for the string pool maintained for the quark functions
- * is string interning, using g_intern_string() or
- * g_intern_static_string(). An interned string is a canonical
- * representation for a string. One important advantage of interned
- * strings is that they can be compared for equality by a simple
- * pointer comparison, rather than using strcmp().
- */
-
-/**
  * GQuark:
  *
  * A GQuark is a non-zero integer which uniquely identifies a
- * particular string. A GQuark value of zero is associated to %NULL.
+ * particular string.
+ *
+ * A GQuark value of zero is associated to `NULL`.
+ *
+ * Given either the string or the `GQuark` identifier it is possible to
+ * retrieve the other.
+ *
+ * Quarks are used for both
+ * [datasets and keyed data lists](datalist-and-dataset.html).
+ *
+ * To create a new quark from a string, use [func@GLib.quark_from_string]
+ * or [func@GLib.quark_from_static_string].
+ *
+ * To find the string corresponding to a given `GQuark`, use
+ * [func@GLib.quark_to_string].
+ *
+ * To find the `GQuark` corresponding to a given string, use
+ * [func@GLib.quark_try_string].
+ *
+ * Another use for the string pool maintained for the quark functions
+ * is string interning, using [func@GLib.intern_string] or
+ * [func@GLib.intern_static_string]. An interned string is a canonical
+ * representation for a string. One important advantage of interned
+ * strings is that they can be compared for equality by a simple
+ * pointer comparison, rather than using `strcmp()`.
  */
 
 /**
@@ -142,8 +138,7 @@ g_quark_try_string (const gchar *string)
     return 0;
 
   G_LOCK (quark_global);
-  if (quark_ht != NULL)
-    quark = GPOINTER_TO_UINT (g_hash_table_lookup (quark_ht, string));
+  quark = GPOINTER_TO_UINT (g_hash_table_lookup (quark_ht, string));
   G_UNLOCK (quark_global);
 
   return quark;
@@ -184,8 +179,7 @@ quark_from_string (const gchar *string,
 {
   GQuark quark = 0;
 
-  if (quark_ht != NULL)
-    quark = GPOINTER_TO_UINT (g_hash_table_lookup (quark_ht, string));
+  quark = GPOINTER_TO_UINT (g_hash_table_lookup (quark_ht, string));
 
   if (!quark)
     {
@@ -247,7 +241,7 @@ g_quark_from_string (const gchar *string)
  * with statically allocated strings in the main program, but not with
  * statically allocated memory in dynamically loaded modules, if you
  * expect to ever unload the module again (e.g. do not use this
- * function in GTK+ theme engines).
+ * function in GTK theme engines).
  *
  * This function must not be used before library constructors have finished
  * running. In particular, this means it cannot be used to initialize global
@@ -302,13 +296,12 @@ quark_new (gchar *string)
        * us to do lockless lookup of the arrays, and there shouldn't be that
        * many quarks in an app
        */
+      g_ignore_leak (g_atomic_pointer_get (&quarks));
       g_atomic_pointer_set (&quarks, quarks_new);
     }
 
   quark = quark_seq_id;
   g_atomic_pointer_set (&quarks[quark], string);
-  if (quark_ht == NULL)
-    quark_ht = g_hash_table_new (g_str_hash, g_str_equal);
   g_hash_table_insert (quark_ht, string, GUINT_TO_POINTER (quark));
   g_atomic_int_inc (&quark_seq_id);
 

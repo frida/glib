@@ -97,7 +97,7 @@ struct _GActionGroupInterface
 };
 
 GIO_AVAILABLE_IN_ALL
-GType                   g_action_group_get_type                         (void) G_GNUC_CONST;
+GType                   g_action_group_get_type                         (void);
 
 GIO_AVAILABLE_IN_ALL
 gboolean                g_action_group_has_action                       (GActionGroup *action_group,
@@ -156,7 +156,7 @@ gboolean                g_action_group_query_action                     (GAction
                                                                          const GVariantType **parameter_type,
                                                                          const GVariantType **state_type,
                                                                          GVariant           **state_hint,
-                                                                         GVariant           **state);
+                                                                         GVariant           **state) G_GNUC_WARN_UNUSED_RESULT;
 
 G_END_DECLS
 

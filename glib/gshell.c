@@ -34,20 +34,6 @@
 #include "gthread.h"
 
 /**
- * SECTION:shell
- * @title: Shell-related Utilities
- * @short_description: shell-like commandline handling
- *
- * GLib provides the functions g_shell_quote() and g_shell_unquote()
- * to handle shell-like quoting in strings. The function g_shell_parse_argv()
- * parses a string similar to the way a POSIX shell (/bin/sh) would.
- *
- * Note that string handling in shells has many obscure and historical
- * corner-cases which these functions do not necessarily reproduce. They
- * are good enough in practice, though.
- */
-
-/**
  * G_SHELL_ERROR:
  *
  * Error domain for shell functions.
@@ -197,8 +183,11 @@ unquote_string_inplace (gchar* str, gchar** end, GError** err)
  * Quotes a string so that the shell (/bin/sh) will interpret the
  * quoted string to mean @unquoted_string.
  *
- * If you pass a filename to the shell, for example, you should first
- * quote it with this function.
+ * If you pass a filename or other untrusted input to [func@GLib.shell_parse_argv],
+ * you should first quote it with this function. This is sufficient to ensure
+ * untrusted input cannot ‘break out’ of the quotes. Beware: this only works
+ * because [func@GLib.shell_parse_argv] is not a real Unix shell. Quoting untrusted
+ * input is not an adequate security mechanism when using a real shell.
  *
  * The return value must be freed with g_free().
  *
@@ -594,6 +583,11 @@ tokenize_command_line (const gchar *command_line,
                      _("Text ended just after a “\\” character."
                        " (The text was “%s”)"),
                      command_line);
+      else if (current_quote == '#')
+        g_set_error (error,
+                     G_SHELL_ERROR,
+                     G_SHELL_ERROR_EMPTY_STRING,
+                     _("Text was empty (or contained only whitespace)"));
       else
         g_set_error (error,
                      G_SHELL_ERROR,
@@ -652,6 +646,9 @@ tokenize_command_line (const gchar *command_line,
  * only whitespace), %G_SHELL_ERROR_EMPTY_STRING will be returned. It’s
  * guaranteed that @argvp will be a non-empty array if this function returns
  * successfully.
+ *
+ * When constructing @command_line, quote any filenames or potentially
+ * untrusted input using [func@GLib.shell_quote].
  *
  * Free the returned vector with g_strfreev().
  * 

@@ -36,7 +36,7 @@ g_io_condition_get_type (void)
 {
   static GType etype = 0;
 
-  if (g_once_init_enter (&etype))
+  if (g_once_init_enter_pointer (&etype))
     {
       static const GFlagsValue values[] = {
 	{ G_IO_IN,   "G_IO_IN",   "in" },
@@ -48,7 +48,7 @@ g_io_condition_get_type (void)
 	{ 0, NULL, NULL }
       };
       GType type_id = g_flags_register_static ("GIOCondition", values);
-      g_once_init_leave (&etype, type_id);
+      g_once_init_leave_pointer (&etype, type_id);
     }
   return etype;
 }
@@ -121,7 +121,8 @@ g_child_watch_closure_callback (GPid     pid,
 
 #ifdef G_OS_UNIX
   g_value_init (&params[0], G_TYPE_ULONG);
-  g_value_set_ulong (&params[0], pid);
+  G_STATIC_ASSERT (sizeof (pid) <= sizeof (unsigned long));
+  g_value_set_ulong (&params[0], (gulong) pid);
 #endif
 #ifdef G_OS_WIN32
   g_value_init (&params[0], G_TYPE_POINTER);

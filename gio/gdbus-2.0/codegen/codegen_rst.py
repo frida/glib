@@ -5,7 +5,7 @@
 import os
 import re
 
-from . import utils
+import textwrap
 
 # Disable line length warnings as wrapping the templates would be hard
 # flake8: noqa: E501
@@ -21,8 +21,8 @@ class RstCodeGenerator:
     def _expand(self, s, expandParamsAndConstants):
         """Expands parameters and constant literals."""
         res = []
-        for line in s.split("\n"):
-            line = line.strip()
+        for line in textwrap.dedent(s).split("\n"):
+            line = line.rstrip()
             if line == "":
                 res.append("")
                 continue
@@ -81,12 +81,13 @@ class RstCodeGenerator:
 
     def _generate_header(self, iface):
         """Generates the header and preamble of the document."""
-        header_len = len(iface.name)
+        iface_name = iface.name_without_prefix
+        header_len = len(iface_name)
         res = [
             f".. _{iface.name}:",
             "",
             "=" * header_len,
-            iface.name,
+            iface_name,
             "=" * header_len,
             "",
             "-----------",
@@ -119,11 +120,11 @@ class RstCodeGenerator:
     def _generate_section(self, title, name):
         """Generates a section with the given title."""
         res = [
+            f".. _{name} {title}:",
+            "",
             "-" * len(title),
             title,
             "-" * len(title),
-            "",
-            f".. {name} {title}:",
             "",
             "",
         ]
@@ -141,6 +142,8 @@ class RstCodeGenerator:
             else:
                 access = "readable"
             res += [
+                f".. _{title}:",
+                "",
                 title,
                 "^" * len(title),
                 "",
@@ -215,6 +218,8 @@ class RstCodeGenerator:
         for m in iface.methods:
             title = f"{iface.name}.{m.name}"
             res += [
+                f".. _{title}:",
+                "",
                 title,
                 "^" * len(title),
                 "",
@@ -224,6 +229,13 @@ class RstCodeGenerator:
                 "",
             ]
             for a in m.in_args:
+                arg_desc = self._expand(a.doc_string, True)
+                res += [
+                    f"{a.name}",
+                    f"  {arg_desc}",
+                    "",
+                ]
+            for a in m.out_args:
                 arg_desc = self._expand(a.doc_string, True)
                 res += [
                     f"{a.name}",
@@ -284,6 +296,8 @@ class RstCodeGenerator:
         for s in iface.signals:
             title = f"{iface.name}::{s.name}"
             res += [
+                f".. _{title}:",
+                "",
                 title,
                 "^" * len(title),
                 "",

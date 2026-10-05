@@ -685,6 +685,8 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
         g_warning ("Failed to read %s: %s", path, error->message);
       g_clear_error (&error);
     }
+  else
+    g_debug ("Loading default settings from %s", path);
 
   g_free (path);
 
@@ -704,6 +706,8 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
       char **lines;
       gsize i;
 
+      g_debug ("Loading locks from %s", path);
+
       lines = g_strsplit (contents, "\n", 0);
       for (i = 0; lines[i]; i++)
         {
@@ -714,6 +718,7 @@ load_system_settings (GKeyfileSettingsBackend *kfsb)
               continue;
             }
 
+          g_debug ("Locking key %s", line);
           g_hash_table_add (kfsb->system_locks, g_steal_pointer (&line));
         }
 
@@ -893,9 +898,7 @@ g_keyfile_settings_backend_class_init (GKeyfileSettingsBackendClass *class)
    */
   g_object_class_install_property (object_class,
                                    PROP_FILENAME,
-                                   g_param_spec_string ("filename",
-                                                        P_("Filename"),
-                                                        P_("The filename"),
+                                   g_param_spec_string ("filename", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
                                                         G_PARAM_STATIC_STRINGS));
@@ -904,16 +907,16 @@ g_keyfile_settings_backend_class_init (GKeyfileSettingsBackendClass *class)
    * GKeyfileSettingsBackend:root-path:
    *
    * All settings read to or written from the backend must fall under the
-   * path given in @root_path (which must start and end with a slash and
-   * not contain two consecutive slashes).  @root_path may be "/".
+   * path given in @root_path.
    * 
-   * Defaults to "/".
+   * The path must start and end with a slash and not contain two consecutive
+   * slashes. It may be `"/"`.
+   *
+   * Defaults to `"/"`.
    */
   g_object_class_install_property (object_class,
                                    PROP_ROOT_PATH,
-                                   g_param_spec_string ("root-path",
-                                                        P_("Root path"),
-                                                        P_("The root path"),
+                                   g_param_spec_string ("root-path", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
                                                         G_PARAM_STATIC_STRINGS));
@@ -921,16 +924,14 @@ g_keyfile_settings_backend_class_init (GKeyfileSettingsBackendClass *class)
   /**
    * GKeyfileSettingsBackend:root-group:
    *
-   * If @root_group is non-%NULL then it specifies the name of the keyfile
+   * If @root_group is non-`NULL` then it specifies the name of the keyfile
    * group used for keys that are written directly below the root path.
    *
-   * Defaults to NULL.
+   * Defaults to `NULL`.
    */
   g_object_class_install_property (object_class,
                                    PROP_ROOT_GROUP,
-                                   g_param_spec_string ("root-group",
-                                                        P_("Root group"),
-                                                        P_("The root group"),
+                                   g_param_spec_string ("root-group", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
                                                         G_PARAM_STATIC_STRINGS));
@@ -944,9 +945,7 @@ g_keyfile_settings_backend_class_init (GKeyfileSettingsBackendClass *class)
    */
   g_object_class_install_property (object_class,
                                    PROP_DEFAULTS_DIR,
-                                   g_param_spec_string ("defaults-dir",
-                                                        P_("Default dir"),
-                                                        P_("Defaults dir"),
+                                   g_param_spec_string ("defaults-dir", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY |
                                                         G_PARAM_STATIC_STRINGS));
@@ -956,60 +955,60 @@ g_keyfile_settings_backend_class_init (GKeyfileSettingsBackendClass *class)
  * g_keyfile_settings_backend_new:
  * @filename: the filename of the keyfile
  * @root_path: the path under which all settings keys appear
- * @root_group: (nullable): the group name corresponding to
- *              @root_path, or %NULL
+ * @root_group: (nullable): the group name corresponding to @root_path, or
+ *    `NULL` to disallow storing keys directly beneath @root_path
  *
- * Creates a keyfile-backed #GSettingsBackend.
+ * Creates a keyfile-backed [class@Gio.SettingsBackend].
  *
  * The filename of the keyfile to use is given by @filename.
  *
  * All settings read to or written from the backend must fall under the
  * path given in @root_path (which must start and end with a slash and
- * not contain two consecutive slashes).  @root_path may be "/".
+ * not contain two consecutive slashes).  @root_path may be `"/"`.
  *
- * If @root_group is non-%NULL then it specifies the name of the keyfile
+ * If @root_group is non-`NULL` then it specifies the name of the keyfile
  * group used for keys that are written directly below @root_path.  For
- * example, if @root_path is "/apps/example/" and @root_group is
- * "toplevel", then settings the key "/apps/example/enabled" to a value
- * of %TRUE will cause the following to appear in the keyfile:
+ * example, if @root_path is `"/apps/example/"` and @root_group is
+ * `"toplevel"`, then setting the key `"/apps/example/enabled"` to true will
+ * cause the following to appear in the keyfile:
  *
- * |[
- *   [toplevel]
- *   enabled=true
- * ]|
+ * ```
+ * [toplevel]
+ * enabled=true
+ * ```
  *
- * If @root_group is %NULL then it is not permitted to store keys
+ * If @root_group is `NULL` then it is not permitted to store keys
  * directly below the @root_path.
  *
  * For keys not stored directly below @root_path (ie: in a sub-path),
  * the name of the subpath (with the final slash stripped) is used as
  * the name of the keyfile group.  To continue the example, if
- * "/apps/example/profiles/default/font-size" were set to
- * 12 then the following would appear in the keyfile:
+ * `"/apps/example/profiles/default/font-size"` were set to
+ * `12` then the following would appear in the keyfile:
  *
- * |[
- *   [profiles/default]
- *   font-size=12
- * ]|
+ * ```
+ * [profiles/default]
+ * font-size=12
+ * ```
  *
  * The backend will refuse writes (and return writability as being
- * %FALSE) for keys outside of @root_path and, in the event that
- * @root_group is %NULL, also for keys directly under @root_path.
+ * false) for keys outside of @root_path and, in the event that
+ * @root_group is `NULL`, also for keys directly under @root_path.
  * Writes will also be refused if the backend detects that it has the
  * inability to rewrite the keyfile (ie: the containing directory is not
  * writable).
  *
  * There is no checking done for your key namespace clashing with the
- * syntax of the key file format.  For example, if you have '[' or ']'
- * characters in your path names or '=' in your key names you may be in
+ * syntax of the key file format.  For example, if you have `[` or `]`
+ * characters in your path names or `=` in your key names you may be in
  * trouble.
  *
  * The backend reads default values from a keyfile called `defaults` in
- * the directory specified by the #GKeyfileSettingsBackend:defaults-dir property,
- * and a list of locked keys from a text file with the name `locks` in
+ * the directory specified by the `GKeyfileSettingsBackend:defaults-dir`
+ * property, and a list of locked keys from a text file with the name `locks` in
  * the same location.
  *
- * Returns: (transfer full): a keyfile-backed #GSettingsBackend
+ * Returns: (transfer full): a keyfile-backed [class@Gio.SettingsBackend]
  **/
 GSettingsBackend *
 g_keyfile_settings_backend_new (const gchar *filename,

@@ -23,6 +23,8 @@
 #error "Only <gio/gio.h> can be included directly."
 #endif
 
+#ifndef __GI_SCANNER__
+
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GAction, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GActionMap, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GAppInfo, g_object_unref)
@@ -44,7 +46,6 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(GCredentials, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GDatagramBased, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GDataInputStream, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GDataOutputStream, g_object_unref)
-G_DEFINE_AUTOPTR_CLEANUP_FUNC(GDBusActionGroup, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GDBusAuthObserver, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GDBusConnection, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GDBusInterface, g_object_unref)
@@ -63,7 +64,6 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(GDBusProxy, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GDBusServer, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GDrive, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GEmblemedIcon, g_object_unref)
-G_DEFINE_AUTOPTR_CLEANUP_FUNC(GEmblem, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GFileEnumerator, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GFile, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GFileAttributeInfoList, g_file_attribute_info_list_unref)
@@ -127,7 +127,6 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSocketAddress, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSocketClient, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSocketConnectable, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSocketConnection, g_object_unref)
-G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSocketControlMessage, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSocket, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSocketListener, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GSocketService, g_object_unref)
@@ -153,3 +152,5 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(GVolume, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GVolumeMonitor, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GZlibCompressor, g_object_unref)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GZlibDecompressor, g_object_unref)
+
+#endif /* __GI_SCANNER__ */

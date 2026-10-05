@@ -38,11 +38,6 @@ G_BEGIN_DECLS
 #define G_IS_FILE_ENUMERATOR_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_FILE_ENUMERATOR))
 #define G_FILE_ENUMERATOR_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_FILE_ENUMERATOR, GFileEnumeratorClass))
 
-/**
- * GFileEnumerator:
- *
- * A per matched file iterator.
- **/
 typedef struct _GFileEnumeratorClass    GFileEnumeratorClass;
 typedef struct _GFileEnumeratorPrivate  GFileEnumeratorPrivate;
 
@@ -97,7 +92,7 @@ struct _GFileEnumeratorClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType      g_file_enumerator_get_type          (void) G_GNUC_CONST;
+GType      g_file_enumerator_get_type          (void);
 
 GIO_AVAILABLE_IN_ALL
 GFileInfo *g_file_enumerator_next_file         (GFileEnumerator      *enumerator,

@@ -93,6 +93,7 @@
 
 
 #include <stdarg.h>
+#include <stdint.h>
 
 /* Nb: this file might be included in a file compiled with -ansi.  So
    we can't use C++ style "//" comments nor the "asm" keyword (instead
@@ -126,9 +127,9 @@
 #undef PLAT_amd64_solaris
 
 
-#if defined(G_OS_DARWIN) && defined(__i386__)
+#if defined(__APPLE__) && defined(__i386__)
 #  define PLAT_x86_darwin 1
-#elif defined(G_OS_DARWIN) && defined(__x86_64__)
+#elif defined(__APPLE__) && defined(__x86_64__)
 #  define PLAT_amd64_darwin 1
 #elif (defined(__MINGW32__) && defined(__i386__)) \
       || defined(__CYGWIN32__) \
@@ -411,14 +412,14 @@ typedef
         _zzq_default, _zzq_request,                               \
         _zzq_arg1, _zzq_arg2, _zzq_arg3, _zzq_arg4, _zzq_arg5)    \
     __extension__                                                 \
-    ({ volatile unsigned long int _zzq_args[6];                   \
+    ({ volatile uintptr_t _zzq_args[6];                           \
     volatile unsigned long int _zzq_result;                       \
-    _zzq_args[0] = (unsigned long int)(_zzq_request);             \
-    _zzq_args[1] = (unsigned long int)(_zzq_arg1);                \
-    _zzq_args[2] = (unsigned long int)(_zzq_arg2);                \
-    _zzq_args[3] = (unsigned long int)(_zzq_arg3);                \
-    _zzq_args[4] = (unsigned long int)(_zzq_arg4);                \
-    _zzq_args[5] = (unsigned long int)(_zzq_arg5);                \
+    _zzq_args[0] = (uintptr_t)(_zzq_request);                     \
+    _zzq_args[1] = (uintptr_t)(_zzq_arg1);                        \
+    _zzq_args[2] = (uintptr_t)(_zzq_arg2);                        \
+    _zzq_args[3] = (uintptr_t)(_zzq_arg3);                        \
+    _zzq_args[4] = (uintptr_t)(_zzq_arg4);                        \
+    _zzq_args[5] = (uintptr_t)(_zzq_arg5);                        \
     __asm__ volatile(__SPECIAL_INSTRUCTION_PREAMBLE               \
                      /* %RDX = client_request ( %RAX ) */         \
                      "xchgq %%rbx,%%rbx"                          \
@@ -1076,7 +1077,7 @@ typedef
 
 /* Use these to write the name of your wrapper.  NOTE: duplicates
    VG_WRAP_FUNCTION_Z{U,Z} in pub_tool_redir.h.  NOTE also: inserts
-   the default behaviour equivalance class tag "0000" into the name.
+   the default behaviour equivalence class tag "0000" into the name.
    See pub_tool_redir.h for details -- normally you don't need to
    think about this, though. */
 
@@ -1674,7 +1675,7 @@ typedef
 /* NB 9 Sept 07.  There is a nasty kludge here in all these CALL_FN_
    macros.  In order not to trash the stack redzone, we need to drop
    %rsp by 128 before the hidden call, and restore afterwards.  The
-   nastyness is that it is only by luck that the stack still appears
+   nastiness is that it is only by luck that the stack still appears
    to be unwindable during the hidden call - since then the behaviour
    of any routine using this macro does not match what the CFI data
    says.  Sigh.

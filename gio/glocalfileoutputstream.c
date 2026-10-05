@@ -700,7 +700,7 @@ _g_local_file_output_stream_open  (const char        *filename,
   if (g_cancellable_set_error_if_cancelled (cancellable, error))
     return NULL;
 
-  open_flags = O_BINARY;
+  open_flags = O_BINARY | O_CLOEXEC;
   if (readable)
     open_flags |= O_RDWR;
   else
@@ -737,7 +737,7 @@ _g_local_file_output_stream_create  (const char        *filename,
 
   mode = mode_from_flags_or_info (flags, reference_info);
 
-  open_flags = O_CREAT | O_EXCL | O_BINARY;
+  open_flags = O_CREAT | O_EXCL | O_BINARY | O_CLOEXEC;
   if (readable)
     open_flags |= O_RDWR;
   else
@@ -762,7 +762,7 @@ _g_local_file_output_stream_append  (const char        *filename,
   else
     mode = 0666;
 
-  return output_stream_open (filename, O_CREAT | O_APPEND | O_WRONLY | O_BINARY, mode,
+  return output_stream_open (filename, O_CREAT | O_APPEND | O_WRONLY | O_BINARY | O_CLOEXEC, mode,
                              cancellable, error);
 }
 
@@ -865,9 +865,9 @@ handle_overwrite_open (const char    *filename,
   /* We only need read access to the original file if we are creating a backup.
    * We also add O_CREAT to avoid a race if the file was just removed */
   if (create_backup || readable)
-    open_flags = O_RDWR | O_CREAT | O_BINARY;
+    open_flags = O_RDWR | O_CREAT | O_BINARY | O_CLOEXEC;
   else
-    open_flags = O_WRONLY | O_CREAT | O_BINARY;
+    open_flags = O_WRONLY | O_CREAT | O_BINARY | O_CLOEXEC;
   
   /* Some systems have O_NOFOLLOW, which lets us avoid some races
    * when finding out if the file we opened was a symlink */
@@ -1040,7 +1040,7 @@ handle_overwrite_open (const char    *filename,
       tmp_filename = g_build_filename (dirname, ".goutputstream-XXXXXX", NULL);
       g_free (dirname);
 
-      tmpfd = g_mkstemp_full (tmp_filename, (readable ? O_RDWR : O_WRONLY) | O_BINARY, mode);
+      tmpfd = g_mkstemp_full (tmp_filename, (readable ? O_RDWR : O_WRONLY) | O_BINARY | O_CLOEXEC, mode);
       if (tmpfd == -1)
 	{
 	  g_free (tmp_filename);
@@ -1113,7 +1113,7 @@ handle_overwrite_open (const char    *filename,
 	}
 
       bfd = g_open (backup_filename,
-		    O_WRONLY | O_CREAT | O_EXCL | O_BINARY,
+		    O_WRONLY | O_CREAT | O_EXCL | O_BINARY | O_CLOEXEC,
 		    _g_stat_mode (&original_stat) & 0777);
 
       if (bfd == -1)
@@ -1162,6 +1162,12 @@ handle_overwrite_open (const char    *filename,
 	}
 #endif
 
+      /* The FD could be invalid if the file is a symlink, a backup has been
+       * requested, and the source directory is read-only (as we won’t have
+       * errored out earlier), but in that case creating the backup file will
+       * have failed just above. */
+      g_assert (fd >= 0);
+
       if (!copy_file_data (fd, bfd, NULL))
 	{
 	  g_set_error_literal (error,
@@ -1193,8 +1199,7 @@ handle_overwrite_open (const char    *filename,
 
   if (replace_destination_set)
     {
-      g_close (fd, NULL);
-      fd = -1;
+      g_clear_fd (&fd, NULL);
 
       if (g_unlink (filename) != 0)
 	{
@@ -1208,9 +1213,9 @@ handle_overwrite_open (const char    *filename,
 	}
 
       if (readable)
-	open_flags = O_RDWR | O_CREAT | O_BINARY;
+	open_flags = O_RDWR | O_CREAT | O_BINARY | O_CLOEXEC;
       else
-	open_flags = O_WRONLY | O_CREAT | O_BINARY;
+	open_flags = O_WRONLY | O_CREAT | O_BINARY | O_CLOEXEC;
       fd = g_open (filename, open_flags, mode);
       if (fd == -1)
 	{

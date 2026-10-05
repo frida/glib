@@ -46,32 +46,28 @@
 #endif
 
 #ifdef G_OS_WIN32
-
-#define STRICT
 #include <windows.h>
 #include <wchar.h>
 #endif
 
 /**
- * SECTION:timezone
- * @title: GTimeZone
- * @short_description: a structure representing a time zone
- * @see_also: #GDateTime
+ * GTimeZone:
  *
- * #GTimeZone is a structure that represents a time zone, at no
- * particular point in time.  It is refcounted and immutable.
+ * A `GTimeZone` represents a time zone, at no particular point in time.
+ *
+ * The `GTimeZone` struct is refcounted and immutable.
  *
  * Each time zone has an identifier (for example, ‘Europe/London’) which is
- * platform dependent. See g_time_zone_new() for information on the identifier
- * formats. The identifier of a time zone can be retrieved using
- * g_time_zone_get_identifier().
+ * platform dependent. See [ctor@GLib.TimeZone.new] for information on the
+ * identifier formats. The identifier of a time zone can be retrieved using
+ * [method@GLib.TimeZone.get_identifier].
  *
- * A time zone contains a number of intervals.  Each interval has
- * an abbreviation to describe it (for example, ‘PDT’), an offset to UTC and a
- * flag indicating if the daylight savings time is in effect during that
- * interval.  A time zone always has at least one interval — interval 0. Note
- * that interval abbreviations are not the same as time zone identifiers
- * (apart from ‘UTC’), and cannot be passed to g_time_zone_new().
+ * A time zone contains a number of intervals. Each interval has an abbreviation
+ * to describe it (for example, ‘PDT’), an offset to UTC and a flag indicating
+ * if the daylight savings time is in effect during that interval. A time zone
+ * always has at least one interval — interval 0. Note that interval abbreviations
+ * are not the same as time zone identifiers (apart from ‘UTC’), and cannot be
+ * passed to [ctor@GLib.TimeZone.new].
  *
  * Every UTC time is contained within exactly one interval, but a given
  * local time may be contained within zero, one or two intervals (due to
@@ -84,17 +80,8 @@
  * that some properties (like the abbreviation) change between intervals
  * without other properties changing.
  *
- * #GTimeZone is available since GLib 2.26.
- */
-
-/**
- * GTimeZone:
- *
- * #GTimeZone is an opaque structure whose members cannot be accessed
- * directly.
- *
  * Since: 2.26
- **/
+ */
 
 /* IANA zoneinfo file format {{{1 */
 
@@ -102,6 +89,8 @@
 typedef struct { gchar bytes[8]; } gint64_be;
 typedef struct { gchar bytes[4]; } gint32_be;
 typedef struct { gchar bytes[4]; } guint32_be;
+
+#ifdef G_OS_UNIX
 
 static inline gint64 gint64_from_be (const gint64_be be) {
   gint64 tmp; memcpy (&tmp, &be, sizeof tmp); return GINT64_FROM_BE (tmp);
@@ -114,6 +103,8 @@ static inline gint32 gint32_from_be (const gint32_be be) {
 static inline guint32 guint32_from_be (const guint32_be be) {
   guint32 tmp; memcpy (&tmp, &be, sizeof tmp); return GUINT32_FROM_BE (tmp);
 }
+
+#endif
 
 /* The layout of an IANA timezone file header */
 struct tzhead
@@ -287,6 +278,7 @@ again:
 GTimeZone *
 g_time_zone_ref (GTimeZone *tz)
 {
+  g_return_val_if_fail (tz != NULL, NULL);
   g_assert (tz->ref_count > 0);
 
   g_atomic_int_inc (&tz->ref_count);
@@ -445,9 +437,7 @@ zone_for_constant_offset (GTimeZone *gtz, const gchar *name)
   gtz->transitions = NULL;
 }
 
-#ifdef G_OS_UNIX
-
-#if defined(__sun) && defined(__SVR4)
+#if defined(G_OS_UNIX) && defined(__sun) && defined(__SVR4)
 /*
  * only used by Illumos distros or Solaris < 11: parse the /etc/default/init
  * text file looking for TZ= followed by the timezone, possibly quoted
@@ -513,16 +503,69 @@ zone_identifier_illumos (void)
 }
 #endif /* defined(__sun) && defined(__SRVR) */
 
+#ifdef G_OS_UNIX
+#define MAX_SYMLINKS 20
+
+/*
+ * Recursively resolve symlinks from @initial_path,
+ * returning the first target that is in a subtree of @zoneinfo
+ * or the first target that is a regular file,
+ * or NULL.
+ */
+static gchar *
+resolve_symlink_to_zoneinfo (const char *initial_path, const char *zoneinfo)
+{
+  char *current_path = g_strdup (initial_path);
+
+  for (int i = 0; i < MAX_SYMLINKS; i++)
+    {
+      char *link_target;
+      char *parent_dir;
+      char *next_path;
+      GError *error = NULL;
+
+      link_target = g_file_read_link (current_path, &error);
+      if (!link_target)
+        {
+          gboolean not_a_symlink = g_error_matches (error, G_FILE_ERROR, G_FILE_ERROR_INVAL);
+
+          g_clear_error (&error);
+          if (not_a_symlink)
+            return current_path;
+          break;
+        }
+
+      parent_dir = g_path_get_dirname (current_path);
+      next_path = g_canonicalize_filename (link_target, parent_dir);
+
+      g_free (parent_dir);
+      g_free (link_target);
+      g_free (current_path);
+      current_path = next_path;
+
+      if (g_str_has_prefix (current_path, zoneinfo))
+        return current_path;
+    }
+
+  g_free (current_path);
+  return NULL;
+}
+#undef MAX_SYMLINKS
+
 /*
  * returns the path to the top of the Olson zoneinfo timezone hierarchy.
  */
 static const gchar *
 zone_info_base_dir (void)
 {
-  if (g_file_test ("/usr/share/zoneinfo", G_FILE_TEST_IS_DIR))
+  GStatBuf buf;
+
+  if (g_lstat ("/usr/share/zoneinfo", &buf) == 0 && S_ISDIR (buf.st_mode))
     return "/usr/share/zoneinfo";     /* Most distros */
   else if (g_file_test ("/usr/share/lib/zoneinfo", G_FILE_TEST_IS_DIR))
     return "/usr/share/lib/zoneinfo"; /* Illumos distros */
+  else if (g_file_test ("/var/db/timezone/zoneinfo", G_FILE_TEST_IS_DIR))
+    return "/var/db/timezone/zoneinfo"; /* macOS */
 
   /* need a better fallback case */
   return "/usr/share/zoneinfo";
@@ -533,50 +576,16 @@ zone_identifier_unix (void)
 {
   gchar *resolved_identifier = NULL;
   gsize prefix_len = 0;
-  gchar *canonical_path = NULL;
-  GError *read_link_err = NULL;
   const gchar *tzdir;
-  gboolean not_a_symlink_to_zoneinfo = FALSE;
-  struct stat file_status;
+  GStatBuf buf;
+
+  tzdir = g_getenv ("TZDIR");
+  if (tzdir == NULL)
+    tzdir = zone_info_base_dir ();
 
   /* Resolve the actual timezone pointed to by /etc/localtime. */
-  resolved_identifier = g_file_read_link ("/etc/localtime", &read_link_err);
-
-  if (resolved_identifier != NULL)
-    {
-      if (!g_path_is_absolute (resolved_identifier))
-        {
-          gchar *absolute_resolved_identifier = g_build_filename ("/etc", resolved_identifier, NULL);
-          g_free (resolved_identifier);
-          resolved_identifier = g_steal_pointer (&absolute_resolved_identifier);
-        }
-
-      if (g_lstat (resolved_identifier, &file_status) == 0)
-        {
-          if ((file_status.st_mode & S_IFMT) != S_IFREG)
-            {
-              /* Some systems (e.g. toolbox containers) make /etc/localtime be a symlink
-               * to a symlink.
-               *
-               * Rather than try to cope with that, just ignore /etc/localtime and use
-               * the fallback code to read timezone from /etc/timezone
-               */
-              g_clear_pointer (&resolved_identifier, g_free);
-              not_a_symlink_to_zoneinfo = TRUE;
-            }
-        }
-      else
-        {
-          g_clear_pointer (&resolved_identifier, g_free);
-        }
-    }
-  else
-    {
-      not_a_symlink_to_zoneinfo = g_error_matches (read_link_err,
-                                                   G_FILE_ERROR,
-                                                   G_FILE_ERROR_INVAL);
-      g_clear_error (&read_link_err);
-    }
+  if (g_lstat ("/etc/localtime", &buf) == 0 && S_ISLNK (buf.st_mode))
+    resolved_identifier = resolve_symlink_to_zoneinfo ("/etc/localtime", tzdir);
 
   if (resolved_identifier == NULL)
     {
@@ -589,36 +598,24 @@ zone_identifier_unix (void)
        *    as a last-ditch effort to parse the TZ= setting from within
        *    /etc/default/init
        */
-      if (not_a_symlink_to_zoneinfo && (g_file_get_contents ("/var/db/zoneinfo",
-                                                             &resolved_identifier,
-                                                             NULL, NULL) ||
-                                        g_file_get_contents ("/etc/timezone",
-                                                             &resolved_identifier,
-                                                             NULL, NULL)
+      if (g_file_get_contents ("/var/db/zoneinfo",
+                               &resolved_identifier,
+                               NULL, NULL) ||
+          g_file_get_contents ("/etc/timezone",
+                               &resolved_identifier,
+                               NULL, NULL)
 #if defined(__sun) && defined(__SVR4)
-                                        ||
-                                        (resolved_identifier = zone_identifier_illumos ())
+          || (resolved_identifier = zone_identifier_illumos ())
 #endif
-                                            ))
+      )
         g_strchomp (resolved_identifier);
       else
         {
           /* Error */
           g_assert (resolved_identifier == NULL);
-          goto out;
+          return NULL;
         }
     }
-  else
-    {
-      /* Resolve relative path */
-      canonical_path = g_canonicalize_filename (resolved_identifier, "/etc");
-      g_free (resolved_identifier);
-      resolved_identifier = g_steal_pointer (&canonical_path);
-    }
-
-  tzdir = g_getenv ("TZDIR");
-  if (tzdir == NULL)
-    tzdir = zone_info_base_dir ();
 
   /* Strip the prefix and slashes if possible. */
   if (g_str_has_prefix (resolved_identifier, tzdir))
@@ -633,10 +630,6 @@ zone_identifier_unix (void)
              strlen (resolved_identifier) - prefix_len + 1  /* nul terminator */);
 
   g_assert (resolved_identifier != NULL);
-
-out:
-  g_free (canonical_path);
-
   return resolved_identifier;
 }
 
@@ -709,7 +702,7 @@ init_zone_from_iana_info (GTimeZone *gtz,
   const struct tzhead *header = header_data;
   GTimeZone *footertz = NULL;
   guint extra_time_count = 0, extra_type_count = 0;
-  gint64 last_explicit_transition_time;
+  gint64 last_explicit_transition_time = 0;
 
   g_return_if_fail (size >= sizeof (struct tzhead) &&
                     memcmp (header, "TZif", 4) == 0);
@@ -1011,10 +1004,8 @@ rules_from_windows_time_zone (const gchar   *identifier,
 
   /* use RegLoadMUIStringW() to query MUI_Std from the registry if possible, otherwise
      fallback to querying Std */
-#if _WIN32_WINNT >= 0x0600
   if (RegLoadMUIStringW (key, L"MUI_Std", tzi.StandardName,
                          size, &size, 0, winsyspath) != ERROR_SUCCESS)
-#endif
     {
       size = sizeof tzi.StandardName;
       if (RegQueryValueExW (key, L"Std", NULL, NULL,
@@ -1026,10 +1017,8 @@ rules_from_windows_time_zone (const gchar   *identifier,
 
   /* use RegLoadMUIStringW() to query MUI_Dlt from the registry if possible, otherwise
      fallback to querying Dlt */
-#if _WIN32_WINNT >= 0x0600
   if (RegLoadMUIStringW (key, L"MUI_Dlt", tzi.DaylightName,
                          size, &size, 0, winsyspath) != ERROR_SUCCESS)
-#endif
     {
       size = sizeof tzi.DaylightName;
       if (RegQueryValueExW (key, L"Dlt", NULL, NULL,
@@ -1060,7 +1049,7 @@ rules_from_windows_time_zone (const gchar   *identifier,
       for (year = first, i = 0; *rules != NULL && year <= last; year++)
         {
           gboolean failed = FALSE;
-          swprintf (s, 11, L"%d", year);
+          swprintf_s (s, 11, L"%d", year);
 
           if (!failed)
             {
@@ -2227,7 +2216,7 @@ interval_valid (GTimeZone *tz,
  * g_time_zone_adjust_time:
  * @tz: a #GTimeZone
  * @type: the #GTimeType of @time_
- * @time_: a pointer to a number of seconds since January 1, 1970
+ * @time_: (inout): a pointer to a number of seconds since January 1, 1970
  *
  * Finds an interval within @tz that corresponds to the given @time_,
  * possibly adjusting @time_ if required to fit into an interval.

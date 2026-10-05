@@ -42,7 +42,7 @@ struct _GExpanderConverterClass
   GObjectClass parent_class;
 };
 
-GType       g_expander_converter_get_type (void) G_GNUC_CONST;
+GType       g_expander_converter_get_type (void);
 GConverter *g_expander_converter_new      (void);
 
 
@@ -98,6 +98,14 @@ g_expander_converter_convert (GConverter *converter,
   guint8 v, *out;
   gsize i;
   gsize block_size;
+
+  /* An empty input buffer may be passed as NULL, which must not be offset. */
+  if (inbuf == NULL || inbuf_size == 0)
+    {
+      if (flags & G_CONVERTER_INPUT_AT_END)
+        return G_CONVERTER_FINISHED;
+      return G_CONVERTER_CONVERTED;
+    }
 
   in = inbuf;
   out = outbuf;
@@ -158,7 +166,7 @@ struct _GCompressorConverterClass
   GObjectClass parent_class;
 };
 
-GType       g_compressor_converter_get_type (void) G_GNUC_CONST;
+GType       g_compressor_converter_get_type (void);
 GConverter *g_compressor_converter_new      (void);
 
 
@@ -214,6 +222,14 @@ g_compressor_converter_convert (GConverter *converter,
   guint8 v, *out;
   gsize i;
   gsize block_size;
+
+  /* An empty input buffer may be passed as NULL, which must not be offset. */
+  if (inbuf == NULL || inbuf_size == 0)
+    {
+      if (flags & G_CONVERTER_INPUT_AT_END)
+        return G_CONVERTER_FINISHED;
+      return G_CONVERTER_CONVERTED;
+    }
 
   in = inbuf;
   out = outbuf;
@@ -582,7 +598,7 @@ struct _GLeftoverConverterClass
   GObjectClass parent_class;
 };
 
-GType       g_leftover_converter_get_type (void) G_GNUC_CONST;
+GType       g_leftover_converter_get_type (void);
 GConverter *g_leftover_converter_new      (void);
 
 

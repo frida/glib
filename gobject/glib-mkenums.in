@@ -1,4 +1,4 @@
-#!/usr/bin/env @PYTHON@
+#!@PYTHON@
 
 # If the code below looks horrible and unpythonic, do not panic.
 #
@@ -143,14 +143,13 @@ enumname_prefix = ''        # prefix of $enumname
 enumindex = 0               # Global enum counter
 firstenum = 1               # Is this the first enumeration per file?
 entries = []                # [ name, val ] for each entry
-sandbox = None              # sandbox for safe evaluation of expressions
+c_namespace = {}            # C symbols namespace.
 
 output = ''                 # Filename to write result into
 
 def parse_trigraph(opts):
     result = {}
-
-    for opt in re.split(r'\s*,\s*', opts):
+    for opt in re.findall(r'(?:[^\s,"]|"(?:\\.|[^"])*")+', opts):
         opt = re.sub(r'^\s*', '', opt)
         opt = re.sub(r'\s*$', '', opt)
         m = re.search(r'(\w+)(?:=(.+))?', opt)
@@ -161,7 +160,7 @@ def parse_trigraph(opts):
             val = groups[1]
         else:
             val = 1
-        result[key] = val
+        result[key] = val.strip('"') if val is not None else None
     return result
 
 def parse_entries(file, file_name):
@@ -181,7 +180,7 @@ def parse_entries(file, file_name):
 
         # strip comments w/o options
         line = re.sub(r'''/\*(?!<)
-            ([^*]+|\*(?!/))*
+            ([^*]|\*(?!/))*
            \*/''', '', line, flags=re.X)
 
         line = line.rstrip()
@@ -208,9 +207,17 @@ def parse_entries(file, file_name):
             else:
                 continue
 
-        m = re.match(r'\s*\}\s*(\w+)', line)
+        m = re.match(r'''\s*\}\s*
+            ((?:
+                G_GNUC_FLAG_ENUM|
+                \[\[(?:.+,)*(?:gnu|clang)::flag_enum(?:,[^\]]+)*\]\]|
+                __attribute__\(\((?:.+,)*(?:flag_enum|__flag_enum__)(?:,[^)]+)*\)\)
+            )\s*)?
+            (\w+)''', line, flags=re.X)
         if m:
-            enumname = m.group(1)
+            if m.group(1) is not None:
+                flags = 1
+            enumname = m.group(2)
             enumindex += 1
             return 1
 
@@ -224,6 +231,8 @@ def parse_entries(file, file_name):
               (\w+)\s*                   # name
               (\s+[A-Z]+_(?:AVAILABLE|DEPRECATED)_ENUMERATOR_IN_[0-9_]+(?:_FOR\s*\(\s*\w+\s*\))?\s*)?    # availability
               (?:=(                      # value
+                   \s*'[^']*'\s*          # char
+                     |                      # OR
                    \s*\w+\s*\(.*\)\s*       # macro with multiple args
                    |                        # OR
                    (?:[^,/]|/(?!\*))*       # anything but a comma or comment
@@ -247,15 +256,12 @@ def parse_entries(file, file_name):
             if flags is None and value is not None and '<<' in value:
                 seenbitshift = 1
 
-            if seenprivate:
-                continue
-
             if options is not None:
                 options = parse_trigraph(options)
                 if 'skip' not in options:
-                    entries.append((name, value, options.get('nick')))
+                    entries.append((name, value, seenprivate, options.get('nick')))
             else:
-                entries.append((name, value))
+                entries.append((name, value, seenprivate))
         else:
             m = re.match(r'''\s*
                          /\*< (([^*]|\*(?!/))*) >\s*\*/
@@ -489,7 +495,7 @@ if len(fhead) > 0:
     write_output(prod)
 
 def process_file(curfilename):
-    global entries, flags, seenbitshift, seenprivate, enum_prefix
+    global entries, flags, seenbitshift, seenprivate, enum_prefix, c_namespace
     firstenum = True
 
     try:
@@ -514,14 +520,20 @@ def process_file(curfilename):
 
         # strip comments w/o options
         line = re.sub(r'''/\*(?!<)
-           ([^*]+|\*(?!/))*
+           ([^*]|\*(?!/))*
            \*/''', '', line)
 
         # ignore forward declarations
         if re.match(r'\s*typedef\s+enum.*;', line):
             continue
 
-        m = re.match(r'''\s*typedef\s+enum\s*[_A-Za-z]*[_A-Za-z0-9]*\s*
+        m = re.match(r'''\s*typedef\s+enum\s*
+               ((?:
+                 G_GNUC_FLAG_ENUM|
+                \[\[(?:.+,)*(?:gnu|clang)::flag_enum(?:,[^\]]+)*\]\]|
+                __attribute__\(\((?:.+,)*(?:flag_enum|__flag_enum__)(?:,[^)]+)*\)\)
+               )\s*)?
+               [_A-Za-z]*[_A-Za-z0-9]*\s*
                ({)?\s*
                (?:/\*<
                  (([^*]|\*(?!/))*)
@@ -529,8 +541,10 @@ def process_file(curfilename):
                \s*({)?''', line, flags=re.X)
         if m:
             groups = m.groups()
-            if len(groups) >= 2 and groups[1] is not None:
-                options = parse_trigraph(groups[1])
+            if len(groups) >= 1 and groups[0] is not None:
+                flags = 1
+            if len(groups) >= 3 and groups[2] is not None:
+                options = parse_trigraph(groups[2])
                 if 'skip' in options:
                     continue
                 enum_prefix = options.get('prefix', None)
@@ -558,7 +572,7 @@ def process_file(curfilename):
                     print_warning("lowercase_name is deprecated, use underscore_name")
 
             # Didn't have trailing '{' look on next lines
-            if groups[0] is None and (len(groups) < 4 or groups[3] is None):
+            if groups[1] is None and (len(groups) < 5 or groups[4] is None):
                 while True:
                     line = curfile.readline()
                     if not line:
@@ -577,13 +591,19 @@ def process_file(curfilename):
             if flags is None:
                 flags = seenbitshift
 
+            def common_prefix(s1, s2):
+                for i, char in enumerate(s1):
+                    if i >= len(s2) or char != s2[i]:
+                        return s1[:i]
+                return s1
+
             # Autogenerate a prefix
             if enum_prefix is None:
                 for entry in entries:
-                    if len(entry) < 3 or entry[2] is None:
+                    if not entry[2] and (len(entry) < 4 or entry[3] is None):
                         name = entry[0]
                         if enum_prefix is not None:
-                            enum_prefix = os.path.commonprefix([name, enum_prefix])
+                            enum_prefix = common_prefix(name, enum_prefix)
                         else:
                             enum_prefix = name
                 if enum_prefix is None:
@@ -601,10 +621,11 @@ def process_file(curfilename):
             for e in entries:
                 name = e[0]
                 num = e[1]
-                if len(e) < 3 or e[2] is None:
+                private = e[2]
+                if len(e) < 4 or e[3] is None:
                     nick = re.sub(r'^' + enum_prefix, '', name)
                     nick = nick.replace('_', '-').lower()
-                    e = (name, num, nick)
+                    e = (name, num, private, nick)
                 fixed_entries.append(e)
             entries = fixed_entries
 
@@ -720,7 +741,7 @@ def process_file(curfilename):
                 next_num = 0
 
                 prod = replace_specials(prod)
-                for name, num, nick in entries:
+                for name, num, private, nick in entries:
                     tmp_prod = prod
 
                     if '\u0040valuenum\u0040' in prod:
@@ -729,7 +750,11 @@ def process_file(curfilename):
                         if num is not None:
                             # use sandboxed evaluation as a reasonable
                             # approximation to C constant folding
-                            inum = eval(num, {}, {})
+                            inum = eval(num, {}, c_namespace)
+
+                            # Support character literals
+                            if isinstance(inum, str) and len(inum) == 1:
+                                inum = ord(inum)
 
                             # make sure it parsed to an integer
                             if not isinstance(inum, int):
@@ -738,8 +763,12 @@ def process_file(curfilename):
                         else:
                             num = next_num
 
+                        c_namespace[name] = num
                         tmp_prod = tmp_prod.replace('\u0040valuenum\u0040', str(num))
                         next_num = int(num) + 1
+
+                    if private:
+                        continue
 
                     tmp_prod = tmp_prod.replace('\u0040VALUENAME\u0040', name)
                     tmp_prod = tmp_prod.replace('\u0040valuenick\u0040', nick)

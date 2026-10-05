@@ -43,10 +43,8 @@
 
 #include "gthread.h"
 
-#include "glib-init.h"
 #include "gmain.h"
 #include "gmessages.h"
-#include "gptrset.h"
 #include "gslice.h"
 #include "gstrfuncs.h"
 #include "gtestutils.h"
@@ -62,9 +60,6 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#ifdef HAVE_MACH_MACH_H
-#include <mach/mach.h>
-#endif
 #ifdef HAVE_PTHREAD_SET_NAME_NP
 #include <pthread_np.h>
 #endif
@@ -79,70 +74,17 @@
 #include <sys/syscall.h>
 #endif
 
-#if defined(HAVE_FUTEX) && \
+#if (defined(HAVE_FUTEX) || defined(HAVE_FUTEX_TIME64)) && \
     (defined(HAVE_STDATOMIC_H) || defined(__ATOMIC_SEQ_CST))
 #define USE_NATIVE_MUTEX
 #endif
-
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
-
-#ifdef __PROSPERO__
-# define G_MUTEX_IS_BUSY(status) ((status) == EBUSY || (status) == EINVAL)
-#else
-# define G_MUTEX_IS_BUSY(status) ((status) == EBUSY)
-#endif
-
-static pthread_mutex_t g_thread_state_lock;
-static pthread_key_t g_thread_cleanup_key;
-
-#if !defined(USE_NATIVE_MUTEX)
-static GPtrSet *g_thread_mutexes;
-static GPtrSet *g_thread_conds;
-#endif
-static GPtrSet *g_thread_rec_mutexes;
-static GPtrSet *g_thread_rwlocks;
-static GPtrSet *g_thread_privates;
-
-static void
-g_thread_state_add (GPtrSet  *pset,
-                    gpointer  item)
-{
-  pthread_mutex_lock (&g_thread_state_lock);
-  g_ptr_set_add (pset, item);
-  pthread_mutex_unlock (&g_thread_state_lock);
-}
-
-static void
-g_thread_state_remove (GPtrSet  *pset,
-                       gpointer  item)
-{
-  pthread_mutex_lock (&g_thread_state_lock);
-  g_ptr_set_remove (pset, item);
-  pthread_mutex_unlock (&g_thread_state_lock);
-}
-
-static void
-g_thread_ensure_destructor_registered (void)
-{
-  GRealThread *thread = (GRealThread *) g_thread_self ();
-
-  if (thread->destructor_registered)
-    return;
-
-  pthread_setspecific (g_thread_cleanup_key, thread);
-  thread->destructor_registered = TRUE;
-}
 
 static void
 g_thread_abort (gint         status,
                 const gchar *function)
 {
-#ifndef G_DISABLE_CHECKS
   fprintf (stderr, "GLib (gthread-posix.c): Unexpected error from C library during '%s': %s.  Aborting.\n",
            function, strerror (status));
-#endif
   g_abort ();
 }
 
@@ -160,7 +102,7 @@ g_mutex_impl_new (void)
   pthread_mutexattr_t attr;
 #endif
 
-  mutex = glib_mem_table->malloc (sizeof (pthread_mutex_t));
+  mutex = malloc (sizeof (pthread_mutex_t));
   if G_UNLIKELY (mutex == NULL)
     g_thread_abort (errno, "malloc");
 
@@ -184,7 +126,7 @@ static void
 g_mutex_impl_free (pthread_mutex_t *mutex)
 {
   pthread_mutex_destroy (mutex);
-  glib_mem_table->free (mutex);
+  free (mutex);
 }
 
 static inline pthread_mutex_t *
@@ -197,8 +139,6 @@ g_mutex_get_impl (GMutex *mutex)
       impl = g_mutex_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&mutex->p, NULL, impl))
         g_mutex_impl_free (impl);
-      else
-        g_thread_state_add (g_thread_mutexes, impl);
       impl = mutex->p;
     }
 
@@ -206,82 +146,20 @@ g_mutex_get_impl (GMutex *mutex)
 }
 
 
-/**
- * g_mutex_init:
- * @mutex: an uninitialized #GMutex
- *
- * Initializes a #GMutex so that it can be used.
- *
- * This function is useful to initialize a mutex that has been
- * allocated on the stack, or as part of a larger structure.
- * It is not necessary to initialize a mutex that has been
- * statically allocated.
- *
- * |[<!-- language="C" --> 
- *   typedef struct {
- *     GMutex m;
- *     ...
- *   } Blob;
- *
- * Blob *b;
- *
- * b = g_new (Blob, 1);
- * g_mutex_init (&b->m);
- * ]|
- *
- * To undo the effect of g_mutex_init() when a mutex is no longer
- * needed, use g_mutex_clear().
- *
- * Calling g_mutex_init() on an already initialized #GMutex leads
- * to undefined behaviour.
- *
- * Since: 2.32
- */
-void
-g_mutex_init (GMutex *mutex)
+G_ALWAYS_INLINE static inline void
+g_mutex_init_impl (GMutex *mutex)
 {
   mutex->p = g_mutex_impl_new ();
-
-  g_thread_state_add (g_thread_mutexes, mutex->p);
 }
 
-/**
- * g_mutex_clear:
- * @mutex: an initialized #GMutex
- *
- * Frees the resources allocated to a mutex with g_mutex_init().
- *
- * This function should not be used with a #GMutex that has been
- * statically allocated.
- *
- * Calling g_mutex_clear() on a locked mutex leads to undefined
- * behaviour.
- *
- * Since: 2.32
- */
-void
-g_mutex_clear (GMutex *mutex)
+G_ALWAYS_INLINE static inline void
+g_mutex_clear_impl (GMutex *mutex)
 {
-  g_thread_state_remove (g_thread_mutexes, mutex->p);
-
   g_mutex_impl_free (mutex->p);
 }
 
-/**
- * g_mutex_lock:
- * @mutex: a #GMutex
- *
- * Locks @mutex. If @mutex is already locked by another thread, the
- * current thread will block until @mutex is unlocked by the other
- * thread.
- *
- * #GMutex is neither guaranteed to be recursive nor to be
- * non-recursive.  As such, calling g_mutex_lock() on a #GMutex that has
- * already been locked by the same thread results in undefined behaviour
- * (including but not limited to deadlocks).
- */
-void
-g_mutex_lock (GMutex *mutex)
+G_ALWAYS_INLINE static inline void
+g_mutex_lock_impl (GMutex *mutex)
 {
   gint status;
 
@@ -289,18 +167,8 @@ g_mutex_lock (GMutex *mutex)
     g_thread_abort (status, "pthread_mutex_lock");
 }
 
-/**
- * g_mutex_unlock:
- * @mutex: a #GMutex
- *
- * Unlocks @mutex. If another thread is blocked in a g_mutex_lock()
- * call for @mutex, it will become unblocked and can lock @mutex itself.
- *
- * Calling g_mutex_unlock() on a mutex that is not locked by the
- * current thread leads to undefined behaviour.
- */
-void
-g_mutex_unlock (GMutex *mutex)
+G_ALWAYS_INLINE static inline void
+g_mutex_unlock_impl (GMutex *mutex)
 {
   gint status;
 
@@ -308,30 +176,15 @@ g_mutex_unlock (GMutex *mutex)
     g_thread_abort (status, "pthread_mutex_unlock");
 }
 
-/**
- * g_mutex_trylock:
- * @mutex: a #GMutex
- *
- * Tries to lock @mutex. If @mutex is already locked by another thread,
- * it immediately returns %FALSE. Otherwise it locks @mutex and returns
- * %TRUE.
- *
- * #GMutex is neither guaranteed to be recursive nor to be
- * non-recursive.  As such, calling g_mutex_lock() on a #GMutex that has
- * already been locked by the same thread results in undefined behaviour
- * (including but not limited to deadlocks or arbitrary return values).
- *
- * Returns: %TRUE if @mutex could be locked
- */
-gboolean
-g_mutex_trylock (GMutex *mutex)
+G_ALWAYS_INLINE static inline gboolean
+g_mutex_trylock_impl (GMutex *mutex)
 {
   gint status;
 
   if G_LIKELY ((status = pthread_mutex_trylock (g_mutex_get_impl (mutex))) == 0)
     return TRUE;
 
-  if G_UNLIKELY (!G_MUTEX_IS_BUSY (status))
+  if G_UNLIKELY (status != EBUSY)
     g_thread_abort (status, "pthread_mutex_trylock");
 
   return FALSE;
@@ -347,7 +200,7 @@ g_rec_mutex_impl_new (void)
   pthread_mutexattr_t attr;
   pthread_mutex_t *mutex;
 
-  mutex = glib_mem_table->malloc (sizeof (pthread_mutex_t));
+  mutex = malloc (sizeof (pthread_mutex_t));
   if G_UNLIKELY (mutex == NULL)
     g_thread_abort (errno, "malloc");
 
@@ -363,7 +216,7 @@ static void
 g_rec_mutex_impl_free (pthread_mutex_t *mutex)
 {
   pthread_mutex_destroy (mutex);
-  glib_mem_table->free (mutex);
+  free (mutex);
 }
 
 static inline pthread_mutex_t *
@@ -376,130 +229,38 @@ g_rec_mutex_get_impl (GRecMutex *rec_mutex)
       impl = g_rec_mutex_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&rec_mutex->p, NULL, impl))
         g_rec_mutex_impl_free (impl);
-      else
-        g_thread_state_add (g_thread_rec_mutexes, impl);
       impl = rec_mutex->p;
     }
 
   return impl;
 }
 
-/**
- * g_rec_mutex_init:
- * @rec_mutex: an uninitialized #GRecMutex
- *
- * Initializes a #GRecMutex so that it can be used.
- *
- * This function is useful to initialize a recursive mutex
- * that has been allocated on the stack, or as part of a larger
- * structure.
- *
- * It is not necessary to initialise a recursive mutex that has been
- * statically allocated.
- *
- * |[<!-- language="C" --> 
- *   typedef struct {
- *     GRecMutex m;
- *     ...
- *   } Blob;
- *
- * Blob *b;
- *
- * b = g_new (Blob, 1);
- * g_rec_mutex_init (&b->m);
- * ]|
- *
- * Calling g_rec_mutex_init() on an already initialized #GRecMutex
- * leads to undefined behaviour.
- *
- * To undo the effect of g_rec_mutex_init() when a recursive mutex
- * is no longer needed, use g_rec_mutex_clear().
- *
- * Since: 2.32
- */
-void
-g_rec_mutex_init (GRecMutex *rec_mutex)
+G_ALWAYS_INLINE static inline void
+g_rec_mutex_init_impl (GRecMutex *rec_mutex)
 {
   rec_mutex->p = g_rec_mutex_impl_new ();
-
-  g_thread_state_add (g_thread_rec_mutexes, rec_mutex->p);
 }
 
-/**
- * g_rec_mutex_clear:
- * @rec_mutex: an initialized #GRecMutex
- *
- * Frees the resources allocated to a recursive mutex with
- * g_rec_mutex_init().
- *
- * This function should not be used with a #GRecMutex that has been
- * statically allocated.
- *
- * Calling g_rec_mutex_clear() on a locked recursive mutex leads
- * to undefined behaviour.
- *
- * Since: 2.32
- */
-void
-g_rec_mutex_clear (GRecMutex *rec_mutex)
+G_ALWAYS_INLINE static inline void
+g_rec_mutex_clear_impl (GRecMutex *rec_mutex)
 {
-  g_thread_state_remove (g_thread_rec_mutexes, rec_mutex->p);
-
   g_rec_mutex_impl_free (rec_mutex->p);
 }
 
-/**
- * g_rec_mutex_lock:
- * @rec_mutex: a #GRecMutex
- *
- * Locks @rec_mutex. If @rec_mutex is already locked by another
- * thread, the current thread will block until @rec_mutex is
- * unlocked by the other thread. If @rec_mutex is already locked
- * by the current thread, the 'lock count' of @rec_mutex is increased.
- * The mutex will only become available again when it is unlocked
- * as many times as it has been locked.
- *
- * Since: 2.32
- */
-void
-g_rec_mutex_lock (GRecMutex *mutex)
+G_ALWAYS_INLINE static inline void
+g_rec_mutex_lock_impl (GRecMutex *mutex)
 {
   pthread_mutex_lock (g_rec_mutex_get_impl (mutex));
 }
 
-/**
- * g_rec_mutex_unlock:
- * @rec_mutex: a #GRecMutex
- *
- * Unlocks @rec_mutex. If another thread is blocked in a
- * g_rec_mutex_lock() call for @rec_mutex, it will become unblocked
- * and can lock @rec_mutex itself.
- *
- * Calling g_rec_mutex_unlock() on a recursive mutex that is not
- * locked by the current thread leads to undefined behaviour.
- *
- * Since: 2.32
- */
-void
-g_rec_mutex_unlock (GRecMutex *rec_mutex)
+G_ALWAYS_INLINE static inline void
+g_rec_mutex_unlock_impl (GRecMutex *rec_mutex)
 {
   pthread_mutex_unlock (rec_mutex->p);
 }
 
-/**
- * g_rec_mutex_trylock:
- * @rec_mutex: a #GRecMutex
- *
- * Tries to lock @rec_mutex. If @rec_mutex is already locked
- * by another thread, it immediately returns %FALSE. Otherwise
- * it locks @rec_mutex and returns %TRUE.
- *
- * Returns: %TRUE if @rec_mutex could be locked
- *
- * Since: 2.32
- */
-gboolean
-g_rec_mutex_trylock (GRecMutex *rec_mutex)
+G_ALWAYS_INLINE static inline gboolean
+g_rec_mutex_trylock_impl (GRecMutex *rec_mutex)
 {
   if (pthread_mutex_trylock (g_rec_mutex_get_impl (rec_mutex)) != 0)
     return FALSE;
@@ -515,7 +276,7 @@ g_rw_lock_impl_new (void)
   pthread_rwlock_t *rwlock;
   gint status;
 
-  rwlock = glib_mem_table->malloc (sizeof (pthread_rwlock_t));
+  rwlock = malloc (sizeof (pthread_rwlock_t));
   if G_UNLIKELY (rwlock == NULL)
     g_thread_abort (errno, "malloc");
 
@@ -529,7 +290,7 @@ static void
 g_rw_lock_impl_free (pthread_rwlock_t *rwlock)
 {
   pthread_rwlock_destroy (rwlock);
-  glib_mem_table->free (rwlock);
+  free (rwlock);
 }
 
 static inline pthread_rwlock_t *
@@ -542,90 +303,26 @@ g_rw_lock_get_impl (GRWLock *lock)
       impl = g_rw_lock_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&lock->p, NULL, impl))
         g_rw_lock_impl_free (impl);
-      else
-        g_thread_state_add (g_thread_rwlocks, impl);
       impl = lock->p;
     }
 
   return impl;
 }
 
-/**
- * g_rw_lock_init:
- * @rw_lock: an uninitialized #GRWLock
- *
- * Initializes a #GRWLock so that it can be used.
- *
- * This function is useful to initialize a lock that has been
- * allocated on the stack, or as part of a larger structure.  It is not
- * necessary to initialise a reader-writer lock that has been statically
- * allocated.
- *
- * |[<!-- language="C" --> 
- *   typedef struct {
- *     GRWLock l;
- *     ...
- *   } Blob;
- *
- * Blob *b;
- *
- * b = g_new (Blob, 1);
- * g_rw_lock_init (&b->l);
- * ]|
- *
- * To undo the effect of g_rw_lock_init() when a lock is no longer
- * needed, use g_rw_lock_clear().
- *
- * Calling g_rw_lock_init() on an already initialized #GRWLock leads
- * to undefined behaviour.
- *
- * Since: 2.32
- */
-void
-g_rw_lock_init (GRWLock *rw_lock)
+G_ALWAYS_INLINE static inline void
+g_rw_lock_init_impl (GRWLock *rw_lock)
 {
   rw_lock->p = g_rw_lock_impl_new ();
-
-  g_thread_state_add (g_thread_rwlocks, rw_lock->p);
 }
 
-/**
- * g_rw_lock_clear:
- * @rw_lock: an initialized #GRWLock
- *
- * Frees the resources allocated to a lock with g_rw_lock_init().
- *
- * This function should not be used with a #GRWLock that has been
- * statically allocated.
- *
- * Calling g_rw_lock_clear() when any thread holds the lock
- * leads to undefined behaviour.
- *
- * Since: 2.32
- */
-void
-g_rw_lock_clear (GRWLock *rw_lock)
+G_ALWAYS_INLINE static inline void
+g_rw_lock_clear_impl (GRWLock *rw_lock)
 {
-  g_thread_state_remove (g_thread_rwlocks, rw_lock->p);
-
   g_rw_lock_impl_free (rw_lock->p);
 }
 
-/**
- * g_rw_lock_writer_lock:
- * @rw_lock: a #GRWLock
- *
- * Obtain a write lock on @rw_lock. If another thread currently holds
- * a read or write lock on @rw_lock, the current thread will block
- * until all other threads have dropped their locks on @rw_lock.
- *
- * Calling g_rw_lock_writer_lock() while the current thread already
- * owns a read or write lock on @rw_lock leads to undefined behaviour.
- *
- * Since: 2.32
- */
-void
-g_rw_lock_writer_lock (GRWLock *rw_lock)
+G_ALWAYS_INLINE static inline void
+g_rw_lock_writer_lock_impl (GRWLock *rw_lock)
 {
   int retval = pthread_rwlock_wrlock (g_rw_lock_get_impl (rw_lock));
 
@@ -633,21 +330,8 @@ g_rw_lock_writer_lock (GRWLock *rw_lock)
     g_critical ("Failed to get RW lock %p: %s", rw_lock, g_strerror (retval));
 }
 
-/**
- * g_rw_lock_writer_trylock:
- * @rw_lock: a #GRWLock
- *
- * Tries to obtain a write lock on @rw_lock. If another thread
- * currently holds a read or write lock on @rw_lock, it immediately
- * returns %FALSE.
- * Otherwise it locks @rw_lock and returns %TRUE.
- *
- * Returns: %TRUE if @rw_lock could be locked
- *
- * Since: 2.32
- */
-gboolean
-g_rw_lock_writer_trylock (GRWLock *rw_lock)
+G_ALWAYS_INLINE static inline gboolean
+g_rw_lock_writer_trylock_impl (GRWLock *rw_lock)
 {
   if (pthread_rwlock_trywrlock (g_rw_lock_get_impl (rw_lock)) != 0)
     return FALSE;
@@ -655,47 +339,14 @@ g_rw_lock_writer_trylock (GRWLock *rw_lock)
   return TRUE;
 }
 
-/**
- * g_rw_lock_writer_unlock:
- * @rw_lock: a #GRWLock
- *
- * Release a write lock on @rw_lock.
- *
- * Calling g_rw_lock_writer_unlock() on a lock that is not held
- * by the current thread leads to undefined behaviour.
- *
- * Since: 2.32
- */
-void
-g_rw_lock_writer_unlock (GRWLock *rw_lock)
+G_ALWAYS_INLINE static inline void
+g_rw_lock_writer_unlock_impl (GRWLock *rw_lock)
 {
   pthread_rwlock_unlock (g_rw_lock_get_impl (rw_lock));
 }
 
-/**
- * g_rw_lock_reader_lock:
- * @rw_lock: a #GRWLock
- *
- * Obtain a read lock on @rw_lock. If another thread currently holds
- * the write lock on @rw_lock, the current thread will block until the
- * write lock was (held and) released. If another thread does not hold
- * the write lock, but is waiting for it, it is implementation defined
- * whether the reader or writer will block. Read locks can be taken
- * recursively.
- *
- * Calling g_rw_lock_reader_lock() while the current thread already
- * owns a write lock leads to undefined behaviour. Read locks however
- * can be taken recursively, in which case you need to make sure to
- * call g_rw_lock_reader_unlock() the same amount of times.
- *
- * It is implementation-defined how many read locks are allowed to be
- * held on the same lock simultaneously. If the limit is hit,
- * or if a deadlock is detected, a critical warning will be emitted.
- *
- * Since: 2.32
- */
-void
-g_rw_lock_reader_lock (GRWLock *rw_lock)
+G_ALWAYS_INLINE static inline void
+g_rw_lock_reader_lock_impl (GRWLock *rw_lock)
 {
   int retval = pthread_rwlock_rdlock (g_rw_lock_get_impl (rw_lock));
 
@@ -703,20 +354,8 @@ g_rw_lock_reader_lock (GRWLock *rw_lock)
     g_critical ("Failed to get RW lock %p: %s", rw_lock, g_strerror (retval));
 }
 
-/**
- * g_rw_lock_reader_trylock:
- * @rw_lock: a #GRWLock
- *
- * Tries to obtain a read lock on @rw_lock and returns %TRUE if
- * the read lock was successfully obtained. Otherwise it
- * returns %FALSE.
- *
- * Returns: %TRUE if @rw_lock could be locked
- *
- * Since: 2.32
- */
-gboolean
-g_rw_lock_reader_trylock (GRWLock *rw_lock)
+G_ALWAYS_INLINE static inline gboolean
+g_rw_lock_reader_trylock_impl (GRWLock *rw_lock)
 {
   if (pthread_rwlock_tryrdlock (g_rw_lock_get_impl (rw_lock)) != 0)
     return FALSE;
@@ -724,19 +363,8 @@ g_rw_lock_reader_trylock (GRWLock *rw_lock)
   return TRUE;
 }
 
-/**
- * g_rw_lock_reader_unlock:
- * @rw_lock: a #GRWLock
- *
- * Release a read lock on @rw_lock.
- *
- * Calling g_rw_lock_reader_unlock() on a lock that is not held
- * by the current thread leads to undefined behaviour.
- *
- * Since: 2.32
- */
-void
-g_rw_lock_reader_unlock (GRWLock *rw_lock)
+G_ALWAYS_INLINE static inline void
+g_rw_lock_reader_unlock_impl (GRWLock *rw_lock)
 {
   pthread_rwlock_unlock (g_rw_lock_get_impl (rw_lock));
 }
@@ -758,9 +386,11 @@ g_cond_impl_new (void)
 #elif defined (HAVE_PTHREAD_CONDATTR_SETCLOCK) && defined (CLOCK_MONOTONIC)
   if G_UNLIKELY ((status = pthread_condattr_setclock (&attr, CLOCK_MONOTONIC)) != 0)
     g_thread_abort (status, "pthread_condattr_setclock");
+#else
+#error Cannot support GCond on your platform.
 #endif
 
-  cond = glib_mem_table->malloc (sizeof (pthread_cond_t));
+  cond = malloc (sizeof (pthread_cond_t));
   if G_UNLIKELY (cond == NULL)
     g_thread_abort (errno, "malloc");
 
@@ -776,7 +406,7 @@ static void
 g_cond_impl_free (pthread_cond_t *cond)
 {
   pthread_cond_destroy (cond);
-  glib_mem_table->free (cond);
+  free (cond);
 }
 
 static inline pthread_cond_t *
@@ -789,85 +419,27 @@ g_cond_get_impl (GCond *cond)
       impl = g_cond_impl_new ();
       if (!g_atomic_pointer_compare_and_exchange (&cond->p, NULL, impl))
         g_cond_impl_free (impl);
-      else
-        g_thread_state_add (g_thread_conds, impl);
       impl = cond->p;
     }
 
   return impl;
 }
 
-/**
- * g_cond_init:
- * @cond: an uninitialized #GCond
- *
- * Initialises a #GCond so that it can be used.
- *
- * This function is useful to initialise a #GCond that has been
- * allocated as part of a larger structure.  It is not necessary to
- * initialise a #GCond that has been statically allocated.
- *
- * To undo the effect of g_cond_init() when a #GCond is no longer
- * needed, use g_cond_clear().
- *
- * Calling g_cond_init() on an already-initialised #GCond leads
- * to undefined behaviour.
- *
- * Since: 2.32
- */
-void
-g_cond_init (GCond *cond)
+G_ALWAYS_INLINE static inline void
+g_cond_init_impl (GCond *cond)
 {
   cond->p = g_cond_impl_new ();
-
-  g_thread_state_add (g_thread_conds, cond->p);
 }
 
-/**
- * g_cond_clear:
- * @cond: an initialised #GCond
- *
- * Frees the resources allocated to a #GCond with g_cond_init().
- *
- * This function should not be used with a #GCond that has been
- * statically allocated.
- *
- * Calling g_cond_clear() for a #GCond on which threads are
- * blocking leads to undefined behaviour.
- *
- * Since: 2.32
- */
-void
-g_cond_clear (GCond *cond)
+G_ALWAYS_INLINE static inline void
+g_cond_clear_impl (GCond *cond)
 {
-  g_thread_state_remove (g_thread_conds, cond->p);
-
   g_cond_impl_free (cond->p);
 }
 
-/**
- * g_cond_wait:
- * @cond: a #GCond
- * @mutex: a #GMutex that is currently locked
- *
- * Atomically releases @mutex and waits until @cond is signalled.
- * When this function returns, @mutex is locked again and owned by the
- * calling thread.
- *
- * When using condition variables, it is possible that a spurious wakeup
- * may occur (ie: g_cond_wait() returns even though g_cond_signal() was
- * not called).  It's also possible that a stolen wakeup may occur.
- * This is when g_cond_signal() is called, but another thread acquires
- * @mutex before this thread and modifies the state of the program in
- * such a way that when g_cond_wait() is able to return, the expected
- * condition is no longer met.
- *
- * For this reason, g_cond_wait() must always be used in a loop.  See
- * the documentation for #GCond for a complete example.
- **/
-void
-g_cond_wait (GCond  *cond,
-             GMutex *mutex)
+G_ALWAYS_INLINE static inline void
+g_cond_wait_impl (GCond  *cond,
+                  GMutex *mutex)
 {
   gint status;
 
@@ -875,17 +447,8 @@ g_cond_wait (GCond  *cond,
     g_thread_abort (status, "pthread_cond_wait");
 }
 
-/**
- * g_cond_signal:
- * @cond: a #GCond
- *
- * If threads are waiting for @cond, at least one of them is unblocked.
- * If no threads are waiting for @cond, this function has no effect.
- * It is good practice to hold the same lock as the waiting thread
- * while calling this function, though not required.
- */
-void
-g_cond_signal (GCond *cond)
+G_ALWAYS_INLINE static inline void
+g_cond_signal_impl (GCond *cond)
 {
   gint status;
 
@@ -893,17 +456,8 @@ g_cond_signal (GCond *cond)
     g_thread_abort (status, "pthread_cond_signal");
 }
 
-/**
- * g_cond_broadcast:
- * @cond: a #GCond
- *
- * If threads are waiting for @cond, all of them are unblocked.
- * If no threads are waiting for @cond, this function has no effect.
- * It is good practice to lock the same mutex as the waiting threads
- * while calling this function, though not required.
- */
-void
-g_cond_broadcast (GCond *cond)
+G_ALWAYS_INLINE static inline void
+g_cond_broadcast_impl (GCond *cond)
 {
   gint status;
 
@@ -911,68 +465,10 @@ g_cond_broadcast (GCond *cond)
     g_thread_abort (status, "pthread_cond_broadcast");
 }
 
-/**
- * g_cond_wait_until:
- * @cond: a #GCond
- * @mutex: a #GMutex that is currently locked
- * @end_time: the monotonic time to wait until
- *
- * Waits until either @cond is signalled or @end_time has passed.
- *
- * As with g_cond_wait() it is possible that a spurious or stolen wakeup
- * could occur.  For that reason, waiting on a condition variable should
- * always be in a loop, based on an explicitly-checked predicate.
- *
- * %TRUE is returned if the condition variable was signalled (or in the
- * case of a spurious wakeup).  %FALSE is returned if @end_time has
- * passed.
- *
- * The following code shows how to correctly perform a timed wait on a
- * condition variable (extending the example presented in the
- * documentation for #GCond):
- *
- * |[<!-- language="C" --> 
- * gpointer
- * pop_data_timed (void)
- * {
- *   gint64 end_time;
- *   gpointer data;
- *
- *   g_mutex_lock (&data_mutex);
- *
- *   end_time = g_get_monotonic_time () + 5 * G_TIME_SPAN_SECOND;
- *   while (!current_data)
- *     if (!g_cond_wait_until (&data_cond, &data_mutex, end_time))
- *       {
- *         // timeout has passed.
- *         g_mutex_unlock (&data_mutex);
- *         return NULL;
- *       }
- *
- *   // there is data for us
- *   data = current_data;
- *   current_data = NULL;
- *
- *   g_mutex_unlock (&data_mutex);
- *
- *   return data;
- * }
- * ]|
- *
- * Notice that the end time is calculated once, before entering the
- * loop and reused.  This is the motivation behind the use of absolute
- * time on this API -- if a relative time of 5 seconds were passed
- * directly to the call and a spurious wakeup occurred, the program would
- * have to start over waiting again (which would lead to a total wait
- * time of more than 5 seconds).
- *
- * Returns: %TRUE on a signal, %FALSE on a timeout
- * Since: 2.32
- **/
-gboolean
-g_cond_wait_until (GCond  *cond,
-                   GMutex *mutex,
-                   gint64  end_time)
+G_ALWAYS_INLINE static inline gboolean
+g_cond_wait_until_impl (GCond  *cond,
+                        GMutex *mutex,
+                        gint64  end_time)
 {
   struct timespec ts;
   gint status;
@@ -1011,22 +507,7 @@ g_cond_wait_until (GCond  *cond,
       return TRUE;
   }
 #else
-  /* This isn't a great fallback, but if we're targeting a system this old it's
-   * unlikely that our monotonic clock emulation is relied on for a use-case
-   * where it needs to be perfect.
-   */
-  {
-    gint64 remaining, deadline;
-
-    remaining = end_time - g_get_monotonic_time ();
-    deadline = g_get_real_time () + remaining;
-
-    ts.tv_sec = deadline / 1000000;
-    ts.tv_nsec = (deadline % 1000000) * 1000;
-
-    if ((status = pthread_cond_timedwait (g_cond_get_impl (cond), g_mutex_get_impl (mutex), &ts)) == 0)
-      return TRUE;
-  }
+#error Cannot support GCond on your platform.
 #endif
 
   if G_UNLIKELY (status != ETIMEDOUT)
@@ -1039,92 +520,16 @@ g_cond_wait_until (GCond  *cond,
 
 /* {{{1 GPrivate */
 
-/**
- * GPrivate:
- *
- * The #GPrivate struct is an opaque data structure to represent a
- * thread-local data key. It is approximately equivalent to the
- * pthread_setspecific()/pthread_getspecific() APIs on POSIX and to
- * TlsSetValue()/TlsGetValue() on Windows.
- *
- * If you don't already know why you might want this functionality,
- * then you probably don't need it.
- *
- * #GPrivate is a very limited resource (as far as 128 per program,
- * shared between all libraries). It is also not possible to destroy a
- * #GPrivate after it has been used. As such, it is only ever acceptable
- * to use #GPrivate in static scope, and even then sparingly so.
- *
- * See G_PRIVATE_INIT() for a couple of examples.
- *
- * The #GPrivate structure should be considered opaque.  It should only
- * be accessed via the g_private_ functions.
- */
-
-/**
- * G_PRIVATE_INIT:
- * @notify: a #GDestroyNotify
- *
- * A macro to assist with the static initialisation of a #GPrivate.
- *
- * This macro is useful for the case that a #GDestroyNotify function
- * should be associated with the key.  This is needed when the key will be
- * used to point at memory that should be deallocated when the thread
- * exits.
- *
- * Additionally, the #GDestroyNotify will also be called on the previous
- * value stored in the key when g_private_replace() is used.
- *
- * If no #GDestroyNotify is needed, then use of this macro is not
- * required -- if the #GPrivate is declared in static scope then it will
- * be properly initialised by default (ie: to all zeros).  See the
- * examples below.
- *
- * |[<!-- language="C" --> 
- * static GPrivate name_key = G_PRIVATE_INIT (g_free);
- *
- * // return value should not be freed
- * const gchar *
- * get_local_name (void)
- * {
- *   return g_private_get (&name_key);
- * }
- *
- * void
- * set_local_name (const gchar *name)
- * {
- *   g_private_replace (&name_key, g_strdup (name));
- * }
- *
- *
- * static GPrivate count_key;   // no free function
- *
- * gint
- * get_local_count (void)
- * {
- *   return GPOINTER_TO_INT (g_private_get (&count_key));
- * }
- *
- * void
- * set_local_count (gint count)
- * {
- *   g_private_set (&count_key, GINT_TO_POINTER (count));
- * }
- * ]|
- *
- * Since: 2.32
- **/
-
 static pthread_key_t *
-g_private_impl_new (void)
+g_private_impl_new (GDestroyNotify notify)
 {
   pthread_key_t *key;
   gint status;
 
-  key = glib_mem_table->malloc (sizeof (pthread_key_t));
+  key = malloc (sizeof (pthread_key_t));
   if G_UNLIKELY (key == NULL)
     g_thread_abort (errno, "malloc");
-  status = pthread_key_create (key, NULL);
+  status = pthread_key_create (key, notify);
   if G_UNLIKELY (status != 0)
     g_thread_abort (status, "pthread_key_create");
 
@@ -1139,106 +544,136 @@ g_private_impl_free (pthread_key_t *key)
   status = pthread_key_delete (*key);
   if G_UNLIKELY (status != 0)
     g_thread_abort (status, "pthread_key_delete");
-  glib_mem_table->free (key);
+  free (key);
 }
 
-static inline pthread_key_t *
-g_private_get_impl (GPrivate *key)
+static gpointer
+g_private_impl_new_direct (GDestroyNotify notify)
 {
-  pthread_key_t *impl = g_atomic_pointer_get (&key->p);
+  gpointer impl = (void *) (gssize) -1;
+  pthread_key_t key;
+  gint status;
 
-  if G_UNLIKELY (impl == NULL)
+  status = pthread_key_create (&key, notify);
+  if G_UNLIKELY (status != 0)
+    g_thread_abort (status, "pthread_key_create");
+
+  memcpy (&impl, &key, sizeof (pthread_key_t));
+
+  /* pthread_key_create could theoretically put a NULL value into key.
+   * If that happens, waste the result and create a new one, since we
+   * use NULL to mean "not yet allocated".
+   *
+   * This will only happen once per program run.
+   *
+   * We completely avoid this problem for the case where pthread_key_t
+   * is smaller than void* (for example, on 64 bit Linux) by putting
+   * some high bits in the value of 'impl' to start with.  Since we only
+   * overwrite part of the pointer, we will never end up with NULL.
+   */
+  if (sizeof (pthread_key_t) == sizeof (gpointer))
     {
-      impl = g_private_impl_new ();
-      if (!g_atomic_pointer_compare_and_exchange (&key->p, NULL, impl))
+      if G_UNLIKELY (impl == NULL)
         {
-          g_private_impl_free (impl);
-          impl = key->p;
-        }
-      else
-        {
-          g_thread_state_add (g_thread_privates, key);
+          status = pthread_key_create (&key, notify);
+          if G_UNLIKELY (status != 0)
+            g_thread_abort (status, "pthread_key_create");
+
+          memcpy (&impl, &key, sizeof (pthread_key_t));
+
+          if G_UNLIKELY (impl == NULL)
+            g_thread_abort (status, "pthread_key_create (gave NULL result twice)");
         }
     }
 
   return impl;
 }
 
-/**
- * g_private_get:
- * @key: a #GPrivate
- *
- * Returns the current value of the thread local variable @key.
- *
- * If the value has not yet been set in this thread, %NULL is returned.
- * Values are never copied between threads (when a new thread is
- * created, for example).
- *
- * Returns: the thread-local value
- */
-gpointer
-g_private_get (GPrivate *key)
+static void
+g_private_impl_free_direct (gpointer impl)
 {
-  /* quote POSIX: No errors are returned from pthread_getspecific(). */
-  return pthread_getspecific (*g_private_get_impl (key));
+  pthread_key_t tmp;
+  gint status;
+
+  memcpy (&tmp, &impl, sizeof (pthread_key_t));
+
+  status = pthread_key_delete (tmp);
+  if G_UNLIKELY (status != 0)
+    g_thread_abort (status, "pthread_key_delete");
 }
 
-/**
- * g_private_set:
- * @key: a #GPrivate
- * @value: the new value
- *
- * Sets the thread local variable @key to have the value @value in the
- * current thread.
- *
- * This function differs from g_private_replace() in the following way:
- * the #GDestroyNotify for @key is not called on the old value.
- */
-void
-g_private_set (GPrivate *key,
-               gpointer  value)
+static inline pthread_key_t
+_g_private_get_impl (GPrivate *key)
+{
+  if (sizeof (pthread_key_t) > sizeof (gpointer))
+    {
+      pthread_key_t *impl = g_atomic_pointer_get (&key->p);
+
+      if G_UNLIKELY (impl == NULL)
+        {
+          impl = g_private_impl_new (key->notify);
+          if (!g_atomic_pointer_compare_and_exchange (&key->p, NULL, impl))
+            {
+              g_private_impl_free (impl);
+              impl = key->p;
+            }
+        }
+
+      return *impl;
+    }
+  else
+    {
+      gpointer impl = g_atomic_pointer_get (&key->p);
+      pthread_key_t tmp;
+
+      if G_UNLIKELY (impl == NULL)
+        {
+          impl = g_private_impl_new_direct (key->notify);
+          if (!g_atomic_pointer_compare_and_exchange (&key->p, NULL, impl))
+            {
+              g_private_impl_free_direct (impl);
+              impl = key->p;
+            }
+        }
+
+      memcpy (&tmp, &impl, sizeof (pthread_key_t));
+
+      return tmp;
+    }
+}
+
+G_ALWAYS_INLINE static inline gpointer
+g_private_get_impl (GPrivate *key)
+{
+  /* quote POSIX: No errors are returned from pthread_getspecific(). */
+  return pthread_getspecific (_g_private_get_impl (key));
+}
+
+G_ALWAYS_INLINE static inline void
+g_private_set_impl (GPrivate *key,
+                    gpointer  value)
 {
   gint status;
 
-  if G_UNLIKELY ((status = pthread_setspecific (*g_private_get_impl (key), value)) != 0)
+  if G_UNLIKELY ((status = pthread_setspecific (_g_private_get_impl (key), value)) != 0)
     g_thread_abort (status, "pthread_setspecific");
-
-  g_thread_private_destroy_later (key, value);
-  g_thread_ensure_destructor_registered ();
 }
 
-/**
- * g_private_replace:
- * @key: a #GPrivate
- * @value: the new value
- *
- * Sets the thread local variable @key to have the value @value in the
- * current thread.
- *
- * This function differs from g_private_set() in the following way: if
- * the previous value was non-%NULL then the #GDestroyNotify handler for
- * @key is run on it.
- *
- * Since: 2.32
- **/
-void
-g_private_replace (GPrivate *key,
-                   gpointer  value)
+G_ALWAYS_INLINE static inline void
+g_private_replace_impl (GPrivate *key,
+                        gpointer  value)
 {
-  pthread_key_t *impl = g_private_get_impl (key);
+  pthread_key_t impl = _g_private_get_impl (key);
   gpointer old;
   gint status;
 
-  old = pthread_getspecific (*impl);
+  old = pthread_getspecific (impl);
 
-  if G_UNLIKELY ((status = pthread_setspecific (*impl, value)) != 0)
+  if G_UNLIKELY ((status = pthread_setspecific (impl, value)) != 0)
     g_thread_abort (status, "pthread_setspecific");
 
   if (old && key->notify)
     key->notify (old);
-
-  g_thread_private_destroy_later (key, value);
-  g_thread_ensure_destructor_registered ();
 }
 
 /* {{{1 GThread */
@@ -1262,9 +697,6 @@ typedef struct
   GMutex    lock;
 
   void *(*proxy) (void *);
-
-  /* Must be statically allocated and valid forever */
-  const GThreadSchedulerSettings *scheduler_settings;
 } GThreadPosix;
 
 void
@@ -1280,104 +712,9 @@ g_system_thread_free (GRealThread *thread)
   g_slice_free (GThreadPosix, pt);
 }
 
-gboolean
-g_system_thread_get_scheduler_settings (GThreadSchedulerSettings *scheduler_settings)
-{
-  /* FIXME: Implement the same for macOS and the BSDs so it doesn't go through
-   * the fallback code using an additional thread. */
-#if defined(HAVE_SYS_SCHED_GETATTR)
-  pid_t tid;
-  int res;
-  /* FIXME: The struct definition does not seem to be possible to pull in
-   * via any of the normal system headers and it's only declared in the
-   * kernel headers. That's why we hardcode 56 here right now. */
-  guint size = 56; /* Size as of Linux 5.3.9 */
-  guint flags = 0;
-
-  tid = (pid_t) syscall (SYS_gettid);
-
-  scheduler_settings->attr = g_malloc0 (size);
-
-  do
-    {
-      int errsv;
-
-      res = syscall (SYS_sched_getattr, tid, scheduler_settings->attr, size, flags);
-      errsv = errno;
-      if (res == -1)
-        {
-          if (errsv == EAGAIN)
-            {
-              continue;
-            }
-          else if (errsv == E2BIG)
-            {
-              g_assert (size < G_MAXINT);
-              size *= 2;
-              scheduler_settings->attr = g_realloc (scheduler_settings->attr, size);
-              /* Needs to be zero-initialized */
-              memset (scheduler_settings->attr, 0, size);
-            }
-          else
-            {
-              g_free (scheduler_settings->attr);
-
-              return FALSE;
-            }
-        }
-    }
-  while (res == -1);
-
-  /* Try setting them on the current thread to see if any system policies are
-   * in place that would disallow doing so */
-  res = syscall (SYS_sched_setattr, tid, scheduler_settings->attr, flags);
-  if (res == -1)
-    {
-      int errsv = errno;
-
-      g_free (scheduler_settings->attr);
-
-      return FALSE;
-    }
-
-  return TRUE;
-#else
-  return FALSE;
-#endif
-}
-
-#if defined(HAVE_SYS_SCHED_GETATTR)
-static void *
-linux_pthread_proxy (void *data)
-{
-  GThreadPosix *thread = data;
-  static gboolean printed_scheduler_warning = FALSE;  /* (atomic) */
-
-  /* Set scheduler settings first if requested */
-  if (thread->scheduler_settings)
-    {
-      pid_t tid = 0;
-      guint flags = 0;
-      int res;
-      int errsv;
-
-      tid = (pid_t) syscall (SYS_gettid);
-      res = syscall (SYS_sched_setattr, tid, thread->scheduler_settings->attr, flags);
-      errsv = errno;
-      if (res == -1 && g_atomic_int_compare_and_exchange (&printed_scheduler_warning, FALSE, TRUE))
-        g_critical ("Failed to set scheduler settings: %s", g_strerror (errsv));
-      else if (res == -1)
-        g_debug ("Failed to set scheduler settings: %s", g_strerror (errsv));
-    }
-
-  return thread->proxy (data);
-}
-#endif
-
 GRealThread *
 g_system_thread_new (GThreadFunc proxy,
                      gulong stack_size,
-                     const GThreadSchedulerSettings *scheduler_settings,
                      const char *name,
                      GThreadFunc func,
                      gpointer data,
@@ -1395,9 +732,8 @@ g_system_thread_new (GThreadFunc proxy,
   base_thread->thread.joinable = TRUE;
   base_thread->thread.func = func;
   base_thread->thread.data = data;
-  base_thread->name = g_strdup (name);
-  base_thread->pending_garbage = g_hash_table_new (NULL, NULL);
-  thread->scheduler_settings = scheduler_settings;
+  if (name)
+    g_strlcpy (base_thread->name, name, sizeof (base_thread->name));
   thread->proxy = proxy;
 
   posix_check_cmd (pthread_attr_init (&attr));
@@ -1417,18 +753,13 @@ g_system_thread_new (GThreadFunc proxy,
 #endif /* HAVE_PTHREAD_ATTR_SETSTACKSIZE */
 
 #ifdef HAVE_PTHREAD_ATTR_SETINHERITSCHED
-  if (!scheduler_settings)
     {
       /* While this is the default, better be explicit about it */
       pthread_attr_setinheritsched (&attr, PTHREAD_INHERIT_SCHED);
     }
 #endif /* HAVE_PTHREAD_ATTR_SETINHERITSCHED */
 
-#if defined(HAVE_SYS_SCHED_GETATTR)
-  ret = pthread_create (&thread->system_thread, &attr, linux_pthread_proxy, thread);
-#else
   ret = pthread_create (&thread->system_thread, &attr, (void* (*)(void*))proxy, thread);
-#endif
 
   posix_check_cmd (pthread_attr_destroy (&attr));
 
@@ -1436,8 +767,6 @@ g_system_thread_new (GThreadFunc proxy,
     {
       g_set_error (error, G_THREAD_ERROR, G_THREAD_ERROR_AGAIN, 
                    "Error creating thread: %s", g_strerror (ret));
-      g_hash_table_unref (thread->thread.pending_garbage);
-      g_free (thread->thread.name);
       g_slice_free (GThreadPosix, thread);
       return NULL;
     }
@@ -1449,18 +778,14 @@ g_system_thread_new (GThreadFunc proxy,
   return (GRealThread *) thread;
 }
 
-/**
- * g_thread_yield:
- *
- * Causes the calling thread to voluntarily relinquish the CPU, so
- * that other threads can run.
- *
- * This function is often used as a method to make busy wait less evil.
- */
-void
-g_thread_yield (void)
+G_ALWAYS_INLINE static inline void
+g_thread_yield_impl (void)
 {
-  sched_yield ();
+#ifdef HAVE_CLOCK_NANOSLEEP
+  clock_nanosleep (CLOCK_MONOTONIC, 0, &(struct timespec){ 0, 1 }, NULL);
+#else
+  nanosleep (&(struct timespec){ 0, 1 }, NULL);
+#endif
 }
 
 void
@@ -1491,7 +816,14 @@ g_system_thread_set_name (const gchar *name)
 #if defined(HAVE_PTHREAD_SETNAME_NP_WITHOUT_TID)
   pthread_setname_np (name); /* on OS X and iOS */
 #elif defined(HAVE_PTHREAD_SETNAME_NP_WITH_TID)
-  pthread_setname_np (pthread_self (), name); /* on Linux and Solaris */
+#ifdef __linux__
+#define MAX_THREADNAME_LEN 16
+#else
+#define MAX_THREADNAME_LEN 32
+#endif
+  char name_[MAX_THREADNAME_LEN];
+  g_strlcpy (name_, name, MAX_THREADNAME_LEN);
+  pthread_setname_np (pthread_self (), name_); /* on Linux and Solaris */
 #elif defined(HAVE_PTHREAD_SETNAME_NP_WITH_TID_AND_ARG)
   pthread_setname_np (pthread_self (), "%s", (gchar *) name); /* on NetBSD */
 #elif defined(HAVE_PTHREAD_SET_NAME_NP)
@@ -1499,18 +831,21 @@ g_system_thread_set_name (const gchar *name)
 #endif
 }
 
+void
+g_system_thread_get_name (char  *buffer,
+                          gsize  length)
+{
+#ifdef HAVE_PTHREAD_GETNAME_NP
+  pthread_getname_np (pthread_self (), buffer, length);
+#else
+  g_assert (length >= 1);
+  buffer[0] = '\0';
+#endif
+}
+
 /* {{{1 GMutex and GCond futex implementation */
 
 #if defined(USE_NATIVE_MUTEX)
-
-#include <linux/futex.h>
-#include <sys/syscall.h>
-
-#ifndef FUTEX_WAIT_PRIVATE
-#define FUTEX_WAIT_PRIVATE FUTEX_WAIT
-#define FUTEX_WAKE_PRIVATE FUTEX_WAKE
-#endif
-
 /* We should expand the set of operations available in gatomic once we
  * have better C11 support in GCC in common distributions (ie: 4.9).
  *
@@ -1579,13 +914,13 @@ typedef enum {
  */
 
 void
-g_mutex_init (GMutex *mutex)
+g_mutex_init_impl (GMutex *mutex)
 {
   mutex->i[0] = G_MUTEX_STATE_EMPTY;
 }
 
 void
-g_mutex_clear (GMutex *mutex)
+g_mutex_clear_impl (GMutex *mutex)
 {
   if G_UNLIKELY (mutex->i[0] != G_MUTEX_STATE_EMPTY)
     {
@@ -1605,8 +940,8 @@ g_mutex_lock_slowpath (GMutex *mutex)
    */
   while (exchange_acquire (&mutex->i[0], G_MUTEX_STATE_CONTENDED) != G_MUTEX_STATE_EMPTY)
     {
-      syscall (__NR_futex, &mutex->i[0], (gsize) FUTEX_WAIT_PRIVATE,
-               G_MUTEX_STATE_CONTENDED, NULL);
+      g_futex_simple (&mutex->i[0], (gsize) FUTEX_WAIT_PRIVATE,
+                      G_MUTEX_STATE_CONTENDED, NULL);
     }
 }
 
@@ -1624,11 +959,11 @@ g_mutex_unlock_slowpath (GMutex *mutex,
       g_abort ();
     }
 
-  syscall (__NR_futex, &mutex->i[0], (gsize) FUTEX_WAKE_PRIVATE, (gsize) 1, NULL);
+  g_futex_simple (&mutex->i[0], (gsize) FUTEX_WAKE_PRIVATE, (gsize) 1, NULL);
 }
 
-void
-g_mutex_lock (GMutex *mutex)
+inline void
+g_mutex_lock_impl (GMutex *mutex)
 {
   /* empty -> owned and we're done.  Anything else, and we need to wait... */
   if G_UNLIKELY (!g_atomic_int_compare_and_exchange (&mutex->i[0],
@@ -1638,7 +973,7 @@ g_mutex_lock (GMutex *mutex)
 }
 
 void
-g_mutex_unlock (GMutex *mutex)
+g_mutex_unlock_impl (GMutex *mutex)
 {
   guint prev;
 
@@ -1650,7 +985,7 @@ g_mutex_unlock (GMutex *mutex)
 }
 
 gboolean
-g_mutex_trylock (GMutex *mutex)
+g_mutex_trylock_impl (GMutex *mutex)
 {
   GMutexState empty = G_MUTEX_STATE_EMPTY;
 
@@ -1675,56 +1010,50 @@ g_mutex_trylock (GMutex *mutex)
  */
 
 void
-g_cond_init (GCond *cond)
+g_cond_init_impl (GCond *cond)
 {
   cond->i[0] = 0;
 }
 
 void
-g_cond_clear (GCond *cond)
+g_cond_clear_impl (GCond *cond)
 {
 }
 
 void
-g_cond_wait (GCond  *cond,
-             GMutex *mutex)
+g_cond_wait_impl (GCond  *cond,
+                  GMutex *mutex)
 {
   guint sampled = (guint) g_atomic_int_get (&cond->i[0]);
 
   g_mutex_unlock (mutex);
-  syscall (__NR_futex, &cond->i[0], (gsize) FUTEX_WAIT_PRIVATE, (gsize) sampled, NULL);
+  g_futex_simple (&cond->i[0], (gsize) FUTEX_WAIT_PRIVATE, (gsize) sampled, NULL);
   g_mutex_lock (mutex);
 }
 
 void
-g_cond_signal (GCond *cond)
+g_cond_signal_impl (GCond *cond)
 {
   g_atomic_int_inc (&cond->i[0]);
 
-  syscall (__NR_futex, &cond->i[0], (gsize) FUTEX_WAKE_PRIVATE, (gsize) 1, NULL);
+  g_futex_simple (&cond->i[0], (gsize) FUTEX_WAKE_PRIVATE, (gsize) 1, NULL);
 }
 
 void
-g_cond_broadcast (GCond *cond)
+g_cond_broadcast_impl (GCond *cond)
 {
   g_atomic_int_inc (&cond->i[0]);
 
-  syscall (__NR_futex, &cond->i[0], (gsize) FUTEX_WAKE_PRIVATE, (gsize) INT_MAX, NULL);
+  g_futex_simple (&cond->i[0], (gsize) FUTEX_WAKE_PRIVATE, (gsize) INT_MAX, NULL);
 }
 
 gboolean
-g_cond_wait_until (GCond  *cond,
-                   GMutex *mutex,
-                   gint64  end_time)
+g_cond_wait_until_impl (GCond  *cond,
+                        GMutex *mutex,
+                        gint64  end_time)
 {
   struct timespec now;
   struct timespec span;
-#ifdef __NR_futex_time64
-  long span_arg[2];
-  G_STATIC_ASSERT (sizeof (span_arg[0]) == 4);
-#else
-  struct timespec span_arg;
-#endif
 
   guint sampled;
   int res;
@@ -1745,268 +1074,106 @@ g_cond_wait_until (GCond  *cond,
   if (span.tv_sec < 0)
     return FALSE;
 
-  /* On x32 (ILP32 ABI on x86_64) and potentially sparc64, the raw futex()
-   * syscall takes a 32-bit timespan argument *regardless* of whether userspace
-   * is using 32-bit or 64-bit `struct timespec`. This means that we can’t
-   * unconditionally pass a `struct timespec` pointer into the syscall.
+  /* `struct timespec` as defined by the libc headers does not necessarily
+   * have any relation to the one used by the kernel for the `futex` syscall.
    *
-   * Assume that any such platform is new enough to define the
-   * `__NR_futex_time64` workaround syscall (which accepts 64-bit timespecs,
-   * introduced in kernel 5.1), and use that as a proxy for whether to pass in
-   * `long[2]` or `struct timespec`.
+   * Specifically, the libc headers might use 64-bit `time_t` while the kernel
+   * headers use 32-bit types on certain systems.
    *
-   * As per https://lwn.net/Articles/776427/, the `time64` syscalls only exist
-   * on 32-bit platforms, so in this case `sizeof(long)` should always be
-   * 32 bits.
+   * To get around this problem we
+   *   a) check if `futex_time64` is available, which only exists on 32-bit
+   *      platforms and always uses 64-bit `time_t`.
+   *   b) if `futex_time64` is available, but the Android runtime's API level
+   *      is < 30, `futex_time64` is blocked by seccomp and using it will cause
+   *      the app to be terminated. Skip to c).
+   *         https://android-review.googlesource.com/c/platform/bionic/+/1094758
+   *   c) otherwise (or if that returns `ENOSYS`), we call the normal `futex`
+   *      syscall with the `struct timespec` used by the kernel. By default, we
+   *      use `__kernel_long_t` for both its fields, which is equivalent to
+   *      `__kernel_old_time_t` and is available in the kernel headers for a
+   *      longer time.
+   *   d) With very old headers (~2.6.x), `__kernel_long_t` is not available, and
+   *      we use an older definition that uses `__kernel_time_t` and `long`.
    *
-   * Don’t bother actually calling `__NR_futex_time64` as the `span` is relative
-   * and hence very unlikely to overflow, even if using 32-bit longs.
+   * Also some 32-bit systems do not define `__NR_futex` at all and only
+   * define `__NR_futex_time64`.
    */
-#ifdef __NR_futex_time64
-  span_arg[0] = span.tv_sec;
-  span_arg[1] = span.tv_nsec;
-#else
-  span_arg = span;
-#endif
 
   sampled = cond->i[0];
   g_mutex_unlock (mutex);
-  res = syscall (__NR_futex, &cond->i[0], (gsize) FUTEX_WAIT_PRIVATE, (gsize) sampled, &span_arg);
-  success = (res < 0 && errno == ETIMEDOUT) ? FALSE : TRUE;
-  g_mutex_lock (mutex);
 
-  return success;
-}
-
-#endif
-
-#if defined (HAVE_MACH_MACH_H)
-
-struct _GThreadBeacon
-{
-  mach_port_t thread;
-};
-
-GThreadBeacon *
-g_thread_lifetime_beacon_new (void)
-{
-  GThreadBeacon *beacon;
-
-  beacon = g_slice_new (GThreadBeacon);
-  beacon->thread = mach_thread_self ();
-
-  return beacon;
-}
-
-void
-g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
-{
-  mach_port_deallocate (mach_task_self (), beacon->thread);
-
-  g_slice_free (GThreadBeacon, beacon);
-}
-
-gboolean
-g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
-{
-  mach_port_type_t type = 0;
-
-  mach_port_type (mach_task_self (), beacon->thread, &type);
-
-  return (type & MACH_PORT_TYPE_DEAD_NAME) != 0;
-}
-
-#elif defined (__linux__)
-
-#include "gfileutils.h"
-
-#include <sys/syscall.h>
-
-struct _GThreadBeacon
-{
-  pid_t thread_id;
-};
-
-GThreadBeacon *
-g_thread_lifetime_beacon_new (void)
-{
-  GThreadBeacon *beacon;
-
-  beacon = g_slice_new (GThreadBeacon);
-  beacon->thread_id = syscall (__NR_gettid);
-
-  return beacon;
-}
-
-void
-g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
-{
-  g_slice_free (GThreadBeacon, beacon);
-}
-
-gboolean
-g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
-{
-  gchar path[32];
-
-  sprintf (path, "/proc/self/task/%d", beacon->thread_id);
-
-  return !g_file_test (path, G_FILE_TEST_EXISTS);
-}
-
-#elif defined (__FreeBSD__)
-
-#include <pthread_np.h>
-#include <sys/thr.h>
-
-struct _GThreadBeacon
-{
-  int thread_id;
-};
-
-GThreadBeacon *
-g_thread_lifetime_beacon_new (void)
-{
-  GThreadBeacon *beacon;
-
-  beacon = g_slice_new (GThreadBeacon);
-  beacon->thread_id = pthread_getthreadid_np ();
-
-  return beacon;
-}
-
-void
-g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
-{
-  g_slice_free (GThreadBeacon, beacon);
-}
-
-gboolean
-g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
-{
-  return thr_kill (beacon->thread_id, 0) != 0;
-}
-
-#elif defined (HAVE_QNX)
-
-#include <process.h>
-#include <sys/neutrino.h>
-
-struct _GThreadBeacon
-{
-  pid_t process_id;
-  gint thread_id;
-};
-
-GThreadBeacon *
-g_thread_lifetime_beacon_new (void)
-{
-  GThreadBeacon *beacon;
-
-  beacon = g_slice_new (GThreadBeacon);
-  beacon->process_id = getpid ();
-  beacon->thread_id = gettid ();
-
-  return beacon;
-}
-
-void
-g_thread_lifetime_beacon_free (GThreadBeacon *beacon)
-{
-  g_slice_free (GThreadBeacon, beacon);
-}
-
-gboolean
-g_thread_lifetime_beacon_check (GThreadBeacon *beacon)
-{
-  gint status;
-
-  status = SignalKill (0, beacon->process_id, beacon->thread_id, 0, 0, 0);
-
-  return status == -1 && errno == ESRCH;
-}
-
+#if defined(HAVE_FUTEX_TIME64)
+#if defined(__ANDROID__)
+  if (__builtin_available (android 30, *)) {
 #else
-#error Please implement for your OS
+  {
 #endif
-
-void
-_g_thread_init (void)
-{
-  pthread_mutexattr_t *pattr = NULL;
-  gint status;
-#ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
-  pthread_mutexattr_t attr;
-
-  pthread_mutexattr_init (&attr);
-  pthread_mutexattr_settype (&attr, PTHREAD_MUTEX_ADAPTIVE_NP);
-  pattr = &attr;
-#endif
-
-  if G_UNLIKELY ((status = pthread_mutex_init (&g_thread_state_lock, pattr)) != 0)
-    g_thread_abort (status, "pthread_mutex_init");
-
-  if G_UNLIKELY ((status = pthread_key_create (&g_thread_cleanup_key,
-      g_thread_schedule_cleanup)) != 0)
-    g_thread_abort (status, "pthread_key_create");
-
-#ifdef PTHREAD_ADAPTIVE_MUTEX_INITIALIZER_NP
-  pthread_mutexattr_destroy (&attr);
-#endif
-
-#if !defined(USE_NATIVE_MUTEX)
-  g_thread_mutexes = g_ptr_set_new ();
-  g_thread_conds = g_ptr_set_new ();
-#endif
-  g_thread_rec_mutexes = g_ptr_set_new ();
-  g_thread_rwlocks = g_ptr_set_new ();
-  g_thread_privates = g_ptr_set_new ();
-}
-
-void
-_g_thread_deinit (void)
-{
-  gsize i;
-  gint status;
-
-  g_thread_garbage_collect ();
-  g_thread_perform_cleanup (g_thread_self ());
-  pthread_setspecific (g_thread_cleanup_key, NULL);
-
-  for (i = 0; i != g_thread_privates->size; i++)
+    struct
     {
-      GPrivate *key = g_thread_privates->items[i];
-      g_private_impl_free (key->p);
-    }
-  g_ptr_set_free (g_thread_privates);
-  g_thread_privates = NULL;
+      gint64 tv_sec;
+      gint64 tv_nsec;
+    } span_arg;
 
-#if !defined(USE_NATIVE_MUTEX)
-  g_ptr_set_foreach (g_thread_conds, (GFunc) g_cond_impl_free, NULL);
-  g_ptr_set_free (g_thread_conds);
-  g_thread_conds = NULL;
+    span_arg.tv_sec = span.tv_sec;
+    span_arg.tv_nsec = span.tv_nsec;
+
+    res = syscall (__NR_futex_time64, &cond->i[0], (gsize) FUTEX_WAIT_PRIVATE, (gsize) sampled, &span_arg);
+
+    /* If the syscall does not exist (`ENOSYS`), we retry again below with the
+     * normal `futex` syscall. This can happen if newer kernel headers are
+     * used than the kernel that is actually running.
+     */
+#  if defined(HAVE_FUTEX)
+    if (res >= 0 || errno != ENOSYS)
+#  endif /* defined(HAVE_FUTEX) */
+      {
+        success = (res < 0 && errno == ETIMEDOUT) ? FALSE : TRUE;
+        g_mutex_lock (mutex);
+
+        return success;
+      }
+  }
 #endif
 
-  g_ptr_set_foreach (g_thread_rwlocks, (GFunc) g_rw_lock_impl_free, NULL);
-  g_ptr_set_free (g_thread_rwlocks);
-  g_thread_rwlocks = NULL;
+#if defined(HAVE_FUTEX)
+  {
+#  ifdef __kernel_long_t
+#    define KERNEL_SPAN_SEC_TYPE __kernel_long_t
+    struct
+    {
+      __kernel_long_t tv_sec;
+      __kernel_long_t tv_nsec;
+    } span_arg;
+#  else
+    /* Very old kernel headers: version 2.6.32 and thereabouts */
+#    define KERNEL_SPAN_SEC_TYPE __kernel_time_t
+    struct
+    {
+      __kernel_time_t tv_sec;
+      long            tv_nsec;
+    } span_arg;
+#  endif
+    /* Make sure to only ever call this if the end time actually fits into the target type */
+    if (G_UNLIKELY (sizeof (KERNEL_SPAN_SEC_TYPE) < 8 && span.tv_sec > G_MAXINT32))
+      g_error ("%s: Can’t wait for more than %us", G_STRFUNC, G_MAXINT32);
 
-  g_ptr_set_foreach (g_thread_rec_mutexes, (GFunc) g_rec_mutex_impl_free, NULL);
-  g_ptr_set_free (g_thread_rec_mutexes);
-  g_thread_rec_mutexes = NULL;
+    span_arg.tv_sec = span.tv_sec;
+    span_arg.tv_nsec = span.tv_nsec;
 
-#if !defined(USE_NATIVE_MUTEX)
-  g_ptr_set_foreach (g_thread_mutexes, (GFunc) g_mutex_impl_free, NULL);
-  g_ptr_set_free (g_thread_mutexes);
-  g_thread_mutexes = NULL;
-#endif
+    res = syscall (__NR_futex, &cond->i[0], (gsize) FUTEX_WAIT_PRIVATE, (gsize) sampled, &span_arg);
+    success = (res < 0 && errno == ETIMEDOUT) ? FALSE : TRUE;
+    g_mutex_lock (mutex);
 
-  if G_UNLIKELY ((status = pthread_key_delete (g_thread_cleanup_key)) != 0)
-    g_thread_abort (status, "pthread_key_delete");
+    return success;
+  }
+#  undef KERNEL_SPAN_SEC_TYPE
+#endif /* defined(HAVE_FUTEX) */
 
-  if G_UNLIKELY ((status = pthread_mutex_destroy (&g_thread_state_lock)) != 0)
-    g_thread_abort (status, "pthread_mutex_destroy");
+  /* We can't end up here because of the checks above */
+  g_assert_not_reached ();
 }
+
+#endif
 
   /* {{{1 Epilogue */
 /* vim:set foldmethod=marker: */

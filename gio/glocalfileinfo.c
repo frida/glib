@@ -92,18 +92,16 @@
 #endif
 #endif
 
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
+
 #include "glocalfileinfo.h"
 #include "gioerror.h"
 #include "gthemedicon.h"
 #include "gcontenttypeprivate.h"
 #include "glibintl.h"
 
-
-struct ThumbMD5Context {
-	guint32 buf[4];
-	guint32 bits[2];
-	unsigned char in[64];
-};
 
 #ifndef G_OS_WIN32
 
@@ -127,23 +125,9 @@ _g_local_file_info_create_etag (GLocalFileStat *statbuf)
 
   g_return_val_if_fail (_g_stat_has_field (statbuf, G_LOCAL_FILE_STAT_FIELD_MTIME), NULL);
 
-#if defined (G_OS_WIN32)
-  sec = statbuf->st_mtim.tv_sec;
-  usec = statbuf->st_mtim.tv_nsec / 1000;
-  nsec = statbuf->st_mtim.tv_nsec;
-#else
   sec = _g_stat_mtime (statbuf);
-#if defined (HAVE_STRUCT_STAT_ST_MTIMENSEC)
-  usec = statbuf->st_mtimensec / 1000;
-  nsec = statbuf->st_mtimensec;
-#elif defined (HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
   usec = _g_stat_mtim_nsec (statbuf) / 1000;
   nsec = _g_stat_mtim_nsec (statbuf);
-#else
-  usec = 0;
-  nsec = 0;
-#endif
-#endif
 
   return g_strdup_printf ("%lu:%lu:%lu", sec, usec, nsec);
 }
@@ -234,12 +218,12 @@ get_selinux_context (const char            *path,
     {
       if (follow_symlinks)
 	{
-	  if (lgetfilecon_raw (path, &context) < 0)
+	  if (getfilecon_raw (path, &context) < 0)
 	    return;
 	}
       else
 	{
-	  if (getfilecon_raw (path, &context) < 0)
+	  if (lgetfilecon_raw (path, &context) < 0)
 	    return;
 	}
 
@@ -916,7 +900,7 @@ get_access_rights (GFileAttributeMatcher *attribute_matcher,
 		   GLocalFileStat        *statbuf,
 		   GLocalParentFileInfo  *parent_info)
 {
-  /* FIXME: Windows: The underlyin _waccess() is mostly pointless */
+  /* FIXME: Windows: The underlying _waccess() is mostly pointless */
   if (_g_file_attribute_matcher_matches_id (attribute_matcher,
 					    G_FILE_ATTRIBUTE_ID_ACCESS_CAN_READ))
     _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_ACCESS_CAN_READ,
@@ -1032,35 +1016,16 @@ set_info_from_stat (GFileInfo             *info,
 
 #endif
 
-#if defined (G_OS_WIN32)
-  _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED, statbuf->st_mtim.tv_sec);
-  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_USEC, statbuf->st_mtim.tv_nsec / 1000);
-  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_NSEC, statbuf->st_mtim.tv_nsec);
-  _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS, statbuf->st_atim.tv_sec);
-  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_USEC, statbuf->st_atim.tv_nsec / 1000);
-  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_NSEC, statbuf->st_atim.tv_nsec);
-#else
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED, _g_stat_mtime (statbuf));
-#if defined (HAVE_STRUCT_STAT_ST_MTIMENSEC)
-  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_USEC, statbuf->st_mtimensec / 1000);
-  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_NSEC, statbuf->st_mtimensec);
-#elif defined (HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_USEC, _g_stat_mtim_nsec (statbuf) / 1000);
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_MODIFIED_NSEC, _g_stat_mtim_nsec (statbuf));
-#endif
 
   if (_g_stat_has_field (statbuf, G_LOCAL_FILE_STAT_FIELD_ATIME))
     {
       _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS, _g_stat_atime (statbuf));
-#if defined (HAVE_STRUCT_STAT_ST_ATIMENSEC)
-      _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_USEC, statbuf->st_atimensec / 1000);
-      _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_NSEC, statbuf->st_atimensec);
-#elif defined (HAVE_STRUCT_STAT_ST_ATIM_TV_NSEC)
       _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_USEC, _g_stat_atim_nsec (statbuf) / 1000);
       _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_ACCESS_NSEC, _g_stat_atim_nsec (statbuf));
-#endif
     }
-#endif
 
 #ifndef G_OS_WIN32
   /* Microsoft uses st_ctime for file creation time,
@@ -1069,13 +1034,8 @@ set_info_from_stat (GFileInfo             *info,
    * Thank you, Microsoft!
    */
   _g_file_info_set_attribute_uint64_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED, _g_stat_ctime (statbuf));
-#if defined (HAVE_STRUCT_STAT_ST_CTIMENSEC)
-  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED_USEC, statbuf->st_ctimensec / 1000);
-  _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED_NSEC, statbuf->st_ctimensec);
-#elif defined (HAVE_STRUCT_STAT_ST_CTIM_TV_NSEC)
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED_USEC, _g_stat_ctim_nsec (statbuf) / 1000);
   _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_TIME_CHANGED_NSEC, _g_stat_ctim_nsec (statbuf));
-#endif
 #endif
 
 #if defined (HAVE_STATX)
@@ -1361,12 +1321,8 @@ get_content_type (const char          *basename,
     {
       /* Don't sniff zero-length files in order to avoid reading files
        * that appear normal but are not (eg: files in /proc and /sys)
-       *
-       * Note that we need to return text/plain here so that
-       * newly-created text files are opened by the text editor.
-       * See https://bugzilla.gnome.org/show_bug.cgi?id=755795
        */
-      return g_content_type_from_mime_type ("text/plain");
+      return g_content_type_from_mime_type ("application/x-zerosize");
     }
 #endif
 #ifdef S_ISSOCK
@@ -1380,10 +1336,14 @@ get_content_type (const char          *basename,
 
       content_type = g_content_type_guess (basename, NULL, 0, &result_uncertain);
       
-#if !defined(G_OS_WIN32) && !defined(G_OS_DARWIN)
+#if !defined(G_OS_WIN32) && !defined(__APPLE__)
       if (!fast && result_uncertain && path != NULL)
 	{
-	  guchar sniff_buffer[4096];
+          /* Sniff the first 16KiB of the file (sometimes less, if xdgmime
+           * says it doesn’t need so much). Most files need less than 4KiB of
+           * sniffing, but some disk images need more (see
+           * https://gitlab.gnome.org/GNOME/glib/-/issues/3186). */
+	  guchar sniff_buffer[16384];
 	  gsize sniff_length;
 #ifdef O_NOATIME
 	  int errsv;
@@ -1391,15 +1351,15 @@ get_content_type (const char          *basename,
 	  int fd;
 
 	  sniff_length = _g_unix_content_type_get_sniff_len ();
-	  if (sniff_length == 0 || sniff_length > 4096)
-	    sniff_length = 4096;
+	  if (sniff_length == 0 || sniff_length > sizeof (sniff_buffer))
+	    sniff_length = sizeof (sniff_buffer);
 
 #ifdef O_NOATIME	  
-          fd = g_open (path, O_RDONLY | O_NOATIME, 0);
+          fd = g_open (path, O_RDONLY | O_NOATIME | O_CLOEXEC, 0);
           errsv = errno;
           if (fd < 0 && errsv == EPERM)
 #endif
-	    fd = g_open (path, O_RDONLY, 0);
+	    fd = g_open (path, O_RDONLY | O_CLOEXEC, 0);
 
 	  if (fd != -1)
 	    {
@@ -1421,19 +1381,90 @@ get_content_type (const char          *basename,
   
 }
 
+typedef enum {
+  THUMBNAIL_SIZE_AUTO,
+  THUMBNAIL_SIZE_NORMAL,
+  THUMBNAIL_SIZE_LARGE,
+  THUMBNAIL_SIZE_XLARGE,
+  THUMBNAIL_SIZE_XXLARGE,
+  THUMBNAIL_SIZE_LAST,
+} ThumbnailSize;
+
+static const char *
+get_thumbnail_dirname_from_size (ThumbnailSize size)
+{
+  switch (size)
+    {
+    case THUMBNAIL_SIZE_AUTO:
+      return NULL;
+      break;
+    case THUMBNAIL_SIZE_NORMAL:
+      return "normal";
+      break;
+    case THUMBNAIL_SIZE_LARGE:
+      return "large";
+      break;
+    case THUMBNAIL_SIZE_XLARGE:
+      return "x-large";
+      break;
+    case THUMBNAIL_SIZE_XXLARGE:
+      return "xx-large";
+      break;
+    default:
+      g_assert_not_reached ();
+    }
+
+  g_return_val_if_reached (NULL);
+}
+
 /* @stat_buf is the pre-calculated result of stat(path), or %NULL if that failed. */
 static void
 get_thumbnail_attributes (const char     *path,
                           GFileInfo      *info,
-                          const GLocalFileStat *stat_buf)
+                          const GLocalFileStat *stat_buf,
+                          ThumbnailSize   size)
 {
   GChecksum *checksum;
+  const char *dirname;
   char *uri;
   char *filename = NULL;
   char *basename;
-  const char *size_dirs[4] = { "xx-large", "x-large", "large", "normal" };
-  gsize i;
+  guint32 failed_attr_id;
+  guint32 is_valid_attr_id;
+  guint32 path_attr_id;
 
+  switch (size)
+    {
+    case THUMBNAIL_SIZE_AUTO:
+      failed_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED;
+      is_valid_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID;
+      path_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH;
+      break;
+    case THUMBNAIL_SIZE_NORMAL:
+      failed_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED_NORMAL;
+      is_valid_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID_NORMAL;
+      path_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH_NORMAL;
+      break;
+    case THUMBNAIL_SIZE_LARGE:
+      failed_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED_LARGE;
+      is_valid_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID_LARGE;
+      path_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH_LARGE;
+      break;
+    case THUMBNAIL_SIZE_XLARGE:
+      failed_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED_XLARGE;
+      is_valid_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID_XLARGE;
+      path_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH_XLARGE;
+      break;
+    case THUMBNAIL_SIZE_XXLARGE:
+      failed_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED_XXLARGE;
+      is_valid_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID_XXLARGE;
+      path_attr_id = G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH_XXLARGE;
+      break;
+    default:
+      g_assert_not_reached ();
+    }
+
+  dirname = get_thumbnail_dirname_from_size (size);
   uri = g_filename_to_uri (path, NULL, NULL);
 
   checksum = g_checksum_new (G_CHECKSUM_MD5);
@@ -1442,21 +1473,37 @@ get_thumbnail_attributes (const char     *path,
   basename = g_strconcat (g_checksum_get_string (checksum), ".png", NULL);
   g_checksum_free (checksum);
 
-  for (i = 0; i < G_N_ELEMENTS (size_dirs); i++)
+  if (dirname)
     {
       filename = g_build_filename (g_get_user_cache_dir (),
-                                   "thumbnails", size_dirs[i], basename,
+                                   "thumbnails", dirname, basename,
                                    NULL);
-      if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
-        break;
 
-      g_clear_pointer (&filename, g_free);
+      if (!g_file_test (filename, G_FILE_TEST_IS_REGULAR))
+        g_clear_pointer (&filename, g_free);
+    }
+  else
+    {
+      gssize i;
+
+      for (i = THUMBNAIL_SIZE_LAST - 1; i >= 0 ; i--)
+        {
+          filename = g_build_filename (g_get_user_cache_dir (),
+                                       "thumbnails",
+                                       get_thumbnail_dirname_from_size (i),
+                                       basename,
+                                      NULL);
+          if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
+            break;
+
+          g_clear_pointer (&filename, g_free);
+        }
     }
 
   if (filename)
     {
-      _g_file_info_set_attribute_byte_string_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH, filename);
-      _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID,
+      _g_file_info_set_attribute_byte_string_by_id (info, path_attr_id, filename);
+      _g_file_info_set_attribute_boolean_by_id (info, is_valid_attr_id,
                                                 thumbnail_verify (filename, uri, stat_buf));
     }
   else
@@ -1469,11 +1516,12 @@ get_thumbnail_attributes (const char     *path,
 
       if (g_file_test (filename, G_FILE_TEST_IS_REGULAR))
         {
-          _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED, TRUE);
-          _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID,
+          _g_file_info_set_attribute_boolean_by_id (info, failed_attr_id, TRUE);
+          _g_file_info_set_attribute_boolean_by_id (info, is_valid_attr_id,
                                                     thumbnail_verify (filename, uri, stat_buf));
         }
     }
+
   g_free (basename);
   g_free (filename);
   g_free (uri);
@@ -1792,6 +1840,10 @@ get_icon_name (const char *path,
     {
       name = use_symbolic ? "folder-pictures-symbolic" : "folder-pictures";
     }
+  else if (g_strcmp0 (path, g_get_user_special_dir (G_USER_DIRECTORY_PROJECTS)) == 0)
+    {
+      name = use_symbolic ? "folder-projects-symbolic" : "folder-projects";
+    }
   else if (g_strcmp0 (path, g_get_user_special_dir (G_USER_DIRECTORY_PUBLIC_SHARE)) == 0)
     {
       name = use_symbolic ? "folder-publicshare-symbolic" : "folder-publicshare";
@@ -1861,6 +1913,8 @@ _g_local_file_info_get (const char             *basename,
   GVfs *vfs;
   GVfsClass *class;
   guint64 device;
+  gboolean query_full_content_type, query_fast_content_type, query_icons;
+  char *icon_content_type;
 
   info = g_file_info_new ();
 
@@ -1940,43 +1994,47 @@ _g_local_file_info_get (const char             *basename,
 	    symlink_broken = TRUE;
 	}
     }
+  else
+    g_file_info_set_is_symlink (info, FALSE);
 
   if (stat_ok)
     set_info_from_stat (info, &statbuf, attribute_matcher);
-
-#ifdef G_OS_UNIX
-  if (stat_ok && _g_local_file_is_lost_found_dir (path, _g_stat_dev (&statbuf)))
-    g_file_info_set_is_hidden (info, TRUE);
-#endif
 
 #ifndef G_OS_WIN32
   if (_g_file_attribute_matcher_matches_id (attribute_matcher,
 					    G_FILE_ATTRIBUTE_ID_STANDARD_IS_HIDDEN))
     {
-      if (basename != NULL &&
-          (basename[0] == '.' ||
-           file_is_hidden (path, basename)))
-        g_file_info_set_is_hidden (info, TRUE);
+      g_file_info_set_is_hidden (info,
+                                 (basename != NULL &&
+                                  (basename[0] == '.' ||
+                                   file_is_hidden (path, basename) ||
+                                   (stat_ok &&
+                                    _g_local_file_is_lost_found_dir (path, _g_stat_dev (&statbuf))))));
     }
 
-  if (basename != NULL && basename[strlen (basename) -1] == '~' &&
-      (stat_ok && S_ISREG (_g_stat_mode (&statbuf))))
-    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_STANDARD_IS_BACKUP, TRUE);
+  _g_file_info_set_attribute_boolean_by_id (info,
+                                            G_FILE_ATTRIBUTE_ID_STANDARD_IS_BACKUP,
+                                            basename != NULL && basename[strlen (basename) - 1] == '~' &&
+                                                (stat_ok && S_ISREG (_g_stat_mode (&statbuf))));
 #else
-  if (statbuf.attributes & FILE_ATTRIBUTE_HIDDEN)
-    g_file_info_set_is_hidden (info, TRUE);
+  _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_STANDARD_IS_BACKUP, FALSE);
 
-  if (statbuf.attributes & FILE_ATTRIBUTE_ARCHIVE)
-    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_IS_ARCHIVE, TRUE);
+  g_file_info_set_is_hidden (info, (statbuf.attributes & FILE_ATTRIBUTE_HIDDEN));
 
-  if (statbuf.attributes & FILE_ATTRIBUTE_SYSTEM)
-    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_IS_SYSTEM, TRUE);
+  _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_IS_ARCHIVE,
+                                            (statbuf.attributes & FILE_ATTRIBUTE_ARCHIVE));
 
-  if (statbuf.reparse_tag == IO_REPARSE_TAG_MOUNT_POINT)
-    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_IS_MOUNTPOINT, TRUE);
+  _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_IS_SYSTEM,
+                                            (statbuf.attributes & FILE_ATTRIBUTE_SYSTEM));
 
-  if (statbuf.reparse_tag != 0)
-    _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_REPARSE_POINT_TAG, statbuf.reparse_tag);
+  if (stat_ok)
+    {
+      _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_IS_MOUNTPOINT,
+                                                (statbuf.reparse_tag == IO_REPARSE_TAG_MOUNT_POINT));
+
+      if (statbuf.reparse_tag != 0)
+        _g_file_info_set_attribute_uint32_by_id (info, G_FILE_ATTRIBUTE_ID_DOS_REPARSE_POINT_TAG, statbuf.reparse_tag);
+    }
 #endif
 
   symlink_target = NULL;
@@ -1991,12 +2049,18 @@ _g_local_file_info_get (const char             *basename,
         g_file_info_set_symlink_target (info, symlink_target);
     }
 
-  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
-					    G_FILE_ATTRIBUTE_ID_STANDARD_CONTENT_TYPE) ||
-      _g_file_attribute_matcher_matches_id (attribute_matcher,
-					    G_FILE_ATTRIBUTE_ID_STANDARD_ICON) ||
-      _g_file_attribute_matcher_matches_id (attribute_matcher,
-					    G_FILE_ATTRIBUTE_ID_STANDARD_SYMBOLIC_ICON))
+  query_full_content_type = _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                                                  G_FILE_ATTRIBUTE_ID_STANDARD_CONTENT_TYPE);
+  query_fast_content_type = _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                                                  G_FILE_ATTRIBUTE_ID_STANDARD_FAST_CONTENT_TYPE);
+  query_icons = _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                                      G_FILE_ATTRIBUTE_ID_STANDARD_ICON) ||
+                _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                                      G_FILE_ATTRIBUTE_ID_STANDARD_SYMBOLIC_ICON);
+  icon_content_type = NULL;
+
+  if (query_full_content_type ||
+      (query_icons && !query_fast_content_type))
     {
       char *content_type = get_content_type (basename, path, stat_ok ? &statbuf : NULL, is_symlink, symlink_broken, flags, FALSE);
 
@@ -2004,45 +2068,49 @@ _g_local_file_info_get (const char             *basename,
 	{
 	  g_file_info_set_content_type (info, content_type);
 
-	  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
-                                                     G_FILE_ATTRIBUTE_ID_STANDARD_ICON)
-               || _g_file_attribute_matcher_matches_id (attribute_matcher,
-                                                        G_FILE_ATTRIBUTE_ID_STANDARD_SYMBOLIC_ICON))
-	    {
-	      GIcon *icon;
+          if (query_icons && (query_full_content_type || !query_fast_content_type))
+            icon_content_type = g_steal_pointer (&content_type);
 
-              /* non symbolic icon */
-              icon = get_icon (path, content_type, FALSE);
-              if (icon != NULL)
-                {
-                  g_file_info_set_icon (info, icon);
-                  g_object_unref (icon);
-                }
-
-              /* symbolic icon */
-              icon = get_icon (path, content_type, TRUE);
-              if (icon != NULL)
-                {
-                  g_file_info_set_symbolic_icon (info, icon);
-                  g_object_unref (icon);
-                }
-
-	    }
-	  
-	  g_free (content_type);
-	}
+          g_free (content_type);
+        }
     }
 
-  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
-					    G_FILE_ATTRIBUTE_ID_STANDARD_FAST_CONTENT_TYPE))
+  if (query_fast_content_type)
     {
       char *content_type = get_content_type (basename, path, stat_ok ? &statbuf : NULL, is_symlink, symlink_broken, flags, TRUE);
       
       if (content_type)
 	{
 	  _g_file_info_set_attribute_string_by_id (info, G_FILE_ATTRIBUTE_ID_STANDARD_FAST_CONTENT_TYPE, content_type);
-	  g_free (content_type);
-	}
+
+          if (query_icons && icon_content_type == NULL)
+            icon_content_type = g_steal_pointer (&content_type);
+
+          g_free (content_type);
+        }
+    }
+
+  if (icon_content_type != NULL)
+    {
+      GIcon *icon;
+
+      /* non symbolic icon */
+      icon = get_icon (path, icon_content_type, FALSE);
+      if (icon != NULL)
+        {
+          g_file_info_set_icon (info, icon);
+          g_object_unref (icon);
+        }
+
+      /* symbolic icon */
+      icon = get_icon (path, icon_content_type, TRUE);
+      if (icon != NULL)
+        {
+          g_file_info_set_symbolic_icon (info, icon);
+          g_object_unref (icon);
+        }
+
+      g_free (icon_content_type);
     }
 
   if (_g_file_attribute_matcher_matches_id (attribute_matcher,
@@ -2092,9 +2160,9 @@ _g_local_file_info_get (const char             *basename,
     }
 
   if (stat_ok && parent_info && parent_info->device != 0 &&
-      _g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_UNIX_IS_MOUNTPOINT) &&
-      (_g_stat_dev (&statbuf) != parent_info->device || _g_stat_ino (&statbuf) == parent_info->inode))
-    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_IS_MOUNTPOINT, TRUE);
+      _g_file_attribute_matcher_matches_id (attribute_matcher, G_FILE_ATTRIBUTE_ID_UNIX_IS_MOUNTPOINT))
+    _g_file_info_set_attribute_boolean_by_id (info, G_FILE_ATTRIBUTE_ID_UNIX_IS_MOUNTPOINT,
+                                              (_g_stat_dev (&statbuf) != parent_info->device || _g_stat_ino (&statbuf) == parent_info->inode));
   
   if (stat_ok)
     get_access_rights (attribute_matcher, info, path, &statbuf, parent_info);
@@ -2112,10 +2180,47 @@ _g_local_file_info_get (const char             *basename,
       _g_file_attribute_matcher_matches_id (attribute_matcher,
                                             G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED))
     {
-      if (stat_ok)
-          get_thumbnail_attributes (path, info, &statbuf);
-      else
-          get_thumbnail_attributes (path, info, NULL);
+      get_thumbnail_attributes (path, info, stat_ok ? &statbuf : NULL, THUMBNAIL_SIZE_AUTO);
+    }
+
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH_NORMAL) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID_NORMAL) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED_NORMAL))
+    {
+      get_thumbnail_attributes (path, info, stat_ok ? &statbuf : NULL, THUMBNAIL_SIZE_NORMAL);
+    }
+
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH_LARGE) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID_LARGE) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED_LARGE))
+    {
+      get_thumbnail_attributes (path, info, stat_ok ? &statbuf : NULL, THUMBNAIL_SIZE_LARGE);
+    }
+
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH_XLARGE) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID_XLARGE) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED_XLARGE))
+    {
+      get_thumbnail_attributes (path, info, stat_ok ? &statbuf : NULL, THUMBNAIL_SIZE_XLARGE);
+    }
+
+  if (_g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAIL_PATH_XXLARGE) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAIL_IS_VALID_XXLARGE) ||
+      _g_file_attribute_matcher_matches_id (attribute_matcher,
+                                            G_FILE_ATTRIBUTE_ID_THUMBNAILING_FAILED_XXLARGE))
+    {
+      get_thumbnail_attributes (path, info, stat_ok ? &statbuf : NULL, THUMBNAIL_SIZE_XXLARGE);
     }
 
   vfs = g_vfs_get_default ();
@@ -2429,7 +2534,7 @@ set_symlink (char                       *filename,
       return FALSE;
     }
   
-  if (symlink (filename, val) != 0)
+  if (symlink (val, filename) != 0)
     {
       int errsv = errno;
 
@@ -2742,6 +2847,16 @@ set_mtime_atime (char                       *filename,
 	}
     }
 
+  if (atime_usec_value)
+    {
+      guint32 val_usec = 0;
+
+      if (!get_uint32 (atime_usec_value, &val_usec, error))
+        return FALSE;
+
+      times_n[0].tv_nsec = val_usec * 1000;
+    }
+
   if (atime_nsec_value)
     {
       guint32 val_nsec = 0;
@@ -2762,12 +2877,23 @@ set_mtime_atime (char                       *filename,
     {
       if (lazy_stat (filename, &statbuf, &got_stat) == 0)
 	{
+          times_n[1].tv_sec = statbuf.st_mtime;
 #if defined (HAVE_STRUCT_STAT_ST_MTIMENSEC)
           times_n[1].tv_nsec = statbuf.st_mtimensec;
 #elif defined (HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC)
           times_n[1].tv_nsec = statbuf.st_mtim.tv_nsec;
 #endif
 	}
+    }
+
+  if (mtime_usec_value)
+    {
+      guint32 val_usec = 0;
+
+      if (!get_uint32 (mtime_usec_value, &val_usec, error))
+        return FALSE;
+
+      times_n[1].tv_nsec = val_usec * 1000;
     }
 
   if (mtime_nsec_value)

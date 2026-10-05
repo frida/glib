@@ -28,6 +28,8 @@
 
 #include "gdbus-tests.h"
 
+#define WAIT_FOR_FLUSH_MSEC 10000
+
 /* all tests rely on a shared mainloop */
 static GMainLoop *loop = NULL;
 
@@ -49,7 +51,7 @@ static gboolean
 test_connection_flush_on_timeout (gpointer user_data)
 {
   guint iteration = GPOINTER_TO_UINT (user_data);
-  g_printerr ("Timeout waiting 1000 msec on iteration %d\n", iteration);
+  g_printerr ("Timeout waiting %d msec on iteration %d\n", WAIT_FOR_FLUSH_MSEC, iteration);
   g_assert_not_reached ();
   return G_SOURCE_REMOVE;
 }
@@ -82,6 +84,16 @@ test_connection_flush (void)
                                                           NULL);
   g_assert_cmpint (signal_handler_id, !=, 0);
 
+  /* We need to wait for the subscription to have actually taken effect
+   * before forking the subprocess, otherwise there is a race condition
+   * between the message bus adding the match rule and the subprocess
+   * sending the signal. If the message bus wins the race, then the test
+   * passes, but if the subprocess wins the race, it will be too late
+   * for this process to receive the signal because it already happened.
+   * The easiest way to avoid this race is to do a round-trip to the
+   * message bus and back. */
+  connection_wait_for_bus (connection);
+
   flush_helper = g_test_get_filename (G_TEST_BUILT, "gdbus-connection-flush-helper", NULL);
   for (n = 0; n < 50; n++)
     {
@@ -108,12 +120,12 @@ test_connection_flush (void)
       g_assert_no_error (error);
       g_assert_true (ret);
 
-      timeout_mainloop_id = g_timeout_add (1000, test_connection_flush_on_timeout, GUINT_TO_POINTER (n));
+      timeout_mainloop_id = g_timeout_add (WAIT_FOR_FLUSH_MSEC, test_connection_flush_on_timeout, GUINT_TO_POINTER (n));
       g_main_loop_run (loop);
       g_source_remove (timeout_mainloop_id);
     }
 
-  g_dbus_connection_signal_unsubscribe (connection, signal_handler_id);
+  g_dbus_connection_signal_unsubscribe (connection, g_steal_handle_id (&signal_handler_id));
   g_object_unref (connection);
 
   session_bus_down ();
@@ -128,14 +140,12 @@ test_connection_flush (void)
 /* the test will fail if the service name has not appeared after this amount of seconds */
 #define LARGE_MESSAGE_TIMEOUT_SECONDS 10
 
-static gboolean
+static void
 large_message_timeout_cb (gpointer data)
 {
   (void)data;
 
   g_error ("Error: timeout waiting for dbus name to appear");
-
-  return G_SOURCE_REMOVE;
 }
 
 static void
@@ -200,9 +210,9 @@ test_connection_large_message (void)
   /* this is safe; testserver will exit once the bus goes away */
   g_assert (g_spawn_command_line_async (g_test_get_filename (G_TEST_BUILT, "gdbus-testserver", NULL), NULL));
 
-  timeout_id = g_timeout_add_seconds (LARGE_MESSAGE_TIMEOUT_SECONDS,
-                                      large_message_timeout_cb,
-                                      NULL);
+  timeout_id = g_timeout_add_seconds_once (LARGE_MESSAGE_TIMEOUT_SECONDS,
+                                           large_message_timeout_cb,
+                                           NULL);
 
   watcher_id = g_bus_watch_name (G_BUS_TYPE_SESSION,
                                  "com.example.TestService",
@@ -225,7 +235,7 @@ main (int   argc,
 {
   gint ret;
 
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   /* all the tests rely on a shared main loop */
   loop = g_main_loop_new (NULL, FALSE);

@@ -148,7 +148,7 @@ typedef struct _GFlagsValue GFlagsValue;
  * @minimum: the smallest possible value.
  * @maximum: the largest possible value.
  * @n_values: the number of possible values.
- * @values: an array of #GEnumValue structs describing the 
+ * @values: (array length=n_values): an array of #GEnumValue structs describing the 
  *  individual values.
  * 
  * The class of an enumeration type holds information about its 
@@ -169,7 +169,7 @@ struct	_GEnumClass
  * @g_type_class: the parent class
  * @mask: a mask covering all possible values.
  * @n_values: the number of possible values.
- * @values: an array of #GFlagsValue structs describing the 
+ * @values: (array length=n_values): an array of #GFlagsValue structs describing the 
  *  individual values.
  * 
  * The class of a flags type holds information about its 
@@ -320,14 +320,14 @@ void	g_flags_complete_type_info (GType	       g_flags_type,
 #define G_DEFINE_ENUM_TYPE(TypeName, type_name, ...) \
 GType \
 type_name ## _get_type (void) { \
-  static gsize g_define_type__static = 0; \
-  if (g_once_init_enter (&g_define_type__static)) { \
+  static _g_type_once_init_type g_define_type__static = 0; \
+  if (_g_type_once_init_enter (&g_define_type__static)) { \
     static const GEnumValue enum_values[] = { \
       __VA_ARGS__ , \
       { 0, NULL, NULL }, \
     }; \
     GType g_define_type = g_enum_register_static (g_intern_static_string (#TypeName), enum_values); \
-    g_once_init_leave (&g_define_type__static, g_define_type); \
+    _g_type_once_init_leave (&g_define_type__static, g_define_type); \
   } \
   return g_define_type__static; \
 } \
@@ -363,14 +363,14 @@ type_name ## _get_type (void) { \
 #define G_DEFINE_FLAGS_TYPE(TypeName, type_name, ...) \
 GType \
 type_name ## _get_type (void) { \
-  static gsize g_define_type__static = 0; \
-  if (g_once_init_enter (&g_define_type__static)) { \
+  static _g_type_once_init_type g_define_type__static = 0; \
+  if (_g_type_once_init_enter (&g_define_type__static)) { \
     static const GFlagsValue flags_values[] = { \
       __VA_ARGS__ , \
       { 0, NULL, NULL }, \
     }; \
     GType g_define_type = g_flags_register_static (g_intern_static_string (#TypeName), flags_values); \
-    g_once_init_leave (&g_define_type__static, g_define_type); \
+    _g_type_once_init_leave (&g_define_type__static, g_define_type); \
   } \
   return g_define_type__static; \
 } \

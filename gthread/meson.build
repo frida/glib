@@ -1,15 +1,23 @@
-# Just a skeleton lib for backwards compatibility since all the functionaliy
+# Just a skeleton lib for backwards compatibility since all the functionality
 # has been moved into glib now
 
 gthread_sources = ['gthread-impl.c']
-if host_system == 'windows' and get_option('default_library') != 'static'
-  gthread_win_rc = configure_file(
-    input: 'gthread.rc.in',
+if host_system == 'windows' and glib_build_shared
+  gthread_rc_conf = configuration_data({
+    'NAME': 'GThread',
+    'FILENAME': (cc.get_argument_syntax() == 'msvc' ? '' : 'lib') + 'gthread-' + glib_api_version + '-' + soversion.to_string() + '.dll',
+    'DESCRIPTION': 'Portable threading API',
+  })
+  gthread_rc_conf.merge_from(rc_conf_base)
+  lib_rc = configure_file(
+    input: lib_rc_in,
     output: 'gthread.rc',
-    configuration: glibconfig_conf,
+    configuration: gthread_rc_conf,
   )
-  gthread_win_res = windows.compile_resources(gthread_win_rc)
-  gthread_sources += [gthread_win_res]
+  gthread_sources += [windows.compile_resources(lib_rc,
+    # Workaround for https://github.com/llvm/llvm-project/issues/63426
+    args: ['-c', '65001'],
+  )]
 endif
 
 libgthread = library('gthread-2.0',
@@ -19,7 +27,7 @@ libgthread = library('gthread-2.0',
   darwin_versions : darwin_versions,
   install : true,
   dependencies : [libglib_dep],
-  c_args : ['-DG_LOG_DOMAIN="GThread"', glib_c_args_internal],
+  c_args : ['-DG_LOG_DOMAIN="GThread"', glib_c_args_internal, warning_sign_conversion_args, warning_shorten_64_to_32_args],
   gnu_symbol_visibility : 'hidden',
   link_args : glib_link_flags,
 )
@@ -36,3 +44,7 @@ pkg.generate(libgthread,
 
 libgthread_dep = declare_dependency(link_with : libgthread)
 meson.override_dependency('gthread-2.0', libgthread_dep)
+
+if build_tests
+  subdir('tests')
+endif

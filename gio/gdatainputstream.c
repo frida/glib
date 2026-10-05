@@ -33,15 +33,11 @@
 #include <string.h>
 
 /**
- * SECTION:gdatainputstream
- * @short_description: Data Input Stream
- * @include: gio/gio.h
- * @see_also: #GInputStream
- * 
- * Data input stream implements #GInputStream and includes functions for 
- * reading structured data directly from a binary input stream.
+ * GDataInputStream:
  *
- **/
+ * Data input stream implements [class@Gio.InputStream] and includes functions
+ * for reading structured data directly from a binary input stream.
+ */
 
 struct _GDataInputStreamPrivate {
   GDataStreamByteOrder byte_order;
@@ -86,9 +82,7 @@ g_data_input_stream_class_init (GDataInputStreamClass *klass)
    */ 
   g_object_class_install_property (object_class,
                                    PROP_BYTE_ORDER,
-                                   g_param_spec_enum ("byte-order",
-                                                      P_("Byte order"),
-                                                      P_("The byte order"),
+                                   g_param_spec_enum ("byte-order", NULL, NULL,
                                                       G_TYPE_DATA_STREAM_BYTE_ORDER,
                                                       G_DATA_STREAM_BYTE_ORDER_BIG_ENDIAN,
                                                       G_PARAM_READWRITE|G_PARAM_STATIC_NAME|G_PARAM_STATIC_BLURB));
@@ -101,9 +95,7 @@ g_data_input_stream_class_init (GDataInputStreamClass *klass)
    */ 
   g_object_class_install_property (object_class,
                                    PROP_NEWLINE_TYPE,
-                                   g_param_spec_enum ("newline-type",
-                                                      P_("Newline type"),
-                                                      P_("The accepted types of line ending"),
+                                   g_param_spec_enum ("newline-type", NULL, NULL,
                                                       G_TYPE_DATA_STREAM_NEWLINE_TYPE,
                                                       G_DATA_STREAM_NEWLINE_TYPE_LF,
                                                       G_PARAM_READWRITE|G_PARAM_STATIC_NAME|G_PARAM_STATIC_BLURB));
@@ -848,7 +840,11 @@ g_data_input_stream_read_line_utf8 (GDataInputStream  *stream,
       g_set_error_literal (error, G_CONVERT_ERROR,
 			   G_CONVERT_ERROR_ILLEGAL_SEQUENCE,
 			   _("Invalid byte sequence in conversion input"));
+
+      if (length != NULL)
+        *length = 0;
       g_free (res);
+
       return NULL;
     }
   return res;
@@ -865,11 +861,8 @@ scan_for_chars (GDataInputStream *stream,
   gsize start, end, peeked;
   gsize i;
   gsize available, checked;
-  const char *stop_char;
-  const char *stop_end;
 
   bstream = G_BUFFERED_INPUT_STREAM (stream);
-  stop_end = stop_chars + stop_chars_len;
 
   checked = *checked_out;
 
@@ -878,13 +871,28 @@ scan_for_chars (GDataInputStream *stream,
   end = available;
   peeked = end - start;
 
-  for (i = 0; checked < available && i < peeked; i++)
+  /* For single-char case such as \0, defer the entire operation to memchr which
+   * can take advantage of simd/etc.
+   */
+  if (stop_chars_len == 1)
     {
-      for (stop_char = stop_chars; stop_char != stop_end; stop_char++)
-	{
-	  if (buffer[i] == *stop_char)
-	    return (start + i);
-	}
+      const char *p = memchr (buffer, stop_chars[0], peeked);
+
+      if (p != NULL)
+        return start + (p - buffer);
+    }
+  else
+    {
+      for (i = 0; checked < available && i < peeked; i++)
+        {
+          /* We can use memchr() the other way round. Less fast than the
+           * single-char case above, but still faster than doing our own inner
+           * loop. */
+          const char *p = memchr (stop_chars, buffer[i], stop_chars_len);
+
+          if (p != NULL)
+            return (start + i);
+        }
     }
 
   checked = end;
@@ -969,7 +977,7 @@ g_data_input_stream_read_complete (GTask *task,
 
   if (read_length || skip_length)
     {
-      gssize bytes;
+      G_GNUC_UNUSED gssize bytes;
 
       data->length = read_length;
       line = g_malloc (read_length + 1);
@@ -977,10 +985,10 @@ g_data_input_stream_read_complete (GTask *task,
 
       /* we already checked the buffer.  this shouldn't fail. */
       bytes = g_input_stream_read (stream, line, read_length, NULL, NULL);
-      g_assert_cmpint (bytes, ==, read_length);
+      g_assert (bytes >= 0 && (size_t) bytes == read_length);
 
       bytes = g_input_stream_skip (stream, skip_length, NULL, NULL);
-      g_assert_cmpint (bytes, ==, skip_length);
+      g_assert (bytes >= 0 && (size_t) bytes == skip_length);
     }
 
   g_task_return_pointer (task, line, g_free);
@@ -1125,10 +1133,10 @@ g_data_input_stream_read_finish (GDataInputStream  *stream,
 /**
  * g_data_input_stream_read_line_async:
  * @stream: a given #GDataInputStream.
- * @io_priority: the [I/O priority][io-priority] of the request
+ * @io_priority: the [I/O priority](iface.AsyncResult.html#io-priority) of the request
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
- * @callback: (scope async): callback to call when the request is satisfied.
- * @user_data: (closure): the data to pass to callback function.
+ * @callback: (scope async) (closure user_data): callback to call when the request is satisfied.
+ * @user_data: the data to pass to callback function.
  *
  * The asynchronous version of g_data_input_stream_read_line().  It is
  * an error to have two outstanding calls to this function.
@@ -1157,10 +1165,10 @@ g_data_input_stream_read_line_async (GDataInputStream    *stream,
  * g_data_input_stream_read_until_async:
  * @stream: a given #GDataInputStream.
  * @stop_chars: characters to terminate the read.
- * @io_priority: the [I/O priority][io-priority] of the request
+ * @io_priority: the [I/O priority](iface.AsyncResult.html#io-priority) of the request
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore.
- * @callback: (scope async): callback to call when the request is satisfied.
- * @user_data: (closure): the data to pass to callback function.
+ * @callback: (scope async) (closure user_data): callback to call when the request is satisfied.
+ * @user_data: the data to pass to callback function.
  *
  * The asynchronous version of g_data_input_stream_read_until().
  * It is an error to have two outstanding calls to this function.
@@ -1405,10 +1413,10 @@ g_data_input_stream_read_upto (GDataInputStream  *stream,
  * @stop_chars: characters to terminate the read
  * @stop_chars_len: length of @stop_chars. May be -1 if @stop_chars is
  *     nul-terminated
- * @io_priority: the [I/O priority][io-priority] of the request
+ * @io_priority: the [I/O priority](iface.AsyncResult.html#io-priority) of the request
  * @cancellable: (nullable): optional #GCancellable object, %NULL to ignore
- * @callback: (scope async): callback to call when the request is satisfied
- * @user_data: (closure): the data to pass to callback function
+ * @callback: (scope async) (closure user_data): callback to call when the request is satisfied
+ * @user_data: the data to pass to callback function
  *
  * The asynchronous version of g_data_input_stream_read_upto().
  * It is an error to have two outstanding calls to this function.

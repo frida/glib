@@ -28,7 +28,7 @@
 #include <stdio.h>
 #include <locale.h>
 #include <errno.h>
-#ifdef HAVE_UNISTD_H
+#ifdef G_OS_UNIX
 #include <unistd.h>
 #endif
 #ifdef G_OS_WIN32
@@ -606,7 +606,7 @@ parse_resource_file (const gchar *filename,
 
 	  g_free (mykey);
 
-	  g_variant_builder_init (&builder, G_VARIANT_TYPE ("(uuay)"));
+	  g_variant_builder_init_static (&builder, G_VARIANT_TYPE ("(uuay)"));
 
 	  g_variant_builder_add (&builder, "u", data->size); /* Size */
 	  g_variant_builder_add (&builder, "u", data->flags); /* Flags */
@@ -735,7 +735,7 @@ get_compiler_id (const char *compiler)
 #ifdef G_OS_UNIX
       const char *compiler_env = g_getenv ("CC");
 
-# ifdef G_OS_DARWIN
+# ifdef __APPLE__
       if (compiler_env == NULL || *compiler_env == '\0')
         compiler = "clang";
       else
@@ -754,7 +754,16 @@ get_compiler_id (const char *compiler)
 #endif
 
 #ifdef G_OS_WIN32
-      if (g_getenv ("MSYSTEM") != NULL)
+      /* For Visual Studio builds: if a developer shell is detected,
+         immediately assume MSVC so we don't DoS the user with octal
+         strings.
+         See https://developercommunity.visualstudio.com/t/Long-octal-formatted-strings-DoS-the-use/11021201
+       */
+      if (g_getenv ("VCINSTALLDIR") != NULL)
+        {
+          compiler = "msvc"; 
+        }
+      else if (g_getenv ("MSYSTEM") != NULL)
         {
           const char *compiler_env = g_getenv ("CC");
 
@@ -830,16 +839,15 @@ main (int argc, char **argv)
     { "manual-register", 0, 0, G_OPTION_ARG_NONE, &manual_register, N_("Don’t automatically create and register resource"), NULL },
     { "internal", 0, 0, G_OPTION_ARG_NONE, &internal, N_("Don’t export functions; declare them G_GNUC_INTERNAL"), NULL },
     { "external-data", 0, 0, G_OPTION_ARG_NONE, &external_data, N_("Don’t embed resource data in the C file; assume it's linked externally instead"), NULL },
-    { "c-name", 0, 0, G_OPTION_ARG_STRING, &c_name, N_("C identifier name used for the generated source code"), NULL },
-    { "compiler", 'C', 0, G_OPTION_ARG_STRING, &compiler, N_("The target C compiler (default: the CC environment variable)"), NULL },
+    { "c-name", 0, 0, G_OPTION_ARG_STRING, &c_name, N_("C identifier name used for the generated source code"), N_("IDENTIFIER") },
+    { "compiler", 'C', 0, G_OPTION_ARG_STRING, &compiler, N_("The target C compiler (default: the CC environment variable)"), N_("COMMAND") },
     G_OPTION_ENTRY_NULL
   };
 
 #ifdef G_OS_WIN32
   gchar *tmp;
+  gchar **command_line = NULL;
 #endif
-
-  glib_init ();
 
   setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
   textdomain (GETTEXT_PACKAGE);
@@ -865,11 +873,21 @@ main (int argc, char **argv)
   g_option_context_add_main_entries (context, entries, GETTEXT_PACKAGE);
 
   error = NULL;
+#ifdef G_OS_WIN32
+  command_line = g_win32_get_command_line ();
+  if (!g_option_context_parse_strv (context, &command_line, &error))
+    {
+      g_printerr ("%s\n", error->message);
+      return 1;
+    }
+  argc = g_strv_length (command_line);
+#else
   if (!g_option_context_parse (context, &argc, &argv, &error))
     {
       g_printerr ("%s\n", error->message);
       return 1;
     }
+#endif
 
   g_option_context_free (context);
 
@@ -892,7 +910,11 @@ main (int argc, char **argv)
   compiler_type = get_compiler_id (compiler);
   g_free (compiler);
 
+#ifdef G_OS_WIN32
+  srcfile = command_line[1];
+#else
   srcfile = argv[1];
+#endif
 
   xmllint = g_strdup (g_getenv ("XMLLINT"));
   if (xmllint == NULL)
@@ -974,11 +996,15 @@ main (int argc, char **argv)
       g_hash_table_iter_init (&iter, files);
 
       dep_string = g_string_new (NULL);
-      escaped = escape_makefile_string (srcfile);
+      escaped = escape_makefile_string (target);
       g_string_printf (dep_string, "%s:", escaped);
       g_free (escaped);
 
-      /* First rule: foo.xml: resource1 resource2.. */
+      escaped = escape_makefile_string (srcfile);
+      g_string_append_printf (dep_string, " %s", escaped);
+      g_free (escaped);
+
+      /* First rule: foo.c: foo.xml resource1 resource2.. */
       while (g_hash_table_iter_next (&iter, &key, &data))
         {
           file_data = data;
@@ -1053,10 +1079,11 @@ main (int argc, char **argv)
     {
       if (generate_source)
 	{
-	  int fd = g_file_open_tmp (NULL, &binary_target, NULL);
+	  int fd = g_file_open_tmp (NULL, &binary_target, &error);
 	  if (fd == -1)
 	    {
-	      g_printerr ("Can't open temp file\n");
+	      g_printerr ("Can't open temp file: %s\n", error->message);
+              g_error_free (error);
 	      g_free (c_name);
               g_hash_table_unref (files);
 	      return 1;
@@ -1114,7 +1141,7 @@ main (int argc, char **argv)
     {
       FILE *file;
 
-      file = fopen (target, "w");
+      file = g_fopen (target, "we");
       if (file == NULL)
 	{
 	  g_printerr ("can't write to file %s", target);
@@ -1163,7 +1190,7 @@ main (int argc, char **argv)
 	}
       g_unlink (binary_target);
 
-      file = fopen (target, "w");
+      file = g_fopen (target, "we");
       if (file == NULL)
 	{
 	  g_printerr ("can't write to file %s", target);
@@ -1179,7 +1206,7 @@ main (int argc, char **argv)
 	       "#include <gio/gio.h>\n"
 	       "\n"
 	       "#if defined (__ELF__) && ( __GNUC__ > 2 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 6))\n"
-	       "# define SECTION __attribute__ ((section (\".gresource.%s\"), aligned (8)))\n"
+	       "# define SECTION __attribute__ ((section (\".gresource.%s\"), aligned (sizeof(void *) > 8 ? sizeof(void *) : 8)))\n"
 	       "#else\n"
 	       "# define SECTION\n"
 	       "#endif\n"
@@ -1311,6 +1338,10 @@ main (int argc, char **argv)
   g_free (jsonformat);
   g_free (c_name);
   g_hash_table_unref (files);
+
+#ifdef G_OS_WIN32
+  g_strfreev (command_line);  
+#endif
 
   return 0;
 }

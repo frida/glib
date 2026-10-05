@@ -4,6 +4,8 @@
 
    Copyright (C) 2007 John McCutchan
 
+   SPDX-License-Identifier: LGPL-2.1-or-later
+
    This library is free software; you can redistribute it and/or
    modify it under the terms of the GNU Lesser General Public
    License as published by the Free Software Foundation; either
@@ -27,12 +29,8 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
-#ifdef HAVE_SYS_INOTIFY_H
 /* Just include the local header to stop all the pain */
 #include <sys/inotify.h>
-#else
-#include "inotify-compat.h"
-#endif
 #include <gio/glocalfilemonitor.h>
 #include <gio/gfile.h>
 #include "inotify-helper.h"
@@ -262,7 +260,7 @@ ih_not_missing_callback (inotify_sub *sub)
 static GFileMonitorEvent
 ih_mask_to_EventFlags (guint32 mask)
 {
-  mask &= ~IN_ISDIR;
+  mask &= (guint32) ~IN_ISDIR;
   switch (mask)
     {
     case IN_MODIFY:
@@ -289,6 +287,6 @@ ih_mask_to_EventFlags (guint32 mask)
     case IN_ACCESS:
     case IN_IGNORED:
     default:
-      return -1;
+      return (GFileMonitorEvent) -1;
     }
 }

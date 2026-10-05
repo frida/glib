@@ -26,6 +26,7 @@
 
 #include "gsimpleproxyresolver.h"
 #include "ginetaddress.h"
+#include "ginetsocketaddress.h"
 #include "ginetaddressmask.h"
 #include "gnetworkingprivate.h"
 #include "gtask.h"
@@ -33,19 +34,16 @@
 #include "glibintl.h"
 
 /**
- * SECTION:gsimpleproxyresolver
- * @short_description: Simple proxy resolver implementation
- * @include: gio/gio.h
- * @see_also: g_socket_client_set_proxy_resolver()
+ * GSimpleProxyResolver:
  *
- * #GSimpleProxyResolver is a simple #GProxyResolver implementation
+ * `GSimpleProxyResolver` is a simple [iface@Gio.ProxyResolver] implementation
  * that handles a single default proxy, multiple URI-scheme-specific
  * proxies, and a list of hosts that proxies should not be used for.
  *
- * #GSimpleProxyResolver is never the default proxy resolver, but it
+ * `GSimpleProxyResolver` is never the default proxy resolver, but it
  * can be used as the base class for another proxy resolver
  * implementation, or it can be created and used manually, such as
- * with g_socket_client_set_proxy_resolver().
+ * with [method@Gio.SocketClient.set_proxy_resolver].
  *
  * Since: 2.36
  */
@@ -267,9 +265,13 @@ ignore_host (GSimpleProxyResolver *resolver,
   if (priv->ignore_ips)
     {
       GInetAddress *iaddr;
+      GInetSocketAddress *isaddr = NULL;
 
-      iaddr = g_inet_address_new_from_string (host);
-      if (iaddr)
+      /* Grab the GInetAddress from the GInetSocketAddress in order to support
+       * scope ID. */
+      isaddr = (GInetSocketAddress *) g_inet_socket_address_new_from_string (host, 0);
+      iaddr = (isaddr != NULL) ? g_inet_socket_address_get_address (isaddr) : NULL;
+      if (iaddr != NULL)
 	{
 	  for (i = 0; i < priv->ignore_ips->len; i++)
 	    {
@@ -281,11 +283,12 @@ ignore_host (GSimpleProxyResolver *resolver,
 		  break;
 		}
 	    }
-
-	  g_object_unref (iaddr);
-	  if (ignore)
-	    return TRUE;
 	}
+
+      g_clear_object (&isaddr);
+
+      if (ignore)
+        return TRUE;
     }
 
   if (priv->ignore_domains)
@@ -417,7 +420,7 @@ g_simple_proxy_resolver_class_init (GSimpleProxyResolverClass *resolver_class)
   object_class->finalize = g_simple_proxy_resolver_finalize;
 
   /**
-   * GSimpleProxyResolver:default-proxy: (nullable)
+   * GSimpleProxyResolver:default-proxy:
    *
    * The default proxy URI that will be used for any URI that doesn't
    * match #GSimpleProxyResolver:ignore-hosts, and doesn't match any
@@ -428,9 +431,7 @@ g_simple_proxy_resolver_class_init (GSimpleProxyResolverClass *resolver_class)
    * to all three of the socks5, socks4a, and socks4 proxy types.
    */
   g_object_class_install_property (object_class, PROP_DEFAULT_PROXY,
-				   g_param_spec_string ("default-proxy",
-                                                        P_("Default proxy"),
-                                                        P_("The default proxy URI"),
+				   g_param_spec_string ("default-proxy", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_READWRITE |
                                                         G_PARAM_STATIC_STRINGS));
@@ -474,9 +475,7 @@ g_simple_proxy_resolver_class_init (GSimpleProxyResolverClass *resolver_class)
    * commonly used by other applications.
    */
   g_object_class_install_property (object_class, PROP_IGNORE_HOSTS,
-				   g_param_spec_boxed ("ignore-hosts",
-                                                       P_("Ignore hosts"),
-                                                       P_("Hosts that will not use the proxy"),
+				   g_param_spec_boxed ("ignore-hosts", NULL, NULL,
                                                        G_TYPE_STRV,
                                                        G_PARAM_READWRITE |
                                                        G_PARAM_STATIC_STRINGS));
@@ -503,7 +502,7 @@ g_simple_proxy_resolver_iface_init (GProxyResolverInterface *iface)
  * #GSimpleProxyResolver:ignore-hosts for more details on how the
  * arguments are interpreted.
  *
- * Returns: (transfer full) a new #GSimpleProxyResolver
+ * Returns: (transfer full): a new #GSimpleProxyResolver
  *
  * Since: 2.36
  */

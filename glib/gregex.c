@@ -40,64 +40,138 @@
 #include "gthread.h"
 
 /**
- * SECTION:gregex
- * @title: Perl-compatible regular expressions
- * @short_description: matches strings against regular expressions
- * @see_also: [Regular expression syntax][glib-regex-syntax]
+ * GRegex:
  *
- * The g_regex_*() functions implement regular
- * expression pattern matching using syntax and semantics similar to
- * Perl regular expression.
+ * A `GRegex` is a compiled form of a regular expression.
+ * 
+ * After instantiating a `GRegex`, you can use its methods to find matches
+ * in a string, replace matches within a string, or split the string at matches.
  *
- * Some functions accept a @start_position argument, setting it differs
- * from just passing over a shortened string and setting %G_REGEX_MATCH_NOTBOL
- * in the case of a pattern that begins with any kind of lookbehind assertion.
- * For example, consider the pattern "\Biss\B" which finds occurrences of "iss"
- * in the middle of words. ("\B" matches only if the current position in the
- * subject is not a word boundary.) When applied to the string "Mississipi"
- * from the fourth byte, namely "issipi", it does not match, because "\B" is
- * always false at the start of the subject, which is deemed to be a word
- * boundary. However, if the entire string is passed , but with
- * @start_position set to 4, it finds the second occurrence of "iss" because
- * it is able to look behind the starting point to discover that it is
- * preceded by a letter.
+ * `GRegex` implements regular expression pattern matching using syntax and 
+ * semantics (such as character classes, quantifiers, and capture groups) 
+ * similar to Perl regular expression. See the 
+ * [PCRE documentation](man:pcre2pattern(3)) for details.
  *
- * Note that, unless you set the %G_REGEX_RAW flag, all the strings passed
- * to these functions must be encoded in UTF-8. The lengths and the positions
- * inside the strings are in bytes and not in characters, so, for instance,
- * "\xc3\xa0" (i.e. "à") is two bytes long but it is treated as a
- * single character. If you set %G_REGEX_RAW the strings can be non-valid
- * UTF-8 strings and a byte is treated as a character, so "\xc3\xa0" is two
- * bytes and two characters long.
+ * A typical scenario for regex pattern matching is to check if a string 
+ * matches a pattern. The following statements implement this scenario.
+ * 
+ * ``` { .c }
+ * const char *regex_pattern = ".*GLib.*";
+ * const char *string_to_search = "You will love the GLib implementation of regex";
+ * g_autoptr(GMatchInfo) match_info = NULL;
+ * g_autoptr(GRegex) regex = NULL;
  *
- * When matching a pattern, "\n" matches only against a "\n" character in
- * the string, and "\r" matches only a "\r" character. To match any newline
- * sequence use "\R". This particular group matches either the two-character
- * sequence CR + LF ("\r\n"), or one of the single characters LF (linefeed,
- * U+000A, "\n"), VT vertical tab, U+000B, "\v"), FF (formfeed, U+000C, "\f"),
- * CR (carriage return, U+000D, "\r"), NEL (next line, U+0085), LS (line
- * separator, U+2028), or PS (paragraph separator, U+2029).
+ * regex = g_regex_new (regex_pattern, G_REGEX_DEFAULT, G_REGEX_MATCH_DEFAULT, NULL);
+ * g_assert (regex != NULL);
+ * 
+ * if (g_regex_match (regex, string_to_search, G_REGEX_MATCH_DEFAULT, &match_info))
+ *   {
+ *     int start_pos, end_pos;
+ *     g_match_info_fetch_pos (match_info, 0, &start_pos, &end_pos);
+ *     g_print ("Match successful! Overall pattern matches bytes %d to %d\n", start_pos, end_pos);
+ *   }
+ * else
+ *   {
+ *     g_print ("No match!\n");
+ *   }
+ * ```
+ * 
+ * The constructor for `GRegex` includes two sets of bitmapped flags:
+
+ * * [flags@GLib.RegexCompileFlags]—These flags 
+ * control how GLib compiles the regex. There are options for case 
+ * sensitivity, multiline, ignoring whitespace, etc.
+ * * [flags@GLib.RegexMatchFlags]—These flags control 
+ * `GRegex`’s matching behavior, such as anchoring and customizing definitions 
+ * for newline characters.
+ * 
+ * Some regex patterns include backslash assertions, such as `\d` (digit) or 
+ * `\D` (non-digit). The regex pattern must escape those backslashes. For 
+ * example, the pattern `"\\d\\D"` matches a digit followed by a non-digit.
  *
- * The behaviour of the dot, circumflex, and dollar metacharacters are
- * affected by newline characters, the default is to recognize any newline
- * character (the same characters recognized by "\R"). This can be changed
- * with %G_REGEX_NEWLINE_CR, %G_REGEX_NEWLINE_LF and %G_REGEX_NEWLINE_CRLF
- * compile options, and with %G_REGEX_MATCH_NEWLINE_ANY,
- * %G_REGEX_MATCH_NEWLINE_CR, %G_REGEX_MATCH_NEWLINE_LF and
- * %G_REGEX_MATCH_NEWLINE_CRLF match options. These settings are also
- * relevant when compiling a pattern if %G_REGEX_EXTENDED is set, and an
- * unescaped "#" outside a character class is encountered. This indicates
- * a comment that lasts until after the next newline.
+ * GLib’s implementation of pattern matching includes a `start_position` 
+ * argument for some of the match, replace, and split methods. Specifying 
+ * a start position provides flexibility when you want to ignore the first 
+ * _n_ characters of a string, but want to incorporate backslash assertions 
+ * at character _n_ - 1. For example, a database field contains inconsistent
+ * spelling for a job title: `healthcare provider` and `health-care provider`.
+ * The database manager wants to make the spelling consistent by adding a 
+ * hyphen when it is missing. The following regex pattern tests for the string 
+ * `care` preceded by a non-word boundary character (instead of a hyphen) 
+ * and followed by a space.
  *
- * Creating and manipulating the same #GRegex structure from different
- * threads is not a problem as #GRegex does not modify its internal
- * state between creation and destruction, on the other hand #GMatchInfo
- * is not threadsafe.
+ * ``` { .c }
+ * const char *regex_pattern = "\\Bcare\\s";
+ * ```
  *
- * The regular expressions low-level functionalities are obtained through
- * the excellent
- * [PCRE](http://www.pcre.org/)
- * library written by Philip Hazel.
+ * An efficient way to match with this pattern is to start examining at 
+ * `start_position` 6 in the string `healthcare` or `health-care`.
+
+ * ``` { .c }
+ * const char *regex_pattern = "\\Bcare\\s";
+ * const char *string_to_search = "healthcare provider";
+ * g_autoptr(GMatchInfo) match_info = NULL;
+ * g_autoptr(GRegex) regex = NULL;
+ *
+ * regex = g_regex_new (
+ *   regex_pattern,
+ *   G_REGEX_DEFAULT,
+ *   G_REGEX_MATCH_DEFAULT,
+ *   NULL);
+ * g_assert (regex != NULL);
+ * 
+ * g_regex_match_full (
+ *   regex, 
+ *   string_to_search, 
+ *   -1,
+ *   6, // position of 'c' in the test string.
+ *   G_REGEX_MATCH_DEFAULT, 
+ *   &match_info,
+ *   NULL);
+ * ```
+ * 
+ * The method [method@GLib.Regex.match_full] (and other methods implementing 
+ * `start_pos`) allow for lookback before the start position to determine if 
+ * the previous character satisfies an assertion.
+ *
+ * Unless you set the [flags@GLib.RegexCompileFlags.RAW] as one of 
+ * the `GRegexCompileFlags`, all the strings passed to `GRegex` methods must 
+ * be encoded in UTF-8. The lengths and the positions inside the strings are 
+ * in bytes and not in characters, so, for instance, `\xc3\xa0` (i.e., `à`) 
+ * is two bytes long but it is treated as a single character. If you set 
+ * `G_REGEX_RAW`, the strings can be non-valid UTF-8 strings and a byte is 
+ * treated as a character, so `\xc3\xa0` is two bytes and two characters long.
+ *
+ * Regarding line endings, `\n` matches a `\n` character, and `\r` matches 
+ * a `\r` character. More generally, `\R` matches all typical line endings: 
+ * CR + LF (`\r\n`), LF (linefeed, U+000A, `\n`), VT (vertical tab, U+000B, 
+ * `\v`), FF (formfeed, U+000C, `\f`), CR (carriage return, U+000D, `\r`), 
+ * NEL (next line, U+0085), LS (line separator, U+2028), and PS (paragraph 
+ * separator, U+2029).
+ * 
+ * The behaviour of the dot, circumflex, and dollar metacharacters are 
+ * affected by newline characters. By default, `GRegex` matches any newline 
+ * character matched by `\R`. You can limit the matched newline characters by 
+ * specifying the [flags@GLib.RegexMatchFlags.NEWLINE_CR], 
+ * [flags@GLib.RegexMatchFlags.NEWLINE_LF], and 
+ * [flags@GLib.RegexMatchFlags.NEWLINE_CRLF] compile options, and 
+ * with [flags@GLib.RegexMatchFlags.NEWLINE_ANY], 
+ * [flags@GLib.RegexMatchFlags.NEWLINE_CR], 
+ * [flags@GLib.RegexMatchFlags.NEWLINE_LF] and 
+ * [flags@GLib.RegexMatchFlags.NEWLINE_CRLF] match options. 
+ * These settings are also relevant when compiling a pattern if 
+ * [flags@GLib.RegexCompileFlags.EXTENDED] is set and an unescaped 
+ * `#` outside a character class is encountered. This indicates a comment 
+ * that lasts until after the next newline.
+ * 
+ * Because `GRegex` does not modify its internal state between creation and 
+ * destruction, you can create and modify the same `GRegex` instance from 
+ * different threads. In contrast, [struct@GLib.MatchInfo] is not thread safe.
+ * 
+ * The regular expression low-level functionalities are obtained through
+ * the excellent [PCRE](http://www.pcre.org/) library written by Philip Hazel.
+ *
+ * Since: 2.14
  */
 
 #define G_REGEX_PCRE_GENERIC_MASK (PCRE2_ANCHORED       | \
@@ -209,10 +283,10 @@
 
 /* if the string is in UTF-8 use g_utf8_ functions, else use
  * use just +/- 1. */
-#define NEXT_CHAR(re, s) (((re)->compile_opts & G_REGEX_RAW) ? \
+#define NEXT_CHAR(re, s) (((re)->regex_compile_opts & G_REGEX_RAW) ? \
                                 ((s) + 1) : \
                                 g_utf8_next_char (s))
-#define PREV_CHAR(re, s) (((re)->compile_opts & G_REGEX_RAW) ? \
+#define PREV_CHAR(re, s) (((re)->regex_compile_opts & G_REGEX_RAW) ? \
                                 ((s) - 1) : \
                                 g_utf8_prev_char (s))
 
@@ -223,15 +297,17 @@ struct _GMatchInfo
   uint32_t match_opts;          /* pcre match options used at match time on the regex */
   gint matches;                 /* number of matching sub patterns, guaranteed to be <= (n_subpatterns + 1) if doing a single match (rather than matching all) */
   uint32_t n_subpatterns;       /* total number of sub patterns in the regex */
-  gint pos;                     /* position in the string where last match left off */
-  uint32_t n_offsets;           /* number of offsets */
+  size_t pos;                   /* position in the string where last match left off; check @pos_valid before using */
+  gboolean pos_valid;           /* whether @pos is valid; will be false when reaching the end of the string */
+  size_t n_offsets;             /* number of offsets */
   gint *offsets;                /* array of offsets paired 0,1 ; 2,3 ; 3,4 etc */
   gint *workspace;              /* workspace for pcre2_dfa_match() */
   PCRE2_SIZE n_workspace;       /* number of workspace elements */
   const gchar *string;          /* string passed to the match function */
-  gssize string_len;            /* length of string, in bytes */
+  size_t string_len;            /* length of string, in bytes */
   pcre2_match_context *match_context;
   pcre2_match_data *match_data;
+  pcre2_jit_stack *jit_stack;
 };
 
 typedef enum
@@ -246,12 +322,19 @@ struct _GRegex
   gint ref_count;               /* the ref count for the immutable part (atomic) */
   gchar *pattern;               /* the pattern */
   pcre2_code *pcre_re;          /* compiled form of the pattern */
-  uint32_t compile_opts;        /* options used at compile time on the pattern, pcre2 values */
-  GRegexCompileFlags orig_compile_opts; /* options used at compile time on the pattern, gregex values */
+  uint32_t pcre2_compile_opts;  /* options used at compile time on the pattern, pcre2 values */
+  GRegexCompileFlags regex_compile_opts; /* options used at compile time on the pattern, gregex values */
   uint32_t match_opts;          /* pcre2 options used at match time on the regex */
   GRegexMatchFlags orig_match_opts; /* options used as default match options, gregex values */
   uint32_t jit_options;         /* options which were enabled for jit compiler */
   JITStatus jit_status;         /* indicates the status of jit compiler for this compiled regex */
+  /* The jit_status here does _not_ correspond to whether we used the JIT in the last invocation,
+   * which may be affected by match_options or a JIT_STACK_LIMIT error, but whether it was ever
+   * enabled for the current regex AND current set of jit_options.
+   * JIT_STATUS_DEFAULT means enablement was never tried,
+   * JIT_STATUS_ENABLED means it was tried and successful (even if we're not currently using it),
+   * and JIT_STATUS_DISABLED means it was tried and failed (so we shouldn't try again).
+   */
 };
 
 /* TRUE if ret is an error code, FALSE otherwise. */
@@ -483,8 +566,6 @@ translate_match_error (gint errcode)
       /* not used by pcre2_match() */
       break;
     case PCRE2_ERROR_MATCHLIMIT:
-    case PCRE2_ERROR_JIT_STACKLIMIT:
-      return _("backtracking limit reached");
     case PCRE2_ERROR_CALLOUT:
       /* callouts are not implemented */
       break;
@@ -694,6 +775,12 @@ translate_compile_error (gint *errcode, const gchar **errmsg)
       *errmsg = _("\\g is not followed by a braced, angle-bracketed, or quoted name or "
                   "number, or by a plain number");
       break;
+#ifdef PCRE2_ERROR_MISSING_NUMBER_TERMINATOR
+    case PCRE2_ERROR_MISSING_NUMBER_TERMINATOR:
+      *errcode = G_REGEX_ERROR_MISSING_BACK_REFERENCE;
+      *errmsg = _("syntax error in subpattern number (missing terminator?)");
+      break;
+#endif
     case PCRE2_ERROR_VERB_ARGUMENT_NOT_ALLOWED:
       *errcode = G_REGEX_ERROR_BACKTRACKING_CONTROL_VERB_ARGUMENT_FORBIDDEN;
       *errmsg = _("an argument is not allowed for (*ACCEPT), (*FAIL), or (*COMMIT)");
@@ -804,15 +891,12 @@ translate_compile_error (gint *errcode, const gchar **errmsg)
 static GMatchInfo *
 match_info_new (const GRegex     *regex,
                 const gchar      *string,
-                gint              string_len,
-                gint              start_position,
+                size_t            string_len,
+                size_t            start_position,
                 GRegexMatchFlags  match_options,
                 gboolean          is_dfa)
 {
   GMatchInfo *match_info;
-
-  if (string_len < 0)
-    string_len = strlen (string);
 
   match_info = g_new0 (GMatchInfo, 1);
   match_info->ref_count = 1;
@@ -821,8 +905,9 @@ match_info_new (const GRegex     *regex,
   match_info->string_len = string_len;
   match_info->matches = PCRE2_ERROR_NOMATCH;
   match_info->pos = start_position;
+  match_info->pos_valid = TRUE;
   match_info->match_opts =
-    get_pcre2_match_options (match_options, regex->orig_compile_opts);
+    get_pcre2_match_options (match_options, regex->regex_compile_opts);
 
   pcre2_pattern_info (regex->pcre_re, PCRE2_INFO_CAPTURECOUNT,
                       &match_info->n_subpatterns);
@@ -857,7 +942,6 @@ recalc_match_offsets (GMatchInfo *match_info,
   PCRE2_SIZE *ovector;
   uint32_t ovector_size = 0;
   uint32_t pre_n_offset;
-  uint32_t i;
 
   g_assert (!IS_PCRE2_ERROR (match_info->matches));
 
@@ -887,7 +971,7 @@ recalc_match_offsets (GMatchInfo *match_info,
                                          sizeof (gint));
     }
 
-  for (i = 0; i < match_info->n_offsets; i++)
+  for (size_t i = 0; i < match_info->n_offsets; i++)
     {
       match_info->offsets[i] = (int) ovector[i];
     }
@@ -896,22 +980,22 @@ recalc_match_offsets (GMatchInfo *match_info,
 }
 
 static JITStatus
-enable_jit_with_match_options (GRegex   *regex,
+enable_jit_with_match_options (GMatchInfo  *match_info,
                                uint32_t  match_options)
 {
   gint retval;
   uint32_t old_jit_options, new_jit_options;
 
-  if (!(regex->orig_compile_opts & G_REGEX_OPTIMIZE))
+  if (!(match_info->regex->regex_compile_opts & G_REGEX_OPTIMIZE))
     return JIT_STATUS_DISABLED;
 
-  if (regex->jit_status == JIT_STATUS_DISABLED)
+  if (match_info->regex->jit_status == JIT_STATUS_DISABLED)
     return JIT_STATUS_DISABLED;
 
   if (match_options & G_REGEX_PCRE2_JIT_UNSUPPORTED_OPTIONS)
     return JIT_STATUS_DISABLED;
 
-  old_jit_options = regex->jit_options;
+  old_jit_options = match_info->regex->jit_options;
   new_jit_options = old_jit_options | PCRE2_JIT_COMPLETE;
   if (match_options & PCRE2_PARTIAL_HARD)
     new_jit_options |= PCRE2_JIT_PARTIAL_HARD;
@@ -920,32 +1004,47 @@ enable_jit_with_match_options (GRegex   *regex,
 
   /* no new options enabled */
   if (new_jit_options == old_jit_options)
-    return regex->jit_status;
-
-  retval = pcre2_jit_compile (regex->pcre_re, new_jit_options);
-  switch (retval)
     {
-    case 0: /* JIT enabled successfully */
-      regex->jit_options = new_jit_options;
-      return JIT_STATUS_ENABLED;
-    case PCRE2_ERROR_NOMEMORY:
-      g_debug ("JIT compilation was requested with G_REGEX_OPTIMIZE, "
-               "but JIT was unable to allocate executable memory for the "
-               "compiler. Falling back to interpretive code.");
-      return JIT_STATUS_DISABLED;
-    case PCRE2_ERROR_JIT_BADOPTION:
-      g_debug ("JIT compilation was requested with G_REGEX_OPTIMIZE, "
-               "but JIT support is not available. Falling back to "
-               "interpretive code.");
-      return JIT_STATUS_DISABLED;
-      break;
-    default:
-      g_debug ("JIT compilation was requested with G_REGEX_OPTIMIZE, "
-               "but request for JIT support had unexpectedly failed (error %d). "
-               "Falling back to interpretive code.", retval);
-      return JIT_STATUS_DISABLED;
-      break;
+      g_assert (match_info->regex->jit_status != JIT_STATUS_DEFAULT);
+      return match_info->regex->jit_status;
     }
+
+  retval = pcre2_jit_compile (match_info->regex->pcre_re, new_jit_options);
+  if (retval == 0)
+    {
+      match_info->regex->jit_status = JIT_STATUS_ENABLED;
+
+      match_info->regex->jit_options = new_jit_options;
+      /* Set min stack size for JIT to 32KiB and max to 512KiB */
+      match_info->jit_stack = pcre2_jit_stack_create (1 << 15, 1 << 19, NULL);
+      pcre2_jit_stack_assign (match_info->match_context, NULL, match_info->jit_stack);
+    }
+  else
+    {
+      match_info->regex->jit_status = JIT_STATUS_DISABLED;
+
+      switch (retval)
+        {
+        case PCRE2_ERROR_NOMEMORY:
+          g_debug ("JIT compilation was requested with G_REGEX_OPTIMIZE, "
+                   "but JIT was unable to allocate executable memory for the "
+                   "compiler. Falling back to interpretive code.");
+          break;
+        case PCRE2_ERROR_JIT_BADOPTION:
+          g_debug ("JIT compilation was requested with G_REGEX_OPTIMIZE, "
+                   "but JIT support is not available. Falling back to "
+                   "interpretive code.");
+          break;
+        default:
+          g_debug ("JIT compilation was requested with G_REGEX_OPTIMIZE, "
+                   "but request for JIT support had unexpectedly failed (error %d). "
+                   "Falling back to interpretive code.",
+                   retval);
+          break;
+        }
+    }
+
+  return match_info->regex->jit_status;
 
   g_assert_not_reached ();
 }
@@ -1023,6 +1122,8 @@ g_match_info_unref (GMatchInfo *match_info)
       g_regex_unref (match_info->regex);
       if (match_info->match_context)
         pcre2_match_context_free (match_info->match_context);
+      if (match_info->jit_stack)
+        pcre2_jit_stack_free (match_info->jit_stack);
       if (match_info->match_data)
         pcre2_match_data_free (match_info->match_data);
       g_free (match_info->offsets);
@@ -1061,7 +1162,7 @@ g_match_info_free (GMatchInfo *match_info)
  * The match is done on the string passed to the match function, so you
  * cannot free it before calling this function.
  *
- * Returns: %TRUE is the string matched, %FALSE otherwise
+ * Returns: %TRUE if the string matched, %FALSE otherwise
  *
  * Since: 2.14
  */
@@ -1076,7 +1177,9 @@ g_match_info_next (GMatchInfo  *match_info,
 
   g_return_val_if_fail (match_info != NULL, FALSE);
   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
-  g_return_val_if_fail (match_info->pos >= 0, FALSE);
+
+  if (!match_info->pos_valid)
+    return FALSE;
 
   prev_match_start = match_info->offsets[0];
   prev_match_end = match_info->offsets[1];
@@ -1084,14 +1187,14 @@ g_match_info_next (GMatchInfo  *match_info,
   if (match_info->pos > match_info->string_len)
     {
       /* we have reached the end of the string */
-      match_info->pos = -1;
+      match_info->pos_valid = FALSE;
       match_info->matches = PCRE2_ERROR_NOMATCH;
       return FALSE;
     }
 
   opts = match_info->regex->match_opts | match_info->match_opts;
 
-  jit_status = enable_jit_with_match_options (match_info->regex, opts);
+  jit_status = enable_jit_with_match_options (match_info, opts);
   if (jit_status == JIT_STATUS_ENABLED)
     {
       match_info->matches = pcre2_jit_match (match_info->regex->pcre_re,
@@ -1101,8 +1204,18 @@ g_match_info_next (GMatchInfo  *match_info,
                                              opts,
                                              match_info->match_data,
                                              match_info->match_context);
+      /* if the JIT stack limit was reached, fall back to non-JIT matching in
+       * the next conditional statement */
+      if (match_info->matches == PCRE2_ERROR_JIT_STACKLIMIT)
+        {
+          g_debug ("PCRE2 JIT stack limit reached, falling back to "
+                   "non-optimized matching.");
+          opts |= PCRE2_NO_JIT;
+          jit_status = JIT_STATUS_DISABLED;
+        }
     }
-  else
+
+  if (jit_status != JIT_STATUS_ENABLED)
     {
       match_info->matches = pcre2_match (match_info->regex->pcre_re,
                                          (PCRE2_SPTR8) match_info->string,
@@ -1127,6 +1240,10 @@ g_match_info_next (GMatchInfo  *match_info,
     {
       /* info->offsets is too small. */
       match_info->n_offsets *= 2;
+
+      /* uint32_t is the type accepted by pcre2_match_data_create() */
+      g_assert (match_info->n_offsets <= UINT32_MAX);
+
       match_info->offsets = g_realloc_n (match_info->offsets,
                                          match_info->n_offsets,
                                          sizeof (gint));
@@ -1139,7 +1256,7 @@ g_match_info_next (GMatchInfo  *match_info,
   else if (match_info->matches == PCRE2_ERROR_NOMATCH)
     {
       /* We're done with this match info */
-      match_info->pos = -1;
+      match_info->pos_valid = FALSE;
       return FALSE;
     }
   else
@@ -1148,27 +1265,38 @@ g_match_info_next (GMatchInfo  *match_info,
 
   /* avoid infinite loops if the pattern is an empty string or something
    * equivalent */
-  if (match_info->pos == match_info->offsets[1])
+  g_assert (match_info->offsets[1] >= 0);
+  if (match_info->pos == (size_t) match_info->offsets[1])
     {
       if (match_info->pos > match_info->string_len)
         {
           /* we have reached the end of the string */
-          match_info->pos = -1;
+          match_info->pos_valid = FALSE;
           match_info->matches = PCRE2_ERROR_NOMATCH;
           return FALSE;
         }
-
-      match_info->pos = NEXT_CHAR (match_info->regex,
-                                   &match_info->string[match_info->pos]) -
-                                   match_info->string;
+      else if (match_info->pos > match_info->string_len)
+        {
+          /* we have one last empty match at the end of the string */
+          match_info->pos_valid = FALSE;
+        }
+      else
+        {
+          match_info->pos = NEXT_CHAR (match_info->regex,
+                                       &match_info->string[match_info->pos]) -
+                                       match_info->string;
+          match_info->pos_valid = TRUE;
+        }
     }
   else
     {
+      g_assert (match_info->offsets[1] >= 0);
       match_info->pos = match_info->offsets[1];
+      match_info->pos_valid = TRUE;
     }
 
   g_assert (match_info->matches < 0 ||
-            (uint32_t) match_info->matches <= match_info->n_subpatterns + 1);
+            (size_t) match_info->matches <= (size_t) match_info->n_subpatterns + 1);
 
   /* it's possible to get two identical matches when we are matching
    * empty strings, for instance if the pattern is "(?=[A-Z0-9])" and
@@ -1280,6 +1408,10 @@ g_match_info_get_match_count (const GMatchInfo *match_info)
  * There were formerly some restrictions on the pattern for partial matching.
  * The restrictions no longer apply.
  *
+ * If the match was partial g_match_info_fetch(), g_match_info_fetch_pos()
+ * and g_match_info_fetch_all() can be called to retrieve the text and positions
+ * of the entire match, i.e. only for sub expression `0`.
+ *
  * See pcrepartial(3) for more information on partial matching.
  *
  * Returns: %TRUE if the match was partial, %FALSE otherwise
@@ -1369,6 +1501,8 @@ g_match_info_expand_references (const GMatchInfo  *match_info,
  * If @match_num is a valid sub pattern but it didn't match anything
  * (e.g. sub pattern 1, matching "b" against "(a)?b") then an empty
  * string is returned.
+ * When a partial match is reported via g_match_info_is_partial_match()
+ * only the full text of the match can be queried (@match_num must be `0`).
  *
  * If the match was obtained using the DFA algorithm, that is using
  * g_regex_match_all() or g_regex_match_all_full(), the retrieved
@@ -1409,29 +1543,223 @@ g_match_info_fetch (const GMatchInfo *match_info,
 /**
  * g_match_info_fetch_pos:
  * @match_info: #GMatchInfo structure
- * @match_num: number of the sub expression
+ * @match_num: number of the capture parenthesis
  * @start_pos: (out) (optional): pointer to location where to store
  *     the start position, or %NULL
  * @end_pos: (out) (optional): pointer to location where to store
- *     the end position, or %NULL
+ *     the end position (the byte after the final byte of the match), or %NULL
  *
- * Retrieves the position in bytes of the @match_num'th capturing
- * parentheses. 0 is the full text of the match, 1 is the first
- * paren set, 2 the second, and so on.
+ * Returns the start and end positions (in bytes) of a successfully matching 
+ * capture parenthesis.
+ * 
+ * Valid values for @match_num are `0` for the full text of the match,
+ * `1` for the first paren set, `2` for the second, and so on.
+ * When a partial match is reported via g_match_info_is_partial_match()
+ * only the full text of the match can be queried (@match_num must be `0`).
  *
- * If @match_num is a valid sub pattern but it didn't match anything
- * (e.g. sub pattern 1, matching "b" against "(a)?b") then @start_pos
- * and @end_pos are set to -1 and %TRUE is returned.
+ * As @end_pos is set to the byte after the final byte of the match (on success),
+ * the length of the match can be calculated as `end_pos - start_pos`.
  *
- * If the match was obtained using the DFA algorithm, that is using
- * g_regex_match_all() or g_regex_match_all_full(), the retrieved
- * position is not that of a set of parentheses but that of a matched
- * substring. Substrings are matched in reverse order of length, so
- * 0 is the longest match.
+ * As a best practice, initialize @start_pos and @end_pos to identifiable 
+ * values, such as `G_MAXINT`, so that you can test if 
+ * `g_match_info_fetch_pos()` actually changed the value for a given 
+ * capture parenthesis.
  *
- * Returns: %TRUE if the position was fetched, %FALSE otherwise. If
- *   the position cannot be fetched, @start_pos and @end_pos are left
- *   unchanged
+ * The parameter @match_num corresponds to a matched capture parenthesis. The 
+ * actual value you use for @match_num depends on the method used to generate
+ * @match_info. The following sections describe those methods.
+ * 
+ * ## Methods Using Non-deterministic Finite Automata Matching
+ *
+ * The methods [method@GLib.Regex.match] and [method@GLib.Regex.match_full]
+ * return a [struct@GLib.MatchInfo] using traditional (greedy) pattern
+ * matching, also known as 
+ * [Non-deterministic Finite Automaton](https://en.wikipedia.org/wiki/Nondeterministic_finite_automaton)
+ * (NFA) matching. You pass the returned `GMatchInfo` from these methods to 
+ * `g_match_info_fetch_pos()` to determine the start and end positions 
+ * of capture parentheses. The values for @match_num correspond to the capture 
+ * parentheses in order, with `0` corresponding to the entire matched string.
+ * 
+ * @match_num can refer to a capture parenthesis with no match. For example, 
+ * the string `b` matches against the pattern `(a)?b`, but the capture
+ * parenthesis `(a)` has no match. In this case, `g_match_info_fetch_pos()`
+ * returns true and sets @start_pos and @end_pos to `-1` when called with
+ * `match_num` as `1` (for `(a)`).
+ *
+ * For an expanded example, a regex pattern is `(a)?(.*?)the (.*)`, 
+ * and a candidate string is `glib regexes are the best`. In this scenario 
+ * there are four capture parentheses numbered 0–3: an implicit one 
+ * for the entire string, and three explicitly declared in the regex pattern.
+ *
+ * Given this example, the following table describes the return values 
+ * from `g_match_info_fetch_pos()` for various values of @match_num.
+ *
+ * `match_num` | Contents | Return value | Returned `start_pos` | Returned `end_pos`
+ * ----------- | -------- | ------------ | -------------------- | ------------------
+ * 0 | Matches entire string | True | 0 | 25
+ * 1 | Does not match first character | True | -1 | -1
+ * 2 | All text before `the ` | True | 0 | 17
+ * 3 | All text after `the ` | True | 21 | 25
+ * 4 | Capture paren out of range | False | Unchanged | Unchanged
+ *
+ * The following code sample and output implements this example.
+ *
+ * ``` { .c }
+ * #include <glib.h>
+ *
+ * int
+ * main (int argc, char *argv[])
+ * {
+ *   g_autoptr(GError) local_error = NULL;
+ *   const char *regex_pattern = "(a)?(.*?)the (.*)";
+ *   const char *test_string = "glib regexes are the best";
+ *   g_autoptr(GRegex) regex = NULL;
+ *
+ *   regex = g_regex_new (regex_pattern,
+ *                        G_REGEX_DEFAULT,
+ *                        G_REGEX_MATCH_DEFAULT,
+ *                        &local_error);
+ *   if (regex == NULL)
+ *     {
+ *       g_printerr ("Error creating regex: %s\n", local_error->message);
+ *       return 1;
+ *     }
+ *
+ *   g_autoptr(GMatchInfo) match_info = NULL;
+ *   g_regex_match (regex, test_string, G_REGEX_MATCH_DEFAULT, &match_info);
+ *
+ *   int n_matched_strings = g_match_info_get_match_count (match_info);
+ *
+ *   // Print header line
+ *   g_print ("match_num Contents                  Return value returned start_pos returned end_pos\n");
+ *
+ *   // Iterate over each capture paren, including one that is out of range as a demonstration.
+ *   for (int match_num = 0; match_num <= n_matched_strings; match_num++)
+ *     {
+ *       gboolean found_match;
+ *       g_autofree char *paren_string = NULL;
+ *       int start_pos = G_MAXINT;
+ *       int end_pos = G_MAXINT;
+ *
+ *       found_match = g_match_info_fetch_pos (match_info,
+ *                                             match_num,
+ *                                             &start_pos,
+ *                                             &end_pos);
+ *
+ *       // If no match, display N/A as the found string.
+ *       if (start_pos == G_MAXINT || start_pos == -1)
+ *         paren_string = g_strdup ("N/A");
+ *       else
+ *         paren_string = g_strndup (test_string + start_pos, end_pos - start_pos);
+ *
+ *       g_print ("%-9d %-25s %-12d %-18d %d\n", match_num, paren_string, found_match, start_pos, end_pos);
+ *     }
+ *
+ *   return 0;
+ * }
+ * ```
+ *
+ * ```
+ * match_num Contents                  Return value returned start_pos returned end_pos
+ * 0         glib regexes are the best 1            0                  25
+ * 1         N/A                       1            -1                 -1
+ * 2         glib regexes are          1            0                  17
+ * 3         best                      1            21                 25
+ * 4         N/A                       0            2147483647         2147483647
+ * ```
+ * ## Methods Using Deterministic Finite Automata Matching
+ *
+ * The methods [method@GLib.Regex.match_all] and 
+ * [method@GLib.Regex.match_all_full]
+ * return a `GMatchInfo` using
+ * [Deterministic Finite Automaton](https://en.wikipedia.org/wiki/Deterministic_finite_automaton)
+ * (DFA) pattern matching. This algorithm detects overlapping matches. You pass
+ * the returned `GMatchInfo` from these methods to `g_match_info_fetch_pos()`
+ * to determine the start and end positions of each overlapping match. Use the 
+ * method [method@GLib.MatchInfo.get_match_count] to determine the number 
+ * of overlapping matches.
+ *
+ * For example, a regex pattern is `<.*>`, and a candidate string is 
+ * `<a> <b> <c>`. In this scenario there are three implicit capture 
+ * parentheses: one for the entire string, one for `<a> <b>`, and one for `<a>`.
+ *
+ * Given this example, the following table describes the return values from
+ * `g_match_info_fetch_pos()` for various values of @match_num.
+ *
+ * `match_num` | Contents | Return value | Returned `start_pos` | Returned `end_pos`
+ * ----------- | -------- | ------------ | -------------------- | ------------------
+ * 0 | Matches entire string | True | 0 | 11
+ * 1 | Matches `<a> <b>` | True | 0 | 7
+ * 2 | Matches `<a>` | True | 0 | 3
+ * 3 | Capture paren out of range | False | Unchanged | Unchanged
+ *
+ * The following code sample and output implements this example.
+ *
+ * ``` { .c }
+ * #include <glib.h>
+ *
+ * int
+ * main (int argc, char *argv[])
+ * {
+ *   g_autoptr(GError) local_error = NULL;
+ *   const char *regex_pattern = "<.*>";
+ *   const char *test_string = "<a> <b> <c>";
+ *   g_autoptr(GRegex) regex = NULL;
+ * 
+ *   regex = g_regex_new (regex_pattern,
+ *                        G_REGEX_DEFAULT,
+ *                        G_REGEX_MATCH_DEFAULT,
+ *                        &local_error);
+ *   if (regex == NULL)
+ *     {
+ *       g_printerr ("Error creating regex: %s\n", local_error->message);
+ *       return -1;
+ *     }
+ *
+ *   g_autoptr(GMatchInfo) match_info = NULL;
+ *   g_regex_match_all (regex, test_string, G_REGEX_MATCH_DEFAULT, &match_info);
+ *
+ *   int n_matched_strings = g_match_info_get_match_count (match_info);
+ *
+ *   // Print header line 
+ *   g_print ("match_num Contents                  Return value returned start_pos returned end_pos\n");
+ * 
+ *   // Iterate over each capture paren, including one that is out of range as a demonstration.
+ *   for (int match_num = 0; match_num <= n_matched_strings; match_num++)
+ *     {
+ *       gboolean found_match;
+ *       g_autofree char *paren_string = NULL;
+ *       int start_pos = G_MAXINT;
+ *       int end_pos = G_MAXINT;
+ *
+ *       found_match = g_match_info_fetch_pos (match_info, match_num, &start_pos, &end_pos);
+ *
+ *       // If no match, display N/A as the found string.
+ *       if (start_pos == G_MAXINT || start_pos == -1)
+ *         paren_string = g_strdup ("N/A");
+ *       else
+ *         paren_string = g_strndup (test_string + start_pos, end_pos - start_pos);
+ *
+ *       g_print ("%-9d %-25s %-12d %-18d %d\n", match_num, paren_string, found_match, start_pos, end_pos);
+ *     }
+ *
+ *   return 0;
+ * }
+ * ```
+ *
+ * ```
+ * match_num Contents                  Return value returned start_pos returned end_pos
+ * 0         <a> <b> <c>               1            0                  11
+ * 1         <a> <b>                   1            0                  7
+ * 2         <a>                       1            0                  3
+ * 3         N/A                       0            2147483647         2147483647
+ * ```
+ *
+ * Returns: True if @match_num is within range, false otherwise. If
+ *   the capture paren has a match, @start_pos and @end_pos contain the 
+ *   start and end positions (in bytes) of the matching substring. If the 
+ *   capture paren has no match, @start_pos and @end_pos are `-1`. If 
+ *   @match_num is out of range, @start_pos and @end_pos are left unchanged.
  *
  * Since: 2.14
  */
@@ -1441,24 +1769,38 @@ g_match_info_fetch_pos (const GMatchInfo *match_info,
                         gint             *start_pos,
                         gint             *end_pos)
 {
+  size_t match_num_unsigned;
+  gint matches;
+
   g_return_val_if_fail (match_info != NULL, FALSE);
   g_return_val_if_fail (match_num >= 0, FALSE);
 
-  /* check whether there was an error */
-  if (match_info->matches < 0)
-    return FALSE;
+  match_num_unsigned = (size_t) match_num;
 
-  /* make sure the sub expression number they're requesting is less than
-   * the total number of sub expressions in the regex. When matching all
-   * (g_regex_match_all()), also compare against the number of matches */
-  if ((uint32_t) match_num >= MAX (match_info->n_subpatterns + 1, (uint32_t) match_info->matches))
-    return FALSE;
+  /* check whether there was an error */
+  if (match_info->matches == PCRE2_ERROR_PARTIAL)
+    {
+      if (match_num_unsigned >= 1)
+        return FALSE;
+      matches = 1;
+    }
+  else
+    {
+      matches = match_info->matches;
+      if (matches < 0)
+        return FALSE;
+      /* make sure the sub expression number they're requesting is less than
+       * the total number of sub expressions in the regex. When matching all
+       * (g_regex_match_all()), also compare against the number of matches */
+      if (match_num_unsigned >= MAX ((size_t) match_info->n_subpatterns + 1, (size_t) matches))
+        return FALSE;
+    }
 
   if (start_pos != NULL)
-    *start_pos = (match_num < match_info->matches) ? match_info->offsets[2 * match_num] : -1;
+    *start_pos = (match_num_unsigned < (size_t) matches) ? match_info->offsets[2 * match_num_unsigned] : -1;
 
   if (end_pos != NULL)
-    *end_pos = (match_num < match_info->matches) ? match_info->offsets[2 * match_num + 1] : -1;
+    *end_pos = (match_num_unsigned < (size_t) matches) ? match_info->offsets[2 * match_num_unsigned + 1] : -1;
 
   return TRUE;
 }
@@ -1477,7 +1819,7 @@ get_matched_substring_number (const GMatchInfo *match_info,
   PCRE2_SPTR first, last;
   guchar *entry;
 
-  if (!(match_info->regex->compile_opts & PCRE2_DUPNAMES))
+  if (!(match_info->regex->pcre2_compile_opts & PCRE2_DUPNAMES))
     return pcre2_substring_number_from_name (match_info->regex->pcre_re, (PCRE2_SPTR8) name);
 
   /* This code is analogous to code from pcre2_substring.c:
@@ -1492,8 +1834,8 @@ get_matched_substring_number (const GMatchInfo *match_info,
 
   for (entry = (guchar*) first; entry <= (guchar*) last; entry += entrysize)
     {
-      gint n = (entry[0] << 8) + entry[1];
-      if (match_info->offsets[n*2] >= 0)
+      guint n = (entry[0] << 8) + entry[1];
+      if (n * 2 < match_info->n_offsets && match_info->offsets[n * 2] >= 0)
         return n;
     }
 
@@ -1508,7 +1850,7 @@ get_matched_substring_number (const GMatchInfo *match_info,
  * Retrieves the text matching the capturing parentheses named @name.
  *
  * If @name is a valid sub pattern name but it didn't match anything
- * (e.g. sub pattern "X", matching "b" against "(?P<X>a)?b")
+ * (e.g. sub pattern `"X"`, matching `"b"` against `"(?P<X>a)?b"`)
  * then an empty string is returned.
  *
  * The string is fetched from the string passed to the match function,
@@ -1542,13 +1884,16 @@ g_match_info_fetch_named (const GMatchInfo *match_info,
  * @start_pos: (out) (optional): pointer to location where to store
  *     the start position, or %NULL
  * @end_pos: (out) (optional): pointer to location where to store
- *     the end position, or %NULL
+ *     the end position (the byte after the final byte of the match), or %NULL
  *
  * Retrieves the position in bytes of the capturing parentheses named @name.
  *
  * If @name is a valid sub pattern name but it didn't match anything
- * (e.g. sub pattern "X", matching "b" against "(?P<X>a)?b")
+ * (e.g. sub pattern `"X"`, matching `"b"` against `"(?P<X>a)?b"`)
  * then @start_pos and @end_pos are set to -1 and %TRUE is returned.
+ *
+ * As @end_pos is set to the byte after the final byte of the match (on success),
+ * the length of the match can be calculated as `end_pos - start_pos`.
  *
  * Returns: %TRUE if the position was fetched, %FALSE otherwise.
  *     If the position cannot be fetched, @start_pos and @end_pos
@@ -1586,6 +1931,9 @@ g_match_info_fetch_named_pos (const GMatchInfo *match_info,
  * If a sub pattern didn't match anything (e.g. sub pattern 1, matching
  * "b" against "(a)?b") then an empty string is inserted.
  *
+ * When a partial match is reported via g_match_info_is_partial_match()
+ * only the full text of the match will be returned, i.e. an array of size 1.
+ *
  * If the last match was obtained using the DFA algorithm, that is using
  * g_regex_match_all() or g_regex_match_all_full(), the retrieved
  * strings are not that matched by sets of parentheses but that of the
@@ -1605,15 +1953,16 @@ gchar **
 g_match_info_fetch_all (const GMatchInfo *match_info)
 {
   gchar **result;
-  gint i;
+  gint matches, i;
 
   g_return_val_if_fail (match_info != NULL, NULL);
 
-  if (match_info->matches < 0)
+  matches = (match_info->matches == PCRE2_ERROR_PARTIAL) ? 1 : match_info->matches;
+  if (matches < 0)
     return NULL;
 
-  result = g_new (gchar *, match_info->matches + 1);
-  for (i = 0; i < match_info->matches; i++)
+  result = g_new (gchar *, matches + 1);
+  for (i = 0; i < matches; i++)
     result[i] = g_match_info_fetch (match_info, i);
   result[i] = NULL;
 
@@ -1760,11 +2109,10 @@ G_GNUC_END_IGNORE_DEPRECATIONS
   regex->ref_count = 1;
   regex->pattern = g_strdup (pattern);
   regex->pcre_re = re;
-  regex->compile_opts = pcre_compile_options;
-  regex->orig_compile_opts = compile_options;
+  regex->pcre2_compile_opts = pcre_compile_options;
+  regex->regex_compile_opts = compile_options;
   regex->match_opts = pcre_match_options;
   regex->orig_match_opts = match_options;
-  regex->jit_status = enable_jit_with_match_options (regex, regex->match_opts);
 
   return regex;
 }
@@ -2011,7 +2359,7 @@ g_regex_get_compile_flags (const GRegex *regex)
   g_return_val_if_fail (regex != NULL, 0);
 
   /* Preserve original G_REGEX_OPTIMIZE */
-  extra_flags = (regex->orig_compile_opts & G_REGEX_OPTIMIZE);
+  extra_flags = (regex->regex_compile_opts & G_REGEX_OPTIMIZE);
 
   /* Also include the newline options */
   pcre2_pattern_info (regex->pcre_re, PCRE2_INFO_NEWLINE, &info_value);
@@ -2044,7 +2392,7 @@ g_regex_get_compile_flags (const GRegex *regex)
       break;
     }
 
-  return g_regex_compile_flags_from_pcre2 (regex->compile_opts) | extra_flags;
+  return g_regex_compile_flags_from_pcre2 (regex->pcre2_compile_opts) | extra_flags;
 }
 
 /**
@@ -2159,7 +2507,7 @@ g_regex_match_simple (const gchar        *pattern,
  * you use any #GMatchInfo method (except g_match_info_free()) after
  * freeing or modifying @string then the behaviour is undefined.
  *
- * Returns: %TRUE is the string matched, %FALSE otherwise
+ * Returns: %TRUE if the string matched, %FALSE otherwise
  *
  * Since: 2.14
  */
@@ -2176,7 +2524,7 @@ g_regex_match (const GRegex      *regex,
 /**
  * g_regex_match_full:
  * @regex: a #GRegex structure from g_regex_new()
- * @string: (array length=string_len): the string to scan for matches
+ * @string: the string to scan for matches
  * @string_len: the length of @string, in bytes, or -1 if @string is nul-terminated
  * @start_position: starting index of the string to match, in bytes
  * @match_options: match options
@@ -2236,7 +2584,7 @@ g_regex_match (const GRegex      *regex,
  * }
  * ]|
  *
- * Returns: %TRUE is the string matched, %FALSE otherwise
+ * Returns: %TRUE if the string matched, %FALSE otherwise
  *
  * Since: 2.14
  */
@@ -2251,6 +2599,7 @@ g_regex_match_full (const GRegex      *regex,
 {
   GMatchInfo *info;
   gboolean match_ok;
+  size_t string_len_unsigned;
 
   g_return_val_if_fail (regex != NULL, FALSE);
   g_return_val_if_fail (string != NULL, FALSE);
@@ -2258,7 +2607,9 @@ g_regex_match_full (const GRegex      *regex,
   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
   g_return_val_if_fail ((match_options & ~G_REGEX_MATCH_MASK) == 0, FALSE);
 
-  info = match_info_new (regex, string, string_len, start_position,
+  string_len_unsigned = (string_len < 0) ? strlen (string) : (size_t) string_len;
+
+  info = match_info_new (regex, string, string_len_unsigned, start_position,
                          match_options, FALSE);
   match_ok = g_match_info_next (info, error);
   if (match_info != NULL)
@@ -2292,7 +2643,7 @@ g_regex_match_full (const GRegex      *regex,
  * you use any #GMatchInfo method (except g_match_info_free()) after
  * freeing or modifying @string then the behaviour is undefined.
  *
- * Returns: %TRUE is the string matched, %FALSE otherwise
+ * Returns: %TRUE if the string matched, %FALSE otherwise
  *
  * Since: 2.14
  */
@@ -2309,7 +2660,7 @@ g_regex_match_all (const GRegex      *regex,
 /**
  * g_regex_match_all_full:
  * @regex: a #GRegex structure from g_regex_new()
- * @string: (array length=string_len): the string to scan for matches
+ * @string: the string to scan for matches
  * @string_len: the length of @string, in bytes, or -1 if @string is nul-terminated
  * @start_position: starting index of the string to match, in bytes
  * @match_options: match options
@@ -2320,15 +2671,15 @@ g_regex_match_all (const GRegex      *regex,
  * Using the standard algorithm for regular expression matching only
  * the longest match in the @string is retrieved, it is not possible
  * to obtain all the available matches. For instance matching
- * "<a> <b> <c>" against the pattern "<.*>"
- * you get "<a> <b> <c>".
+ * `"<a> <b> <c>"` against the pattern `"<.*>"`
+ * you get `"<a> <b> <c>"`.
  *
  * This function uses a different algorithm (called DFA, i.e. deterministic
  * finite automaton), so it can retrieve all the possible matches, all
  * starting at the same point in the string. For instance matching
- * "<a> <b> <c>" against the pattern "<.*>;"
- * you would obtain three matches: "<a> <b> <c>",
- * "<a> <b>" and "<a>".
+ * `"<a> <b> <c>"` against the pattern `"<.*>"`
+ * you would obtain three matches: `"<a> <b> <c>"`,
+ * `"<a> <b>"` and `"<a>"`.
  *
  * The number of matched strings is retrieved using
  * g_match_info_get_match_count(). To obtain the matched strings and
@@ -2356,7 +2707,7 @@ g_regex_match_all (const GRegex      *regex,
  * you use any #GMatchInfo method (except g_match_info_free()) after
  * freeing or modifying @string then the behaviour is undefined.
  *
- * Returns: %TRUE is the string matched, %FALSE otherwise
+ * Returns: %TRUE if the string matched, %FALSE otherwise
  *
  * Since: 2.14
  */
@@ -2375,6 +2726,7 @@ g_regex_match_all_full (const GRegex      *regex,
   gboolean retval;
   uint32_t newline_options;
   uint32_t bsr_options;
+  size_t string_len_unsigned;
 
   g_return_val_if_fail (regex != NULL, FALSE);
   g_return_val_if_fail (string != NULL, FALSE);
@@ -2382,13 +2734,15 @@ g_regex_match_all_full (const GRegex      *regex,
   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
   g_return_val_if_fail ((match_options & ~G_REGEX_MATCH_MASK) == 0, FALSE);
 
+  string_len_unsigned = (string_len < 0) ? strlen (string) : (size_t) string_len;
+
   newline_options = get_pcre2_newline_match_options (match_options);
   if (!newline_options)
-    newline_options = get_pcre2_newline_compile_options (regex->orig_compile_opts);
+    newline_options = get_pcre2_newline_compile_options (regex->regex_compile_opts);
 
   bsr_options = get_pcre2_bsr_match_options (match_options);
   if (!bsr_options)
-    bsr_options = get_pcre2_bsr_compile_options (regex->orig_compile_opts);
+    bsr_options = get_pcre2_bsr_compile_options (regex->regex_compile_opts);
 
   /* For PCRE2 we need to turn off PCRE2_NO_AUTO_POSSESS, which is an
    * optimization for normal regex matching, but results in omitting some
@@ -2397,12 +2751,12 @@ g_regex_match_all_full (const GRegex      *regex,
    * DFA matching is rather niche, and very rarely used according to
    * codesearch.debian.net, so don't bother caching the recompiled RE. */
   pcre_re = regex_compile (regex->pattern,
-                           regex->compile_opts | PCRE2_NO_AUTO_POSSESS,
+                           regex->pcre2_compile_opts | PCRE2_NO_AUTO_POSSESS,
                            newline_options, bsr_options, error);
   if (pcre_re == NULL)
     return FALSE;
 
-  info = match_info_new (regex, string, string_len, start_position,
+  info = match_info_new (regex, string, string_len_unsigned, start_position,
                          match_options, TRUE);
 
   done = FALSE;
@@ -2429,6 +2783,10 @@ g_regex_match_all_full (const GRegex      *regex,
         {
           /* info->offsets is too small. */
           info->n_offsets *= 2;
+
+          /* uint32_t is the type accepted by pcre2_match_data_create() */
+          g_assert (info->n_offsets <= UINT32_MAX);
+
           info->offsets = g_realloc_n (info->offsets,
                                        info->n_offsets,
                                        sizeof (gint));
@@ -2457,8 +2815,8 @@ g_regex_match_all_full (const GRegex      *regex,
   /* don’t assert that (info->matches <= info->n_subpatterns + 1) as that only
    * holds true for a single match, rather than matching all */
 
-  /* set info->pos to -1 so that a call to g_match_info_next() fails. */
-  info->pos = -1;
+  /* set info->pos_valid to false so that a call to g_match_info_next() fails. */
+  info->pos_valid = FALSE;
   retval = info->matches >= 0;
 
   if (match_info != NULL)
@@ -2596,7 +2954,7 @@ g_regex_split (const GRegex     *regex,
 /**
  * g_regex_split_full:
  * @regex: a #GRegex structure
- * @string: (array length=string_len): the string to split with the pattern
+ * @string: the string to split with the pattern
  * @string_len: the length of @string, in bytes, or -1 if @string is nul-terminated
  * @start_position: starting index of the string to match, in bytes
  * @match_options: match time option flags
@@ -2647,11 +3005,12 @@ g_regex_split_full (const GRegex      *regex,
   gint token_count;
   gboolean match_ok;
   /* position of the last separator. */
-  gint last_separator_end;
+  size_t last_separator_end;
   /* was the last match 0 bytes long? */
   gboolean last_match_is_empty;
   /* the returned array of char **s */
   gchar **string_list;
+  size_t string_len_unsigned, start_position_unsigned;
 
   g_return_val_if_fail (regex != NULL, NULL);
   g_return_val_if_fail (string != NULL, NULL);
@@ -2662,27 +3021,27 @@ g_regex_split_full (const GRegex      *regex,
   if (max_tokens <= 0)
     max_tokens = G_MAXINT;
 
-  if (string_len < 0)
-    string_len = strlen (string);
+  string_len_unsigned = (string_len < 0) ? strlen (string) : (size_t) string_len;
+  start_position_unsigned = (size_t) start_position;  /* see pre-condition above */
 
   /* zero-length string */
-  if (string_len - start_position == 0)
+  if (string_len_unsigned - start_position_unsigned == 0)
     return g_new0 (gchar *, 1);
 
   if (max_tokens == 1)
     {
       string_list = g_new0 (gchar *, 2);
-      string_list[0] = g_strndup (&string[start_position],
-                                  string_len - start_position);
+      string_list[0] = g_strndup (&string[start_position_unsigned],
+                                  string_len_unsigned - start_position_unsigned);
       return string_list;
     }
 
   list = NULL;
   token_count = 0;
-  last_separator_end = start_position;
+  last_separator_end = start_position_unsigned;
   last_match_is_empty = FALSE;
 
-  match_ok = g_regex_match_full (regex, string, string_len, start_position,
+  match_ok = g_regex_match_full (regex, string, string_len_unsigned, start_position_unsigned,
                                  match_options, &match_info, &tmp_error);
 
   while (tmp_error == NULL)
@@ -2696,7 +3055,8 @@ g_regex_split_full (const GRegex      *regex,
            * of another separator. e.g. the string is "a b" and the separator
            * is " *", so from 1 to 2 we have a match and at position 2 we have
            * an empty match. */
-          if (last_separator_end != match_info->offsets[1])
+          g_assert (match_info->offsets[1] >= 0);
+          if (last_separator_end != (size_t) match_info->offsets[1])
             {
               gchar *token;
               gint match_count;
@@ -2739,15 +3099,21 @@ g_regex_split_full (const GRegex      *regex,
               /* the last match was empty, so we have moved one char
                * after the real position to avoid empty matches at the
                * same position. */
-              match_info->pos = PREV_CHAR (regex, &string[match_info->pos]) - string;
+              const char *prev_char = PREV_CHAR (regex, &string[match_info->pos]);
+              g_assert (prev_char >= string);
+              match_info->pos = prev_char - string;
+              match_info->pos_valid = TRUE;
             }
+
+          g_assert (match_info->pos_valid);
+
           /* the if is needed in the case we have terminated the available
            * tokens, but we are at the end of the string, so there are no
            * characters left to copy. */
-          if (string_len > match_info->pos)
+          if (string_len_unsigned > match_info->pos)
             {
               gchar *token = g_strndup (string + match_info->pos,
-                                        string_len - match_info->pos);
+                                        string_len_unsigned - match_info->pos);
               list = g_list_prepend (list, token);
             }
           /* end the loop. */
@@ -2800,7 +3166,7 @@ typedef enum
   CHANGE_CASE_SINGLE_MASK  = CHANGE_CASE_UPPER_SINGLE | CHANGE_CASE_LOWER_SINGLE,
   CHANGE_CASE_LOWER_MASK   = CHANGE_CASE_LOWER | CHANGE_CASE_LOWER_SINGLE,
   CHANGE_CASE_UPPER_MASK   = CHANGE_CASE_UPPER | CHANGE_CASE_UPPER_SINGLE
-} ChangeCase;
+} G_GNUC_FLAG_ENUM ChangeCase;
 
 struct _InterpolationData
 {
@@ -3115,19 +3481,25 @@ split_replacement (const gchar  *replacement,
   return g_list_reverse (list);
 }
 
-/* Change the case of c based on change_case. */
-#define CHANGE_CASE(c, change_case) \
+/* Change the case of c based on change_case.
+ * g_ascii_to*() will happily pass through non-ASCII bytes unchanged. */
+#define UTF8_CHANGE_CASE(c, change_case) \
         (((change_case) & CHANGE_CASE_LOWER_MASK) ? \
                 g_unichar_tolower (c) : \
                 g_unichar_toupper (c))
+#define RAW_CHANGE_CASE(c, change_case) \
+        (((change_case) & CHANGE_CASE_LOWER_MASK) ? \
+                g_ascii_tolower (c) : \
+                g_ascii_toupper (c))
 
+/* If @text_is_raw is set, @text might not be valid UTF-8 (but will be
+ * nul-terminated). */
 static void
 string_append (GString     *string,
                const gchar *text,
+               gboolean     text_is_raw,
                ChangeCase  *change_case)
 {
-  gunichar c;
-
   if (text[0] == '\0')
     return;
 
@@ -3137,22 +3509,44 @@ string_append (GString     *string,
     }
   else if (*change_case & CHANGE_CASE_SINGLE_MASK)
     {
-      c = g_utf8_get_char (text);
-      g_string_append_unichar (string, CHANGE_CASE (c, *change_case));
-      g_string_append (string, g_utf8_next_char (text));
+      if (!text_is_raw)
+        {
+          gunichar c = g_utf8_get_char (text);
+          g_string_append_unichar (string, UTF8_CHANGE_CASE (c, *change_case));
+          g_string_append (string, g_utf8_next_char (text));
+        }
+      else
+        {
+          g_string_append_c (string, RAW_CHANGE_CASE (text[0], *change_case));
+          g_string_append (string, text + 1);
+        }
+
       *change_case = CHANGE_CASE_NONE;
     }
   else
     {
-      while (*text != '\0')
+      if (!text_is_raw)
         {
-          c = g_utf8_get_char (text);
-          g_string_append_unichar (string, CHANGE_CASE (c, *change_case));
-          text = g_utf8_next_char (text);
+          while (*text != '\0')
+            {
+              gunichar c = g_utf8_get_char (text);
+              g_string_append_unichar (string, UTF8_CHANGE_CASE (c, *change_case));
+              text = g_utf8_next_char (text);
+            }
+        }
+      else
+        {
+          while (*text != '\0')
+            {
+              char c = *text;
+              g_string_append_c (string, RAW_CHANGE_CASE (c, *change_case));
+              text++;
+            }
         }
     }
 }
 
+/* @match_info is (nullable) */
 static gboolean
 interpolate_replacement (const GMatchInfo *match_info,
                          GString          *result,
@@ -3162,6 +3556,7 @@ interpolate_replacement (const GMatchInfo *match_info,
   InterpolationData *idata;
   gchar *match;
   ChangeCase change_case = CHANGE_CASE_NONE;
+  gboolean is_raw = (match_info != NULL && (match_info->regex->regex_compile_opts & G_REGEX_RAW));
 
   for (list = data; list; list = list->next)
     {
@@ -3169,10 +3564,10 @@ interpolate_replacement (const GMatchInfo *match_info,
       switch (idata->type)
         {
         case REPL_TYPE_STRING:
-          string_append (result, idata->text, &change_case);
+          string_append (result, idata->text, is_raw, &change_case);
           break;
         case REPL_TYPE_CHARACTER:
-          g_string_append_c (result, CHANGE_CASE (idata->c, change_case));
+          g_string_append_c (result, UTF8_CHANGE_CASE (idata->c, change_case));
           if (change_case & CHANGE_CASE_SINGLE_MASK)
             change_case = CHANGE_CASE_NONE;
           break;
@@ -3180,7 +3575,7 @@ interpolate_replacement (const GMatchInfo *match_info,
           match = g_match_info_fetch (match_info, idata->num);
           if (match)
             {
-              string_append (result, match, &change_case);
+              string_append (result, match, is_raw, &change_case);
               g_free (match);
             }
           break;
@@ -3188,7 +3583,7 @@ interpolate_replacement (const GMatchInfo *match_info,
           match = g_match_info_fetch_named (match_info, idata->text);
           if (match)
             {
-              string_append (result, match, &change_case);
+              string_append (result, match, is_raw, &change_case);
               g_free (match);
             }
           break;
@@ -3226,7 +3621,7 @@ interpolation_list_needs_match (GList *list)
 /**
  * g_regex_replace:
  * @regex: a #GRegex structure
- * @string: (array length=string_len): the string to perform matches against
+ * @string: the string to perform matches against
  * @string_len: the length of @string, in bytes, or -1 if @string is nul-terminated
  * @start_position: starting index of the string to match, in bytes
  * @replacement: text to replace each match with
@@ -3234,21 +3629,21 @@ interpolation_list_needs_match (GList *list)
  * @error: location to store the error occurring, or %NULL to ignore errors
  *
  * Replaces all occurrences of the pattern in @regex with the
- * replacement text. Backreferences of the form '\number' or
- * '\g<number>' in the replacement text are interpolated by the
- * number-th captured subexpression of the match, '\g<name>' refers
- * to the captured subexpression with the given name. '\0' refers
- * to the complete match, but '\0' followed by a number is the octal
- * representation of a character. To include a literal '\' in the
- * replacement, write '\\\\'.
+ * replacement text. Backreferences of the form `\number` or
+ * `\g<number>` in the replacement text are interpolated by the
+ * number-th captured subexpression of the match, `\g<name>` refers
+ * to the captured subexpression with the given name. `\0` refers
+ * to the complete match, but `\0` followed by a number is the octal
+ * representation of a character. To include a literal `\` in the
+ * replacement, write `\\\\`.
  *
  * There are also escapes that changes the case of the following text:
  *
- * - \l: Convert to lower case the next character
- * - \u: Convert to upper case the next character
- * - \L: Convert to lower case till \E
- * - \U: Convert to upper case till \E
- * - \E: End case modification
+ * - `\l`: Convert to lower case the next character
+ * - `\u`: Convert to upper case the next character
+ * - `\L`: Convert to lower case until the next `\E`
+ * - `\U`: Convert to upper case until the next `\E`
+ * - `\E`: End case modification
  *
  * If you do not need to use backreferences use g_regex_replace_literal().
  *
@@ -3258,7 +3653,7 @@ interpolation_list_needs_match (GList *list)
  *
  * Setting @start_position differs from just passing over a shortened
  * string and setting %G_REGEX_MATCH_NOTBOL in the case of a pattern that
- * begins with any kind of lookbehind assertion, such as "\b".
+ * begins with any kind of lookbehind assertion, such as `"\b"`.
  *
  * Returns: a newly allocated string containing the replacements
  *
@@ -3317,7 +3712,7 @@ literal_replacement (const GMatchInfo *match_info,
 /**
  * g_regex_replace_literal:
  * @regex: a #GRegex structure
- * @string: (array length=string_len): the string to perform matches against
+ * @string: the string to perform matches against
  * @string_len: the length of @string, in bytes, or -1 if @string is nul-terminated
  * @start_position: starting index of the string to match, in bytes
  * @replacement: text to replace each match with
@@ -3360,11 +3755,11 @@ g_regex_replace_literal (const GRegex      *regex,
 /**
  * g_regex_replace_eval:
  * @regex: a #GRegex structure from g_regex_new()
- * @string: (array length=string_len): string to perform matches against
+ * @string: string to perform matches against
  * @string_len: the length of @string, in bytes, or -1 if @string is nul-terminated
  * @start_position: starting index of the string to match, in bytes
  * @match_options: options for the match
- * @eval: a function to call for each match
+ * @eval: (scope call): a function to call for each match
  * @user_data: user data to pass to the function
  * @error: location to store the error occurring, or %NULL to ignore errors
  *
@@ -3430,9 +3825,10 @@ g_regex_replace_eval (const GRegex        *regex,
 {
   GMatchInfo *match_info;
   GString *result;
-  gint str_pos = 0;
+  size_t str_pos = 0;
   gboolean done = FALSE;
   GError *tmp_error = NULL;
+  size_t string_len_unsigned;
 
   g_return_val_if_fail (regex != NULL, NULL);
   g_return_val_if_fail (string != NULL, NULL);
@@ -3440,13 +3836,12 @@ g_regex_replace_eval (const GRegex        *regex,
   g_return_val_if_fail (eval != NULL, NULL);
   g_return_val_if_fail ((match_options & ~G_REGEX_MATCH_MASK) == 0, NULL);
 
-  if (string_len < 0)
-    string_len = strlen (string);
+  string_len_unsigned = (string_len < 0) ? strlen (string) : (size_t) string_len;
 
-  result = g_string_sized_new (string_len);
+  result = g_string_sized_new (string_len_unsigned);
 
   /* run down the string making matches. */
-  g_regex_match_full (regex, string, string_len, start_position,
+  g_regex_match_full (regex, string, string_len_unsigned, start_position,
                       match_options, &match_info, &tmp_error);
   while (!done && g_match_info_matches (match_info))
     {
@@ -3465,7 +3860,7 @@ g_regex_replace_eval (const GRegex        *regex,
       return NULL;
     }
 
-  g_string_append_len (result, string + str_pos, string_len - str_pos);
+  g_string_append_len (result, string + str_pos, string_len_unsigned - str_pos);
   return g_string_free (result, FALSE);
 }
 
@@ -3584,7 +3979,7 @@ g_regex_escape_nul (const gchar *string,
 
 /**
  * g_regex_escape_string:
- * @string: (array length=length): the string to escape
+ * @string: the string to escape
  * @length: the length of @string, in bytes, or -1 if @string is nul-terminated
  *
  * Escapes the special characters used for regular expressions
@@ -3605,15 +4000,15 @@ g_regex_escape_string (const gchar *string,
 {
   GString *escaped;
   const char *p, *piece_start, *end;
+  size_t length_unsigned;
 
   g_return_val_if_fail (string != NULL, NULL);
 
-  if (length < 0)
-    length = strlen (string);
+  length_unsigned = (length < 0) ? strlen (string) : (size_t) length;
 
-  end = string + length;
+  end = string + length_unsigned;
   p = piece_start = string;
-  escaped = g_string_sized_new (length + 1);
+  escaped = g_string_sized_new (length_unsigned + 1);
 
   while (p < end)
     {

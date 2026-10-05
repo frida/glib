@@ -45,12 +45,14 @@
 #include "ginputstream.h"
 #include "giostream.h"
 #include "gmarshal-internal.h"
+#include "gnetworking.h"
 
-#ifdef HAVE_UNISTD_H
+#ifdef G_OS_UNIX
 #include <unistd.h>
 #endif
 #ifdef G_OS_WIN32
 #include <io.h>
+#include "giowin32-afunix.h"
 #endif
 
 #include "gunixsocketaddress.h"
@@ -62,36 +64,33 @@
    G_DBUS_SERVER_FLAGS_AUTHENTICATION_ALLOW_ANONYMOUS | \
    G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER)
 
-/**
- * SECTION:gdbusserver
- * @short_description: Helper for accepting connections
- * @include: gio/gio.h
- *
- * #GDBusServer is a helper for listening to and accepting D-Bus
- * connections. This can be used to create a new D-Bus server, allowing two
- * peers to use the D-Bus protocol for their own specialized communication.
- * A server instance provided in this way will not perform message routing or
- * implement the org.freedesktop.DBus interface.
- *
- * To just export an object on a well-known name on a message bus, such as the
- * session or system bus, you should instead use g_bus_own_name().
- *
- * An example of peer-to-peer communication with GDBus can be found
- * in [gdbus-example-peer.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gdbus-example-peer.c).
- *
- * Note that a minimal #GDBusServer will accept connections from any
- * peer. In many use-cases it will be necessary to add a #GDBusAuthObserver
- * that only accepts connections that have successfully authenticated
- * as the same user that is running the #GDBusServer. Since GLib 2.68 this can
- * be achieved more simply by passing the
- * %G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER flag to the server.
- */
+#ifndef UNIX_PATH_MAX
+#define UNIX_PATH_MAX G_SIZEOF_MEMBER (struct sockaddr_un, sun_path)
+#endif
 
 /**
  * GDBusServer:
  *
- * The #GDBusServer structure contains only private data and
- * should only be accessed using the provided API.
+ * `GDBusServer` is a helper for listening to and accepting D-Bus
+ * connections. This can be used to create a new D-Bus server, allowing two
+ * peers to use the D-Bus protocol for their own specialized communication.
+ * A server instance provided in this way will not perform message routing or
+ * implement the
+ * [`org.freedesktop.DBus` interface](https://dbus.freedesktop.org/doc/dbus-specification.html#message-bus-messages).
+ *
+ * To just export an object on a well-known name on a message bus, such as the
+ * session or system bus, you should instead use [func@Gio.bus_own_name].
+ *
+ * An example of peer-to-peer communication with GDBus can be found
+ * in [gdbus-example-peer.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gdbus-example-peer.c).
+ *
+ * Note that a minimal `GDBusServer` will accept connections from any
+ * peer. In many use-cases it will be necessary to add a
+ * [class@Gio.DBusAuthObserver] that only accepts connections that have
+ * successfully authenticated as the same user that is running the
+ * `GDBusServer`. Since GLib 2.68 this can be achieved more simply by passing
+ * the `G_DBUS_SERVER_FLAGS_AUTHENTICATION_REQUIRE_SAME_USER` flag to the
+ * server.
  *
  * Since: 2.26
  */
@@ -305,9 +304,7 @@ g_dbus_server_class_init (GDBusServerClass *klass)
    */
   g_object_class_install_property (gobject_class,
                                    PROP_FLAGS,
-                                   g_param_spec_flags ("flags",
-                                                       P_("Flags"),
-                                                       P_("Flags for the server"),
+                                   g_param_spec_flags ("flags", NULL, NULL,
                                                        G_TYPE_DBUS_SERVER_FLAGS,
                                                        G_DBUS_SERVER_FLAGS_NONE,
                                                        G_PARAM_READABLE |
@@ -328,9 +325,7 @@ g_dbus_server_class_init (GDBusServerClass *klass)
    */
   g_object_class_install_property (gobject_class,
                                    PROP_GUID,
-                                   g_param_spec_string ("guid",
-                                                        P_("GUID"),
-                                                        P_("The guid of the server"),
+                                   g_param_spec_string ("guid", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_READABLE |
                                                         G_PARAM_WRITABLE |
@@ -348,9 +343,7 @@ g_dbus_server_class_init (GDBusServerClass *klass)
    */
   g_object_class_install_property (gobject_class,
                                    PROP_ADDRESS,
-                                   g_param_spec_string ("address",
-                                                        P_("Address"),
-                                                        P_("The address to listen on"),
+                                   g_param_spec_string ("address", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_READABLE |
                                                         G_PARAM_WRITABLE |
@@ -368,9 +361,7 @@ g_dbus_server_class_init (GDBusServerClass *klass)
    */
   g_object_class_install_property (gobject_class,
                                    PROP_CLIENT_ADDRESS,
-                                   g_param_spec_string ("client-address",
-                                                        P_("Client Address"),
-                                                        P_("The address clients can use"),
+                                   g_param_spec_string ("client-address", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_READABLE |
                                                         G_PARAM_STATIC_NAME |
@@ -386,9 +377,7 @@ g_dbus_server_class_init (GDBusServerClass *klass)
    */
   g_object_class_install_property (gobject_class,
                                    PROP_ACTIVE,
-                                   g_param_spec_boolean ("active",
-                                                         P_("Active"),
-                                                         P_("Whether the server is currently active"),
+                                   g_param_spec_boolean ("active", NULL, NULL,
                                                          FALSE,
                                                          G_PARAM_READABLE |
                                                          G_PARAM_STATIC_NAME |
@@ -404,9 +393,7 @@ g_dbus_server_class_init (GDBusServerClass *klass)
    */
   g_object_class_install_property (gobject_class,
                                    PROP_AUTHENTICATION_OBSERVER,
-                                   g_param_spec_object ("authentication-observer",
-                                                        P_("Authentication Observer"),
-                                                        P_("Object used to assist in the authentication process"),
+                                   g_param_spec_object ("authentication-observer", NULL, NULL,
                                                         G_TYPE_DBUS_AUTH_OBSERVER,
                                                         G_PARAM_READABLE |
                                                         G_PARAM_WRITABLE |
@@ -433,8 +420,8 @@ g_dbus_server_class_init (GDBusServerClass *klass)
    *
    * If #GDBusServer:flags contains %G_DBUS_SERVER_FLAGS_RUN_IN_THREAD
    * then the signal is emitted in a new thread dedicated to the
-   * connection. Otherwise the signal is emitted in the
-   * [thread-default main context][g-main-context-push-thread-default]
+   * connection. Otherwise the signal is emitted in the thread-default
+   * main context (see [method@GLib.MainContext.push_thread_default])
    * of the thread that @server was constructed in.
    *
    * You are guaranteed that signal handlers for this signal runs
@@ -499,7 +486,7 @@ on_run (GSocketService    *service,
  * The returned #GDBusServer isn't active - you have to start it with
  * g_dbus_server_start().
  *
- * #GDBusServer is used in this [example][gdbus-peer-to-peer].
+ * #GDBusServer is used in this [example](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gdbus-example-peer.c).
  *
  * This is a synchronous failable constructor. There is currently no
  * asynchronous version.
@@ -718,10 +705,12 @@ try_unix (GDBusServer  *server,
       gint n;
       GString *s;
       GError *local_error;
+      gsize orig_path_len = 0; // length before random characters are added
 
     retry:
       s = g_string_new (tmpdir != NULL ? tmpdir : dir);
       g_string_append (s, "/dbus-");
+      orig_path_len = s->len;
       for (n = 0; n < 8; n++)
         g_string_append_c (s, random_ascii ());
 
@@ -739,8 +728,11 @@ try_unix (GDBusServer  *server,
         {
           if (local_error->domain == G_IO_ERROR && local_error->code == G_IO_ERROR_ADDRESS_IN_USE)
             {
-              g_error_free (local_error);
-              goto retry;
+              if (orig_path_len < UNIX_PATH_MAX - 2) /* random_ascii + NULL byte */
+                {
+                  g_error_free (local_error);
+                  goto retry;
+                }
             }
           g_propagate_error (error, local_error);
           goto out;

@@ -38,14 +38,6 @@ G_BEGIN_DECLS
 #define G_IS_FILE_OUTPUT_STREAM_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_FILE_OUTPUT_STREAM))
 #define G_FILE_OUTPUT_STREAM_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_FILE_OUTPUT_STREAM, GFileOutputStreamClass))
 
-/**
- * GFileOutputStream:
- *
- * A subclass of GOutputStream for opened files. This adds
- * a few file-specific operations and seeking and truncating.
- *
- * #GFileOutputStream implements GSeekable.
- **/
 typedef struct _GFileOutputStreamClass    GFileOutputStreamClass;
 typedef struct _GFileOutputStreamPrivate  GFileOutputStreamPrivate;
 
@@ -97,7 +89,7 @@ struct _GFileOutputStreamClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType      g_file_output_stream_get_type          (void) G_GNUC_CONST;
+GType      g_file_output_stream_get_type          (void);
 
 
 GIO_AVAILABLE_IN_ALL

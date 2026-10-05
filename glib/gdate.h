@@ -38,15 +38,6 @@
 
 G_BEGIN_DECLS
 
-/* GDate
- *
- * Date calculations (not time for now, to be resolved). These are a
- * mutant combination of Steffen Beyer's DateCalc routines
- * (http://www.perl.com/CPAN/authors/id/STBEY/) and Jon Trowbridge's
- * date routines (written for in-house software).  Written by Havoc
- * Pennington <hp@pobox.com>
- */
-
 typedef gint32  GTime GLIB_DEPRECATED_TYPE_IN_2_62_FOR(GDateTime);
 typedef guint16 GDateYear;
 typedef guint8  GDateDay;   /* day of the month */
@@ -176,6 +167,9 @@ GLIB_AVAILABLE_IN_ALL
 guint        g_date_get_monday_week_of_year (const GDate *date);
 GLIB_AVAILABLE_IN_ALL
 guint        g_date_get_sunday_week_of_year (const GDate *date);
+GLIB_AVAILABLE_IN_2_86
+guint        g_date_get_week_of_year        (const GDate  *date,
+                                             GDateWeekday  first_day_of_week);
 GLIB_AVAILABLE_IN_ALL
 guint        g_date_get_iso8601_week_of_year (const GDate *date);
 
@@ -259,6 +253,9 @@ GLIB_AVAILABLE_IN_ALL
 guint8       g_date_get_monday_weeks_in_year  (GDateYear    year) G_GNUC_CONST;
 GLIB_AVAILABLE_IN_ALL
 guint8       g_date_get_sunday_weeks_in_year  (GDateYear    year) G_GNUC_CONST;
+GLIB_AVAILABLE_IN_2_86
+guint8       g_date_get_weeks_in_year         (GDateYear    year,
+                                               GDateWeekday first_day_of_week) G_GNUC_CONST;
 
 /* Returns the number of days between the two dates.  If date2 comes
    before date1, a negative value is return. */

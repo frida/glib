@@ -37,12 +37,9 @@
 #include "glibintl.h"
 
 /**
- * SECTION:gwin32outputstream
- * @short_description: Streaming output operations for Windows file handles
- * @include: gio/gwin32outputstream.h
- * @see_also: #GOutputStream
+ * GWin32OutputStream:
  *
- * #GWin32OutputStream implements #GOutputStream for writing to a
+ * `GWin32OutputStream` implements [class@Gio.OutputStream] for writing to a
  * Windows file handle.
  *
  * Note that `<gio/gwin32outputstream.h>` belongs to the Windows-specific GIO
@@ -54,8 +51,6 @@ struct _GWin32OutputStreamPrivate {
   HANDLE handle;
   gboolean close_handle;
   gint fd;
-  DWORD file_type;
-  guint64 file_offset;
 };
 
 enum {
@@ -83,7 +78,6 @@ g_win32_output_stream_set_property (GObject         *object,
     {
     case PROP_HANDLE:
       win32_stream->priv->handle = g_value_get_pointer (value);
-      win32_stream->priv->file_type = GetFileType (win32_stream->priv->handle);
       break;
     case PROP_CLOSE_HANDLE:
       win32_stream->priv->close_handle = g_value_get_boolean (value);
@@ -143,14 +137,6 @@ g_win32_output_stream_write (GOutputStream  *stream,
   overlap.hEvent = CreateEvent (NULL, FALSE, FALSE, NULL);
   g_return_val_if_fail (overlap.hEvent != NULL, -1);
 
-  if (win32_stream->priv->file_type == FILE_TYPE_DISK)
-    {
-      guint64 offset = win32_stream->priv->file_offset;
-
-      overlap.Offset = offset & 0xffffffff;
-      overlap.OffsetHigh = offset >> 32;
-    }
-
   res = WriteFile (win32_stream->priv->handle, buffer, nbytes, &nwritten, &overlap);
   if (res)
     retval = nwritten;
@@ -189,8 +175,6 @@ g_win32_output_stream_write (GOutputStream  *stream,
     }
 
 end:
-  if (win32_stream->priv->file_type == FILE_TYPE_DISK && retval > 0)
-    win32_stream->priv->file_offset += retval;
   CloseHandle (overlap.hEvent);
   return retval;
 }
@@ -261,9 +245,7 @@ g_win32_output_stream_class_init (GWin32OutputStreamClass *klass)
    * Since: 2.26
    */
   props[PROP_HANDLE] =
-    g_param_spec_pointer ("handle",
-                          P_("File handle"),
-                          P_("The file handle to write to"),
+    g_param_spec_pointer ("handle", NULL, NULL,
                           G_PARAM_READABLE |
                           G_PARAM_WRITABLE |
                           G_PARAM_CONSTRUCT_ONLY |
@@ -277,9 +259,7 @@ g_win32_output_stream_class_init (GWin32OutputStreamClass *klass)
    * Since: 2.26
    */
   props[PROP_CLOSE_HANDLE] =
-    g_param_spec_boolean ("close-handle",
-                          P_("Close file handle"),
-                          P_("Whether to close the file handle when the stream is closed"),
+    g_param_spec_boolean ("close-handle", NULL, NULL,
                           TRUE,
                           G_PARAM_READABLE |
                           G_PARAM_WRITABLE |
@@ -295,8 +275,6 @@ g_win32_output_stream_init (GWin32OutputStream *win32_stream)
   win32_stream->priv->handle = NULL;
   win32_stream->priv->close_handle = TRUE;
   win32_stream->priv->fd = -1;
-  win32_stream->priv->file_type = FILE_TYPE_UNKNOWN;
-  win32_stream->priv->file_offset = 0;
 }
 
 /**

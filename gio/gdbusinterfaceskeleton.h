@@ -23,6 +23,7 @@
 #ifndef __G_DBUS_INTERFACE_SKELETON_H__
 #define __G_DBUS_INTERFACE_SKELETON_H__
 
+#include <gio/gdbusconnection.h>
 #include <gio/giotypes.h>
 
 G_BEGIN_DECLS
@@ -37,14 +38,6 @@ G_BEGIN_DECLS
 typedef struct _GDBusInterfaceSkeletonClass   GDBusInterfaceSkeletonClass;
 typedef struct _GDBusInterfaceSkeletonPrivate GDBusInterfaceSkeletonPrivate;
 
-/**
- * GDBusInterfaceSkeleton:
- *
- * The #GDBusInterfaceSkeleton structure contains private data and should
- * only be accessed using the provided API.
- *
- * Since: 2.30
- */
 struct _GDBusInterfaceSkeleton
 {
   /*< private >*/
@@ -59,6 +52,7 @@ struct _GDBusInterfaceSkeleton
  * @get_vtable: Returns a #GDBusInterfaceVTable. See g_dbus_interface_skeleton_get_vtable() for details.
  * @get_properties: Returns a #GVariant with all properties. See g_dbus_interface_skeleton_get_properties().
  * @flush: Emits outstanding changes, if any. See g_dbus_interface_skeleton_flush().
+ * @method_dispatch: Dispatches a method invocation. (Since: 2.88)
  * @g_authorize_method: Signal class handler for the #GDBusInterfaceSkeleton::g-authorize-method signal.
  *
  * Class structure for #GDBusInterfaceSkeleton.
@@ -74,9 +68,14 @@ struct _GDBusInterfaceSkeletonClass
   GDBusInterfaceVTable *(*get_vtable)     (GDBusInterfaceSkeleton  *interface_);
   GVariant             *(*get_properties) (GDBusInterfaceSkeleton  *interface_);
   void                  (*flush)          (GDBusInterfaceSkeleton  *interface_);
+  void                  (*method_dispatch) (GDBusInterfaceSkeleton       *interface_,
+                                            GDBusInterfaceMethodCallFunc  method_call_func,
+                                            GDBusMethodInvocation        *invocation,
+                                            GDBusInterfaceSkeletonFlags   flags,
+                                            GDBusObject                  *object);
 
   /*< private >*/
-  gpointer vfunc_padding[8];
+  gpointer vfunc_padding[7];
   /*< public >*/
 
   /* Signals */
@@ -88,7 +87,7 @@ struct _GDBusInterfaceSkeletonClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType                        g_dbus_interface_skeleton_get_type        (void) G_GNUC_CONST;
+GType                        g_dbus_interface_skeleton_get_type        (void);
 GIO_AVAILABLE_IN_ALL
 GDBusInterfaceSkeletonFlags  g_dbus_interface_skeleton_get_flags       (GDBusInterfaceSkeleton      *interface_);
 GIO_AVAILABLE_IN_ALL

@@ -60,7 +60,7 @@ typedef GVaClosureMarshal		 GSignalCVaMarshaller;
  *  the instance on which the signal was emitted.
  * @param_values: (array length=n_param_values): the instance on which
  *  the signal was emitted, followed by the parameters of the emission.
- * @user_data: user data associated with the hook.
+ * @data: user data associated with the hook.
  * 
  * A simple function pointer to get invoked when the signal is emitted.
  *
@@ -75,14 +75,14 @@ typedef GVaClosureMarshal		 GSignalCVaMarshaller;
 typedef gboolean (*GSignalEmissionHook) (GSignalInvocationHint *ihint,
 					 guint			n_param_values,
 					 const GValue	       *param_values,
-					 gpointer		user_data);
+					 gpointer		data);
 /**
  * GSignalAccumulator:
  * @ihint: Signal invocation hint, see #GSignalInvocationHint.
  * @return_accu: Accumulator to collect callback return values in, this
  *  is the return value of the current signal emission.
  * @handler_return: A #GValue holding the return value of the signal handler.
- * @user_data: Callback data that was specified when creating the signal.
+ * @data: Callback data that was specified when creating the signal.
  * 
  * The signal accumulator is a special callback function that can be used
  * to collect return values of the various callbacks that are called
@@ -103,35 +103,27 @@ typedef gboolean (*GSignalEmissionHook) (GSignalInvocationHint *ihint,
 typedef gboolean (*GSignalAccumulator)	(GSignalInvocationHint *ihint,
 					 GValue		       *return_accu,
 					 const GValue	       *handler_return,
-					 gpointer               user_data);
+					 gpointer               data);
 
 
 /* --- run, match and connect types --- */
 /**
  * GSignalFlags:
- * @G_SIGNAL_RUN_FIRST: Invoke the object method handler in the first emission stage.
- * @G_SIGNAL_RUN_LAST: Invoke the object method handler in the third emission stage.
- * @G_SIGNAL_RUN_CLEANUP: Invoke the object method handler in the last emission stage.
+ * @G_SIGNAL_RUN_FIRST: Invoke the default signal handler in the first emission stage
+ * @G_SIGNAL_RUN_LAST: Invoke the default signal handler in the third emission stage
+ * @G_SIGNAL_RUN_CLEANUP: Invoke the default signal handler in the last emission stage
  * @G_SIGNAL_NO_RECURSE: Signals being emitted for an object while currently being in
  *  emission for this very object will not be emitted recursively,
  *  but instead cause the first emission to be restarted.
- * @G_SIGNAL_DETAILED: This signal supports "::detail" appendices to the signal name
+ * @G_SIGNAL_DETAILED: This signal supports `::detail` appendices to the signal name
  *  upon handler connections and emissions.
  * @G_SIGNAL_ACTION: Action signals are signals that may freely be emitted on alive
- *  objects from user code via g_signal_emit() and friends, without
+ *  objects from user code via [func@GObject.signal_emit] and friends, without
  *  the need of being embedded into extra code that performs pre or
  *  post emission adjustments on the object. They can also be thought
  *  of as object methods which can be called generically by 
  *  third-party code.
  * @G_SIGNAL_NO_HOOKS: No emissions hooks are supported for this signal.
- * @G_SIGNAL_MUST_COLLECT: Varargs signal emission will always collect the
- *   arguments, even if there are no signal handlers connected.  Since 2.30.
- * @G_SIGNAL_DEPRECATED: The signal is deprecated and will be removed
- *   in a future version. A warning will be generated if it is connected while
- *   running with G_ENABLE_DIAGNOSTIC=1.  Since 2.32.
- * @G_SIGNAL_ACCUMULATOR_FIRST_RUN: Only used in #GSignalAccumulator accumulator
- *   functions for the #GSignalInvocationHint::run_type field to mark the first
- *   call to the accumulator function for a signal emission.  Since 2.68.
  *
  * The signal flags are used to specify a signal's behaviour.
  */
@@ -148,7 +140,40 @@ typedef enum
   G_SIGNAL_DEPRECATED   = 1 << 8,
   /* normal signal flags until 1 << 16 */
   G_SIGNAL_ACCUMULATOR_FIRST_RUN    = 1 << 17,
-} GSignalFlags;
+} G_GNUC_FLAG_ENUM GSignalFlags;
+
+/**
+ * G_SIGNAL_MUST_COLLECT:
+ *
+ * Varargs signal emission will always collect the arguments, even if there
+ * are no signal handlers connected.
+ *
+ * Since: 2.30
+ */
+
+/**
+ * G_SIGNAL_DEPRECATED:
+ *
+ * The signal is deprecated and will be removed in a future version.
+ *
+ * A warning will be generated if it is connected while running with
+ * `G_ENABLE_DIAGNOSTIC=1`.
+ *
+ * Since: 2.32
+ */
+
+/**
+ * G_SIGNAL_ACCUMULATOR_FIRST_RUN:
+ *
+ * The signal accumulator was invoked for the first time.
+ *
+ * This flag is only used in [callback@GObject.SignalAccumulator][accumulator functions]
+ * for the `run_type` field of the [struct@GObject.SignalInvocationHint], to
+ * mark the first call to the accumulator function for a signal emission.
+ *
+ * Since: 2.68
+ */
+
 /**
  * G_SIGNAL_FLAGS_MASK:
  * 
@@ -157,7 +182,6 @@ typedef enum
 #define G_SIGNAL_FLAGS_MASK  0x1ff
 /**
  * GConnectFlags:
- * @G_CONNECT_DEFAULT: Default behaviour (no special flags). Since: 2.74
  * @G_CONNECT_AFTER: If set, the handler should be called after the
  *  default handler of the signal. Normally, the handler is called before
  *  the default handler.
@@ -169,10 +193,17 @@ typedef enum
  */
 typedef enum
 {
+  /**
+   * G_CONNECT_DEFAULT:
+   *
+   * Default behaviour (no special flags).
+   *
+   * Since: 2.74
+   */
   G_CONNECT_DEFAULT GOBJECT_AVAILABLE_ENUMERATOR_IN_2_74 = 0,
   G_CONNECT_AFTER	= 1 << 0,
   G_CONNECT_SWAPPED	= 1 << 1
-} GConnectFlags;
+} G_GNUC_FLAG_ENUM GConnectFlags;
 /**
  * GSignalMatchType:
  * @G_SIGNAL_MATCH_ID: The signal id must be equal.
@@ -194,7 +225,7 @@ typedef enum
   G_SIGNAL_MATCH_FUNC	   = 1 << 3,
   G_SIGNAL_MATCH_DATA	   = 1 << 4,
   G_SIGNAL_MATCH_UNBLOCKED = 1 << 5
-} GSignalMatchType;
+} G_GNUC_FLAG_ENUM GSignalMatchType;
 /**
  * G_SIGNAL_MATCH_MASK:
  * 
@@ -500,14 +531,23 @@ void   g_signal_chain_from_overridden_handler (gpointer           instance,
  * @c_handler: the #GCallback to connect.
  * @data: data to pass to @c_handler calls.
  * 
- * Connects a #GCallback function to a signal for a particular object.
+ * Connects a [type@GObject.Callback] function to a signal for a particular object.
  * 
- * The handler will be called synchronously, before the default handler of the signal. g_signal_emit() will not return control until all handlers are called.
+ * The handler will be called synchronously, before the default handler of the signal.
+ * [func@GObject.signal_emit] will not return control until all handlers are called.
  *
- * See [memory management of signal handlers][signal-memory-management] for
+ * See [memory management of signal handlers](signals.html#memory-management-of-signal-handlers) for
  * details on how to handle the return value and memory management of @data.
  * 
- * Returns: the handler ID, of type #gulong (always greater than 0 for successful connections)
+ * This function cannot fail. If the given signal name doesn’t exist,
+ * a critical warning is emitted. No validation is performed on the
+ * ‘detail’ string when specified in @detailed_signal, other than a
+ * non-empty check.
+ *
+ * Refer to the [signals documentation](signals.html) for more
+ * details.
+ *
+ * Returns: the handler ID, of type `gulong` (always greater than 0)
  */
 /* Intentionally not using G_CONNECT_DEFAULT here to avoid deprecation
  * warnings with older GLIB_VERSION_MAX_ALLOWED */
@@ -524,7 +564,15 @@ void   g_signal_chain_from_overridden_handler (gpointer           instance,
  * 
  * The handler will be called synchronously, after the default handler of the signal.
  * 
- * Returns: the handler ID, of type #gulong (always greater than 0 for successful connections)
+ * This function cannot fail. If the given signal name doesn’t exist,
+ * a critical warning is emitted. No validation is performed on the
+ * ‘detail’ string when specified in @detailed_signal, other than a
+ * non-empty check.
+ *
+ * Refer to the [signals documentation](signals.html) for more
+ * details.
+ *
+ * Returns: the handler ID, of type `gulong` (always greater than 0)
  */
 #define g_signal_connect_after(instance, detailed_signal, c_handler, data) \
     g_signal_connect_data ((instance), (detailed_signal), (c_handler), (data), NULL, G_CONNECT_AFTER)
@@ -562,7 +610,15 @@ void   g_signal_chain_from_overridden_handler (gpointer           instance,
  *                   (GCallback) button_clicked_cb, other_widget);
  * ]|
  * 
- * Returns: the handler ID, of type #gulong (always greater than 0 for successful connections)
+ * This function cannot fail. If the given signal name doesn’t exist,
+ * a critical warning is emitted. No validation is performed on the
+ * ‘detail’ string when specified in @detailed_signal, other than a
+ * non-empty check.
+ *
+ * Refer to the [signals documentation](signals.html) for more
+ * details.
+ *
+ * Returns: the handler ID, of type `gulong` (always greater than 0)
  */
 #define g_signal_connect_swapped(instance, detailed_signal, c_handler, data) \
     g_signal_connect_data ((instance), (detailed_signal), (c_handler), (data), NULL, G_CONNECT_SWAPPED)

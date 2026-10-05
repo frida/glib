@@ -81,12 +81,6 @@ typedef void  (*GTypePluginCompleteInterfaceInfo) (GTypePlugin     *plugin,
 						   GType            interface_type,
 						   GInterfaceInfo  *info);
 /**
- * GTypePlugin:
- * 
- * The GTypePlugin typedef is used as a placeholder 
- * for objects that implement the GTypePlugin interface.
- */
-/**
  * GTypePluginClass:
  * @use_plugin: Increases the use count of the plugin.
  * @unuse_plugin: Decreases the use count of the plugin.
@@ -115,7 +109,7 @@ struct _GTypePluginClass
 
 /* --- prototypes --- */
 GOBJECT_AVAILABLE_IN_ALL
-GType	g_type_plugin_get_type			(void)	G_GNUC_CONST;
+GType	g_type_plugin_get_type			(void);
 GOBJECT_AVAILABLE_IN_ALL
 void	g_type_plugin_use			(GTypePlugin	 *plugin);
 GOBJECT_AVAILABLE_IN_ALL

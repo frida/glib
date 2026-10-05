@@ -83,7 +83,7 @@ list_resource (GResource   *resource,
   gint i;
   gchar *child;
   GError *error = NULL;
-  gint len;
+  size_t len;
 
   children = g_resource_enumerate_children (resource, path, 0, &error);
   if (error)
@@ -165,6 +165,7 @@ get_elf (const gchar *file,
 
   if (elf_kind (elf) != ELF_K_ELF)
     {
+      elf_end (elf);
       g_close (*fd, NULL);
       *fd = -1;
       return NULL;
@@ -610,8 +611,6 @@ main (int argc, char *argv[])
 #ifdef G_OS_WIN32
   gchar *tmp;
 #endif
-
-  glib_init ();
 
   setlocale (LC_ALL, GLIB_DEFAULT_LOCALE);
   textdomain (GETTEXT_PACKAGE);

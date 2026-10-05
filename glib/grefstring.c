@@ -18,81 +18,13 @@
  * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  */
 
-/**
- * SECTION:refstring
- * @Title: Reference counted strings
- * @Short_description: Strings with reference counted memory management
- *
- * Reference counted strings are normal C strings that have been augmented
- * with a reference counter to manage their resources. You allocate a new
- * reference counted string and acquire and release references as needed,
- * instead of copying the string among callers; when the last reference on
- * the string is released, the resources allocated for it are freed.
- *
- * Typically, reference counted strings can be used when parsing data from
- * files and storing them into data structures that are passed to various
- * callers:
- *
- * |[<!-- language="C" -->
- * PersonDetails *
- * person_details_from_data (const char *data)
- * {
- *   // Use g_autoptr() to simplify error cases
- *   g_autoptr(GRefString) full_name = NULL;
- *   g_autoptr(GRefString) address =  NULL;
- *   g_autoptr(GRefString) city = NULL;
- *   g_autoptr(GRefString) state = NULL;
- *   g_autoptr(GRefString) zip_code = NULL;
- *
- *   // parse_person_details() is defined elsewhere; returns refcounted strings
- *   if (!parse_person_details (data, &full_name, &address, &city, &state, &zip_code))
- *     return NULL;
- *
- *   if (!validate_zip_code (zip_code))
- *     return NULL;
- *
- *   // add_address_to_cache() and add_full_name_to_cache() are defined
- *   // elsewhere; they add strings to various caches, using refcounted
- *   // strings to avoid copying data over and over again
- *   add_address_to_cache (address, city, state, zip_code);
- *   add_full_name_to_cache (full_name);
- *
- *   // person_details_new() is defined elsewhere; it takes a reference
- *   // on each string
- *   PersonDetails *res = person_details_new (full_name,
- *                                            address,
- *                                            city,
- *                                            state,
- *                                            zip_code);
- *
- *   return res;
- * }
- * ]|
- *
- * In the example above, we have multiple functions taking the same strings
- * for different uses; with typical C strings, we'd have to copy the strings
- * every time the life time rules of the data differ from the life time of
- * the string parsed from the original buffer. With reference counted strings,
- * each caller can take a reference on the data, and keep it as long as it
- * needs to own the string.
- *
- * Reference counted strings can also be "interned" inside a global table
- * owned by GLib; while an interned string has at least a reference, creating
- * a new interned reference counted string with the same contents will return
- * a reference to the existing string instead of creating a new reference
- * counted string instance. Once the string loses its last reference, it will
- * be automatically removed from the global interned strings table.
- *
- * Since: 2.58
- */
-
 #include "config.h"
 
 #include "grefstring.h"
 
 #include "ghash.h"
 #include "gmessages.h"
-#include "grcbox.h"
+#include "gtestutils.h"
 #include "gthread.h"
 
 #include <string.h>
@@ -104,6 +36,43 @@
  */
 G_LOCK_DEFINE_STATIC (interned_ref_strings);
 static GHashTable *interned_ref_strings;
+
+#if G_GNUC_CHECK_VERSION(4,8) || defined(__clang__)
+# define _attribute_aligned(n) __attribute__((aligned(n)))
+#elif defined(_MSC_VER)
+# define _attribute_aligned(n) __declspec(align(n))
+#else
+# define _attribute_aligned(n)
+#endif
+
+typedef struct {
+  /* Length of the string without NUL-terminator */
+  size_t len;
+  /* Atomic reference count placed here to reduce struct padding */
+  int ref_count;
+  /* TRUE if interned, FALSE otherwise; immutable after construction */
+  guint8 interned;
+
+  /* First character of the actual string
+   * Make sure it is at least 2 * sizeof (size_t) aligned to allow for SIMD
+   * optimizations in operations on the string.
+   * Because MSVC sucks we need to handle both cases explicitly. */
+#if GLIB_SIZEOF_SIZE_T == 4
+  _attribute_aligned (8) char s[];
+#elif GLIB_SIZEOF_SIZE_T == 8
+  _attribute_aligned (16) char s[];
+#else
+#error "Only 32 bit and 64 bit size_t supported currently"
+#endif
+} GRefStringImpl;
+
+/* Assert that the start of the actual string is at least 2 * alignof (size_t) aligned */
+G_STATIC_ASSERT (offsetof (GRefStringImpl, s) % (2 * G_ALIGNOF (size_t)) == 0);
+
+/* Gets a pointer to the GRefStringImpl from its string pointer */
+#define G_REF_STRING_IMPL_FROM_STR(str) ((GRefStringImpl *) ((guint8 *) str - offsetof (GRefStringImpl, s)))
+/* Gets a pointer to the string pointer from the GRefStringImpl */
+#define G_REF_STRING_IMPL_TO_STR(str) (str->s)
 
 /**
  * g_ref_string_new:
@@ -119,16 +88,23 @@ static GHashTable *interned_ref_strings;
 char *
 g_ref_string_new (const char *str)
 {
-  char *res;
+  GRefStringImpl *impl;
   gsize len;
 
   g_return_val_if_fail (str != NULL, NULL);
-  
-  len = strlen (str);
-  
-  res = (char *) g_atomic_rc_box_dup (sizeof (char) * len + 1, str);
 
-  return res;
+  len = strlen (str);
+
+  if (sizeof (char) * len > G_MAXSIZE - sizeof (GRefStringImpl) - 1)
+    g_error ("GRefString allocation would overflow");
+
+  impl = g_malloc (sizeof (GRefStringImpl) + sizeof (char) * len + 1);
+  impl->len = len;
+  impl->ref_count = 1;
+  impl->interned = FALSE;
+  memcpy (G_REF_STRING_IMPL_TO_STR (impl), str, len + 1);
+
+  return G_REF_STRING_IMPL_TO_STR (impl);
 }
 
 /**
@@ -149,7 +125,7 @@ g_ref_string_new (const char *str)
 char *
 g_ref_string_new_len (const char *str, gssize len)
 {
-  char *res;
+  GRefStringImpl *impl;
 
   g_return_val_if_fail (str != NULL, NULL);
 
@@ -157,11 +133,17 @@ g_ref_string_new_len (const char *str, gssize len)
     return g_ref_string_new (str);
 
   /* allocate then copy as str[len] may not be readable */
-  res = (char *) g_atomic_rc_box_alloc ((gsize) len + 1);
-  memcpy (res, str, len);
-  res[len] = '\0';
+  if (sizeof (char) * len > G_MAXSIZE - sizeof (GRefStringImpl) - 1)
+    g_error ("GRefString allocation would overflow");
 
-  return res;
+  impl = g_malloc (sizeof (GRefStringImpl) + sizeof (char) * len + 1);
+  impl->len = len;
+  impl->ref_count = 1;
+  impl->interned = FALSE;
+  memcpy (G_REF_STRING_IMPL_TO_STR (impl), str, len);
+  G_REF_STRING_IMPL_TO_STR (impl)[len] = '\0';
+
+  return G_REF_STRING_IMPL_TO_STR (impl);
 }
 
 /* interned_str_equal: variant of g_str_equal() that compares
@@ -215,17 +197,14 @@ g_ref_string_new_intern (const char *str)
   res = g_hash_table_lookup (interned_ref_strings, str);
   if (res != NULL)
     {
-      /* We acquire the reference while holding the lock, to
-       * avoid a potential race between releasing the lock on
-       * the hash table and another thread releasing the reference
-       * on the same string
-       */
-      g_atomic_rc_box_acquire (res);
+      GRefStringImpl *impl = G_REF_STRING_IMPL_FROM_STR (res);
+      g_atomic_int_inc (&impl->ref_count);
       G_UNLOCK (interned_ref_strings);
       return res;
     }
 
   res = g_ref_string_new (str);
+  G_REF_STRING_IMPL_FROM_STR (res)->interned = TRUE;
   g_hash_table_add (interned_ref_strings, res);
   G_UNLOCK (interned_ref_strings);
 
@@ -247,25 +226,9 @@ g_ref_string_acquire (char *str)
 {
   g_return_val_if_fail (str != NULL, NULL);
 
-  return g_atomic_rc_box_acquire (str);
-}
+  g_atomic_int_inc (&G_REF_STRING_IMPL_FROM_STR (str)->ref_count);
 
-static void
-remove_if_interned (gpointer data)
-{
-  char *str = data;
-
-  G_LOCK (interned_ref_strings);
-
-  if (G_LIKELY (interned_ref_strings != NULL))
-    {
-      g_hash_table_remove (interned_ref_strings, str);
-
-      if (g_hash_table_size (interned_ref_strings) == 0)
-        g_clear_pointer (&interned_ref_strings, g_hash_table_destroy);
-    }
-
-  G_UNLOCK (interned_ref_strings);
+  return str;
 }
 
 /**
@@ -280,9 +243,53 @@ remove_if_interned (gpointer data)
 void
 g_ref_string_release (char *str)
 {
+  GRefStringImpl *impl;
+  int old_ref_count;
+
   g_return_if_fail (str != NULL);
 
-  g_atomic_rc_box_release_full (str, remove_if_interned);
+  impl = G_REF_STRING_IMPL_FROM_STR (str);
+
+  /* Non-interned strings are easy so let's get that out of the way here first */
+  if (!impl->interned)
+    {
+      if (g_atomic_int_dec_and_test (&impl->ref_count))
+        g_free (impl);
+      return;
+    }
+
+  old_ref_count = g_atomic_int_get (&impl->ref_count);
+  g_assert (old_ref_count >= 1);
+retry:
+  /* Fast path: multiple references, we can just try decrementing and be done with it */
+  if (old_ref_count > 1)
+    {
+      /* If the reference count stayed the same we're done, otherwise retry */
+      if (!g_atomic_int_compare_and_exchange_full (&impl->ref_count, old_ref_count, old_ref_count - 1, &old_ref_count))
+        goto retry;
+
+      return;
+    }
+
+  /* This is the last reference *currently* and would potentially free the string.
+   * To avoid races between freeing it and returning it from g_ref_string_new_intern()
+   * we must take the lock here before decrementing the reference count!
+   */
+  G_LOCK (interned_ref_strings);
+  /* If the string was not given out again in the meantime we're done */
+  if (g_atomic_int_dec_and_test (&impl->ref_count))
+    {
+      gboolean removed G_GNUC_UNUSED  /* when compiling with G_DISABLE_ASSERT */;
+
+      removed = g_hash_table_remove (interned_ref_strings, str);
+      g_assert (removed);
+
+      if (g_hash_table_size (interned_ref_strings) == 0)
+        g_clear_pointer (&interned_ref_strings, g_hash_table_destroy);
+
+      g_free (impl);
+    }
+  G_UNLOCK (interned_ref_strings);
 }
 
 /**
@@ -300,5 +307,31 @@ g_ref_string_length (char *str)
 {
   g_return_val_if_fail (str != NULL, 0);
 
-  return g_atomic_rc_box_get_size (str) - 1;
+  return G_REF_STRING_IMPL_FROM_STR (str)->len;
+}
+
+/**
+ * g_ref_string_equal:
+ * @str1: a reference counted string
+ * @str2: a reference counted string
+ *
+ * Compares two ref-counted strings for byte-by-byte equality.
+ *
+ * It can be passed to [func@GLib.HashTable.new] as the key equality function,
+ * and behaves exactly the same as [func@GLib.str_equal] (or `strcmp()`), but
+ * can return slightly faster as it can check the string lengths before checking
+ * all the bytes.
+ *
+ * Returns: `TRUE` if the strings are equal, otherwise `FALSE`
+ *
+ * Since: 2.84
+ */
+gboolean
+g_ref_string_equal (const char *str1,
+                    const char *str2)
+{
+  if (G_REF_STRING_IMPL_FROM_STR ((char *) str1)->len != G_REF_STRING_IMPL_FROM_STR ((char *) str2)->len)
+    return FALSE;
+
+  return strcmp (str1, str2) == 0;
 }

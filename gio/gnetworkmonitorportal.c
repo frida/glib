@@ -101,7 +101,7 @@ is_valid_connectivity (guint32 value)
   GEnumClass *enum_klass;
 
   enum_klass = g_type_class_ref (G_TYPE_NETWORK_CONNECTIVITY);
-  enum_value = g_enum_get_value (enum_klass, value);
+  enum_value = g_enum_get_value (enum_klass, (int) value);
 
   g_type_class_unref (enum_klass);
 
@@ -561,9 +561,9 @@ can_reach_done (GObject      *source,
   if (reachable)
     g_task_return_boolean (task, TRUE);
   else
-    g_task_return_new_error (task,
-                             G_IO_ERROR, G_IO_ERROR_HOST_UNREACHABLE,
-                             "Can't reach host");
+    g_task_return_new_error_literal (task,
+                                     G_IO_ERROR, G_IO_ERROR_HOST_UNREACHABLE,
+                                     "Can't reach host");
 
   g_object_unref (task);
 }

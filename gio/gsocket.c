@@ -80,55 +80,47 @@
 
 #ifdef G_OS_WIN32
 #include "giowin32-afunix.h"
-/* For Windows XP runtime compatibility, but use the system's if_nametoindex() if available */
-#include "gwin32networking.h"
-#endif
-
-#if defined (__linux__) && !defined (SOCK_CLOEXEC)
-# define SOCK_CLOEXEC 02000000
 #endif
 
 /**
- * SECTION:gsocket
- * @short_description: Low-level socket object
- * @include: gio/gio.h
- * @see_also: #GInitable, [<gnetworking.h>][gio-gnetworking.h]
+ * GSocket:
  *
- * A #GSocket is a low-level networking primitive. It is a more or less
+ * A `GSocket` is a low-level networking primitive. It is a more or less
  * direct mapping of the BSD socket API in a portable GObject based API.
  * It supports both the UNIX socket implementations and winsock2 on Windows.
  *
- * #GSocket is the platform independent base upon which the higher level
+ * `GSocket` is the platform independent base upon which the higher level
  * network primitives are based. Applications are not typically meant to
- * use it directly, but rather through classes like #GSocketClient,
- * #GSocketService and #GSocketConnection. However there may be cases where
- * direct use of #GSocket is useful.
+ * use it directly, but rather through classes like [class@Gio.SocketClient],
+ * [class@Gio.SocketService] and [class@Gio.SocketConnection]. However there may
+ * be cases where direct use of `GSocket` is useful.
  *
- * #GSocket implements the #GInitable interface, so if it is manually constructed
- * by e.g. g_object_new() you must call g_initable_init() and check the
- * results before using the object. This is done automatically in
- * g_socket_new() and g_socket_new_from_fd(), so these functions can return
- * %NULL.
+ * `GSocket` implements the [iface@Gio.Initable] interface, so if it is manually
+ * constructed by e.g. [ctor@GObject.Object.new] you must call
+ * [method@Gio.Initable.init] and check the results before using the object.
+ * This is done automatically in [ctor@Gio.Socket.new] and
+ * [ctor@Gio.Socket.new_from_fd], so these functions can return `NULL`.
  *
  * Sockets operate in two general modes, blocking or non-blocking. When
  * in blocking mode all operations (which don’t take an explicit blocking
  * parameter) block until the requested operation
  * is finished or there is an error. In non-blocking mode all calls that
- * would block return immediately with a %G_IO_ERROR_WOULD_BLOCK error.
- * To know when a call would successfully run you can call g_socket_condition_check(),
- * or g_socket_condition_wait(). You can also use g_socket_create_source() and
- * attach it to a #GMainContext to get callbacks when I/O is possible.
+ * would block return immediately with a `G_IO_ERROR_WOULD_BLOCK` error.
+ * To know when a call would successfully run you can call
+ * [method@Gio.Socket.condition_check], or [method@Gio.Socket.condition_wait].
+ * You can also use [method@Gio.Socket.create_source] and attach it to a
+ * [type@GLib.MainContext] to get callbacks when I/O is possible.
  * Note that all sockets are always set to non blocking mode in the system, and
- * blocking mode is emulated in GSocket.
+ * blocking mode is emulated in `GSocket`.
  *
  * When working in non-blocking mode applications should always be able to
- * handle getting a %G_IO_ERROR_WOULD_BLOCK error even when some other
+ * handle getting a `G_IO_ERROR_WOULD_BLOCK` error even when some other
  * function said that I/O was possible. This can easily happen in case
  * of a race condition in the application, but it can also happen for other
  * reasons. For instance, on Windows a socket is always seen as writable
- * until a write returns %G_IO_ERROR_WOULD_BLOCK.
+ * until a write returns `G_IO_ERROR_WOULD_BLOCK`.
  *
- * #GSockets can be either connection oriented or datagram based.
+ * `GSocket`s can be either connection oriented or datagram based.
  * For connection oriented types you must first establish a connection by
  * either connecting to an address or accepting a connection from another
  * address. For connectionless socket types the target/source address is
@@ -136,15 +128,33 @@
  *
  * All socket file descriptors are set to be close-on-exec.
  *
- * Note that creating a #GSocket causes the signal %SIGPIPE to be
+ * Note that creating a `GSocket` causes the signal `SIGPIPE` to be
  * ignored for the remainder of the program. If you are writing a
- * command-line utility that uses #GSocket, you may need to take into
+ * command-line utility that uses `GSocket`, you may need to take into
  * account the fact that your program will not automatically be killed
- * if it tries to write to %stdout after it has been closed.
+ * if it tries to write to `stdout` after it has been closed.
  *
- * Like most other APIs in GLib, #GSocket is not inherently thread safe. To use
- * a #GSocket concurrently from multiple threads, you must implement your own
+ * Like most other APIs in GLib, `GSocket` is not inherently thread safe. To use
+ * a `GSocket` concurrently from multiple threads, you must implement your own
  * locking.
+ *
+ * ## Nagle’s algorithm
+ *
+ * Since GLib 2.80, `GSocket` will automatically set the `TCP_NODELAY` option on
+ * all `G_SOCKET_TYPE_STREAM` sockets. This disables
+ * [Nagle’s algorithm](https://en.wikipedia.org/wiki/Nagle%27s_algorithm) as it
+ * typically does more harm than good on modern networks.
+ *
+ * If your application needs Nagle’s algorithm enabled, call
+ * [method@Gio.Socket.set_option] after constructing a `GSocket` to enable it:
+ * ```c
+ * socket = g_socket_new (…, G_SOCKET_TYPE_STREAM, …);
+ * if (socket != NULL)
+ *   {
+ *     g_socket_set_option (socket, IPPROTO_TCP, TCP_NODELAY, FALSE, &local_error);
+ *     // handle error if needed
+ *   }
+ * ```
  *
  * Since: 2.22
  */
@@ -371,16 +381,6 @@ _win32_unset_event_mask (GSocket *socket, int mask)
   recv (sockfd, (gpointer)buf, len, flags)
 #endif
 
-/* Android uses a signed socklen_t on 32-bit architectures. */
-#if defined (__ANDROID__) && GLIB_SIZEOF_VOID_P == 4
-#define getsockopt(sockfd, level, optname, optval, optlen) \
-  getsockopt (sockfd, level, optname, optval, (socklen_t *) optlen)
-#define getsockname(sockfd, addr, addrlen) \
-  getsockname (sockfd, addr, (socklen_t *) addrlen)
-#define getpeername(sockfd, addr, addrlen) \
-  getpeername (sockfd, addr, (socklen_t *) addrlen)
-#endif
-
 static gchar *
 address_to_string (GSocketAddress *address)
 {
@@ -477,21 +477,38 @@ g_socket_details_from_fd (GSocket *socket)
     struct sockaddr sa;
   } address;
   gint fd;
-  guint addrlen;
+  socklen_t addrlen;
   int value, family;
   int errsv;
+#ifdef G_OS_WIN32
+  WSAPROTOCOL_INFO wsa_info;
+  socklen_t wsa_info_len = sizeof (wsa_info);
+#endif
 
   memset (&address, 0, sizeof (address));
 
   fd = socket->priv->fd;
-
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-
+#ifndef G_OS_WIN32
   if (!g_socket_get_option (socket, SOL_SOCKET, SO_TYPE, &value, NULL))
     {
       errsv = get_socket_errno ();
       goto err;
     }
+#else
+  /* On Windows, getsockname() fails on unbound sockets with WSAEINVAL,
+   * so the only universal way to get socket family is via SO_PROTOCOL_INFO.
+   * WSAPROTOCOL_INFO also carries socket type, so one getsockopt() call
+   * is enough for all the info.
+   */
+  if (getsockopt (fd, SOL_SOCKET, SO_PROTOCOL_INFO, &wsa_info,
+                  &wsa_info_len) == SOCKET_ERROR)
+    {
+      errsv = get_socket_errno ();
+      goto err;
+    }
+
+  value = wsa_info.iSocketType;
+#endif
 
   switch (value)
     {
@@ -512,6 +529,7 @@ g_socket_details_from_fd (GSocket *socket)
       break;
     }
 
+#ifndef G_OS_WIN32
   addrlen = sizeof address;
   if (getsockname (fd, &address.sa, &addrlen) != 0)
     {
@@ -522,7 +540,7 @@ g_socket_details_from_fd (GSocket *socket)
   if (addrlen > 0)
     {
       g_assert (G_STRUCT_OFFSET (struct sockaddr, sa_family) +
-		sizeof address.storage.ss_family <= addrlen);
+		(socklen_t) sizeof address.storage.ss_family <= addrlen);
       family = address.storage.ss_family;
     }
   else
@@ -542,12 +560,15 @@ g_socket_details_from_fd (GSocket *socket)
       goto err;
 #endif
     }
+#else  /* G_OS_WIN32 */
+  family = wsa_info.iAddressFamily;
+#endif /* G_OS_WIN32 */
 
   switch (family)
     {
      case G_SOCKET_FAMILY_IPV4:
      case G_SOCKET_FAMILY_IPV6:
-       socket->priv->family = address.storage.ss_family;
+       socket->priv->family = family;
        switch (socket->priv->type)
 	 {
 	 case G_SOCKET_TYPE_STREAM:
@@ -606,7 +627,38 @@ g_socket_details_from_fd (GSocket *socket)
 	       socket_strerror (errsv));
 }
 
-/* Wrapper around socket() that is shared with gnetworkmonitornetlink.c */
+static void
+socket_set_nonblock (int fd)
+{
+#ifndef G_OS_WIN32
+  GError *error = NULL;
+#else
+  gulong arg;
+#endif
+
+  /* Always use native nonblocking sockets, as Windows sets sockets to
+   * nonblocking automatically in certain operations. This way we make
+   * things work the same on all platforms.
+   */
+#ifndef G_OS_WIN32
+  if (!g_unix_set_fd_nonblocking (fd, TRUE, &error))
+    {
+      g_warning ("Error setting socket to nonblocking mode: %s", error->message);
+      g_clear_error (&error);
+    }
+#else
+  arg = TRUE;
+
+  if (ioctlsocket (fd, FIONBIO, &arg) == SOCKET_ERROR)
+    {
+      int errsv = get_socket_errno ();
+      g_warning ("Error setting socket status flags: %s", socket_strerror (errsv));
+    }
+#endif
+}
+
+/* Wrapper around socket() that is shared with gnetworkmonitornetlink.c.
+ * It always sets SOCK_CLOEXEC | SOCK_NONBLOCK. */
 gint
 g_socket (gint     domain,
           gint     type,
@@ -615,16 +667,13 @@ g_socket (gint     domain,
 {
   int fd, errsv;
 
-#ifdef SOCK_CLOEXEC
-  fd = socket (domain, type | SOCK_CLOEXEC, protocol);
+#if defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK)
+  fd = socket (domain, type | SOCK_CLOEXEC | SOCK_NONBLOCK, protocol);
   errsv = errno;
   if (fd != -1)
-    {
-      glib_fd_callbacks->on_fd_opened (fd, "GSocket");
-      return fd;
-    }
+    return fd;
 
-  /* It's possible that libc has SOCK_CLOEXEC but the kernel does not */
+  /* It's possible that libc has SOCK_CLOEXEC and/or SOCK_NONBLOCK but the kernel does not */
   if (fd < 0 && (errsv == EINVAL || errsv == EPROTOTYPE))
 #endif
     fd = socket (domain, type, protocol);
@@ -638,8 +687,6 @@ g_socket (gint     domain,
       errno = errsv;
       return -1;
     }
-
-  glib_fd_callbacks->on_fd_opened (fd, "GSocket");
 
 #ifndef G_OS_WIN32
   {
@@ -668,9 +715,13 @@ g_socket (gint     domain,
     }
 #endif
 
+  /* Ensure the socket is non-blocking. */
+  socket_set_nonblock (fd);
+
   return fd;
 }
 
+/* Returned socket has SOCK_CLOEXEC | SOCK_NONBLOCK set. */
 static gint
 g_socket_create_socket (GSocketFamily   family,
 			GSocketType     type,
@@ -720,48 +771,28 @@ g_socket_constructed (GObject *object)
   GSocket *socket = G_SOCKET (object);
 
   if (socket->priv->fd >= 0)
-    /* create socket->priv info from the fd */
-    g_socket_details_from_fd (socket);
-
+    {
+      /* create socket->priv info from the fd and ensure it’s non-blocking */
+      g_socket_details_from_fd (socket);
+      socket_set_nonblock (socket->priv->fd);
+    }
   else
-    /* create the fd from socket->priv info */
-    socket->priv->fd = g_socket_create_socket (socket->priv->family,
-					       socket->priv->type,
-					       socket->priv->protocol,
-					       &socket->priv->construct_error);
+    {
+      /* create the fd from socket->priv info; this sets it non-blocking by construction */
+      socket->priv->fd = g_socket_create_socket (socket->priv->family,
+					         socket->priv->type,
+					         socket->priv->protocol,
+					         &socket->priv->construct_error);
+    }
 
   if (socket->priv->fd != -1)
     {
-#ifndef G_OS_WIN32
-      GError *error = NULL;
-#else
-      gulong arg;
-#endif
-
-      /* Always use native nonblocking sockets, as Windows sets sockets to
-       * nonblocking automatically in certain operations. This way we make
-       * things work the same on all platforms.
-       */
-#ifndef G_OS_WIN32
-      if (!g_unix_set_fd_nonblocking (socket->priv->fd, TRUE, &error))
-        {
-          g_warning ("Error setting socket nonblocking: %s", error->message);
-          g_clear_error (&error);
-        }
-#else
-      arg = TRUE;
-
-      if (ioctlsocket (socket->priv->fd, FIONBIO, &arg) == SOCKET_ERROR)
-        {
-          int errsv = get_socket_errno ();
-          g_warning ("Error setting socket status flags: %s", socket_strerror (errsv));
-        }
-#endif
-
 #ifdef SO_NOSIGPIPE
       /* See note about SIGPIPE below. */
       g_socket_set_option (socket, SOL_SOCKET, SO_NOSIGPIPE, TRUE, NULL);
 #endif
+      if (socket->priv->type == G_SOCKET_TYPE_STREAM)
+        g_socket_set_option (socket, IPPROTO_TCP, TCP_NODELAY, TRUE, NULL);
     }
 }
 
@@ -947,45 +978,78 @@ g_socket_class_init (GSocketClass *klass)
 {
   GObjectClass *gobject_class G_GNUC_UNUSED = G_OBJECT_CLASS (klass);
 
+#ifdef SIGPIPE
+  /* There is no portable, thread-safe way to avoid having the process
+   * be killed by SIGPIPE when calling send() or sendmsg(), so we are
+   * forced to simply ignore the signal process-wide.
+   *
+   * Even if we ignore it though, gdb will still stop if the app
+   * receives a SIGPIPE, which can be confusing and annoying. So when
+   * possible, we also use MSG_NOSIGNAL / SO_NOSIGPIPE elsewhere to
+   * prevent the signal from occurring at all.
+   */
+  signal (SIGPIPE, SIG_IGN);
+#endif
+
   gobject_class->finalize = g_socket_finalize;
   gobject_class->constructed = g_socket_constructed;
   gobject_class->set_property = g_socket_set_property;
   gobject_class->get_property = g_socket_get_property;
 
+  /**
+   * GSocket:family:
+   *
+   * The socket’s address family.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_FAMILY,
-				   g_param_spec_enum ("family",
-						      P_("Socket family"),
-						      P_("The sockets address family"),
+				   g_param_spec_enum ("family", NULL, NULL,
 						      G_TYPE_SOCKET_FAMILY,
 						      G_SOCKET_FAMILY_INVALID,
 						      G_PARAM_CONSTRUCT_ONLY |
                                                       G_PARAM_READWRITE |
                                                       G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GSocket:type:
+   *
+   * The socket’s type.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_TYPE,
-				   g_param_spec_enum ("type",
-						      P_("Socket type"),
-						      P_("The sockets type"),
+				   g_param_spec_enum ("type", NULL, NULL,
 						      G_TYPE_SOCKET_TYPE,
 						      G_SOCKET_TYPE_STREAM,
 						      G_PARAM_CONSTRUCT_ONLY |
                                                       G_PARAM_READWRITE |
                                                       G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GSocket:protocol:
+   *
+   * The ID of the protocol to use, or `-1` for unknown.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_PROTOCOL,
-				   g_param_spec_enum ("protocol",
-						      P_("Socket protocol"),
-						      P_("The id of the protocol to use, or -1 for unknown"),
+				   g_param_spec_enum ("protocol", NULL, NULL,
 						      G_TYPE_SOCKET_PROTOCOL,
 						      G_SOCKET_PROTOCOL_UNKNOWN,
 						      G_PARAM_CONSTRUCT_ONLY |
                                                       G_PARAM_READWRITE |
                                                       G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GSocket:fd:
+   *
+   * The socket’s file descriptor.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_FD,
-				   g_param_spec_int ("fd",
-						     P_("File descriptor"),
-						     P_("The sockets file descriptor"),
+				   g_param_spec_int ("fd", NULL, NULL,
 						     G_MININT,
 						     G_MAXINT,
 						     -1,
@@ -993,44 +1057,69 @@ g_socket_class_init (GSocketClass *klass)
                                                      G_PARAM_READWRITE |
                                                      G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GSocket:blocking:
+   *
+   * Whether I/O on this socket is blocking.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_BLOCKING,
-				   g_param_spec_boolean ("blocking",
-							 P_("blocking"),
-							 P_("Whether or not I/O on this socket is blocking"),
+				   g_param_spec_boolean ("blocking", NULL, NULL,
 							 TRUE,
 							 G_PARAM_READWRITE |
                                                          G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GSocket:listen-backlog:
+   *
+   * The number of outstanding connections in the listen queue.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_LISTEN_BACKLOG,
-				   g_param_spec_int ("listen-backlog",
-						     P_("Listen backlog"),
-						     P_("Outstanding connections in the listen queue"),
+				   g_param_spec_int ("listen-backlog", NULL, NULL,
 						     0,
 						     SOMAXCONN,
 						     10,
 						     G_PARAM_READWRITE |
                                                      G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GSocket:keepalive:
+   *
+   * Whether to keep the connection alive by sending periodic pings.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_KEEPALIVE,
-				   g_param_spec_boolean ("keepalive",
-							 P_("Keep connection alive"),
-							 P_("Keep connection alive by sending periodic pings"),
+				   g_param_spec_boolean ("keepalive", NULL, NULL,
 							 FALSE,
 							 G_PARAM_READWRITE |
                                                          G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GSocket:local-address:
+   *
+   * The local address the socket is bound to.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_LOCAL_ADDRESS,
-				   g_param_spec_object ("local-address",
-							P_("Local address"),
-							P_("The local address the socket is bound to"),
+				   g_param_spec_object ("local-address", NULL, NULL,
 							G_TYPE_SOCKET_ADDRESS,
 							G_PARAM_READABLE |
                                                         G_PARAM_STATIC_STRINGS));
 
+  /**
+   * GSocket:remote-address:
+   *
+   * The remote address the socket is connected to.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_REMOTE_ADDRESS,
-				   g_param_spec_object ("remote-address",
-							P_("Remote address"),
-							P_("The remote address the socket is connected to"),
+				   g_param_spec_object ("remote-address", NULL, NULL,
 							G_TYPE_SOCKET_ADDRESS,
 							G_PARAM_READABLE |
                                                         G_PARAM_STATIC_STRINGS));
@@ -1043,9 +1132,7 @@ g_socket_class_init (GSocketClass *klass)
    * Since: 2.26
    */
   g_object_class_install_property (gobject_class, PROP_TIMEOUT,
-				   g_param_spec_uint ("timeout",
-						      P_("Timeout"),
-						      P_("The timeout in seconds on socket I/O"),
+				   g_param_spec_uint ("timeout", NULL, NULL,
 						      0,
 						      G_MAXUINT,
 						      0,
@@ -1060,9 +1147,7 @@ g_socket_class_init (GSocketClass *klass)
    * Since: 2.32
    */
   g_object_class_install_property (gobject_class, PROP_BROADCAST,
-				   g_param_spec_boolean ("broadcast",
-							 P_("Broadcast"),
-							 P_("Whether to allow sending to broadcast addresses"),
+				   g_param_spec_boolean ("broadcast", NULL, NULL,
 							 FALSE,
 							 G_PARAM_READWRITE |
                                                          G_PARAM_STATIC_STRINGS));
@@ -1075,9 +1160,7 @@ g_socket_class_init (GSocketClass *klass)
    * Since: 2.32
    */
   g_object_class_install_property (gobject_class, PROP_TTL,
-				   g_param_spec_uint ("ttl",
-						      P_("TTL"),
-						      P_("Time-to-live of outgoing unicast packets"),
+				   g_param_spec_uint ("ttl", NULL, NULL,
 						      0, G_MAXUINT, 0,
 						      G_PARAM_READWRITE |
 						      G_PARAM_STATIC_STRINGS));
@@ -1090,9 +1173,7 @@ g_socket_class_init (GSocketClass *klass)
    * Since: 2.32
    */
   g_object_class_install_property (gobject_class, PROP_MULTICAST_LOOPBACK,
-				   g_param_spec_boolean ("multicast-loopback",
-							 P_("Multicast loopback"),
-							 P_("Whether outgoing multicast packets loop back to the local host"),
+				   g_param_spec_boolean ("multicast-loopback", NULL, NULL,
 							 TRUE,
 							 G_PARAM_READWRITE |
                                                          G_PARAM_STATIC_STRINGS));
@@ -1105,9 +1186,7 @@ g_socket_class_init (GSocketClass *klass)
    * Since: 2.32
    */
   g_object_class_install_property (gobject_class, PROP_MULTICAST_TTL,
-				   g_param_spec_uint ("multicast-ttl",
-						      P_("Multicast TTL"),
-						      P_("Time-to-live of outgoing multicast packets"),
+				   g_param_spec_uint ("multicast-ttl", NULL, NULL,
 						      0, G_MAXUINT, 1,
 						      G_PARAM_READWRITE |
 						      G_PARAM_STATIC_STRINGS));
@@ -1959,15 +2038,18 @@ g_socket_get_protocol (GSocket *socket)
 
 /**
  * g_socket_get_fd:
- * @socket: a #GSocket.
+ * @socket: a socket
  *
- * Returns the underlying OS socket object. On unix this
- * is a socket file descriptor, and on Windows this is
- * a Winsock2 SOCKET handle. This may be useful for
- * doing platform specific or otherwise unusual operations
- * on the socket.
+ * Gets the underlying OS socket descriptor.
  *
- * Returns: the file descriptor of the socket.
+ * On Unix this is a socket file descriptor, and on Windows this is
+ * a Winsock2 `SOCKET` handle.
+ *
+ * This may be useful for doing platform specific or otherwise unusual
+ * operations on the socket.
+ *
+ * Returns: the file descriptor of the socket, or `-1` if the socket has not yet
+ *   been initialised or has been closed
  *
  * Since: 2.22
  */
@@ -2001,7 +2083,7 @@ g_socket_get_local_address (GSocket  *socket,
     struct sockaddr_storage storage;
     struct sockaddr sa;
   } buffer;
-  guint len = sizeof (buffer);
+  socklen_t len = sizeof (buffer);
 
   g_return_val_if_fail (G_IS_SOCKET (socket), NULL);
 
@@ -2037,7 +2119,7 @@ g_socket_get_remote_address (GSocket  *socket,
     struct sockaddr_storage storage;
     struct sockaddr sa;
   } buffer;
-  guint len = sizeof (buffer);
+  socklen_t len = sizeof (buffer);
 
   g_return_val_if_fail (G_IS_SOCKET (socket), NULL);
 
@@ -2235,63 +2317,6 @@ g_socket_bind (GSocket         *socket,
 }
 
 #ifdef G_OS_WIN32
-
-#ifndef HAVE_IF_NAMETOINDEX
-static guint
-if_nametoindex (const gchar *iface)
-{
-  PIP_ADAPTER_ADDRESSES addresses = NULL, p;
-  gulong addresses_len = 0;
-  guint idx = 0;
-  DWORD res;
-
-  if (ws2funcs.pIfNameToIndex != NULL)
-    return ws2funcs.pIfNameToIndex (iface);
-
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, NULL, &addresses_len);
-  if (res != NO_ERROR && res != ERROR_BUFFER_OVERFLOW)
-    {
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
-    }
-
-  addresses = g_malloc (addresses_len);
-  res = GetAdaptersAddresses (AF_UNSPEC, 0, NULL, addresses, &addresses_len);
-
-  if (res != NO_ERROR)
-    {
-      g_free (addresses);
-      if (res == ERROR_NO_DATA)
-        errno = ENXIO;
-      else
-        errno = EINVAL;
-      return 0;
-    }
-
-  p = addresses;
-  while (p)
-    {
-      if (strcmp (p->AdapterName, iface) == 0)
-        {
-          idx = p->IfIndex;
-          break;
-        }
-      p = p->Next;
-    }
-
-  if (p == NULL)
-    errno = ENXIO;
-
-  g_free (addresses);
-
-  return idx;
-}
-#define HAVE_IF_NAMETOINDEX 1
-#endif
-
 static gulong
 g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
 {
@@ -2404,6 +2429,42 @@ g_socket_w32_get_adapter_ipv4_addr (const gchar *name_or_ip)
 
   return ip_result;
 }
+#elif (defined(HAVE_SIOCGIFADDR) && (!(defined(HAVE_IP_MREQN) && !defined(__APPLE__)) || defined(IP_ADD_SOURCE_MEMBERSHIP)))
+static gulong
+g_socket_get_adapter_ipv4_addr (GSocket     *socket,
+                                const char  *iface,
+                                GError     **error)
+{
+  int ret;
+  struct ifreq ifr;
+  struct sockaddr_in *iface_addr;
+  size_t if_name_len = strlen (iface);
+
+  memset (&ifr, 0, sizeof (ifr));
+
+  if (if_name_len >= sizeof (ifr.ifr_name))
+    {
+      g_set_error (error, G_IO_ERROR,  G_IO_ERROR_FILENAME_TOO_LONG,
+                   _("Interface name too long"));
+      return ULONG_MAX;
+    }
+
+  memcpy (ifr.ifr_name, iface, if_name_len);
+
+  /* Get the IPv4 address of the given network interface name. */
+  ret = ioctl (socket->priv->fd, SIOCGIFADDR, &ifr);
+  if (ret < 0)
+    {
+      int errsv = errno;
+
+      g_set_error (error, G_IO_ERROR,  g_io_error_from_errno (errsv),
+                   _("Interface not found: %s"), g_strerror (errsv));
+      return ULONG_MAX;
+    }
+
+  iface_addr = (struct sockaddr_in *) &ifr.ifr_addr;
+  return iface_addr->sin_addr.s_addr;
+}
 #endif
 
 static gboolean
@@ -2420,6 +2481,7 @@ g_socket_multicast_group_operation (GSocket       *socket,
   g_return_val_if_fail (G_IS_SOCKET (socket), FALSE);
   g_return_val_if_fail (socket->priv->type == G_SOCKET_TYPE_DATAGRAM, FALSE);
   g_return_val_if_fail (G_IS_INET_ADDRESS (group), FALSE);
+  g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
 
   if (!check_socket (socket, error))
     return FALSE;
@@ -2427,7 +2489,7 @@ g_socket_multicast_group_operation (GSocket       *socket,
   native_addr = g_inet_address_to_bytes (group);
   if (g_inet_address_get_family (group) == G_SOCKET_FAMILY_IPV4)
     {
-#ifdef HAVE_IP_MREQN
+#if defined(HAVE_IP_MREQN) && !defined(__APPLE__)
       struct ip_mreqn mc_req;
 #else
       struct ip_mreq mc_req;
@@ -2436,7 +2498,11 @@ g_socket_multicast_group_operation (GSocket       *socket,
       memset (&mc_req, 0, sizeof (mc_req));
       memcpy (&mc_req.imr_multiaddr, native_addr, sizeof (struct in_addr));
 
-#ifdef HAVE_IP_MREQN
+      /* mc_req.imr_ifindex is not used correctly by the XNU kernel, and
+       * causes us to bind to the default interface; so fallback to ip_mreq
+       * and set the iface source address (not SSM).
+       * See: https://gitlab.gnome.org/GNOME/glib/-/issues/3489 */
+#if defined(HAVE_IP_MREQN) && !defined(__APPLE__)
       if (iface)
         mc_req.imr_ifindex = if_nametoindex (iface);
       else
@@ -2446,6 +2512,22 @@ g_socket_multicast_group_operation (GSocket       *socket,
         mc_req.imr_interface.s_addr = g_socket_w32_get_adapter_ipv4_addr (iface);
       else
         mc_req.imr_interface.s_addr = g_htonl (INADDR_ANY);
+#elif defined(HAVE_SIOCGIFADDR)
+      if (iface)
+        {
+          GError *local_error = NULL;
+
+          mc_req.imr_interface.s_addr = g_socket_get_adapter_ipv4_addr (socket, iface, &local_error);
+          if (local_error != NULL)
+            {
+              g_propagate_error (error, g_steal_pointer (&local_error));
+              return FALSE;
+            }
+        }
+      else
+        {
+          mc_req.imr_interface.s_addr = g_htonl (INADDR_ANY);
+        }
 #else
       mc_req.imr_interface.s_addr = g_htonl (INADDR_ANY);
 #endif
@@ -2644,36 +2726,15 @@ g_socket_multicast_group_operation_ssm (GSocket       *socket,
           {
 #if defined(G_OS_WIN32)
             S_ADDR_FIELD(mc_req_src) = g_socket_w32_get_adapter_ipv4_addr (iface);
-#elif defined (HAVE_SIOCGIFADDR)
-            int ret;
-            struct ifreq ifr;
-            struct sockaddr_in *iface_addr;
-            size_t if_name_len = strlen (iface);
+#elif defined(HAVE_SIOCGIFADDR)
+            GError *local_error = NULL;
 
-            memset (&ifr, 0, sizeof (ifr));
-
-            if (if_name_len >= sizeof (ifr.ifr_name))
+            S_ADDR_FIELD(mc_req_src) = g_socket_get_adapter_ipv4_addr (socket, iface, &local_error);
+            if (local_error != NULL)
               {
-                g_set_error (error, G_IO_ERROR,  G_IO_ERROR_FILENAME_TOO_LONG,
-                             _("Interface name too long"));
+                g_propagate_error (error, g_steal_pointer (&local_error));
                 return FALSE;
               }
-
-            memcpy (ifr.ifr_name, iface, if_name_len);
-
-            /* Get the IPv4 address of the given network interface name. */
-            ret = ioctl (socket->priv->fd, SIOCGIFADDR, &ifr);
-            if (ret < 0)
-              {
-                int errsv = errno;
-
-                g_set_error (error, G_IO_ERROR,  g_io_error_from_errno (errsv),
-                             _("Interface not found: %s"), g_strerror (errsv));
-                return FALSE;
-              }
-
-            iface_addr = (struct sockaddr_in *) &ifr.ifr_addr;
-            S_ADDR_FIELD(mc_req_src) = iface_addr->sin_addr.s_addr;
 #endif  /* defined(G_OS_WIN32) && defined (HAVE_IF_NAMETOINDEX) */
           }
 
@@ -2926,6 +2987,9 @@ g_socket_accept (GSocket       *socket,
 		 GCancellable  *cancellable,
 		 GError       **error)
 {
+#ifdef HAVE_ACCEPT4
+  gboolean try_accept4 = TRUE;
+#endif
   GSocket *new_socket;
   gint ret;
 
@@ -2937,9 +3001,33 @@ g_socket_accept (GSocket       *socket,
   if (!check_timeout (socket, error))
     return NULL;
 
+  if (g_cancellable_set_error_if_cancelled (cancellable, error))
+    return NULL;
+
   while (TRUE)
     {
-      if ((ret = accept (socket->priv->fd, NULL, 0)) < 0)
+      gboolean try_accept = TRUE;
+
+#ifdef HAVE_ACCEPT4
+      if (try_accept4)
+        {
+          ret = accept4 (socket->priv->fd, NULL, 0, SOCK_CLOEXEC);
+          if (ret < 0 && errno == ENOSYS)
+            {
+              try_accept4 = FALSE;
+            }
+          else
+            {
+              try_accept = FALSE;
+            }
+        }
+
+      g_assert (try_accept4 || try_accept);
+#endif
+      if (try_accept)
+        ret = accept (socket->priv->fd, NULL, 0);
+
+      if (ret < 0)
 	{
 	  int errsv = get_socket_errno ();
 
@@ -3004,7 +3092,6 @@ g_socket_accept (GSocket       *socket,
 #else
       close (ret);
 #endif
-      glib_fd_callbacks->on_fd_closed (ret, "GSocket");
     }
   else
     new_socket->priv->protocol = socket->priv->protocol;
@@ -3057,6 +3144,9 @@ g_socket_connect (GSocket         *socket,
     return FALSE;
 
   if (!g_socket_address_to_native (address, &buffer.storage, sizeof buffer, error))
+    return FALSE;
+
+  if (g_cancellable_set_error_if_cancelled (cancellable, error))
     return FALSE;
 
   if (socket->priv->remote_address)
@@ -3211,8 +3301,8 @@ g_socket_get_available_bytes (GSocket *socket)
 #else
   if (socket->priv->type == G_SOCKET_TYPE_DATAGRAM)
     {
-      if (G_UNLIKELY (g_once_init_enter (&buf)))
-        g_once_init_leave (&buf, g_malloc (bufsize));
+      if (G_UNLIKELY (g_once_init_enter_pointer (&buf)))
+        g_once_init_leave_pointer (&buf, g_malloc (bufsize));
 
       /* On datagram sockets, FIONREAD ioctl is not reliable because many
        * systems add internal header size to the reported size, making it
@@ -3345,11 +3435,74 @@ g_socket_receive_with_timeout (GSocket       *socket,
 }
 
 /**
+ * g_socket_receive_bytes:
+ * @socket: a #GSocket
+ * @size: the number of bytes you want to read from the socket
+ * @timeout_us: the timeout to wait for, in microseconds, or `-1` to block
+ *   indefinitely
+ * @cancellable: (nullable): a %GCancellable, or `NULL`
+ * @error: return location for a #GError, or `NULL`
+ *
+ * Receives data (up to @size bytes) from a socket.
+ *
+ * This function is a variant of [method@Gio.Socket.receive] which returns a
+ * [struct@GLib.Bytes] rather than a plain buffer.
+ *
+ * Pass `-1` to @timeout_us to block indefinitely until data is received (or
+ * the connection is closed, or there is an error). Pass `0` to use the default
+ * timeout from [property@Gio.Socket:timeout], or pass a positive number to wait
+ * for that many microseconds for data before returning `G_IO_ERROR_TIMED_OUT`.
+ *
+ * Returns: (transfer full): a bytes buffer containing the
+ *   received bytes, or `NULL` on error
+ * Since: 2.80
+ */
+GBytes *
+g_socket_receive_bytes (GSocket       *socket,
+                        gsize          size,
+                        gint64         timeout_us,
+                        GCancellable  *cancellable,
+                        GError       **error)
+{
+  guint8 *data;
+  gssize res;
+  GBytes *buf;
+
+  g_return_val_if_fail (G_IS_SOCKET (socket), NULL);
+  g_return_val_if_fail (cancellable == NULL || G_IS_CANCELLABLE (cancellable), NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+
+  data = g_new0 (guint8, size);
+  res = g_socket_receive_with_timeout (socket, data, size, timeout_us, cancellable, error);
+  if (res < 0)
+    {
+      g_free (data);
+      return NULL;
+    }
+
+  if ((gsize) res == size)
+    {
+      buf = g_bytes_new_take (g_steal_pointer (&data), (gsize) res);
+    }
+  else
+    {
+      GBytes *sub_buf;
+
+      buf = g_bytes_new_take (g_steal_pointer (&data), size);
+      sub_buf = g_bytes_new_from_bytes (buf, 0, (gsize) res);
+      g_bytes_unref (buf);
+      buf = g_steal_pointer (&sub_buf);
+    }
+
+  return g_steal_pointer (&buf);
+}
+
+/**
  * g_socket_receive:
  * @socket: a #GSocket
  * @buffer: (array length=size) (element-type guint8) (out caller-allocates):
  *     a buffer to read data into (which should be at least @size bytes long).
- * @size: the number of bytes you want to read from the socket
+ * @size: (in): the number of bytes you want to read from the socket
  * @cancellable: (nullable): a %GCancellable or %NULL
  * @error: #GError for error reporting, or %NULL to ignore.
  *
@@ -3399,7 +3552,7 @@ g_socket_receive (GSocket       *socket,
  * @socket: a #GSocket
  * @buffer: (array length=size) (element-type guint8) (out caller-allocates):
  *     a buffer to read data into (which should be at least @size bytes long).
- * @size: the number of bytes you want to read from the socket
+ * @size: (in): the number of bytes you want to read from the socket
  * @blocking: whether to do blocking or non-blocking I/O
  * @cancellable: (nullable): a %GCancellable or %NULL
  * @error: #GError for error reporting, or %NULL to ignore.
@@ -3426,13 +3579,92 @@ g_socket_receive_with_blocking (GSocket       *socket,
 }
 
 /**
+ * g_socket_receive_bytes_from:
+ * @socket: a #GSocket
+ * @address: (out) (optional): return location for a #GSocketAddress
+ * @size: the number of bytes you want to read from the socket
+ * @timeout_us: the timeout to wait for, in microseconds, or `-1` to block
+ *   indefinitely
+ * @cancellable: (nullable): a #GCancellable, or `NULL`
+ * @error: return location for a #GError, or `NULL`
+ *
+ * Receive data (up to @size bytes) from a socket.
+ *
+ * This function is a variant of [method@Gio.Socket.receive_from] which returns
+ * a [struct@GLib.Bytes] rather than a plain buffer.
+ *
+ * If @address is non-%NULL then @address will be set equal to the
+ * source address of the received packet.
+ *
+ * The @address is owned by the caller.
+ *
+ * Pass `-1` to @timeout_us to block indefinitely until data is received (or
+ * the connection is closed, or there is an error). Pass `0` to use the default
+ * timeout from [property@Gio.Socket:timeout], or pass a positive number to wait
+ * for that many microseconds for data before returning `G_IO_ERROR_TIMED_OUT`.
+ *
+ * Returns: (transfer full): a bytes buffer containing the
+ *   received bytes, or `NULL` on error
+ * Since: 2.80
+ */
+GBytes *
+g_socket_receive_bytes_from (GSocket         *socket,
+                             GSocketAddress **address,
+                             gsize            size,
+                             gint64           timeout_us,
+                             GCancellable    *cancellable,
+                             GError         **error)
+{
+  GInputVector v;
+  gssize res;
+  GBytes *buf;
+
+  g_return_val_if_fail (G_IS_SOCKET (socket), NULL);
+  g_return_val_if_fail (address == NULL || *address == NULL, NULL);
+  g_return_val_if_fail (cancellable == NULL || G_IS_CANCELLABLE (cancellable), NULL);
+  g_return_val_if_fail (error == NULL || *error == NULL, NULL);
+
+  v.buffer = g_new0 (guint8, size);
+  v.size = size;
+
+  res = g_socket_receive_message_with_timeout (socket,
+                                               address,
+                                               &v, 1,
+                                               NULL, 0, NULL,
+                                               timeout_us,
+                                               cancellable,
+                                               error);
+  if (res < 0)
+    {
+      g_free (v.buffer);
+      return NULL;
+    }
+
+  if ((gsize) res == size)
+    {
+      buf = g_bytes_new_take (g_steal_pointer (&v.buffer), (gsize) res);
+    }
+  else
+    {
+      GBytes *sub_buf;
+
+      buf = g_bytes_new_take (g_steal_pointer (&v.buffer), size);
+      sub_buf = g_bytes_new_from_bytes (buf, 0, (gsize) res);
+      g_bytes_unref (buf);
+      buf = g_steal_pointer (&sub_buf);
+    }
+
+  return g_steal_pointer (&buf);
+}
+
+/**
  * g_socket_receive_from:
  * @socket: a #GSocket
  * @address: (out) (optional): a pointer to a #GSocketAddress
  *     pointer, or %NULL
  * @buffer: (array length=size) (element-type guint8) (out caller-allocates):
  *     a buffer to read data into (which should be at least @size bytes long).
- * @size: the number of bytes you want to read from the socket
+ * @size: (in): the number of bytes you want to read from the socket
  * @cancellable: (nullable): a %GCancellable or %NULL
  * @error: #GError for error reporting, or %NULL to ignore.
  *
@@ -3801,9 +4033,6 @@ g_socket_close (GSocket  *socket,
 		       socket_strerror (errsv));
 	  return FALSE;
 	}
-
-      glib_fd_callbacks->on_fd_closed (socket->priv->fd, "GSocket");
-
       break;
     }
 
@@ -3947,9 +4176,8 @@ update_condition_unlocked (GSocket *socket)
   GIOCondition condition;
 
   if (!socket->priv->closed &&
-      WSAEnumNetworkEvents (socket->priv->fd,
-			    socket->priv->event,
-			    &events) == 0)
+      (WSAWaitForMultipleEvents (1, &socket->priv->event, FALSE, 0, FALSE) == WSA_WAIT_EVENT_0) &&
+      (WSAEnumNetworkEvents (socket->priv->fd, socket->priv->event, &events) == 0))
     {
       socket->priv->current_events |= events.lNetworkEvents;
       if (events.lNetworkEvents & FD_WRITE &&
@@ -4038,8 +4266,6 @@ socket_source_prepare (GSource *source,
 {
   GSocketSource *socket_source = (GSocketSource *)source;
 
-  *timeout = -1;
-
 #ifdef G_OS_WIN32
   if ((socket_source->pollfd.revents & G_IO_NVAL) != 0)
     return TRUE;
@@ -4099,7 +4325,7 @@ socket_source_dispatch (GSource     *source,
 #endif
 
   timeout = g_source_get_ready_time (source);
-  if (timeout >= 0 && timeout < g_source_get_time (source) &&
+  if (timeout >= 0 && timeout <= g_source_get_time (source) &&
       !g_socket_is_closed (socket_source->socket))
     {
       socket->priv->timed_out = TRUE;
@@ -4751,7 +4977,7 @@ input_message_from_msghdr (const struct msghdr  *msg,
     GPtrArray *my_messages = NULL;
     struct cmsghdr *cmsg;
 
-    if (msg->msg_controllen >= sizeof (struct cmsghdr))
+    if (msg->msg_controllen >= (socklen_t) sizeof (struct cmsghdr))
       {
         g_assert (message->control_messages != NULL);
         for (cmsg = CMSG_FIRSTHDR (msg);
@@ -6269,7 +6495,7 @@ g_socket_get_credentials (GSocket   *socket,
  * getsockopt(). (If you need to fetch a  non-integer-valued option,
  * you will need to call getsockopt() directly.)
  *
- * The [<gio/gnetworking.h>][gio-gnetworking.h]
+ * The [`<gio/gnetworking.h>`](networking.html)
  * header pulls in system headers that will define most of the
  * standard/portable socket options. For unusual socket protocols or
  * platform-dependent options, you may need to include additional
@@ -6292,7 +6518,7 @@ g_socket_get_option (GSocket  *socket,
 		     gint     *value,
 		     GError  **error)
 {
-  guint size;
+  socklen_t size;
 
   g_return_val_if_fail (G_IS_SOCKET (socket), FALSE);
 
@@ -6341,7 +6567,7 @@ g_socket_get_option (GSocket  *socket,
  * setsockopt(). (If you need to set a non-integer-valued option,
  * you will need to call setsockopt() directly.)
  *
- * The [<gio/gnetworking.h>][gio-gnetworking.h]
+ * The [`<gio/gnetworking.h>`](networking.html)
  * header pulls in system headers that will define most of the
  * standard/portable socket options. For unusual socket protocols or
  * platform-dependent options, you may need to include additional

@@ -33,27 +33,17 @@
 #include "gtlsinteraction.h"
 
 /**
- * SECTION:gtlsdatabase
- * @short_description: TLS database type
- * @include: gio/gio.h
+ * GTlsDatabase:
  *
- * #GTlsDatabase is used to look up certificates and other information
+ * `GTlsDatabase` is used to look up certificates and other information
  * from a certificate or key store. It is an abstract base class which
  * TLS library specific subtypes override.
  *
- * A #GTlsDatabase may be accessed from multiple threads by the TLS backend.
+ * A `GTlsDatabase` may be accessed from multiple threads by the TLS backend.
  * All implementations are required to be fully thread-safe.
  *
  * Most common client applications will not directly interact with
- * #GTlsDatabase. It is used internally by #GTlsConnection.
- *
- * Since: 2.30
- */
-
-/**
- * GTlsDatabase:
- *
- * Abstract base class for the backend-specific database types.
+ * `GTlsDatabase`. It is used internally by [class@Gio.TlsConnection].
  *
  * Since: 2.30
  */
@@ -978,7 +968,7 @@ g_tls_database_lookup_certificates_issued_by (GTlsDatabase           *self,
  * g_tls_database_lookup_certificates_issued_by() for more information.
  *
  * The database may choose to hold a reference to the issuer byte array for the duration
- * of of this asynchronous operation. The byte array should not be modified during
+ * of this asynchronous operation. The byte array should not be modified during
  * this time.
  *
  * Since: 2.30

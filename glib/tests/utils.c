@@ -23,12 +23,16 @@
  * Author: Matthias Clasen
  */
 
+#include "config.h"
+
 #ifndef GLIB_DISABLE_DEPRECATION_WARNINGS
 #define GLIB_DISABLE_DEPRECATION_WARNINGS
 #endif
 
 #include "glib.h"
 #include "glib-private.h"
+#include "gutilsprivate.h"
+#include "glib/gstdio.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -40,29 +44,6 @@
 #include <windows.h>
 #endif
 
-static gboolean
-strv_check (const gchar * const *strv, ...)
-{
-  va_list args;
-  gchar *s;
-  gint i;
-
-  va_start (args, strv);
-  for (i = 0; strv[i]; i++)
-    {
-      s = va_arg (args, gchar*);
-      if (g_strcmp0 (strv[i], s) != 0)
-        {
-          va_end (args);
-          return FALSE;
-        }
-    }
-
-  va_end (args);
-
-  return TRUE;
-}
-
 static void
 test_language_names (void)
 {
@@ -70,35 +51,62 @@ test_language_names (void)
 
   g_setenv ("LANGUAGE", "de:en_US", TRUE);
   names = g_get_language_names ();
-  g_assert (strv_check (names, "de", "en_US", "en", "C", NULL));
+  g_assert_cmpstrv (names, ((const char *[]) { "de", "en_US", "en", "C", NULL }));
 
   g_setenv ("LANGUAGE", "tt_RU.UTF-8@iqtelif", TRUE);
   names = g_get_language_names ();
-  g_assert (strv_check (names,
-                        "tt_RU.UTF-8@iqtelif",
-                        "tt_RU@iqtelif",
-                        "tt.UTF-8@iqtelif",
-                        "tt@iqtelif",
-                        "tt_RU.UTF-8",
-                        "tt_RU",
-                        "tt.UTF-8",
-                        "tt",
-                        "C",
-                        NULL));
+  g_assert_cmpstrv (names,
+                    ((const char *[]) {
+                      "tt_RU.UTF-8@iqtelif",
+                      "tt_RU@iqtelif",
+                      "tt.UTF-8@iqtelif",
+                      "tt@iqtelif",
+                      "tt_RU.UTF-8",
+                      "tt_RU",
+                      "tt.UTF-8",
+                      "tt",
+                      "C",
+                      NULL
+                    }));
 }
 
 static void
 test_locale_variants (void)
 {
-  char **v;
+  const struct
+    {
+      const char *locale_str;
+      const char * const *expected_variants;
+    }
+  vectors[] =
+    {
+      /* Try some valid locales */
+      { "en", (const char *[]) { "en", NULL } },
+      { "sr@latin", (const char *[]) { "sr@latin", "sr", NULL } },
+      { "fr_BE", (const char *[]) { "fr_BE", "fr", NULL } },
+      { "sr_SR@latin", (const char *[]) { "sr_SR@latin", "sr@latin", "sr_SR", "sr", NULL } },
+      { "sr_SR@latin.UTF-8", (const char *[]) { "sr_SR@latin.UTF-8", "sr_SR@latin", "sr.UTF-8", "sr", NULL } },
 
-  v = g_get_locale_variants ("fr_BE");
-  g_assert (strv_check ((const gchar * const *) v, "fr_BE", "fr", NULL));
-  g_strfreev (v);
+      /* And some invalid ones. The parser should try and extract what value it can */
+      { "sr@latin_invalid", (const char *[]) { "sr@latin_invalid", "sr@latin", NULL } },
+      { "sr.UTF-8@latin", (const char *[]) { "sr.UTF-8@latin", "sr@latin", "sr.UTF-8", "sr", NULL } },
+      { "sr.UTF-8_latin", (const char *[]) { "sr.UTF-8_latin", "sr.UTF-8", NULL } },
+      { "sr.UTF-8@latin_invalid", (const char *[]) { "sr.UTF-8@latin_invalid", "sr.UTF-8@latin", NULL } },
+    };
+  size_t i;
 
-  v = g_get_locale_variants ("sr_SR@latin");
-  g_assert (strv_check ((const gchar * const *) v, "sr_SR@latin", "sr@latin", "sr_SR", "sr", NULL));
-  g_strfreev (v);
+  for (i = 0; i < G_N_ELEMENTS (vectors); i++)
+    {
+      char **v;
+
+      g_test_message ("Testing locale ‘%s’", vectors[i].locale_str);
+
+      v = g_get_locale_variants (vectors[i].locale_str);
+      g_assert_cmpstrv (v, vectors[i].expected_variants);
+      /* g_get_locale_variants() guarantees that the input is always in the output: */
+      g_assert_true (g_strv_contains ((const char * const *) v, vectors[i].locale_str));
+      g_strfreev (v);
+    }
 }
 
 static void
@@ -109,27 +117,27 @@ test_version (void)
               GLIB_MAJOR_VERSION, GLIB_MINOR_VERSION, GLIB_MICRO_VERSION,
               glib_major_version, glib_minor_version, glib_micro_version);
 
-  g_assert (glib_check_version (GLIB_MAJOR_VERSION,
-                                GLIB_MINOR_VERSION,
-                                GLIB_MICRO_VERSION) == NULL);
-  g_assert (glib_check_version (GLIB_MAJOR_VERSION,
-                                GLIB_MINOR_VERSION,
-                                0) == NULL);
-  g_assert (glib_check_version (GLIB_MAJOR_VERSION - 1,
-                                0,
-                                0) != NULL);
-  g_assert (glib_check_version (GLIB_MAJOR_VERSION + 1,
-                                0,
-                                0) != NULL);
-  g_assert (glib_check_version (GLIB_MAJOR_VERSION,
-                                GLIB_MINOR_VERSION + 1,
-                                0) != NULL);
+  g_assert_null (glib_check_version (GLIB_MAJOR_VERSION,
+                                     GLIB_MINOR_VERSION,
+                                     GLIB_MICRO_VERSION));
+  g_assert_null (glib_check_version (GLIB_MAJOR_VERSION,
+                                     GLIB_MINOR_VERSION,
+                                     0));
+  g_assert_nonnull (glib_check_version (GLIB_MAJOR_VERSION - 1,
+                                        0,
+                                        0));
+  g_assert_nonnull (glib_check_version (GLIB_MAJOR_VERSION + 1,
+                                        0,
+                                        0));
+  g_assert_nonnull (glib_check_version (GLIB_MAJOR_VERSION,
+                                        GLIB_MINOR_VERSION + 1,
+                                        0));
   /* don't use + 1 here, since a +/-1 difference can
    * happen due to post-release version bumps in git
    */
-  g_assert (glib_check_version (GLIB_MAJOR_VERSION,
-                                GLIB_MINOR_VERSION,
-                                GLIB_MICRO_VERSION + 3) != NULL);
+  g_assert_nonnull (glib_check_version (GLIB_MAJOR_VERSION,
+                                        GLIB_MINOR_VERSION,
+                                        GLIB_MICRO_VERSION + 3));
 }
 
 static const gchar *argv0;
@@ -209,8 +217,27 @@ test_prgname_thread_safety (void)
 static void
 test_tmpdir (void)
 {
+  char **envp = NULL;
+
   g_test_bug ("https://bugzilla.gnome.org/show_bug.cgi?id=627969");
-  g_assert_cmpstr (g_get_tmp_dir (), !=, "");
+  g_test_summary ("Test that g_get_tmp_dir() returns a correct default if TMPDIR is set to the empty string");
+
+  if (g_test_subprocess ())
+    {
+      g_assert_cmpstr (g_get_tmp_dir (), !=, "");
+      return;
+    }
+
+  envp = g_get_environ ();
+
+  envp = g_environ_setenv (g_steal_pointer (&envp), "TMPDIR", "", TRUE);
+  envp = g_environ_unsetenv (g_steal_pointer (&envp), "TMP");
+  envp = g_environ_unsetenv (g_steal_pointer (&envp), "TEMP");
+
+  g_test_trap_subprocess_with_envp (NULL, (const gchar * const *) envp,
+                                    0, G_TEST_SUBPROCESS_DEFAULT);
+  g_test_trap_assert_passed ();
+  g_strfreev (envp);
 }
 
 #if defined(__GNUC__) && (__GNUC__ >= 4)
@@ -442,14 +469,16 @@ test_find_program (void)
   gsize i;
 
   res = g_find_program_in_path ("sh");
-  g_assert (res != NULL);
+  g_assert_nonnull (res);
   g_free (res);
 
   res = g_find_program_in_path ("/bin/sh");
-  g_assert (res != NULL);
+  g_assert_nonnull (res);
   g_free (res);
 
-  cwd = g_get_current_dir ();
+  /* Resolve any symlinks in the CWD as that breaks the test e.g.
+   * with the FreeBSD /home/ -> /usr/home symlink. */
+  cwd = realpath (".", NULL);
   absolute_path = g_find_program_in_path ("sh");
   relative_path = g_strdup (absolute_path);
   for (i = 0; cwd[i] != '\0'; i++)
@@ -476,13 +505,160 @@ test_find_program (void)
 #endif
 
   res = g_find_program_in_path ("this_program_does_not_exit");
-  g_assert (res == NULL);
+  g_assert_null (res);
 
   res = g_find_program_in_path ("/bin");
-  g_assert (res == NULL);
+  g_assert_null (res);
 
   res = g_find_program_in_path ("/etc/passwd");
-  g_assert (res == NULL);
+  g_assert_null (res);
+}
+
+static char *
+find_program_for_path (const char *program,
+                       const char *path,
+                       const char *working_dir)
+{
+  return GLIB_PRIVATE_CALL(g_find_program_for_path) (program, path, working_dir);
+}
+
+static void
+test_find_program_for_path (void)
+{
+  GError *error = NULL;
+  /* Using .cmd extension to make windows to consider it an executable */
+  const char *command_to_find = "just-an-exe-file.cmd";
+  char *path;
+  char *exe_path;
+  char *found_path;
+  char *old_cwd;
+  char *tmp;
+
+  tmp = g_dir_make_tmp ("find_program_for_path_XXXXXXX", &error);
+  g_assert_no_error (error);
+
+  path = g_build_filename (tmp, "sub-path", NULL);
+  g_mkdir (path, 0700);
+  g_assert_true (g_file_test (path, G_FILE_TEST_IS_DIR));
+
+  exe_path = g_build_filename (path, command_to_find, NULL);
+  g_file_set_contents (exe_path, "", -1, &error);
+  g_assert_no_error (error);
+  g_assert_true (g_file_test (exe_path, G_FILE_TEST_EXISTS));
+
+#ifdef G_OS_UNIX
+  g_assert_no_errno (g_chmod (exe_path, 0500));
+#endif
+  g_assert_true (g_file_test (exe_path, G_FILE_TEST_IS_EXECUTABLE));
+
+  g_assert_null (g_find_program_in_path (command_to_find));
+  g_assert_null (find_program_for_path (command_to_find, NULL, NULL));
+
+  found_path = find_program_for_path (command_to_find, path, NULL);
+#ifdef __APPLE__
+  g_assert_nonnull (found_path);
+  g_assert_true (g_str_has_suffix (found_path, exe_path));
+#else
+  g_assert_cmpstr (exe_path, ==, found_path);
+#endif
+  g_clear_pointer (&found_path, g_free);
+
+  found_path = find_program_for_path (command_to_find, path, path);
+#ifdef __APPLE__
+  g_assert_nonnull (found_path);
+  g_assert_true (g_str_has_suffix (found_path, exe_path));
+#else
+  g_assert_cmpstr (exe_path, ==, found_path);
+#endif
+  g_clear_pointer (&found_path, g_free);
+
+  found_path = find_program_for_path (command_to_find, NULL, path);
+#ifdef __APPLE__
+  g_assert_nonnull (found_path);
+  g_assert_true (g_str_has_suffix (found_path, exe_path));
+#else
+  g_assert_cmpstr (exe_path, ==, found_path);
+#endif
+  g_clear_pointer (&found_path, g_free);
+
+  found_path = find_program_for_path (command_to_find, "::", path);
+#ifdef __APPLE__
+  g_assert_nonnull (found_path);
+  g_assert_true (g_str_has_suffix (found_path, exe_path));
+#else
+  g_assert_cmpstr (exe_path, ==, found_path);
+#endif
+  g_clear_pointer (&found_path, g_free);
+
+  old_cwd = g_get_current_dir ();
+  g_chdir (path);
+  found_path =
+    find_program_for_path (command_to_find,
+      G_SEARCHPATH_SEPARATOR_S G_SEARCHPATH_SEPARATOR_S, NULL);
+  g_chdir (old_cwd);
+  g_clear_pointer (&old_cwd, g_free);
+#ifdef __APPLE__
+  g_assert_nonnull (found_path);
+  g_assert_true (g_str_has_suffix (found_path, exe_path));
+#else
+  g_assert_cmpstr (exe_path, ==, found_path);
+#endif
+  g_clear_pointer (&found_path, g_free);
+
+  old_cwd = g_get_current_dir ();
+  g_chdir (tmp);
+  found_path =
+    find_program_for_path (command_to_find,
+      G_SEARCHPATH_SEPARATOR_S G_SEARCHPATH_SEPARATOR_S, "sub-path");
+  g_chdir (old_cwd);
+  g_clear_pointer (&old_cwd, g_free);
+#ifdef __APPLE__
+  g_assert_nonnull (found_path);
+  g_assert_true (g_str_has_suffix (found_path, exe_path));
+#else
+  g_assert_cmpstr (exe_path, ==, found_path);
+#endif
+  g_clear_pointer (&found_path, g_free);
+
+  g_assert_null (
+    find_program_for_path (command_to_find,
+      G_SEARCHPATH_SEPARATOR_S G_SEARCHPATH_SEPARATOR_S, "other-sub-path"));
+
+  found_path = find_program_for_path (command_to_find,
+    G_SEARCHPATH_SEPARATOR_S "sub-path" G_SEARCHPATH_SEPARATOR_S, tmp);
+#ifdef __APPLE__
+  g_assert_nonnull (found_path);
+  g_assert_true (g_str_has_suffix (found_path, exe_path));
+#else
+  g_assert_cmpstr (exe_path, ==, found_path);
+#endif
+  g_clear_pointer (&found_path, g_free);
+
+  g_assert_null (find_program_for_path (command_to_find,
+    G_SEARCHPATH_SEPARATOR_S "other-sub-path" G_SEARCHPATH_SEPARATOR_S, tmp));
+
+#ifdef G_OS_UNIX
+  found_path = find_program_for_path ("sh", NULL, tmp);
+  g_assert_nonnull (found_path);
+  g_clear_pointer (&found_path, g_free);
+
+  old_cwd = g_get_current_dir ();
+  g_chdir ("/");
+  found_path = find_program_for_path ("sh", "sbin:bin:usr/bin:usr/sbin", NULL);
+  g_chdir (old_cwd);
+  g_clear_pointer (&old_cwd, g_free);
+  g_assert_nonnull (found_path);
+  g_clear_pointer (&found_path, g_free);
+
+  found_path = find_program_for_path ("sh", "sbin:bin:usr/bin:usr/sbin", "/");
+  g_assert_nonnull (found_path);
+  g_clear_pointer (&found_path, g_free);
+#endif /* G_OS_UNIX */
+
+  g_clear_pointer (&exe_path, g_free);
+  g_clear_pointer (&path, g_free);
+  g_clear_pointer (&tmp, g_free);
+  g_clear_error (&error);
 }
 
 static void
@@ -619,7 +795,7 @@ test_username (void)
 
   name = g_get_user_name ();
 
-  g_assert (name != NULL);
+  g_assert_nonnull (name);
 }
 
 static void
@@ -629,7 +805,7 @@ test_realname (void)
 
   name = g_get_real_name ();
 
-  g_assert (name != NULL);
+  g_assert_nonnull (name);
 }
 
 static void
@@ -639,101 +815,181 @@ test_hostname (void)
 
   name = g_get_host_name ();
 
-  g_assert (name != NULL);
+  g_assert_nonnull (name);
   g_assert_true (g_utf8_validate (name, -1, NULL));
 }
 
-#ifdef G_OS_UNIX
 static void
-test_xdg_dirs (void)
+test_user_special_dirs_desktop (void)
 {
-  gchar *xdg;
-  const gchar *dir;
-  const gchar * const *dirs;
-  gchar *s;
+  const gchar *dir, *dir2;
 
-  xdg = g_strdup (g_getenv ("XDG_CONFIG_HOME"));
-  if (!xdg)
-    xdg = g_build_filename (g_get_home_dir (), ".config", NULL);
+  dir = g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP);
+  g_assert_nonnull (dir);
 
-  dir = g_get_user_config_dir ();
-
-  g_assert_cmpstr (dir, ==, xdg);
-  g_free (xdg);
-
-  xdg = g_strdup (g_getenv ("XDG_DATA_HOME"));
-  if (!xdg)
-    xdg = g_build_filename (g_get_home_dir (), ".local", "share", NULL);
-
-  dir = g_get_user_data_dir ();
-
-  g_assert_cmpstr (dir, ==, xdg);
-  g_free (xdg);
-
-  xdg = g_strdup (g_getenv ("XDG_CACHE_HOME"));
-  if (!xdg)
-    xdg = g_build_filename (g_get_home_dir (), ".cache", NULL);
-
-  dir = g_get_user_cache_dir ();
-
-  g_assert_cmpstr (dir, ==, xdg);
-  g_free (xdg);
-
-  xdg = g_strdup (g_getenv ("XDG_STATE_HOME"));
-  if (!xdg)
-    xdg = g_build_filename (g_get_home_dir (), ".local/state", NULL);
-
-  dir = g_get_user_state_dir ();
-
-  g_assert_cmpstr (dir, ==, xdg);
-  g_free (xdg);
-
-  xdg = g_strdup (g_getenv ("XDG_RUNTIME_DIR"));
-  if (!xdg)
-    xdg = g_strdup (g_get_user_cache_dir ());
-
-  dir = g_get_user_runtime_dir ();
-
-  g_assert_cmpstr (dir, ==, xdg);
-  g_free (xdg);
-
-  xdg = (gchar *)g_getenv ("XDG_CONFIG_DIRS");
-  if (!xdg)
-    xdg = "/etc/xdg";
-
-  dirs = g_get_system_config_dirs ();
-
-  s = g_strjoinv (":", (gchar **)dirs);
-
-  g_assert_cmpstr (s, ==, xdg);
-
-  g_free (s);
+  g_reload_user_special_dirs_cache ();
+  dir2 = g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP);
+  g_assert_nonnull (dir2);
 }
+
+#if !defined(HAVE_COCOA) && !defined(G_OS_WIN32)
+#define USES_USER_DIRS_DIRS 1
 #endif
 
+/* Write a mock user-dirs.dirs file with the given @content. This must be used
+ * with `G_TEST_OPTION_ISOLATE_DIRS`. See
+ * [`xdg-user-dirs-update(1)`](man:xdg-user-dirs-update(1)) for the specification. */
+#ifdef USES_USER_DIRS_DIRS
 static void
-test_special_dir (void)
+set_mock_user_dirs_dirs_file (const char *content)
 {
-  const gchar *dir, *dir2;
+  char *user_dirs_file = NULL;
+  char *user_dirs_parent = NULL;
+  const char *config_dir;
+  GError *local_error = NULL;
 
-  dir = g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP);
-  g_reload_user_special_dirs_cache ();
-  dir2 = g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP);
+  config_dir = g_get_user_config_dir ();
 
-  g_assert_cmpstr (dir, ==, dir2);
+  /* Double check we’re running under G_TEST_OPTION_ISOLATE_DIRS and not about
+   * to overwrite actual user data. */
+  g_assert (g_str_has_prefix (config_dir, g_get_tmp_dir ()));
+
+  user_dirs_file = g_build_filename (config_dir, "user-dirs.dirs", NULL);
+  user_dirs_parent = g_path_get_dirname (user_dirs_file);
+  g_mkdir_with_parents (user_dirs_parent, 0700);
+  g_file_set_contents (user_dirs_file, content, -1, &local_error);
+  g_assert_no_error (local_error);
+  g_free (user_dirs_file);
+  g_free (user_dirs_parent);
+}
+#endif  /* USES_USER_DIRS_DIRS */
+
+static void
+test_user_special_dirs_load_unlocked (void)
+{
+#ifndef USES_USER_DIRS_DIRS
+  g_test_skip ("The user-dirs.dirs parser is not used on this platform.");
+#else
+  g_test_summary ("Tests error and corner cases of user-dirs.dirs content.");
+  g_test_bug ("https://gitlab.gnome.org/GNOME/glib/merge_requests/4800");
+
+  if (g_test_subprocess ())
+    {
+      const gchar *dir;
+      gchar *expected;
+
+      set_mock_user_dirs_dirs_file ("XDG_DESKTOP_DIR = \"/root\"\nXDG_DESKTOP_DIR = \"$HOMER/Desktop\"\n"
+                                    "XDG_DOCUMENTS_DIR = \"$HOME\"\n"
+                                    "XDG_DOWNLOAD_DIR = \"$HOME/Downloads\"\n"
+                                    "XDG_MUSIC_DIR = \"///\"\n"
+                                    "XDG_PICTURES_DIR = \"$HOME/Pictures\"\n"
+                                    "XDG_PICTURES_DIR = \"/\"\n"
+                                    "XDG_PUBLICSHARE_DIR = \"$HOME/\"\n"
+                                    "XDG_DOWNLOAD_DIR = \"/dev/null\n");
+
+      g_reload_user_special_dirs_cache ();
+
+      dir = g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP);
+      g_assert_cmpstr (dir, ==, "/root");
+
+      dir = g_get_user_special_dir (G_USER_DIRECTORY_DOCUMENTS);
+      g_assert_cmpstr (dir, ==, g_get_home_dir ());
+
+      expected = g_build_filename (g_get_home_dir (), "Downloads", NULL);
+      dir = g_get_user_special_dir (G_USER_DIRECTORY_DOWNLOAD);
+      g_assert_cmpstr (dir, ==, expected);
+      g_free (expected);
+
+      dir = g_get_user_special_dir (G_USER_DIRECTORY_MUSIC);
+      g_assert_cmpstr (dir, ==, "/");
+
+      dir = g_get_user_special_dir (G_USER_DIRECTORY_PICTURES);
+      g_assert_cmpstr (dir, ==, "/");
+
+      dir = g_get_user_special_dir (G_USER_DIRECTORY_PUBLIC_SHARE);
+      g_assert_cmpstr (dir, ==, g_get_home_dir ());
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_passed ();
+    }
+#endif
 }
 
 static void
-test_desktop_special_dir (void)
+test_user_special_dirs_reload_leaks (void)
 {
-  const gchar *dir, *dir2;
+#ifndef USES_USER_DIRS_DIRS
+  g_test_skip ("The user-dirs.dirs parser is not used on this platform.");
+#else
+  g_test_summary ("Tests that old user special dirs values are deliberately leaked on reload.");
 
-  dir = g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP);
-  g_assert (dir != NULL);
+  if (g_test_subprocess ())
+    {
+      const char *original_special_dirs[G_USER_N_DIRECTORIES] = { NULL, };
+      const char *new_special_dirs[G_USER_N_DIRECTORIES] = { NULL, };
+      size_t i;
 
-  g_reload_user_special_dirs_cache ();
-  dir2 = g_get_user_special_dir (G_USER_DIRECTORY_DESKTOP);
-  g_assert (dir2 != NULL);
+      /* Set some original values for the variables and store them all. */
+      set_mock_user_dirs_dirs_file ("XDG_DESKTOP_DIR = \"/original/desktop/dir\"\n"
+                                    "XDG_DOCUMENTS_DIR = \"/original/documents/dir\"\n"
+                                    "XDG_DOWNLOAD_DIR = \"/original/download/dir\"\n");
+      g_reload_user_special_dirs_cache ();
+
+      for (i = 0; i < G_USER_N_DIRECTORIES; i++)
+        original_special_dirs[(GUserDirectory) i] = g_get_user_special_dir ((GUserDirectory) i);
+
+      g_assert_cmpstr (original_special_dirs[G_USER_DIRECTORY_DESKTOP], ==, "/original/desktop/dir");
+      g_assert_cmpstr (original_special_dirs[G_USER_DIRECTORY_DOCUMENTS], ==, "/original/documents/dir");
+      g_assert_cmpstr (original_special_dirs[G_USER_DIRECTORY_DOWNLOAD], ==, "/original/download/dir");
+
+      /* Update the values and reload them. Change some, keep others the same, drop some. */
+      set_mock_user_dirs_dirs_file ("XDG_DESKTOP_DIR = \"/new/desktop/dir\"\n"
+                                    "XDG_DOCUMENTS_DIR = \"/original/documents/dir\"\n"
+                                    "XDG_MUSIC_DIR = \"/new/music/dir\"\n");
+      g_reload_user_special_dirs_cache ();
+
+      for (i = 0; i < G_USER_N_DIRECTORIES; i++)
+        new_special_dirs[(GUserDirectory) i] = g_get_user_special_dir ((GUserDirectory) i);
+
+      /* We expect all the original strings to still be accessible. Those which
+       * have the same string values as the new ones will not have changed. The
+       * ones which have changed string value should have their original values
+       * deliberately leaked so that const pointers in the program don’t break.
+       * See the documentation for g_reload_user_special_dirs_cache(). */
+      for (i = 0; i < G_USER_N_DIRECTORIES; i++)
+        g_test_message ("Special dir %" G_GSIZE_FORMAT ", original value %s, new value %s",
+                        i, original_special_dirs[(GUserDirectory) i],
+                        new_special_dirs[(GUserDirectory) i]);
+
+      g_assert_cmpstr (original_special_dirs[G_USER_DIRECTORY_DESKTOP], ==, "/original/desktop/dir");
+      g_assert_cmpstr (original_special_dirs[G_USER_DIRECTORY_DOCUMENTS], ==, "/original/documents/dir");
+      g_assert_cmpstr (original_special_dirs[G_USER_DIRECTORY_DOWNLOAD], ==, "/original/download/dir");
+      g_assert_cmpstr (original_special_dirs[G_USER_DIRECTORY_MUSIC], ==, NULL);
+      g_assert_cmpstr (new_special_dirs[G_USER_DIRECTORY_DESKTOP], ==, "/new/desktop/dir");
+      g_assert_cmpstr (new_special_dirs[G_USER_DIRECTORY_DOCUMENTS], ==, "/original/documents/dir");
+      g_assert_cmpstr (new_special_dirs[G_USER_DIRECTORY_DOWNLOAD], ==, NULL);
+      g_assert_cmpstr (new_special_dirs[G_USER_DIRECTORY_MUSIC], ==, "/new/music/dir");
+
+      /* We expect exactly these two strings to leak. Rather than mark them as
+       * leaked (which we can do for asan, but not for valgrind at runtime), go
+       * ahead and free them. This means we can catch unexpected additional
+       * leaks, and also unexpected double-frees.
+       *
+       * This is definitely *not* something that production code should be doing.
+       *
+       * We can (relatively) safely do it here because this test is running in
+       * a subprocess which is about to terminate. */
+      g_free ((char *) original_special_dirs[G_USER_DIRECTORY_DESKTOP]);
+      g_free ((char *) original_special_dirs[G_USER_DIRECTORY_DOWNLOAD]);
+    }
+  else
+    {
+      g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+      g_test_trap_assert_passed ();
+    }
+#endif
 }
 
 static void
@@ -741,7 +997,7 @@ test_os_info (void)
 {
   gchar *name;
   gchar *contents = NULL;
-#if defined (G_OS_UNIX) && !(defined (G_OS_WIN32) || defined (G_OS_DARWIN))
+#if defined (G_OS_UNIX) && !(defined (G_OS_WIN32) || defined (__APPLE__))
   struct utsname info;
 #endif
 
@@ -751,7 +1007,7 @@ test_os_info (void)
                   G_OS_INFO_KEY_NAME,
                   name == NULL ? "(null)" : name);
 
-#if defined (G_OS_WIN32) || defined (G_OS_DARWIN)
+#if defined (G_OS_WIN32) || defined (__APPLE__)
   /* These OSs have a special case so NAME should always succeed */
   g_assert_nonnull (name);
 #elif defined (G_OS_UNIX)
@@ -800,11 +1056,11 @@ test_clear_pointer (void)
 
   a = g_malloc (5);
   g_clear_pointer (&a, g_free);
-  g_assert (a == NULL);
+  g_assert_null (a);
 
   a = g_malloc (5);
   (g_clear_pointer) (&a, g_free);
-  g_assert (a == NULL);
+  g_assert_null (a);
 }
 
 /* Test that g_clear_pointer() works with a GDestroyNotify which contains a cast.
@@ -876,15 +1132,15 @@ test_take_pointer (void)
   get_obj (NULL);
 
   get_obj (&a);
-  g_assert (a);
+  g_assert_nonnull (a);
 
   /* ensure that it works to skip the macro */
   b = (g_steal_pointer) (&a);
-  g_assert (!a);
+  g_assert_null (a);
   obj_count--;
   g_free (b);
 
-  g_assert (!obj_count);
+  g_assert_cmpint (obj_count, ==, 0);
 }
 
 static void
@@ -893,16 +1149,16 @@ test_misc_mem (void)
   gpointer a;
 
   a = g_try_malloc (0);
-  g_assert (a == NULL);
+  g_assert_null (a);
 
   a = g_try_malloc0 (0);
-  g_assert (a == NULL);
+  g_assert_null (a);
 
   a = g_malloc (16);
   a = g_try_realloc (a, 20);
   a = g_try_realloc (a, 0);
 
-  g_assert (a == NULL);
+  g_assert_null (a);
 }
 
 static void
@@ -945,13 +1201,13 @@ test_aligned_mem (void)
 
   g_test_summary ("Aligned memory allocator");
 
-  a = g_aligned_alloc (0, sizeof(int), 8);
+  a = g_aligned_alloc (0, sizeof (int), MAX (sizeof (void *), 8));
   g_assert_null (a);
 
-  a = g_aligned_alloc0 (0, sizeof(int), 8);
+  a = g_aligned_alloc0 (0, sizeof (int), MAX (sizeof (void *), 8));
   g_assert_null (a);
 
-  a = g_aligned_alloc (16, 0, 8);
+  a = g_aligned_alloc (16, 0, MAX (sizeof (void *), 8));
   g_assert_null (a);
 
 #define CHECK_SUBPROCESS_FAIL(name,msg) do { \
@@ -1002,15 +1258,48 @@ test_aligned_mem_zeroed (void)
 }
 
 static void
+test_aligned_mem_free_sized (void)
+{
+  gsize n_blocks = 10;
+  guint *p;
+
+  g_test_summary ("Check that g_aligned_free_sized() works");
+
+  p = g_aligned_alloc (n_blocks, sizeof (*p), 16);
+  g_assert_nonnull (p);
+
+  g_aligned_free_sized (p, sizeof (*p), n_blocks * 16);
+
+  /* NULL should be ignored */
+  g_aligned_free_sized (NULL, sizeof (*p), n_blocks * 16);
+}
+
+static void
+test_free_sized (void)
+{
+  gpointer p;
+
+  g_test_summary ("Check that g_free_sized() works");
+
+  p = g_malloc (123);
+  g_assert_nonnull (p);
+
+  g_free_sized (p, 123);
+
+  /* NULL should be ignored */
+  g_free_sized (NULL, 123);
+}
+
+static void
 test_nullify (void)
 {
   gpointer p = &test_nullify;
 
-  g_assert (p != NULL);
+  g_assert_nonnull (p);
 
   g_nullify_pointer (&p);
 
-  g_assert (p == NULL);
+  g_assert_null (p);
 }
 
 static void
@@ -1038,7 +1327,7 @@ test_check_setuid (void)
   gboolean res;
 
   res = GLIB_PRIVATE_CALL(g_check_setuid) ();
-  g_assert (!res);
+  g_assert_false (res);
 }
 
 /* Test the defined integer limits are correct, as some compilers have had
@@ -1119,16 +1408,25 @@ test_clear_slist (void)
     g_assert_null (slist);
 }
 
+static void
+test_steal_handle_id (void)
+{
+  unsigned int handle_id = 0;
+
+  g_assert_cmpuint (g_steal_handle_id (&handle_id), ==, 0);
+  g_assert_cmpuint (handle_id, ==, 0);
+
+  handle_id = 5;  /* pretend this is a meaningful handle */
+
+  g_assert_cmpuint (g_steal_handle_id (&handle_id), ==, 5);
+  g_assert_cmpuint (handle_id, ==, 0);
+}
+
 int
 main (int   argc,
       char *argv[])
 {
   argv0 = argv[0];
-
-  /* for tmpdir test, need to do this early before g_get_any_init */
-  g_setenv ("TMPDIR", "", TRUE);
-  g_unsetenv ("TMP");
-  g_unsetenv ("TEMP");
 
   /* g_test_init() only calls g_set_prgname() if g_get_prgname()
    * returns %NULL, but g_get_prgname() on Windows never returns NULL.
@@ -1137,7 +1435,7 @@ main (int   argc,
    */
   g_set_prgname (argv[0]);
 
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   g_test_add_func ("/utils/language-names", test_language_names);
   g_test_add_func ("/utils/locale-variants", test_locale_variants);
@@ -1149,6 +1447,7 @@ main (int   argc,
   g_test_add_func ("/utils/bits", test_bits);
   g_test_add_func ("/utils/swap", test_swap);
   g_test_add_func ("/utils/find-program", test_find_program);
+  g_test_add_func ("/utils/find-program-for-path", test_find_program_for_path);
   g_test_add_func ("/utils/debug", test_debug);
   g_test_add_func ("/utils/codeset", test_codeset);
   g_test_add_func ("/utils/codeset2", test_codeset2);
@@ -1157,11 +1456,9 @@ main (int   argc,
   g_test_add_func ("/utils/username", test_username);
   g_test_add_func ("/utils/realname", test_realname);
   g_test_add_func ("/utils/hostname", test_hostname);
-#ifdef G_OS_UNIX
-  g_test_add_func ("/utils/xdgdirs", test_xdg_dirs);
-#endif
-  g_test_add_func ("/utils/specialdir", test_special_dir);
-  g_test_add_func ("/utils/specialdir/desktop", test_desktop_special_dir);
+  g_test_add_func ("/utils/user-special-dirs/desktop", test_user_special_dirs_desktop);
+  g_test_add_func ("/utils/user-special-dirs/load-unlocked", test_user_special_dirs_load_unlocked);
+  g_test_add_func ("/utils/user-special-dirs/reload-leaks", test_user_special_dirs_reload_leaks);
   g_test_add_func ("/utils/os-info", test_os_info);
   g_test_add_func ("/utils/clear-pointer", test_clear_pointer);
   g_test_add_func ("/utils/clear-pointer-cast", test_clear_pointer_cast);
@@ -1175,12 +1472,15 @@ main (int   argc,
   g_test_add_func ("/utils/aligned-mem/subprocess/aligned_alloc_nmov", aligned_alloc_nmov);
   g_test_add_func ("/utils/aligned-mem/alignment", test_aligned_mem_alignment);
   g_test_add_func ("/utils/aligned-mem/zeroed", test_aligned_mem_zeroed);
+  g_test_add_func ("/utils/aligned-mem/free-sized", test_aligned_mem_free_sized);
+  g_test_add_func ("/utils/free-sized", test_free_sized);
   g_test_add_func ("/utils/nullify", test_nullify);
   g_test_add_func ("/utils/atexit", test_atexit);
   g_test_add_func ("/utils/check-setuid", test_check_setuid);
   g_test_add_func ("/utils/int-limits", test_int_limits);
   g_test_add_func ("/utils/clear-list", test_clear_list);
   g_test_add_func ("/utils/clear-slist", test_clear_slist);
+  g_test_add_func ("/utils/steal-handle-id", test_steal_handle_id);
 
   return g_test_run ();
 }

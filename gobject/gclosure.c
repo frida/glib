@@ -37,59 +37,57 @@
 #include "gvaluetypes.h"
 #include "gtype-private.h"
 
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
-
 
 /**
- * SECTION:gclosure
- * @short_description: Functions as first-class objects
- * @title: Closures
+ * GClosure:
+ * @in_marshal: Indicates whether the closure is currently being invoked with
+ *   g_closure_invoke()
+ * @is_invalid: Indicates whether the closure has been invalidated by
+ *   g_closure_invalidate()
  *
- * A #GClosure represents a callback supplied by the programmer.
+ * A `GClosure` represents a callback supplied by the programmer.
  *
  * It will generally comprise a function of some kind and a marshaller
  * used to call it. It is the responsibility of the marshaller to
- * convert the arguments for the invocation from #GValues into
+ * convert the arguments for the invocation from [GValues][struct@Value] into
  * a suitable form, perform the callback on the converted arguments,
- * and transform the return value back into a #GValue.
+ * and transform the return value back into a [struct@Value].
  *
  * In the case of C programs, a closure usually just holds a pointer
  * to a function and maybe a data argument, and the marshaller
- * converts between #GValue and native C types. The GObject
- * library provides the #GCClosure type for this purpose. Bindings for
- * other languages need marshallers which convert between #GValues
+ * converts between [struct@Value] and native C types. The GObject
+ * library provides the [struct@CClosure] type for this purpose. Bindings for
+ * other languages need marshallers which convert between [GValues][struct@Value]
  * and suitable representations in the runtime of the language in
  * order to use functions written in that language as callbacks. Use
- * g_closure_set_marshal() to set the marshaller on such a custom
+ * [method@Closure.set_marshal] to set the marshaller on such a custom
  * closure implementation.
  *
  * Within GObject, closures play an important role in the
  * implementation of signals. When a signal is registered, the
- * @c_marshaller argument to g_signal_new() specifies the default C
+ * @c_marshaller argument to [func@signal_new] specifies the default C
  * marshaller for any closure which is connected to this
  * signal. GObject provides a number of C marshallers for this
- * purpose, see the g_cclosure_marshal_*() functions. Additional C
+ * purpose, see the `g_cclosure_marshal_*()` functions. Additional C
  * marshallers can be generated with the [glib-genmarshal][glib-genmarshal]
  * utility.  Closures can be explicitly connected to signals with
- * g_signal_connect_closure(), but it usually more convenient to let
+ * [func@signal_connect_closure], but it usually more convenient to let
  * GObject create a closure automatically by using one of the
- * g_signal_connect_*() functions which take a callback function/user
+ * `g_signal_connect_*()` functions which take a callback function/user
  * data pair.
  *
  * Using closures has a number of important advantages over a simple
  * callback function/data pointer combination:
- * 
+ *
  * - Closures allow the callee to get the types of the callback parameters,
  *   which means that language bindings don't have to write individual glue
  *   for each callback type.
  *
- * - The reference counting of #GClosure makes it easy to handle reentrancy
+ * - The reference counting of [struct@Closure] makes it easy to handle reentrancy
  *   right; if a callback is removed while it is being invoked, the closure
  *   and its parameters won't be freed until the invocation finishes.
  *
- * - g_closure_invalidate() and invalidation notifiers allow callbacks to be
+ * - [method@Closure.invalidate] and invalidation notifiers allow callbacks to be
  *   automatically removed when the objects they point to go away.
  */
 
@@ -97,49 +95,73 @@
 #define	CLOSURE_MAX_N_GUARDS		((1 << 1) - 1)
 #define	CLOSURE_MAX_N_FNOTIFIERS	((1 << 2) - 1)
 #define	CLOSURE_MAX_N_INOTIFIERS	((1 << 8) - 1)
-#define	CLOSURE_N_MFUNCS(cl)		(((cl)->n_guards << 1L))
+#define	CLOSURE_N_MFUNCS(cl)		((size_t) ((cl)->n_guards << 1L))
 /* same as G_CLOSURE_N_NOTIFIERS() (keep in sync) */
-#define	CLOSURE_N_NOTIFIERS(cl)		(CLOSURE_N_MFUNCS (cl) + \
+#define	CLOSURE_N_NOTIFIERS(cl)		((size_t) (CLOSURE_N_MFUNCS (cl) + \
                                          (cl)->n_fnotifiers + \
-                                         (cl)->n_inotifiers)
+                                         (cl)->n_inotifiers))
 
+/* A copy of the flags bitfield from the beginning of `struct _GClosure`, which
+ * is in union with an int for atomic access to all fields at the same time.
+ *
+ * This must be kept in sync with `struct _GClosure`, but that’s easy because
+ * it’s (unfortunately) a public struct, so can never change for ABI
+ * compatibility reasons. */
 typedef union {
+  struct {
+    guint ref_count : 15;  /* (atomic) */
+    /* meta_marshal is not used anymore but must be zero for historical reasons
+       as it was exposed in the G_CLOSURE_N_NOTIFIERS macro */
+    guint meta_marshal_nouse : 1;  /* (atomic) */
+    guint n_guards : 1;  /* (atomic) */
+    guint n_fnotifiers : 2;  /* finalization notifiers (atomic) */
+    guint n_inotifiers : 8;  /* invalidation notifiers (atomic) */
+    guint in_inotify : 1;  /* (atomic) */
+    guint floating : 1;  /* (atomic) */
+    guint derivative_flag : 1;  /* (atomic) */
+    guint in_marshal : 1;  /* (atomic) */
+    guint is_invalid : 1;  /* (atomic) */
+  } flags;
   GClosure closure;
-  gint vint;
-} ClosureInt;
+  int atomic_int;
+} GClosureFlags;
 
-#define CHANGE_FIELD(_closure, _field, _OP, _value, _must_set, _SET_OLD, _SET_NEW)      \
+G_STATIC_ASSERT (sizeof (GClosureFlags) == sizeof (GClosure));
+G_STATIC_ASSERT (G_ALIGNOF (GClosureFlags) == G_ALIGNOF (GClosure));
+
+#define ATOMIC_CHANGE_FIELD(_closure, _field, _OP, _value, _SET_OLD, _SET_NEW) \
 G_STMT_START {                                                                          \
-  ClosureInt *cunion = (ClosureInt*) _closure;                 		                \
+  GClosureFlags *cunion = (GClosureFlags *) _closure; \
   gint new_int, old_int, success;                              		                \
+  old_int = g_atomic_int_get (&cunion->atomic_int); \
   do                                                    		                \
     {                                                   		                \
-      ClosureInt tmp;                                   		                \
-      tmp.vint = old_int = cunion->vint;                		                \
-      _SET_OLD tmp.closure._field;                                                      \
-      tmp.closure._field _OP _value;                      		                \
-      _SET_NEW tmp.closure._field;                                                      \
-      new_int = tmp.vint;                               		                \
-      success = g_atomic_int_compare_and_exchange (&cunion->vint, old_int, new_int);    \
+      GClosureFlags tmp; \
+      tmp.atomic_int = old_int; \
+      _SET_OLD tmp.flags._field; \
+      tmp.flags._field _OP _value; \
+      _SET_NEW tmp.flags._field; \
+      new_int = tmp.atomic_int; \
+      success = g_atomic_int_compare_and_exchange_full (&cunion->atomic_int, old_int, new_int, \
+							&old_int);			\
     }                                                   		                \
-  while (!success && _must_set);                                                        \
+  while (!success); \
 } G_STMT_END
 
-#define SWAP(_closure, _field, _value, _oldv)   CHANGE_FIELD (_closure, _field, =, _value, TRUE, *(_oldv) =,     (void) )
-#define SET(_closure, _field, _value)           CHANGE_FIELD (_closure, _field, =, _value, TRUE,     (void),     (void) )
-#define INC(_closure, _field)                   CHANGE_FIELD (_closure, _field, +=,     1, TRUE,     (void),     (void) )
-#define INC_ASSIGN(_closure, _field, _newv)     CHANGE_FIELD (_closure, _field, +=,     1, TRUE,     (void), *(_newv) = )
-#define DEC(_closure, _field)                   CHANGE_FIELD (_closure, _field, -=,     1, TRUE,     (void),     (void) )
-#define DEC_ASSIGN(_closure, _field, _newv)     CHANGE_FIELD (_closure, _field, -=,     1, TRUE,     (void), *(_newv) = )
+#define ATOMIC_SWAP(_closure, _field, _value, _oldv)   ATOMIC_CHANGE_FIELD (_closure, _field, =, _value, *(_oldv) =,     (void) )
+#define ATOMIC_SET(_closure, _field, _value)           ATOMIC_CHANGE_FIELD (_closure, _field, =, _value,     (void),     (void) )
+#define ATOMIC_INC(_closure, _field)                   ATOMIC_CHANGE_FIELD (_closure, _field, +=,     1,     (void),     (void) )
+#define ATOMIC_INC_ASSIGN(_closure, _field, _newv)     ATOMIC_CHANGE_FIELD (_closure, _field, +=,     1,     (void), *(_newv) = )
+#define ATOMIC_DEC(_closure, _field)                   ATOMIC_CHANGE_FIELD (_closure, _field, -=,     1,     (void),     (void) )
+#define ATOMIC_DEC_ASSIGN(_closure, _field, _newv)     ATOMIC_CHANGE_FIELD (_closure, _field, -=,     1,     (void), *(_newv) = )
 
-#if 0   /* for non-thread-safe closures */
-#define SWAP(cl,f,v,o)     (void) (*(o) = cl->f, cl->f = v)
-#define SET(cl,f,v)        (void) (cl->f = v)
-#define INC(cl,f)          (void) (cl->f += 1)
-#define INC_ASSIGN(cl,f,n) (void) (cl->f += 1, *(n) = cl->f)
-#define DEC(cl,f)          (void) (cl->f -= 1)
-#define DEC_ASSIGN(cl,f,n) (void) (cl->f -= 1, *(n) = cl->f)
-#endif
+static inline GClosureFlags
+closure_atomic_get_flags (GClosure *closure)
+{
+  GClosureFlags tmp;
+  tmp.atomic_int = g_atomic_int_get (&((GClosureFlags *) closure)->atomic_int);
+  return tmp;
+}
 
 enum {
   FNOTIFY,
@@ -194,14 +216,14 @@ enum {
  * }
  * ]|
  *
- * Returns: (transfer none): a floating reference to a new #GClosure
+ * Returns: (transfer floating): a floating reference to a new #GClosure
  */
 GClosure*
 g_closure_new_simple (guint           sizeof_closure,
 		      gpointer        data)
 {
   GClosure *closure;
-  gint private_size;
+  size_t private_size;
   gchar *allocated;
 
   g_return_val_if_fail (sizeof_closure >= sizeof (GClosure), NULL);
@@ -227,8 +249,8 @@ g_closure_new_simple (guint           sizeof_closure,
 
   closure = (GClosure *) (allocated + private_size);
 
-  SET (closure, ref_count, 1);
-  SET (closure, floating, TRUE);
+  ATOMIC_SET (closure, ref_count, 1);
+  ATOMIC_SET (closure, floating, TRUE);
   closure->data = data;
 
   return closure;
@@ -263,7 +285,7 @@ closure_invoke_notifiers (GClosure *closure,
       while (closure->n_fnotifiers)
 	{
           guint n;
-	  DEC_ASSIGN (closure, n_fnotifiers, &n);
+	  ATOMIC_DEC_ASSIGN (closure, n_fnotifiers, &n);
 
 	  ndata = closure->notifiers + CLOSURE_N_MFUNCS (closure) + n;
 	  closure->marshal = (GClosureMarshal) ndata->notify;
@@ -274,11 +296,11 @@ closure_invoke_notifiers (GClosure *closure,
       closure->data = NULL;
       break;
     case INOTIFY:
-      SET (closure, in_inotify, TRUE);
+      ATOMIC_SET (closure, in_inotify, TRUE);
       while (closure->n_inotifiers)
 	{
           guint n;
-          DEC_ASSIGN (closure, n_inotifiers, &n);
+          ATOMIC_DEC_ASSIGN (closure, n_inotifiers, &n);
 
 	  ndata = closure->notifiers + CLOSURE_N_MFUNCS (closure) + closure->n_fnotifiers + n;
 	  closure->marshal = (GClosureMarshal) ndata->notify;
@@ -287,7 +309,7 @@ closure_invoke_notifiers (GClosure *closure,
 	}
       closure->marshal = NULL;
       closure->data = NULL;
-      SET (closure, in_inotify, FALSE);
+      ATOMIC_SET (closure, in_inotify, FALSE);
       break;
     case PRE_NOTIFY:
       i = closure->n_guards;
@@ -314,12 +336,15 @@ static void
 g_closure_set_meta_va_marshal (GClosure       *closure,
 			       GVaClosureMarshal va_meta_marshal)
 {
+  GClosureFlags old_flags;
   GRealClosure *real_closure;
 
   g_return_if_fail (closure != NULL);
   g_return_if_fail (va_meta_marshal != NULL);
-  g_return_if_fail (closure->is_invalid == FALSE);
-  g_return_if_fail (closure->in_marshal == FALSE);
+
+  old_flags = closure_atomic_get_flags (closure);
+  g_return_if_fail (!old_flags.flags.is_invalid);
+  g_return_if_fail (!old_flags.flags.in_marshal);
 
   real_closure = G_REAL_CLOSURE (closure);
 
@@ -358,12 +383,15 @@ g_closure_set_meta_marshal (GClosure       *closure,
 			    gpointer        marshal_data,
 			    GClosureMarshal meta_marshal)
 {
+  GClosureFlags old_flags;
   GRealClosure *real_closure;
 
   g_return_if_fail (closure != NULL);
   g_return_if_fail (meta_marshal != NULL);
-  g_return_if_fail (closure->is_invalid == FALSE);
-  g_return_if_fail (closure->in_marshal == FALSE);
+
+  old_flags = closure_atomic_get_flags (closure);
+  g_return_if_fail (!old_flags.flags.is_invalid);
+  g_return_if_fail (!old_flags.flags.in_marshal);
 
   real_closure = G_REAL_CLOSURE (closure);
 
@@ -397,14 +425,17 @@ g_closure_add_marshal_guards (GClosure      *closure,
 			      gpointer       post_marshal_data,
 			      GClosureNotify post_marshal_notify)
 {
+  GClosureFlags old_flags;
   guint i;
 
   g_return_if_fail (closure != NULL);
   g_return_if_fail (pre_marshal_notify != NULL);
   g_return_if_fail (post_marshal_notify != NULL);
-  g_return_if_fail (closure->is_invalid == FALSE);
-  g_return_if_fail (closure->in_marshal == FALSE);
-  g_return_if_fail (closure->n_guards < CLOSURE_MAX_N_GUARDS);
+
+  old_flags = closure_atomic_get_flags (closure);
+  g_return_if_fail (!old_flags.flags.is_invalid);
+  g_return_if_fail (!old_flags.flags.in_marshal);
+  g_return_if_fail (old_flags.flags.n_guards < CLOSURE_MAX_N_GUARDS);
 
   closure->notifiers = g_renew (GClosureNotifyData, closure->notifiers, CLOSURE_N_NOTIFIERS (closure) + 2);
   if (closure->n_inotifiers)
@@ -431,7 +462,7 @@ g_closure_add_marshal_guards (GClosure      *closure,
   closure->notifiers[i].notify = pre_marshal_notify;
   closure->notifiers[i + 1].data = post_marshal_data;
   closure->notifiers[i + 1].notify = post_marshal_notify;
-  INC (closure, n_guards);
+  ATOMIC_INC (closure, n_guards);
 }
 
 /**
@@ -453,7 +484,7 @@ g_closure_add_finalize_notifier (GClosure      *closure,
 				 gpointer       notify_data,
 				 GClosureNotify notify_func)
 {
-  guint i;
+  size_t i;
 
   g_return_if_fail (closure != NULL);
   g_return_if_fail (notify_func != NULL);
@@ -468,7 +499,7 @@ g_closure_add_finalize_notifier (GClosure      *closure,
   i = CLOSURE_N_MFUNCS (closure) + closure->n_fnotifiers;
   closure->notifiers[i].data = notify_data;
   closure->notifiers[i].notify = notify_func;
-  INC (closure, n_fnotifiers);
+  ATOMIC_INC (closure, n_fnotifiers);
 }
 
 /**
@@ -488,18 +519,21 @@ g_closure_add_invalidate_notifier (GClosure      *closure,
 				   gpointer       notify_data,
 				   GClosureNotify notify_func)
 {
-  guint i;
+  GClosureFlags old_flags;
+  size_t i;
 
   g_return_if_fail (closure != NULL);
   g_return_if_fail (notify_func != NULL);
-  g_return_if_fail (closure->is_invalid == FALSE);
-  g_return_if_fail (closure->n_inotifiers < CLOSURE_MAX_N_INOTIFIERS);
+
+  old_flags = closure_atomic_get_flags (closure);
+  g_return_if_fail (!old_flags.flags.is_invalid);
+  g_return_if_fail (old_flags.flags.n_inotifiers < CLOSURE_MAX_N_INOTIFIERS);
 
   closure->notifiers = g_renew (GClosureNotifyData, closure->notifiers, CLOSURE_N_NOTIFIERS (closure) + 1);
   i = CLOSURE_N_MFUNCS (closure) + closure->n_fnotifiers + closure->n_inotifiers;
   closure->notifiers[i].data = notify_data;
   closure->notifiers[i].notify = notify_func;
-  INC (closure, n_inotifiers);
+  ATOMIC_INC (closure, n_inotifiers);
 }
 
 static inline gboolean
@@ -513,7 +547,7 @@ closure_try_remove_inotify (GClosure       *closure,
   for (ndata = nlast + 1 - closure->n_inotifiers; ndata <= nlast; ndata++)
     if (ndata->notify == notify_func && ndata->data == notify_data)
       {
-	DEC (closure, n_inotifiers);
+	ATOMIC_DEC (closure, n_inotifiers);
 	if (ndata < nlast)
 	  *ndata = *nlast;
 
@@ -533,7 +567,7 @@ closure_try_remove_fnotify (GClosure       *closure,
   for (ndata = nlast + 1 - closure->n_fnotifiers; ndata <= nlast; ndata++)
     if (ndata->notify == notify_func && ndata->data == notify_data)
       {
-	DEC (closure, n_fnotifiers);
+	ATOMIC_DEC (closure, n_fnotifiers);
 	if (ndata < nlast)
 	  *ndata = *nlast;
 	if (closure->n_inotifiers)
@@ -546,6 +580,30 @@ closure_try_remove_fnotify (GClosure       *closure,
   return FALSE;
 }
 
+static GClosureFlags
+closure_ref_internal (GClosure *closure)
+{
+  guint new_ref_count;
+  int old_int, success;
+  GClosureFlags tmp = { .atomic_int = 0, };
+
+  old_int = g_atomic_int_get (&((GClosureFlags *) closure)->atomic_int);
+  do
+    {
+      tmp.atomic_int = old_int;
+      tmp.flags.ref_count += 1;
+      success = g_atomic_int_compare_and_exchange_full (&((GClosureFlags *) closure)->atomic_int, old_int, tmp.atomic_int, &old_int);
+    }
+  while (!success);
+
+  new_ref_count = tmp.flags.ref_count;
+
+  g_return_val_if_fail (new_ref_count > 1, tmp);
+  g_return_val_if_fail (new_ref_count < CLOSURE_MAX_REF_COUNT + 1, tmp);
+
+  return tmp;
+}
+
 /**
  * g_closure_ref:
  * @closure: #GClosure to increment the reference count on
@@ -553,20 +611,26 @@ closure_try_remove_fnotify (GClosure       *closure,
  * Increments the reference count on a closure to force it staying
  * alive while the caller holds a pointer to it.
  *
- * Returns: (transfer none): The @closure passed in, for convenience
+ * Returns: (transfer full): The @closure passed in, for convenience
  */
 GClosure*
 g_closure_ref (GClosure *closure)
 {
-  guint new_ref_count;
   g_return_val_if_fail (closure != NULL, NULL);
-  g_return_val_if_fail (closure->ref_count > 0, NULL);
-  g_return_val_if_fail (closure->ref_count < CLOSURE_MAX_REF_COUNT, NULL);
 
-  INC_ASSIGN (closure, ref_count, &new_ref_count);
-  g_return_val_if_fail (new_ref_count > 1, NULL);
-
+  closure_ref_internal (closure);
   return closure;
+}
+
+static void
+closure_invalidate_internal (GClosure *closure)
+{
+  gboolean was_invalid;
+
+  ATOMIC_SWAP (closure, is_invalid, TRUE, &was_invalid);
+  /* invalidate only once */
+  if (!was_invalid)
+    closure_invoke_notifiers (closure, INOTIFY);
 }
 
 /**
@@ -592,23 +656,22 @@ g_closure_ref (GClosure *closure)
 void
 g_closure_invalidate (GClosure *closure)
 {
+  GClosureFlags old_flags;
+
   g_return_if_fail (closure != NULL);
 
-  if (!closure->is_invalid)
+  old_flags = closure_atomic_get_flags (closure);
+  if (!old_flags.flags.is_invalid)
     {
-      gboolean was_invalid;
       g_closure_ref (closure);           /* preserve floating flag */
-      SWAP (closure, is_invalid, TRUE, &was_invalid);
-      /* invalidate only once */
-      if (!was_invalid)
-        closure_invoke_notifiers (closure, INOTIFY);
+      closure_invalidate_internal (closure);
       g_closure_unref (closure);
     }
 }
 
 /**
  * g_closure_unref:
- * @closure: #GClosure to decrement the reference count on
+ * @closure: (transfer full): #GClosure to decrement the reference count on
  *
  * Decrements the reference count of a closure after it was previously
  * incremented by the same caller.
@@ -620,14 +683,18 @@ void
 g_closure_unref (GClosure *closure)
 {
   guint new_ref_count;
+  GClosureFlags old_flags;
 
   g_return_if_fail (closure != NULL);
-  g_return_if_fail (closure->ref_count > 0);
 
-  if (closure->ref_count == 1)	/* last unref, invalidate first */
-    g_closure_invalidate (closure);
+  old_flags = closure_atomic_get_flags (closure);
+  g_return_if_fail (old_flags.flags.ref_count > 0);
 
-  DEC_ASSIGN (closure, ref_count, &new_ref_count);
+  /* last unref, invalidate first */
+  if (old_flags.flags.ref_count == 1 && !old_flags.flags.is_invalid)
+    closure_invalidate_internal (closure);
+
+  ATOMIC_DEC_ASSIGN (closure, ref_count, &new_ref_count);
 
   if (new_ref_count == 0)
     {
@@ -710,18 +777,22 @@ g_closure_unref (GClosure *closure)
 void
 g_closure_sink (GClosure *closure)
 {
+  GClosureFlags old_flags;
+
   g_return_if_fail (closure != NULL);
-  g_return_if_fail (closure->ref_count > 0);
+
+  old_flags = closure_atomic_get_flags (closure);
+  g_return_if_fail (old_flags.flags.ref_count > 0);
 
   /* floating is basically a kludge to avoid creating closures
    * with a ref_count of 0. so the initial ref_count a closure has
    * is unowned. with invoking g_closure_sink() code may
    * indicate that it takes over that initial ref_count.
    */
-  if (closure->floating)
+  if (old_flags.flags.floating)
     {
       gboolean was_floating;
-      SWAP (closure, floating, FALSE, &was_floating);
+      ATOMIC_SWAP (closure, floating, FALSE, &was_floating);
       /* unref floating flag only once */
       if (was_floating)
         g_closure_unref (closure);
@@ -744,10 +815,14 @@ g_closure_remove_invalidate_notifier (GClosure      *closure,
 				      gpointer       notify_data,
 				      GClosureNotify notify_func)
 {
+  GClosureFlags old_flags;
+
   g_return_if_fail (closure != NULL);
   g_return_if_fail (notify_func != NULL);
 
-  if (closure->is_invalid && closure->in_inotify && /* account removal of notify_func() while it's called */
+  old_flags = closure_atomic_get_flags (closure);
+
+  if (old_flags.flags.is_invalid && old_flags.flags.in_inotify && /* account removal of notify_func() while it's called */
       ((gpointer) closure->marshal) == ((gpointer) notify_func) &&
       closure->data == notify_data)
     closure->marshal = NULL;
@@ -772,10 +847,14 @@ g_closure_remove_finalize_notifier (GClosure      *closure,
 				    gpointer       notify_data,
 				    GClosureNotify notify_func)
 {
+  GClosureFlags old_flags;
+
   g_return_if_fail (closure != NULL);
   g_return_if_fail (notify_func != NULL);
 
-  if (closure->is_invalid && !closure->in_inotify && /* account removal of notify_func() while it's called */
+  old_flags = closure_atomic_get_flags (closure);
+
+  if (old_flags.flags.is_invalid && !old_flags.flags.in_inotify && /* account removal of notify_func() while it's called */
       ((gpointer) closure->marshal) == ((gpointer) notify_func) &&
       closure->data == notify_data)
     closure->marshal = NULL;
@@ -805,22 +884,23 @@ g_closure_invoke (GClosure       *closure,
 		  const GValue   *param_values,
 		  gpointer        invocation_hint)
 {
+  GClosureFlags reffed_flags;
   GRealClosure *real_closure;
 
   g_return_if_fail (closure != NULL);
 
   real_closure = G_REAL_CLOSURE (closure);
 
-  g_closure_ref (closure);      /* preserve floating flag */
-  if (!closure->is_invalid)
+  reffed_flags = closure_ref_internal (closure);  /* preserve floating flag */
+  if (!reffed_flags.flags.is_invalid)
     {
       GClosureMarshal marshal;
       gpointer marshal_data;
-      gboolean in_marshal = closure->in_marshal;
+      gboolean in_marshal = reffed_flags.flags.in_marshal;
 
       g_return_if_fail (closure->marshal || real_closure->meta_marshal);
 
-      SET (closure, in_marshal, TRUE);
+      ATOMIC_SET (closure, in_marshal, TRUE);
       if (real_closure->meta_marshal)
 	{
 	  marshal_data = real_closure->meta_marshal_data;
@@ -840,7 +920,7 @@ g_closure_invoke (GClosure       *closure,
 	       marshal_data);
       if (!in_marshal)
 	closure_invoke_notifiers (closure, POST_NOTIFY);
-      SET (closure, in_marshal, in_marshal);
+      ATOMIC_SET (closure, in_marshal, (guint) in_marshal);
     }
   g_closure_unref (closure);
 }
@@ -868,22 +948,23 @@ _g_closure_invoke_va (GClosure       *closure,
 		      int             n_params,
 		      GType          *param_types)
 {
+  GClosureFlags reffed_flags;
   GRealClosure *real_closure;
 
   g_return_if_fail (closure != NULL);
 
   real_closure = G_REAL_CLOSURE (closure);
 
-  g_closure_ref (closure);      /* preserve floating flag */
-  if (!closure->is_invalid)
+  reffed_flags = closure_ref_internal (closure);  /* preserve floating flag */
+  if (!reffed_flags.flags.is_invalid)
     {
       GVaClosureMarshal marshal;
       gpointer marshal_data;
-      gboolean in_marshal = closure->in_marshal;
+      gboolean in_marshal = reffed_flags.flags.in_marshal;
 
       g_return_if_fail (closure->marshal || real_closure->meta_marshal);
 
-      SET (closure, in_marshal, TRUE);
+      ATOMIC_SET (closure, in_marshal, TRUE);
       if (real_closure->va_meta_marshal)
 	{
 	  marshal_data = real_closure->meta_marshal_data;
@@ -903,7 +984,7 @@ _g_closure_invoke_va (GClosure       *closure,
 	       n_params, param_types);
       if (!in_marshal)
 	closure_invoke_notifiers (closure, POST_NOTIFY);
-      SET (closure, in_marshal, in_marshal);
+      ATOMIC_SET (closure, in_marshal, (guint) in_marshal);
     }
   g_closure_unref (closure);
 }
@@ -959,8 +1040,8 @@ _g_closure_set_va_marshal (GClosure       *closure,
 
 /**
  * g_cclosure_new: (skip)
- * @callback_func: the function to invoke
- * @user_data: (closure callback_func): user data to pass to @callback_func
+ * @callback_func: (closure user_data): the function to invoke
+ * @user_data: user data to pass to @callback_func
  * @destroy_data: destroy notify to be called when @user_data is no longer used
  *
  * Creates a new closure which invokes @callback_func with @user_data as
@@ -968,7 +1049,7 @@ _g_closure_set_va_marshal (GClosure       *closure,
  *
  * @destroy_data will be called as a finalize notifier on the #GClosure.
  *
- * Returns: (transfer none): a floating reference to a new #GCClosure
+ * Returns: (transfer floating): a floating reference to a new #GCClosure
  */
 GClosure*
 g_cclosure_new (GCallback      callback_func,
@@ -989,8 +1070,8 @@ g_cclosure_new (GCallback      callback_func,
 
 /**
  * g_cclosure_new_swap: (skip)
- * @callback_func: the function to invoke
- * @user_data: (closure callback_func): user data to pass to @callback_func
+ * @callback_func: (closure user_data): the function to invoke
+ * @user_data: user data to pass to @callback_func
  * @destroy_data: destroy notify to be called when @user_data is no longer used
  *
  * Creates a new closure which invokes @callback_func with @user_data as
@@ -998,7 +1079,7 @@ g_cclosure_new (GCallback      callback_func,
  *
  * @destroy_data will be called as a finalize notifier on the #GClosure.
  *
- * Returns: (transfer none): a floating reference to a new #GCClosure
+ * Returns: (transfer floating): a floating reference to a new #GCClosure
  */
 GClosure*
 g_cclosure_new_swap (GCallback      callback_func,
@@ -1013,7 +1094,7 @@ g_cclosure_new_swap (GCallback      callback_func,
   if (destroy_data)
     g_closure_add_finalize_notifier (closure, user_data, destroy_data);
   ((GCClosure*) closure)->callback = (gpointer) callback_func;
-  SET (closure, derivative_flag, TRUE);
+  ATOMIC_SET (closure, derivative_flag, TRUE);
   
   return closure;
 }
@@ -1096,13 +1177,16 @@ gboolean
 _g_closure_is_void (GClosure *closure,
 		    gpointer instance)
 {
+  GClosureFlags old_flags;
   GRealClosure *real_closure;
   GTypeClass *class;
   gpointer callback;
   GType itype;
   guint offset;
 
-  if (closure->is_invalid)
+  old_flags = closure_atomic_get_flags (closure);
+
+  if (old_flags.flags.is_invalid)
     return TRUE;
 
   real_closure = G_REAL_CLOSURE (closure);
@@ -1166,7 +1250,7 @@ g_type_iface_meta_marshalv (GClosure *closure,
  * @struct_offset in the class structure of the interface or classed type
  * identified by @itype.
  *
- * Returns: (transfer none): a floating reference to a new #GCClosure
+ * Returns: (transfer floating): a floating reference to a new #GCClosure
  */
 GClosure*
 g_signal_type_cclosure_new (GType    itype,
@@ -1177,7 +1261,7 @@ g_signal_type_cclosure_new (GType    itype,
   g_return_val_if_fail (G_TYPE_IS_CLASSED (itype) || G_TYPE_IS_INTERFACE (itype), NULL);
   g_return_val_if_fail (struct_offset >= sizeof (GTypeClass), NULL);
   
-  closure = g_closure_new_simple (sizeof (GClosure), (gpointer) itype);
+  closure = g_closure_new_simple (sizeof (GClosure), GTYPE_TO_POINTER (itype));
   if (G_TYPE_IS_INTERFACE (itype))
     {
       g_closure_set_meta_marshal (closure, GUINT_TO_POINTER (struct_offset), g_type_iface_meta_marshal);
@@ -1191,11 +1275,50 @@ g_signal_type_cclosure_new (GType    itype,
   return closure;
 }
 
-#include <ffi.h>
+/*
+ * A custom pointer-compatible value type is an instantiatable type whose
+ * GTypeValueTable stores the value as a pointer, exposes it with
+ * value_peek_pointer(), and collects it from varargs as a gpointer.
+ *
+ * This covers custom GTypeInstance-derived fundamental types which are not
+ * GObjects, such as a library-defined object type registered with
+ * g_type_register_fundamental(). It intentionally excludes the built-in
+ * pointer-like fundamental types handled by the marshaller's normal cases.
+ */
+static gboolean
+value_type_is_custom_pointer_compatible (GType type)
+{
+  GTypeValueTable *value_table;
+
+  switch (g_type_fundamental (type))
+    {
+    case G_TYPE_STRING:
+    case G_TYPE_OBJECT:
+    case G_TYPE_BOXED:
+    case G_TYPE_PARAM:
+    case G_TYPE_POINTER:
+    case G_TYPE_INTERFACE:
+    case G_TYPE_VARIANT:
+      return FALSE;
+
+    default:
+      break;
+    }
+
+  value_table = g_type_value_table_peek (type);
+
+  return G_TYPE_IS_INSTANTIATABLE (type) &&
+         value_table != NULL &&
+         value_table->value_peek_pointer != NULL &&
+         value_table->collect_format != NULL &&
+         strcmp (value_table->collect_format, "p") == 0;
+}
+
 static ffi_type *
 value_to_ffi_type (const GValue *gvalue,
                    gpointer *value,
                    gint *enum_tmpval,
+                   gpointer *pointer_tmpval,
                    gboolean *tmpval_used)
 {
   ffi_type *rettype = NULL;
@@ -1232,7 +1355,7 @@ value_to_ffi_type (const GValue *gvalue,
     case G_TYPE_FLAGS:
       g_assert (enum_tmpval != NULL);
       rettype = &ffi_type_uint;
-      *enum_tmpval = g_value_get_flags (gvalue);
+      *enum_tmpval = (int) g_value_get_flags (gvalue);
       *value = enum_tmpval;
       *tmpval_used = TRUE;
       break;
@@ -1277,8 +1400,18 @@ value_to_ffi_type (const GValue *gvalue,
       break;
     default:
       rettype = &ffi_type_pointer;
-      *value = NULL;
-      g_critical ("value_to_ffi_type: Unsupported fundamental type: %s", g_type_name (type));
+      if (value_type_is_custom_pointer_compatible (G_VALUE_TYPE (gvalue)))
+        {
+          g_assert (pointer_tmpval != NULL);
+          *pointer_tmpval = g_value_peek_pointer (gvalue);
+          *value = pointer_tmpval;
+          *tmpval_used = TRUE;
+        }
+      else
+        {
+          *value = NULL;
+          g_critical ("value_to_ffi_type: Unsupported fundamental type: %s", g_type_name (type));
+        }
       break;
     }
   return rettype;
@@ -1358,9 +1491,20 @@ restart:
         goto restart;
       G_GNUC_FALLTHROUGH;
     default:
-      g_critical ("value_from_ffi_type: Unsupported fundamental type %s for type %s",
-                  g_type_name (g_type_fundamental (G_VALUE_TYPE (gvalue))),
-                  g_type_name (G_VALUE_TYPE (gvalue)));
+      if (value_type_is_custom_pointer_compatible (G_VALUE_TYPE (gvalue)))
+        {
+          GTypeValueTable *value_table = g_type_value_table_peek (G_VALUE_TYPE (gvalue));
+
+          if (value_table->value_free != NULL)
+            value_table->value_free (gvalue);
+          gvalue->data[0].v_pointer = *(gpointer*) value;
+        }
+      else
+        {
+          g_critical ("value_from_ffi_type: Unsupported fundamental type %s for type %s",
+                      g_type_name (g_type_fundamental (G_VALUE_TYPE (gvalue))),
+                      g_type_name (G_VALUE_TYPE (gvalue)));
+        }
     }
 }
 
@@ -1437,8 +1581,13 @@ va_to_ffi_type (GType gtype,
       break;
     default:
       rettype = &ffi_type_pointer;
-      storage->_guint64  = 0;
-      g_critical ("va_to_ffi_type: Unsupported fundamental type: %s", g_type_name (type));
+      if (value_type_is_custom_pointer_compatible (gtype))
+        storage->_gpointer = va_arg (*va, gpointer);
+      else
+        {
+          storage->_guint64  = 0;
+          g_critical ("va_to_ffi_type: Unsupported fundamental type: %s", g_type_name (type));
+        }
       break;
     }
   return rettype;
@@ -1476,19 +1625,21 @@ g_cclosure_marshal_generic (GClosure     *closure,
 {
   ffi_type *rtype;
   void *rvalue;
-  int n_args;
+  size_t n_args;
   ffi_type **atypes;
   void **args;
-  int i;
+  size_t i;
   ffi_cif cif;
   GCClosure *cc = (GCClosure*) closure;
   gint *enum_tmpval;
+  gpointer *pointer_tmpval;
   gboolean tmpval_used = FALSE;
 
   enum_tmpval = g_alloca (sizeof (gint));
+  pointer_tmpval = g_alloca (sizeof (gpointer));
   if (return_gvalue && G_VALUE_TYPE (return_gvalue))
     {
-      rtype = value_to_ffi_type (return_gvalue, &rvalue, enum_tmpval, &tmpval_used);
+      rtype = value_to_ffi_type (return_gvalue, &rvalue, enum_tmpval, pointer_tmpval, &tmpval_used);
     }
   else
     {
@@ -1502,13 +1653,17 @@ g_cclosure_marshal_generic (GClosure     *closure,
   args =  g_alloca (sizeof (gpointer) * n_args);
 
   if (tmpval_used)
-    enum_tmpval = g_alloca (sizeof (gint));
+    {
+      enum_tmpval = g_alloca (sizeof (gint));
+      pointer_tmpval = g_alloca (sizeof (gpointer));
+    }
 
   if (G_CCLOSURE_SWAP_DATA (closure))
     {
       atypes[n_args-1] = value_to_ffi_type (param_values + 0,
                                             &args[n_args-1],
                                             enum_tmpval,
+                                            pointer_tmpval,
                                             &tmpval_used);
       atypes[0] = &ffi_type_pointer;
       args[0] = &closure->data;
@@ -1518,6 +1673,7 @@ g_cclosure_marshal_generic (GClosure     *closure,
       atypes[0] = value_to_ffi_type (param_values + 0,
                                      &args[0],
                                      enum_tmpval,
+                                     pointer_tmpval,
                                      &tmpval_used);
       atypes[n_args-1] = &ffi_type_pointer;
       args[n_args-1] = &closure->data;
@@ -1526,15 +1682,21 @@ g_cclosure_marshal_generic (GClosure     *closure,
   for (i = 1; i < n_args - 1; i++)
     {
       if (tmpval_used)
-        enum_tmpval = g_alloca (sizeof (gint));
+        {
+          enum_tmpval = g_alloca (sizeof (gint));
+          pointer_tmpval = g_alloca (sizeof (gpointer));
+        }
 
       atypes[i] = value_to_ffi_type (param_values + i,
                                      &args[i],
                                      enum_tmpval,
+                                     pointer_tmpval,
                                      &tmpval_used);
     }
 
-  if (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, n_args, rtype, atypes) != FFI_OK)
+  g_assert (n_args <= UINT_MAX);
+
+  if (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, (unsigned int) n_args, rtype, atypes) != FFI_OK)
     return;
 
   ffi_call (&cif, marshal_data ? marshal_data : cc->callback, rvalue, args);
@@ -1575,21 +1737,29 @@ g_cclosure_marshal_generic_va (GClosure *closure,
 {
   ffi_type *rtype;
   void *rvalue;
-  int n_args;
+  size_t n_args;
+  size_t unsigned_n_params;
   ffi_type **atypes;
   void **args;
   va_arg_storage *storage;
-  int i;
+  size_t i;
   ffi_cif cif;
   GCClosure *cc = (GCClosure*) closure;
   gint *enum_tmpval;
+  gpointer *pointer_tmpval;
   gboolean tmpval_used = FALSE;
   va_list args_copy;
+  GValue *value_storage;
+
+  g_return_if_fail (n_params >= 0);
+
+  unsigned_n_params = (size_t) n_params;
 
   enum_tmpval = g_alloca (sizeof (gint));
+  pointer_tmpval = g_alloca (sizeof (gpointer));
   if (return_value && G_VALUE_TYPE (return_value))
     {
-      rtype = value_to_ffi_type (return_value, &rvalue, enum_tmpval, &tmpval_used);
+      rtype = value_to_ffi_type (return_value, &rvalue, enum_tmpval, pointer_tmpval, &tmpval_used);
     }
   else
     {
@@ -1598,10 +1768,12 @@ g_cclosure_marshal_generic_va (GClosure *closure,
 
   rvalue = g_alloca (MAX (rtype->size, sizeof (ffi_arg)));
 
-  n_args = n_params + 2;
+  n_args = unsigned_n_params + 2;
   atypes = g_alloca (sizeof (ffi_type *) * n_args);
   args =  g_alloca (sizeof (gpointer) * n_args);
-  storage = g_alloca (sizeof (va_arg_storage) * n_params);
+  storage = g_alloca (sizeof (va_arg_storage) * unsigned_n_params);
+  value_storage = g_alloca (sizeof (GValue) * unsigned_n_params);
+  memset (value_storage, 0, sizeof (GValue) * unsigned_n_params);
 
   if (G_CCLOSURE_SWAP_DATA (closure))
     {
@@ -1621,7 +1793,7 @@ g_cclosure_marshal_generic_va (GClosure *closure,
   va_copy (args_copy, args_list);
 
   /* Box non-primitive arguments */
-  for (i = 0; i < n_params; i++)
+  for (i = 0; i < unsigned_n_params; i++)
     {
       GType type = param_types[i]  & ~G_SIGNAL_TYPE_STATIC_SCOPE;
       GType fundamental = G_TYPE_FUNDAMENTAL (type);
@@ -1641,20 +1813,28 @@ g_cclosure_marshal_generic_va (GClosure *closure,
 	    storage[i]._gpointer = g_boxed_copy (type, storage[i]._gpointer);
 	  else if (fundamental == G_TYPE_VARIANT && storage[i]._gpointer != NULL)
 	    storage[i]._gpointer = g_variant_ref_sink (storage[i]._gpointer);
+	  else if (value_type_is_custom_pointer_compatible (type))
+	    {
+	      g_value_init (&value_storage[i], type);
+	      g_value_set_instance (&value_storage[i], storage[i]._gpointer);
+	      storage[i]._gpointer = g_value_peek_pointer (&value_storage[i]);
+	    }
 	}
       if (fundamental == G_TYPE_OBJECT && storage[i]._gpointer != NULL)
 	storage[i]._gpointer = g_object_ref (storage[i]._gpointer);
     }
 
   va_end (args_copy);
-  
-  if (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, n_args, rtype, atypes) != FFI_OK)
+
+  g_assert (n_args <= UINT_MAX);
+
+  if (ffi_prep_cif (&cif, FFI_DEFAULT_ABI, (unsigned int) n_args, rtype, atypes) != FFI_OK)
     return;
 
   ffi_call (&cif, marshal_data ? marshal_data : cc->callback, rvalue, args);
 
   /* Unbox non-primitive arguments */
-  for (i = 0; i < n_params; i++)
+  for (i = 0; i < unsigned_n_params; i++)
     {
       GType type = param_types[i]  & ~G_SIGNAL_TYPE_STATIC_SCOPE;
       GType fundamental = G_TYPE_FUNDAMENTAL (type);
@@ -1669,6 +1849,8 @@ g_cclosure_marshal_generic_va (GClosure *closure,
 	    g_boxed_free (type, storage[i]._gpointer);
 	  else if (fundamental == G_TYPE_VARIANT && storage[i]._gpointer != NULL)
 	    g_variant_unref (storage[i]._gpointer);
+	  else if (G_VALUE_TYPE (&value_storage[i]) != 0)
+	    g_value_unset (&value_storage[i]);
 	}
       if (fundamental == G_TYPE_OBJECT && storage[i]._gpointer != NULL)
 	g_object_unref (storage[i]._gpointer);
@@ -1677,320 +1859,3 @@ g_cclosure_marshal_generic_va (GClosure *closure,
   if (return_value && G_VALUE_TYPE (return_value))
     value_from_ffi_type (return_value, rvalue);
 }
-
-/**
- * g_cclosure_marshal_VOID__VOID:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 1
- * @param_values: a #GValue array holding only the instance
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__BOOLEAN:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #gboolean parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, gboolean arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__CHAR:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #gchar parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, gchar arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__UCHAR:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #guchar parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, guchar arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__INT:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #gint parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, gint arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__UINT:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #guint parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, guint arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__LONG:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #glong parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, glong arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__ULONG:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #gulong parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, gulong arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__ENUM:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the enumeration parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, gint arg1, gpointer user_data)` where the #gint parameter denotes an enumeration type..
- */
-
-/**
- * g_cclosure_marshal_VOID__FLAGS:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the flags parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, gint arg1, gpointer user_data)` where the #gint parameter denotes a flags type.
- */
-
-/**
- * g_cclosure_marshal_VOID__FLOAT:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #gfloat parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, gfloat arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__DOUBLE:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #gdouble parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, gdouble arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__STRING:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #gchar* parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, const gchar *arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__PARAM:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #GParamSpec* parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, GParamSpec *arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__BOXED:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #GBoxed* parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, GBoxed *arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__POINTER:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #gpointer parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, gpointer arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__OBJECT:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #GObject* parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, GObject *arg1, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_VOID__VARIANT:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 2
- * @param_values: a #GValue array holding the instance and the #GVariant* parameter
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, GVariant *arg1, gpointer user_data)`.
- *
- * Since: 2.26
- */
-
-/**
- * g_cclosure_marshal_VOID__UINT_POINTER:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: ignored
- * @n_param_values: 3
- * @param_values: a #GValue array holding instance, arg1 and arg2
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `void (*callback) (gpointer instance, guint arg1, gpointer arg2, gpointer user_data)`.
- */
-
-/**
- * g_cclosure_marshal_BOOLEAN__FLAGS:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: a #GValue which can store the returned #gboolean
- * @n_param_values: 2
- * @param_values: a #GValue array holding instance and arg1
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `gboolean (*callback) (gpointer instance, gint arg1, gpointer user_data)` where the #gint parameter
- * denotes a flags type.
- */
-
-/**
- * g_cclosure_marshal_BOOL__FLAGS:
- *
- * Another name for g_cclosure_marshal_BOOLEAN__FLAGS().
- */
-/**
- * g_cclosure_marshal_STRING__OBJECT_POINTER:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: a #GValue, which can store the returned string
- * @n_param_values: 3
- * @param_values: a #GValue array holding instance, arg1 and arg2
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `gchar* (*callback) (gpointer instance, GObject *arg1, gpointer arg2, gpointer user_data)`.
- */
-/**
- * g_cclosure_marshal_BOOLEAN__OBJECT_BOXED_BOXED:
- * @closure: the #GClosure to which the marshaller belongs
- * @return_value: a #GValue, which can store the returned string
- * @n_param_values: 3
- * @param_values: a #GValue array holding instance, arg1 and arg2
- * @invocation_hint: the invocation hint given as the last argument
- *  to g_closure_invoke()
- * @marshal_data: additional data specified when registering the marshaller
- *
- * A marshaller for a #GCClosure with a callback of type
- * `gboolean (*callback) (gpointer instance, GBoxed *arg1, GBoxed *arg2, gpointer user_data)`.
- *
- * Since: 2.26
- */

@@ -38,11 +38,6 @@ G_BEGIN_DECLS
 #define G_IS_FILTER_OUTPUT_STREAM_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_FILTER_OUTPUT_STREAM))
 #define G_FILTER_OUTPUT_STREAM_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_FILTER_OUTPUT_STREAM, GFilterOutputStreamClass))
 
-/**
- * GFilterOutputStream:
- *
- * A base class for all output streams that work on an underlying stream.
- **/
 typedef struct _GFilterOutputStreamClass    GFilterOutputStreamClass;
 
 struct _GFilterOutputStream
@@ -66,7 +61,7 @@ struct _GFilterOutputStreamClass
 
 
 GIO_AVAILABLE_IN_ALL
-GType           g_filter_output_stream_get_type              (void) G_GNUC_CONST;
+GType           g_filter_output_stream_get_type              (void);
 GIO_AVAILABLE_IN_ALL
 GOutputStream * g_filter_output_stream_get_base_stream       (GFilterOutputStream *stream);
 GIO_AVAILABLE_IN_ALL

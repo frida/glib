@@ -287,7 +287,7 @@ eject_mount_done (GObject      *source,
     {
       if (!g_subprocess_get_successful (subprocess))
         /* ...but bad exit code */
-        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", stderr_str);
+        g_task_return_new_error_literal (task, G_IO_ERROR, G_IO_ERROR_FAILED, stderr_str);
       else
         {
           /* ...and successful exit code */
@@ -325,7 +325,12 @@ eject_mount_do (GVolume              *volume,
     }
 
   subprocess = g_subprocess_newv (argv, G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_PIPE, &error);
-  g_assert_no_error (error);
+  if (error != NULL)
+    {
+      g_task_return_error (task, g_steal_pointer (&error));
+      g_object_unref (task);
+      return;
+    }
 
   g_subprocess_communicate_utf8_async (subprocess, NULL,
                                        g_task_get_cancellable (task),

@@ -32,6 +32,10 @@
  * MT safe
  */
 
+#if defined(__APPLE__) && !defined(_DARWIN_UNLIMITED_SELECT)
+#define _DARWIN_UNLIMITED_SELECT 1
+#endif
+
 #include "config.h"
 #include "glibconfig.h"
 #include "giochannel.h"
@@ -42,9 +46,17 @@
  */
 /* #define G_MAIN_POLL_DEBUG */
 
+#ifdef _WIN32
+/* Always enable debugging printout on Windows, as it is more often
+ * needed there...
+ */
+#define G_MAIN_POLL_DEBUG
+#endif
+
+#include <limits.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <time.h>
-#include <stdlib.h>
 #ifdef HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif /* HAVE_SYS_TIME_H */
@@ -65,7 +77,6 @@
 #include <errno.h>
 
 #ifdef G_OS_WIN32
-#define STRICT
 #include <windows.h>
 #include <process.h>
 #endif /* G_OS_WIN32 */
@@ -76,29 +87,11 @@
 #include "gprintf.h"
 #endif
 
-#ifdef HAVE_KQUEUE
-#include "galloca.h"
-#include "gprintf.h"
-#include "gwakeup-private.h"
-#include <sys/event.h>
-#endif
-
-#ifdef G_OS_NONE
-#include "gdatetime.h"
-#include "gmessages.h"
-#include "gwakeup-private.h"
-#include "gwait.h"
-#endif
-
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
-
 #ifdef G_MAIN_POLL_DEBUG
 extern gboolean _g_main_poll_debug;
 #endif
 
-#if defined (HAVE_POLL) && !defined (HAVE_KQUEUE)
+#ifdef HAVE_POLL
 
 /**
  * g_poll:
@@ -159,10 +152,8 @@ poll_rest (GPollFD *msg_fd,
       /* Wait for either messages or handles
        * -> Use MsgWaitForMultipleObjectsEx
        */
-#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
 	g_print ("  MsgWaitForMultipleObjectsEx(%d, %lu)\n", nhandles, timeout_ms);
-#endif
 
       ready = MsgWaitForMultipleObjectsEx (nhandles, handles, timeout_ms,
 					   QS_ALLINPUT, MWMO_ALERTABLE);
@@ -191,10 +182,8 @@ poll_rest (GPollFD *msg_fd,
       /* Wait for just handles
        * -> Use WaitForMultipleObjectsEx
        */
-#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
 	g_print ("  WaitForMultipleObjectsEx(%d, %lu)\n", nhandles, timeout_ms);
-#endif
 
       ready = WaitForMultipleObjectsEx (nhandles, handles, FALSE, timeout_ms, TRUE);
       if (ready == WAIT_FAILED)
@@ -205,14 +194,12 @@ poll_rest (GPollFD *msg_fd,
 	}
     }
 
-#ifdef G_MAIN_POLL_DEBUG
   if (_g_main_poll_debug)
     g_print ("  wait returns %ld%s\n",
 	     ready,
 	     (ready == WAIT_FAILED ? " (WAIT_FAILED)" :
 	      (ready == WAIT_TIMEOUT ? " (WAIT_TIMEOUT)" :
 	       (msg_fd != NULL && ready == WAIT_OBJECT_0 + nhandles ? " (msg)" : ""))));
-#endif
 
   if (ready == WAIT_FAILED)
     return -1;
@@ -241,10 +228,8 @@ poll_rest (GPollFD *msg_fd,
 
       f = handle_to_fd[ready - WAIT_OBJECT_0];
       f->revents = f->events;
-#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
         g_print ("  got event %p\n", (HANDLE) f->fd);
-#endif
 
       /* Do not count the stop_fd */
       retval = (f != stop_fd) ? 1 : 0;
@@ -278,6 +263,7 @@ typedef struct
   GPollFD *handle_to_fd[MAXIMUM_WAIT_OBJECTS];
   GPollFD *msg_fd;
   GPollFD *stop_fd;
+  gint retval;
   gint nhandles;
   DWORD    timeout_ms;
 } GWin32PollThreadData;
@@ -309,8 +295,30 @@ poll_single_thread (GWin32PollThreadData *data)
        */
       retval = poll_rest (data->msg_fd, data->stop_fd, data->handles, data->handle_to_fd, data->nhandles, data->timeout_ms);
     }
+  data->retval = retval;
 
-  return retval;
+  return data->retval;
+}
+
+static VOID CALLBACK
+poll_single_worker_wrapper (PTP_CALLBACK_INSTANCE instance,
+                            PVOID                 context,
+                            PTP_WORK              work)
+{
+  UNREFERENCED_PARAMETER (instance);
+  UNREFERENCED_PARAMETER (work);
+
+  GWin32PollThreadData *data = context;
+
+  poll_single_thread (data);
+
+  /* Signal the stop in case any of the workers did not stop yet */
+  if (!SetEvent ((HANDLE) data->stop_fd->fd))
+    {
+      gchar *emsg = g_win32_error_message (GetLastError ());
+      g_error ("gpoll: failed to signal the stop event: %s", emsg);
+      g_free (emsg);
+    }
 }
 
 static void
@@ -326,10 +334,8 @@ fill_poll_thread_data (GPollFD              *fds,
 
   if (stop_fd != NULL)
     {
-#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
         g_print (" Stop FD: %p", (HANDLE) stop_fd->fd);
-#endif
 
       g_assert (data->nhandles < MAXIMUM_WAIT_OBJECTS);
 
@@ -349,18 +355,14 @@ fill_poll_thread_data (GPollFD              *fds,
 
       if (f->fd == G_WIN32_MSG_HANDLE && (f->events & G_IO_IN))
         {
-#ifdef G_MAIN_POLL_DEBUG
           if (_g_main_poll_debug && data->msg_fd == NULL)
             g_print (" MSG");
-#endif
           data->msg_fd = f;
         }
       else if (f->fd > 0)
         {
-#ifdef G_MAIN_POLL_DEBUG
           if (_g_main_poll_debug)
             g_print (" %p", (HANDLE) f->fd);
-#endif
           data->handle_to_fd[data->nhandles] = f;
           data->handles[data->nhandles++] = (HANDLE) f->fd;
         }
@@ -369,19 +371,15 @@ fill_poll_thread_data (GPollFD              *fds,
     }
 }
 
-static guint __stdcall
-poll_thread_run (gpointer user_data)
+static void
+cleanup_workers (guint     nworkers,
+                 PTP_WORK *work_handles)
 {
-  GWin32PollThreadData *data = user_data;
-
-  /* Docs say that it is safer to call _endthreadex by our own:
-   * https://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/endthread-endthreadex
-   */
-  _endthreadex (poll_single_thread (data));
-
-  g_assert_not_reached ();
-
-  return 0;
+  for (guint i = 0; i < nworkers; i++)
+    {
+      if (work_handles[i] != NULL)
+        CloseThreadpoolWork (work_handles[i]);
+    }
 }
 
 /* One slot for a possible msg object or the stop event */
@@ -393,7 +391,7 @@ g_poll (GPollFD *fds,
 	gint     timeout)
 {
   guint nthreads, threads_remain;
-  HANDLE thread_handles[MAXIMUM_WAIT_OBJECTS];
+  HANDLE worker_completed_handles[1] = { NULL, };
   GWin32PollThreadData *threads_data;
   GPollFD stop_event = { 0, };
   GPollFD *f;
@@ -402,6 +400,7 @@ g_poll (GPollFD *fds,
   DWORD thread_retval;
   int retval;
   GPollFD *msg_fd = NULL;
+  PTP_WORK work_handles[MAXIMUM_WAIT_OBJECTS] = { NULL, };
 
   if (timeout == -1)
     timeout = INFINITE;
@@ -411,17 +410,13 @@ g_poll (GPollFD *fds,
     {
       GWin32PollThreadData data = { 0, };
 
-#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
         g_print ("g_poll: waiting for");
-#endif
 
       fill_poll_thread_data (fds, nfds, timeout, NULL, &data);
 
-#ifdef G_MAIN_POLL_DEBUG
       if (_g_main_poll_debug)
         g_print ("\n");
-#endif
 
       retval = poll_single_thread (&data);
       if (retval == -1)
@@ -431,10 +426,8 @@ g_poll (GPollFD *fds,
       return retval;
     }
 
-#ifdef G_MAIN_POLL_DEBUG
   if (_g_main_poll_debug)
     g_print ("g_poll: polling with threads\n");
-#endif
 
   nthreads = nfds / MAXIMUM_WAIT_OBJECTS_PER_THREAD;
   threads_remain = nfds % MAXIMUM_WAIT_OBJECTS_PER_THREAD;
@@ -453,12 +446,13 @@ g_poll (GPollFD *fds,
   stop_event.fd = (gint)CreateEventW (NULL, TRUE, FALSE, NULL);
 #endif
   stop_event.events = G_IO_IN;
+  worker_completed_handles[0] = (HANDLE) stop_event.fd;
 
   threads_data = g_new0 (GWin32PollThreadData, nthreads);
+
   for (i = 0; i < nthreads; i++)
     {
       guint thread_fds;
-      guint ignore;
 
       if (i == (nthreads - 1) && threads_remain > 0)
         thread_fds = threads_remain;
@@ -475,30 +469,46 @@ g_poll (GPollFD *fds,
           threads_data[i].msg_fd = NULL;
         }
 
-      thread_handles[i] = (HANDLE) _beginthreadex (NULL, 0, poll_thread_run, &threads_data[i], 0, &ignore);
+      work_handles[i] = CreateThreadpoolWork (poll_single_worker_wrapper, &threads_data[i],
+                                              NULL);
+      if (work_handles[i] == NULL)
+        {
+          gchar *emsg = g_win32_error_message (GetLastError ());
+          g_error ("CreateThreadpoolWork failed: %s", emsg);
+          g_free (emsg);
+          retval = -1;
+          goto cleanup;
+        }
+
+      SubmitThreadpoolWork (work_handles[i]);
     }
 
-  /* Wait for at least one thread to return */
+  /* Wait for at least one worker to return */
   if (msg_fd != NULL)
-    ready = MsgWaitForMultipleObjectsEx (nthreads, thread_handles, timeout,
+    ready = MsgWaitForMultipleObjectsEx (1, worker_completed_handles, timeout,
                                          QS_ALLINPUT, MWMO_ALERTABLE);
   else
-    ready = WaitForMultipleObjects (nthreads, thread_handles, FALSE, timeout);
+    ready = WaitForMultipleObjects (1, worker_completed_handles, FALSE, timeout);
 
-  /* Signal the stop in case any of the threads did not stop yet */
-  if (!SetEvent ((HANDLE)stop_event.fd))
+  /* Signal the stop in case any of the workers did not stop yet */
+  if (!SetEvent ((HANDLE) stop_event.fd))
     {
       gchar *emsg = g_win32_error_message (GetLastError ());
-      g_warning ("gpoll: failed to signal the stop event: %s", emsg);
+      g_error ("gpoll: failed to signal the stop event: %s", emsg);
       g_free (emsg);
+      retval = -1;
+      goto cleanup;
     }
 
-  /* Wait for the rest of the threads to finish */
-  WaitForMultipleObjects (nthreads, thread_handles, TRUE, INFINITE);
+  /* Wait for the all workers to finish individually, since we're not using a cleanup group.
+    We disable fCancelPendingCallbacks since we share the default process threadpool.
+    */
+  for (i = 0; i < nthreads; i++)
+    WaitForThreadpoolWorkCallbacks (work_handles[i], FALSE);
 
   /* The return value of all the threads give us all the fds that changed state */
   retval = 0;
-  if (msg_fd != NULL && ready == WAIT_OBJECT_0 + nthreads)
+  if (msg_fd != NULL && ready == WAIT_OBJECT_0 + 1)
     {
       msg_fd->revents |= G_IO_IN;
       retval = 1;
@@ -506,367 +516,21 @@ g_poll (GPollFD *fds,
 
   for (i = 0; i < nthreads; i++)
     {
-      if (GetExitCodeThread (thread_handles[i], &thread_retval))
-        retval = (retval == -1) ? -1 : ((thread_retval == (DWORD) -1) ? -1 : (int) (retval + thread_retval));
-
-      CloseHandle (thread_handles[i]);
+      thread_retval = threads_data[i].retval;
+      retval = (retval == -1) ? -1 : ((thread_retval == (DWORD) -1) ? -1 : (int) (retval + thread_retval));
     }
 
+cleanup:
   if (retval == -1)
-    for (f = fds; f < &fds[nfds]; ++f)
-      f->revents = 0;
-
+    {
+      for (f = fds; f < &fds[nfds]; ++f)
+        f->revents = 0;
+    }
+  cleanup_workers (nthreads, work_handles);
   g_free (threads_data);
-  CloseHandle ((HANDLE)stop_event.fd);
+  CloseHandle ((HANDLE) stop_event.fd);
 
   return retval;
-}
-
-#elif defined (HAVE_KQUEUE)
-
-gint
-g_poll (GPollFD *fds,
-	guint    nfds,
-	gint     timeout)
-{
-  int ret, errsv, kq, i;
-  guint max_events;
-  struct kevent *events, *ev;
-  guint num_wakeup_fds;
-  struct timespec *ts, ts_storage;
-
-  kq = kqueue ();
-  if (kq == -1)
-    return -1;
-
-  max_events = nfds * 3;
-  events = g_newa (struct kevent, max_events);
-  ev = events;
-  num_wakeup_fds = 0;
-
-  for (i = 0; i < (int) nfds; i++)
-    {
-      GPollFD *fd = &fds[i];
-
-      if (fd->fd == G_KQUEUE_WAKEUP_HANDLE)
-	{
-	  EV_SET (ev, GPOINTER_TO_SIZE (fd->handle), EVFILT_USER, EV_ADD,
-		  NOTE_FFCOPY, 0, NULL);
-	  ev++;
-	  num_wakeup_fds++;
-	}
-      else if (fd->fd >= 0)
-	{
-	  if (fd->events & G_IO_IN)
-	    {
-	      EV_SET (ev, fd->fd, EVFILT_READ, EV_ADD, 0, 0, fd);
-	      ev++;
-	    }
-	  if (fd->events & G_IO_OUT)
-	    {
-	      EV_SET (ev, fd->fd, EVFILT_WRITE, EV_ADD, 0, 0, fd);
-	      ev++;
-	    }
-#ifdef EVFILT_EXCEPT
-	  if (fd->events & G_IO_PRI)
-	    {
-	      EV_SET (ev, fd->fd, EVFILT_EXCEPT, EV_ADD, NOTE_OOB, 0, fd);
-	      ev++;
-	    }
-#endif
-	}
-    }
-
-  if (timeout >= 0)
-    {
-      ts_storage.tv_sec = timeout / 1000;
-      ts_storage.tv_nsec = (timeout % 1000) * 1000000;
-      ts = &ts_storage;
-    }
-  else
-    {
-      ts = NULL;
-    }
-
-  if (num_wakeup_fds == 0)
-    {
-      ret = kevent (kq, events, ev - events, events, max_events, ts);
-      errsv = errno;
-    }
-  else
-    {
-      ret = kevent (kq, events, ev - events, NULL, 0, NULL);
-      errsv = errno;
-      if (ret == -1)
-	goto beach;
-
-      for (i = 0; i < (int) nfds; i++)
-	{
-	  GPollFD *fd = &fds[i];
-
-	  if (fd->fd == G_KQUEUE_WAKEUP_HANDLE)
-	    _g_wakeup_kqueue_realize (fd->handle, kq);
-	}
-
-      ret = kevent (kq, NULL, 0, events, max_events, ts);
-      errsv = errno;
-    }
-
-  for (i = 0; i < (int) nfds; i++)
-    fds[i].revents = 0;
-
-  for (i = 0; i < ret; i++)
-    {
-      struct kevent *ev = &events[i];
-      GPollFD *pfd = ev->udata;
-
-      switch (ev->filter)
-	{
-	  case EVFILT_READ:
-	    if (pfd->events & G_IO_IN)
-	      pfd->revents |= G_IO_IN;
-#ifdef EV_OOBAND
-	    if (pfd->events & G_IO_PRI && ev->flags & EV_OOBAND)
-	      pfd->revents |= G_IO_PRI;
-#endif
-	    if (ev->flags & EV_EOF)
-	      {
-		pfd->revents |= G_IO_HUP;
-		if (ev->fflags != 0)
-		  pfd->revents |= G_IO_ERR;
-	      }
-	    if (ev->flags & EV_ERROR)
-	      pfd->revents |= G_IO_ERR;
-	    break;
-	  case EVFILT_WRITE:
-	    if (pfd->events & G_IO_OUT)
-	      pfd->revents |= G_IO_OUT;
-	    if (ev->flags & (EV_EOF|EV_ERROR))
-	      pfd->revents |= G_IO_ERR;
-	    break;
-#ifdef EVFILT_EXCEPT
-	  case EVFILT_EXCEPT:
-	    if (pfd->events & G_IO_PRI)
-	      pfd->revents |= G_IO_PRI;
-	    if (ev->flags & EV_EOF)
-	      pfd->revents |= G_IO_HUP;
-	    if (ev->flags & EV_ERROR)
-	      pfd->revents |= G_IO_ERR;
-	    break;
-#endif
-	  case EVFILT_USER:
-	    for (int j = 0; j < (int) nfds; j++)
-		{
-		  pfd = &fds[j];
-		  if (pfd->fd == G_KQUEUE_WAKEUP_HANDLE &&
-		      pfd->handle == GSIZE_TO_POINTER (ev->ident))
-		    {
-		      if (pfd->events & G_IO_IN)
-			pfd->revents |= G_IO_IN;
-		    }
-		}
-	    break;
-	}
-    }
-
-  if (ret > 0)
-    {
-      ret = 0;
-      for (i = 0; i < (int) nfds; i++)
-	{
-	  if (fds[i].revents != 0)
-	    ret++;
-	}
-    }
-  else if (ret < 0 && errsv != EINTR)
-    {
-      g_warning ("kevent(2) failed due to: %s.",
-		 g_strerror (errsv));
-    }
-
-beach:
-  if (num_wakeup_fds > 0)
-    {
-      for (i = 0; i < (int) nfds; i++)
-	{
-	  GPollFD *fd = &fds[i];
-
-	  if (fd->fd == G_KQUEUE_WAKEUP_HANDLE)
-	    _g_wakeup_kqueue_unrealize (fd->handle);
-	}
-    }
-
-  close (kq);
-
-  if (ret == -1)
-    errno = errsv;
-
-  return ret;
-}
-
-#elif defined (G_OS_NONE)
-
-typedef struct _GPollOperation GPollOperation;
-
-struct _GPollOperation
-{
-  GPollFD *fds;
-  guint    nfds;
-};
-
-gint
-g_poll (GPollFD *fds,
-	guint    nfds,
-	gint     timeout)
-{
-  gint ready;
-  gint64 deadline;
-  guint i;
-  GPollOperation op = { fds, nfds };
-  gpointer token = &op;
-  gboolean slept;
-
-  deadline = (timeout == -1)
-      ? G_MAXINT64
-      : g_get_monotonic_time () + (timeout * G_TIME_SPAN_MILLISECOND);
-
-  for (i = 0; i < nfds; i++)
-    {
-      GPollFD *p = &fds[i];
-
-      if (p->fd == G_WAIT_WAKEUP_HANDLE)
-        {
-          GWakeup *w = p->user_data;
-
-          g_atomic_pointer_set (&w->token, token);
-        }
-    }
-
-  slept = FALSE;
-
-  for (;;)
-    {
-      gint64 timeout_us;
-
-      ready = 0;
-
-      for (i = 0; i < nfds; i++)
-        {
-          GPollFD *p = &fds[i];
-
-          p->revents = 0;
-
-          if (p->fd == G_WAIT_WAKEUP_HANDLE)
-            {
-              GWakeup *w = p->user_data;
-
-              if (g_atomic_int_get (&w->signalled))
-                {
-                  p->revents = G_IO_IN;
-                  ready++;
-                }
-            }
-        }
-
-      if (ready || timeout == 0 || slept)
-        goto done;
-
-      if (timeout == -1)
-        {
-          timeout_us = G_WAIT_INFINITE;
-        }
-      else
-        {
-          gint64 now;
-
-          now = g_get_monotonic_time ();
-          if (now >= deadline)
-            goto done;
-
-          timeout_us = deadline - now;
-        }
-
-      g_wait_sleep (token, timeout_us);
-
-      slept = TRUE;
-    }
-
-done:
-  for (i = 0; i < nfds; i++)
-    {
-      GPollFD *p = &fds[i];
-
-      if (p->fd == G_WAIT_WAKEUP_HANDLE)
-        {
-          GWakeup *w = p->user_data;
-
-          g_atomic_pointer_set (&w->token, NULL);
-        }
-    }
-
-  return ready;
-}
-
-/**
- * g_wait_sleep:
- *
- * Blocks the **current** thread until either
- *   • @timeout_us expires,           or
- *   • g_wait_wake (@token) fires on the *same* token.
- *
- * @token is opaque; the implementation must **not** dereference it.
- *
- * GLib ships weak, do-nothing fall-backs so normal builds link without
- * an extra object file.  Kernels, bare-metal firmware, RTOSes, etc.
- * simply override both symbols.
- */
-G_GNUC_WEAK void
-g_wait_sleep (gpointer token, gint64 timeout_us)
-{
-#ifdef G_OS_NONE
-  G_PANIC_MISSING_IMPLEMENTATION ();
-#endif
-}
-
-/**
- * g_wait_wake:
- *
- * Unblocks every thread that is currently sleeping on the same token.
- */
-G_GNUC_WEAK void
-g_wait_wake (gpointer token)
-{
-#ifdef G_OS_NONE
-  G_PANIC_MISSING_IMPLEMENTATION ();
-#endif
-}
-
-/**
- * g_wait_is_set:
- *
- * For g_wait_sleep() to query whether g_wait_wake() may already have been
- * called, to avoid deadlocking in case it needs to register the token before
- * it can be used to wake it up.
- */
-gboolean
-g_wait_is_set (gpointer token)
-{
-  GPollOperation *op = token;
-  guint i;
-
-  for (i = 0; i < op->nfds; i++)
-    {
-      GPollFD *p = &op->fds[i];
-
-      if (p->fd == G_WAIT_WAKEUP_HANDLE)
-        {
-          GWakeup *w = p->user_data;
-          if (g_atomic_int_get (&w->signalled))
-            return TRUE;
-        }
-    }
-
-  return FALSE;
 }
 
 #else  /* !G_OS_WIN32 */
@@ -881,53 +545,92 @@ g_wait_is_set (gpointer token)
 #include <sys/select.h>
 #endif /* HAVE_SYS_SELECT_H */
 
+static gsize
+g_poll_fd_set_alloc_size (int maxfd)
+{
+  gsize nfds = (gsize) maxfd + 1;
+#if defined(__APPLE__)
+  gsize nelems = __DARWIN_howmany (nfds, __DARWIN_NFDBITS);
+#else
+  const gsize bits_per_element = CHAR_BIT * sizeof (((fd_set *) 0)->fds_bits[0]);
+  gsize nelems = (nfds + bits_per_element - 1) / bits_per_element;
+#endif
+
+  return nelems * sizeof (((fd_set *) 0)->fds_bits[0]);
+}
+
 gint
 g_poll (GPollFD *fds,
 	guint    nfds,
 	gint     timeout)
 {
   struct timeval tv;
-  fd_set rset, wset, xset;
-  GPollFD *f;
+  fd_set rset_stack, wset_stack, xset_stack;
+  fd_set *rset = &rset_stack;
+  fd_set *wset = &wset_stack;
+  fd_set *xset = &xset_stack;
+  GPollFD *f, *f_end;
   int ready;
   int maxfd = 0;
+  const gushort poll_events = G_IO_IN | G_IO_OUT | G_IO_PRI;
+  gpointer heap_storage = NULL;
+  gsize fd_set_bytes = 0;
 
-  FD_ZERO (&rset);
-  FD_ZERO (&wset);
-  FD_ZERO (&xset);
+  f_end = fds + nfds;
 
-  for (f = fds; f < &fds[nfds]; ++f)
+  for (f = fds; f < f_end; ++f)
+    if (f->fd >= 0 &&
+        (f->events & poll_events) &&
+        f->fd > maxfd)
+      maxfd = f->fd;
+
+  if (G_UNLIKELY (maxfd >= FD_SETSIZE))
+    {
+      fd_set_bytes = g_poll_fd_set_alloc_size (maxfd);
+      heap_storage = g_malloc0 (fd_set_bytes * 3);
+      rset = heap_storage;
+      wset = (fd_set *) ((char *) heap_storage + fd_set_bytes);
+      xset = (fd_set *) ((char *) heap_storage + (fd_set_bytes * 2));
+    }
+  else
+    {
+      FD_ZERO (rset);
+      FD_ZERO (wset);
+      FD_ZERO (xset);
+    }
+
+  for (f = fds; f < f_end; ++f)
     if (f->fd >= 0)
       {
-	if (f->events & G_IO_IN)
-	  FD_SET (f->fd, &rset);
-	if (f->events & G_IO_OUT)
-	  FD_SET (f->fd, &wset);
-	if (f->events & G_IO_PRI)
-	  FD_SET (f->fd, &xset);
-	if (f->fd > maxfd && (f->events & (G_IO_IN|G_IO_OUT|G_IO_PRI)))
-	  maxfd = f->fd;
+        if (f->events & G_IO_IN)
+          FD_SET (f->fd, rset);
+        if (f->events & G_IO_OUT)
+          FD_SET (f->fd, wset);
+        if (f->events & G_IO_PRI)
+          FD_SET (f->fd, xset);
       }
 
   tv.tv_sec = timeout / 1000;
   tv.tv_usec = (timeout % 1000) * 1000;
 
-  ready = select (maxfd + 1, &rset, &wset, &xset,
-		  timeout == -1 ? NULL : &tv);
+  ready = select (maxfd + 1, rset, wset, xset,
+                  timeout == -1 ? NULL : &tv);
   if (ready > 0)
-    for (f = fds; f < &fds[nfds]; ++f)
+    for (f = fds; f < f_end; ++f)
       {
-	f->revents = 0;
-	if (f->fd >= 0)
-	  {
-	    if (FD_ISSET (f->fd, &rset))
-	      f->revents |= G_IO_IN;
-	    if (FD_ISSET (f->fd, &wset))
-	      f->revents |= G_IO_OUT;
-	    if (FD_ISSET (f->fd, &xset))
-	      f->revents |= G_IO_PRI;
-	  }
+        f->revents = 0;
+        if (f->fd >= 0)
+          {
+            if (FD_ISSET (f->fd, rset))
+              f->revents |= G_IO_IN;
+            if (FD_ISSET (f->fd, wset))
+              f->revents |= G_IO_OUT;
+            if (FD_ISSET (f->fd, xset))
+              f->revents |= G_IO_PRI;
+          }
       }
+
+  g_free (heap_storage);
 
   return ready;
 }

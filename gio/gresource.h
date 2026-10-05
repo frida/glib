@@ -62,7 +62,7 @@ struct _GStaticResource {
 };
 
 GIO_AVAILABLE_IN_2_32
-GType         g_resource_get_type            (void) G_GNUC_CONST;
+GType         g_resource_get_type            (void);
 GIO_AVAILABLE_IN_2_32
 GResource *   g_resource_new_from_data       (GBytes                *data,
 					      GError               **error);
@@ -118,6 +118,12 @@ gboolean      g_resources_get_info           (const char            *path,
 					      gsize                 *size,
 					      guint32               *flags,
 					      GError               **error);
+
+GIO_AVAILABLE_IN_2_84
+gboolean      g_resource_has_children        (GResource             *resource,
+                                              const char            *path);
+GIO_AVAILABLE_IN_2_84
+gboolean      g_resources_has_children       (const char            *path);
 
 
 GIO_AVAILABLE_IN_2_32

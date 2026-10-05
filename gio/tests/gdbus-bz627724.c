@@ -40,7 +40,7 @@ typedef struct {
   GObjectClass parent_class;
 } MyObjectClass;
 
-GType my_object_get_type (void) G_GNUC_CONST;
+GType my_object_get_type (void);
 
 G_DEFINE_TYPE (MyObject, my_object, G_TYPE_OBJECT)
 
@@ -80,7 +80,7 @@ int
 main (int   argc,
       char *argv[])
 {
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   g_test_dbus_unset ();
 

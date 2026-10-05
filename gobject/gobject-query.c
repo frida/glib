@@ -47,7 +47,7 @@ show_nodes (GType        type,
 	    const gchar *indent)
 {
   GType   *children;
-  guint i;
+  size_t i;
   
   if (!type)
     return;
@@ -110,8 +110,6 @@ main (gint   argc,
   gboolean gen_tree = 0;
   gint i;
   const gchar *iindent = "";
-
-  glib_init ();
 
   f_out = stdout;
   

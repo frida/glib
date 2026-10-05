@@ -390,12 +390,12 @@
 {
 	g-io-module-default-singleton-calloc
 	Memcheck:Leak
-	match-leak-kinds:reachable
+	match-leak-kinds:reachable,definite
 	fun:calloc
 	...
 	fun:g_type_create_instance
 	...
-	fun:_g_io_module_get_default
+	fun:_g_io_module_get_default*
 }
 
 # This one seems to show up sometimes with g_type_create_instance() at the top
@@ -505,7 +505,7 @@
 {
 	g-system-thread-init-malloc
 	Memcheck:Leak
-	match-leak-kinds:possible,reachable
+	match-leak-kinds:possible,reachable,definite
 	fun:malloc
 	...
 	fun:g_system_thread_new
@@ -821,7 +821,7 @@
 {
 	g_set_user_dirs_str
 	Memcheck:Leak
-	match-leak-kinds:definite,reachable
+	match-leak-kinds:definite,reachable,possible
 	fun:malloc
 	...
 	fun:set_str_if_different
@@ -833,18 +833,41 @@
 {
 	g_set_user_dirs_strv
 	Memcheck:Leak
-	match-leak-kinds:definite,reachable
+	match-leak-kinds:definite,reachable,possible
 	fun:malloc
 	...
 	fun:set_strv_if_different
 	fun:g_set_user_dirs
 }
 
+# _g_unset_cached_tmp_dir() deliberately leaks the previous cached g_get_tmp_dir() values.
+# These will not all be reachable on exit.
+{
+	g_get_tmp_dir_test_init
+	Memcheck:Leak
+	match-leak-kinds:definite,reachable
+	fun:malloc
+	...
+	fun:g_get_tmp_dir
+	...
+	fun:g_test_init
+}
+
+# g_get_tmp_dir() caches a one-time allocation
+{
+	g_get_tmp_dir
+	Memcheck:Leak
+	match-leak-kinds:definite,reachable
+	fun:malloc
+	...
+	fun:g_get_tmp_dir
+}
+
 # g_get_system_data_dirs() caches a one-time allocation
 {
 	g_get_system_data_dirs
 	Memcheck:Leak
-	match-leak-kinds:reachable
+	match-leak-kinds:definite,reachable
 	fun:malloc
 	...
 	fun:g_build_system_data_dirs
@@ -855,7 +878,7 @@
 {
 	g_get_user_data_dir
 	Memcheck:Leak
-	match-leak-kinds:reachable
+	match-leak-kinds:definite,reachable
 	fun:realloc
 	...
 	fun:g_build_user_data_dir
@@ -866,11 +889,21 @@
 {
 	g_get_home_dir
 	Memcheck:Leak
-	match-leak-kinds:reachable
+	match-leak-kinds:definite,reachable
 	fun:malloc
 	...
 	fun:g_build_home_dir
 	fun:g_get_home_dir
+}
+
+# gcontenttype-fdo.c caches a one-time allocation global array of @global_mime_dirs.
+{
+	content_type_mime_dirs_realloc
+	Memcheck:Leak
+	match-leak-kinds:reachable
+	fun:realloc
+	...
+	fun:_g_content_type_set_mime_dirs_locked
 }
 
 # gdesktopappinfo.c caches a one-time allocation global table of @desktop_file_dirs.
@@ -1244,4 +1277,80 @@
 	fun:calloc
 	...
 	fun:xdg_mime_init
+}
+
+# One-time allocations for default log writer lock and domains
+{
+	should_drop_message_rw_lock
+	Memcheck:Leak
+	match-leak-kinds: reachable
+	fun:malloc
+	fun:g_rw_lock_impl_new
+	fun:g_rw_lock_get_impl
+	fun:g_rw_lock_reader_lock
+	fun:should_drop_message
+}
+
+{
+	should_drop_message_strdup
+	Memcheck:Leak
+	match-leak-kinds: reachable
+	fun:malloc
+	fun:g_malloc
+	fun:g_strdup
+	fun:g_strdup_inline
+	fun:should_drop_message
+}
+
+{
+	g_log_writer_default_set_debug_strdup
+	Memcheck:Leak
+	match-leak-kinds: reachable
+	fun:malloc
+	fun:g_malloc
+	fun:g_strdup_inline
+	fun:g_log_writer_default_set_debug_domains
+}
+
+{
+	g_log_writer_default_set_debug_rw_lock
+	Memcheck:Leak
+	match-leak-kinds: reachable
+	fun:malloc
+	fun:g_rw_lock_impl_new
+	fun:g_rw_lock_get_impl
+	fun:g_rw_lock_writer_lock
+	fun:g_log_writer_default_set_debug_domains
+}
+
+# This can be removed when versions of valgrind including the fix are widely used.
+# See https://gitlab.gnome.org/GNOME/glib/-/issues/3292
+{
+   g_utf8_collate_key wcsxfrm false-positive
+   Memcheck:Addr32
+   ...
+   fun:wcsxfrm*
+   fun:g_utf8_collate_key
+}
+
+# sysprof deliberately leaks one SysprofCollector per thread
+{
+	glib-trace-collector
+	Memcheck:Leak
+	match-leak-kinds:definite
+	fun:calloc
+	...
+	fun:sysprof_collector_get
+	...
+	fun:g_trace_mark
+}
+{
+	glib-trace-collector2
+	Memcheck:Leak
+	match-leak-kinds:definite
+	fun:malloc
+	...
+	fun:sysprof_collector_get
+	...
+	fun:g_trace_mark
 }

@@ -65,28 +65,35 @@ gmoduleconf_h = configure_file(input : 'gmoduleconf.h.in',
 # when it includes GLib as a subproject
 gmodule_h = files('gmodule.h')
 gmodule_c = files('gmodule.c')
+gmodule_deprecated_c = files('gmodule-deprecated.c')
 
 install_headers([gmodule_h], install_dir : glib_includedir)
 
-gvisibility_h = custom_target(
+gmodule_visibility_h = custom_target(
   output: 'gmodule-visibility.h',
   command: [gen_visibility_macros, meson.project_version(), 'visibility-macros', 'GMODULE', '@OUTPUT@'],
   install: true,
   install_dir: g_module_includedir,
-  # FIXME: Not needed with Meson >= 0.64.0
-  install_tag: 'devel',
 )
 
-gmodule_sources = [gmodule_c, gvisibility_h, 'gmodule-deprecated.c']
+gmodule_sources = [gmodule_c, gmodule_visibility_h, gmodule_deprecated_c]
 
-if host_system == 'windows' and get_option('default_library') == 'shared'
-  gmodule_win_rc = configure_file(
-    input: 'gmodule.rc.in',
+if host_system == 'windows' and glib_build_shared
+  gmodule_rc_conf = configuration_data({
+    'NAME': 'GModule',
+    'FILENAME': (cc.get_argument_syntax() == 'msvc' ? '' : 'lib') + 'gmodule-' + glib_api_version + '-' + soversion.to_string() + '.dll',
+    'DESCRIPTION': 'Portable API for dynamically loading modules',
+  })
+  gmodule_rc_conf.merge_from(rc_conf_base)
+  lib_rc = configure_file(
+    input: lib_rc_in,
     output: 'gmodule.rc',
-    configuration: glibconfig_conf,
+    configuration: gmodule_rc_conf,
   )
-  gmodule_win_res = windows.compile_resources(gmodule_win_rc)
-  gmodule_sources += [gmodule_win_res]
+  gmodule_sources += [windows.compile_resources(lib_rc,
+    # Workaround for https://github.com/llvm/llvm-project/issues/63426
+    args: ['-c', '65001'],
+  )]
 endif
 
 libgmodule = library('gmodule-2.0',
@@ -97,7 +104,7 @@ libgmodule = library('gmodule-2.0',
   install : true,
   include_directories : [configinc, gmoduleinc],
   dependencies : [libdl_dep, libglib_dep],
-  c_args : ['-DG_LOG_DOMAIN="GModule"', '-DGMODULE_COMPILATION'],
+  c_args : ['-DG_LOG_DOMAIN="GModule"', '-DGMODULE_COMPILATION', warning_sign_conversion_args],
   gnu_symbol_visibility : 'hidden',
   link_args : [glib_link_flags],
 )
@@ -135,10 +142,13 @@ pkg.generate(libraries : [libgmodule, export_dynamic_ldflags],
   description : 'Dynamic module loader for GLib',
 )
 
+gmodule_inc_dep = declare_dependency(
+  include_directories: [gmoduleinc],
+  sources: [gmodule_visibility_h],
+)
+
 libgmodule_dep = declare_dependency(link_with : libgmodule,
-  include_directories : [gmoduleinc],
-  sources : [gvisibility_h],
-  dependencies : [libglib_dep])
+  dependencies : [libglib_dep, gmodule_inc_dep])
 
 meson.override_dependency('gmodule-no-export-2.0', libgmodule_dep)
 meson.override_dependency('gmodule-export-2.0', libgmodule_dep)

@@ -36,12 +36,6 @@ G_BEGIN_DECLS
 #define G_IS_SOCKET_ADDRESS_ENUMERATOR_CLASS(k)  (G_TYPE_CHECK_CLASS_TYPE ((k), G_TYPE_SOCKET_ADDRESS_ENUMERATOR))
 #define G_SOCKET_ADDRESS_ENUMERATOR_GET_CLASS(o) (G_TYPE_INSTANCE_GET_CLASS ((o), G_TYPE_SOCKET_ADDRESS_ENUMERATOR, GSocketAddressEnumeratorClass))
 
-/**
- * GSocketAddressEnumerator:
- *
- * Enumerator type for objects that contain or generate
- * #GSocketAddress instances.
- */
 typedef struct _GSocketAddressEnumeratorClass GSocketAddressEnumeratorClass;
 
 struct _GSocketAddressEnumerator
@@ -80,7 +74,7 @@ struct _GSocketAddressEnumeratorClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType           g_socket_address_enumerator_get_type        (void) G_GNUC_CONST;
+GType           g_socket_address_enumerator_get_type        (void);
 
 GIO_AVAILABLE_IN_ALL
 GSocketAddress *g_socket_address_enumerator_next        (GSocketAddressEnumerator  *enumerator,

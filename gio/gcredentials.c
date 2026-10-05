@@ -36,57 +36,47 @@
 #include "glibintl.h"
 
 /**
- * SECTION:gcredentials
- * @short_description: An object containing credentials
- * @include: gio/gio.h
- *
- * The #GCredentials type is a reference-counted wrapper for native
- * credentials. This information is typically used for identifying,
- * authenticating and authorizing other processes.
- *
- * Some operating systems supports looking up the credentials of the
- * remote peer of a communication endpoint - see e.g.
- * g_socket_get_credentials().
- *
- * Some operating systems supports securely sending and receiving
- * credentials over a Unix Domain Socket, see
- * #GUnixCredentialsMessage, g_unix_connection_send_credentials() and
- * g_unix_connection_receive_credentials() for details.
- *
- * On Linux, the native credential type is a `struct ucred` - see the
- * unix(7) man page for details. This corresponds to
- * %G_CREDENTIALS_TYPE_LINUX_UCRED.
- *
- * On Apple operating systems (including iOS, tvOS, and macOS),
- * the native credential type is a `struct xucred`.
- * This corresponds to %G_CREDENTIALS_TYPE_APPLE_XUCRED.
- *
- * On FreeBSD, Debian GNU/kFreeBSD, and GNU/Hurd, the native
- * credential type is a `struct cmsgcred`. This corresponds
- * to %G_CREDENTIALS_TYPE_FREEBSD_CMSGCRED.
- *
- * On NetBSD, the native credential type is a `struct unpcbid`.
- * This corresponds to %G_CREDENTIALS_TYPE_NETBSD_UNPCBID.
- *
- * On OpenBSD, the native credential type is a `struct sockpeercred`.
- * This corresponds to %G_CREDENTIALS_TYPE_OPENBSD_SOCKPEERCRED.
- *
- * On Solaris (including OpenSolaris and its derivatives), the native
- * credential type is a `ucred_t`. This corresponds to
- * %G_CREDENTIALS_TYPE_SOLARIS_UCRED.
- *
- * Since GLib 2.72, on Windows, the native credentials may contain the PID of a
- * process. This corresponds to %G_CREDENTIALS_TYPE_WIN32_PID.
- */
-
-/**
  * GCredentials:
  *
- * The #GCredentials structure contains only private data and
- * should only be accessed using the provided API.
+ * The `GCredentials` type is a reference-counted wrapper for native
+ * credentials.
+ *
+ * The information in `GCredentials` is typically used for identifying,
+ * authenticating and authorizing other processes.
+ *
+ * Some operating systems supports looking up the credentials of the remote
+ * peer of a communication endpoint - see e.g. [method@Gio.Socket.get_credentials].
+ *
+ * Some operating systems supports securely sending and receiving
+ * credentials over a Unix Domain Socket, see [class@Gio.UnixCredentialsMessage],
+ * [method@Gio.UnixConnection.send_credentials] and
+ * [method@Gio.UnixConnection.receive_credentials] for details.
+ *
+ * On Linux, the native credential type is a `struct ucred` - see the
+ * [`unix(7)` man page](man:unix(7)) for details. This corresponds to
+ * `G_CREDENTIALS_TYPE_LINUX_UCRED`.
+ *
+ * On Apple operating systems (including iOS, tvOS, and macOS), the native credential
+ * type is a `struct xucred`. This corresponds to `G_CREDENTIALS_TYPE_APPLE_XUCRED`.
+ *
+ * On FreeBSD, Debian GNU/kFreeBSD, and GNU/Hurd, the native credential type is a
+ * `struct cmsgcred`. This corresponds to `G_CREDENTIALS_TYPE_FREEBSD_CMSGCRED`.
+ *
+ * On NetBSD, the native credential type is a `struct unpcbid`.
+ * This corresponds to `G_CREDENTIALS_TYPE_NETBSD_UNPCBID`.
+ *
+ * On OpenBSD, the native credential type is a `struct sockpeercred`.
+ * This corresponds to `G_CREDENTIALS_TYPE_OPENBSD_SOCKPEERCRED`.
+ *
+ * On Solaris (including OpenSolaris and its derivatives), the native credential type
+ * is a `ucred_t`. This corresponds to `G_CREDENTIALS_TYPE_SOLARIS_UCRED`.
+ *
+ * Since GLib 2.72, on Windows, the native credentials may contain the PID of a
+ * process. This corresponds to `G_CREDENTIALS_TYPE_WIN32_PID`.
  *
  * Since: 2.26
  */
+
 struct _GCredentials
 {
   /*< private >*/
@@ -107,7 +97,7 @@ struct _GCredentials
   ucred_t *native;
 #elif G_CREDENTIALS_USE_WIN32_PID
   DWORD native;
-#elif !defined (G_OS_NONE)
+#else
   #ifdef __GNUC__
   #pragma GCC diagnostic push
   #pragma GCC diagnostic warning "-Wcpp"
@@ -416,7 +406,7 @@ credentials_native_type_check (GCredentialsType  requested_type,
 #endif
 
   enum_class = g_type_class_ref (g_credentials_type_get_type ());
-  requested = g_enum_get_value (enum_class, requested_type);
+  requested = g_enum_get_value (enum_class, (int) requested_type);
 
 #if G_CREDENTIALS_SUPPORTED
   supported = g_enum_get_value (enum_class, G_CREDENTIALS_NATIVE_TYPE);
@@ -521,7 +511,11 @@ g_credentials_set_native (GCredentials     *credentials,
  * OS or if the native credentials type does not contain information
  * about the UNIX user.
  *
- * Returns: The UNIX user identifier or `-1` if @error is set.
+ * As the signedness of `uid_t` is not specified by POSIX, it is recommended to
+ * check @error for failure rather than trying to check the return value,
+ * particularly in language bindings.
+ *
+ * Returns: The UNIX user identifier or `(uid_t) -1` if @error is set.
  *
  * Since: 2.26
  */
@@ -531,14 +525,14 @@ g_credentials_get_unix_user (GCredentials    *credentials,
 {
   uid_t ret;
 
-  g_return_val_if_fail (G_IS_CREDENTIALS (credentials), -1);
-  g_return_val_if_fail (error == NULL || *error == NULL, -1);
+  g_return_val_if_fail (G_IS_CREDENTIALS (credentials), (uid_t) -1);
+  g_return_val_if_fail (error == NULL || *error == NULL, (uid_t) -1);
 
 #if G_CREDENTIALS_USE_LINUX_UCRED
   if (linux_ucred_check_valid (&credentials->native, error))
     ret = credentials->native.uid;
   else
-    ret = -1;
+    ret = (uid_t) -1;
 #elif G_CREDENTIALS_USE_APPLE_XUCRED
   if (credentials->native.cr_version == XUCRED_VERSION)
     {
@@ -692,7 +686,7 @@ g_credentials_set_unix_user (GCredentials    *credentials,
   return ret;
 }
 
-#ifdef G_OS_DARWIN
+#ifdef __APPLE__
 void
 _g_credentials_set_local_peerid (GCredentials *credentials,
                                  pid_t         pid)
@@ -702,6 +696,6 @@ _g_credentials_set_local_peerid (GCredentials *credentials,
 
   credentials->pid = pid;
 }
-#endif /* G_OS_DARWIN */
+#endif /* __APPLE__ */
 
 #endif /* G_OS_UNIX */

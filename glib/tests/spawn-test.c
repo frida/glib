@@ -32,34 +32,192 @@
 #endif
 
 #ifdef G_OS_WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
 #include <fcntl.h>
 #include <io.h>
 #define pipe(fds) _pipe(fds, 4096, _O_BINARY)
-#include <WinError.h>
 #endif
 
 #ifdef G_OS_WIN32
 static gchar *dirname = NULL;
 #endif
 
+#ifdef G_OS_WIN32
+static char *
+get_system_directory (void)
+{
+  wchar_t path_utf16[MAX_PATH] = {0};
+  char *path = NULL;
+
+  if (!GetSystemDirectoryW (path_utf16, G_N_ELEMENTS (path_utf16)))
+    g_error ("%s failed with error code %u", "GetSystemWindowsDirectory",
+             (unsigned int) GetLastError ());
+
+  path = g_utf16_to_utf8 (path_utf16, -1, NULL, NULL, NULL);
+  g_assert_nonnull (path);
+
+  return path;
+}
+
+static wchar_t *
+g_wcsdup (const wchar_t *wcs_string)
+{
+  size_t length = wcslen (wcs_string);
+
+  return g_memdup2 (wcs_string, (length + 1) * sizeof (wchar_t));
+}
+
+static wchar_t *
+g_wcsndup (const wchar_t *wcs_string,
+           size_t         length)
+{
+  wchar_t *result = NULL;
+
+  g_assert_true (length < SIZE_MAX);
+
+  result = g_new (wchar_t, length + 1);
+  memcpy (result, wcs_string, length * sizeof (wchar_t));
+  result[length] = L'\0';
+
+  return result;
+}
+
+/**
+ * parse_environment_string:
+ *
+ * @string: source environment string in the form <VARIABLE>=<VALUE>
+ *          (e.g as returned by GetEnvironmentStrings)
+ * @name: (out) (optional) (utf-16) name of the variable
+ * @value: (out) (optional) (utf-16) value of the variable
+ *
+ * Parse environment string in the form <VARIABLE>=<VALUE>, for example
+ * the strings in the environment block returned by GetEnvironmentStrings.
+ *
+ * Returns: %TRUE on success
+ */
+static gboolean
+parse_environment_string (const wchar_t  *string,
+                          wchar_t       **name,
+                          wchar_t       **value)
+{
+  const wchar_t *equal_sign;
+
+  g_assert_nonnull (string);
+  g_assert_true (name || value);
+
+  /* On Windows environment variables may have an equal-sign
+   * character as part of their name, but only as the first
+   * character */
+  equal_sign = wcschr (string[0] == L'=' ? (string + 1) : string, L'=');
+
+  if (name)
+    *name = equal_sign ? g_wcsndup (string, equal_sign - string) : NULL;
+
+  if (value)
+    *value = equal_sign ? g_wcsdup (equal_sign + 1) : NULL;
+
+  return (equal_sign != NULL);
+}
+
+/**
+ * find_cmd_shell_environment_variables:
+ *
+ * Finds all the environment variables related to cmd.exe, which are
+ * usually (but not always) present in a process environment block.
+ * Those environment variables are named "=X:", where X is a drive /
+ * volume letter and are used by cmd.exe to track per-drive current
+ * directories.
+ *
+ * See "What are these strange =C: environment variables?"
+ * https://devblogs.microsoft.com/oldnewthing/20100506-00/?p=14133
+ *
+ * This is used to test a work around for an UCRT issue
+ * https://developercommunity.visualstudio.com/t/UCRT-Crash-in-_wspawne-functions/10262748
+ */
+static GList *
+find_cmd_shell_environment_variables (void)
+{
+  wchar_t *block = NULL;
+  wchar_t *iter = NULL;
+  GList *variables = NULL;
+  size_t len = 0;
+
+  block = GetEnvironmentStringsW ();
+  if (!block)
+    {
+      DWORD code = GetLastError ();
+      g_error ("%s failed with error code %u",
+               "GetEnvironmentStrings", (unsigned int) code);
+    }
+
+  iter = block;
+
+  while ((len = wcslen (iter)))
+    {
+      if (iter[0] == L'=')
+        {
+          wchar_t *variable = NULL;
+
+          g_assert_true (parse_environment_string (iter, &variable, NULL));
+          g_assert_nonnull (variable);
+
+          variables = g_list_prepend (variables, variable);
+        }
+
+      iter += len + 1;
+    }
+
+  FreeEnvironmentStringsW (block);
+
+  return variables;
+}
+
+static void
+remove_environment_variables (GList *list)
+{
+  for (GList *l = list; l; l = l->next)
+    {
+      const wchar_t *variable = (const wchar_t*) l->data;
+
+      if (!SetEnvironmentVariableW (variable, NULL))
+        {
+          DWORD code = GetLastError ();
+          g_error ("%s failed with error code %u",
+                   "SetEnvironmentVariable", (unsigned int) code);
+        }
+    }
+}
+#endif /* G_OS_WIN32 */
+
 static void
 test_spawn_basics (void)
 {
   gboolean result;
   GError *err = NULL;
+  char *tmp_filename = NULL, *tmp_filename_quoted = NULL;
+  int fd = -1;
   gchar *output = NULL;
   gchar *erroutput = NULL;
+  char full_cmdline[1000] = {0};
 #ifdef G_OS_WIN32
-  int n;
+  size_t n;
   char buf[100];
   int pipedown[2], pipeup[2];
   gchar **argv = NULL;
+  gchar **envp = g_get_environ ();
+  gchar *system_directory;
   gchar spawn_binary[1000] = {0};
-  gchar full_cmdline[1000] = {0};
+  GList *cmd_shell_env_vars = NULL;
+  const LCID old_lcid = GetThreadUILanguage ();
+  const unsigned int initial_cp = GetConsoleOutputCP ();
+
+  SetConsoleOutputCP (437); /* 437 means en-US codepage */
+  SetThreadUILanguage (MAKELCID (MAKELANGID (LANG_ENGLISH, SUBLANG_ENGLISH_US), SORT_DEFAULT));
+  system_directory = get_system_directory ();
 
   g_snprintf (spawn_binary, sizeof (spawn_binary),
               "%s\\spawn-test-win32-gui.exe", dirname);
-  g_free (dirname);
 #endif
 
   err = NULL;
@@ -93,15 +251,31 @@ test_spawn_basics (void)
   /* Running sort synchronously, collecting its output. 'sort' command
    * is selected because it is non-builtin command on both unix and
    * win32 with well-defined stdout behaviour.
+   * On win32 we use an absolute path to the system-provided sort.exe
+   * because a different sort.exe may be available in PATH. This is
+   * important e.g for the MSYS2 environment, which provides coreutils
+   * sort.exe
    */
-  g_file_set_contents ("spawn-test-created-file.txt",
+  fd = g_file_open_tmp ("spawn-test-created-file-XXXXXX.txt", &tmp_filename, NULL);
+  g_assert_cmpint (fd, >, -1);
+  g_close (fd, NULL);
+
+  g_file_set_contents (tmp_filename,
                        "line first\nline 2\nline last\n", -1, &err);
   g_assert_no_error(err);
 
-  result = g_spawn_command_line_sync ("sort spawn-test-created-file.txt",
-                                      &output, &erroutput, NULL, &err);
+  tmp_filename_quoted = g_shell_quote (tmp_filename);
+#ifndef G_OS_WIN32
+  g_snprintf (full_cmdline, sizeof (full_cmdline),
+              "sort %s", tmp_filename_quoted);
+#else
+  g_snprintf (full_cmdline, sizeof (full_cmdline),
+              "'%s\\sort.exe' %s", system_directory, tmp_filename_quoted);
+#endif
+  result = g_spawn_command_line_sync (full_cmdline, &output, &erroutput, NULL, &err);
   g_assert_no_error (err);
   g_assert_true (result);
+  g_assert_nonnull (output);
   if (strchr (output, '\r') != NULL)
     g_assert_cmpstr (output, ==, "line 2\r\nline first\r\nline last\r\n");
   else
@@ -113,24 +287,34 @@ test_spawn_basics (void)
   g_free (erroutput);
   erroutput = NULL;
 
+#ifndef G_OS_WIN32
   result = g_spawn_command_line_sync ("sort non-existing-file.txt",
                                       NULL, &erroutput, NULL, &err);
+#else
+  g_snprintf (full_cmdline, sizeof (full_cmdline),
+              "'%s\\sort.exe' non-existing-file.txt", system_directory);
+  result = g_spawn_command_line_sync (full_cmdline, NULL, &erroutput, NULL, &err);
+#endif
   g_assert_no_error (err);
   g_assert_true (result);
 #ifndef G_OS_WIN32
+  /* Test against output of coreutils sort */
   g_assert_true (g_str_has_prefix (erroutput, "sort: "));
   g_assert_nonnull (strstr (erroutput, g_strerror (ENOENT)));
 #else
+  /* Test against output of windows sort */
   {
     gchar *file_not_found_message = g_win32_error_message (ERROR_FILE_NOT_FOUND);
+    g_test_message ("sort output: %s\nExpected message: %s", erroutput, file_not_found_message);
     g_assert_nonnull (strstr (erroutput, file_not_found_message));
     g_free (file_not_found_message);
   }
 #endif
-
   g_free (erroutput);
   erroutput = NULL;
-  g_unlink ("spawn-test-created-file.txt");
+  g_unlink (tmp_filename);
+  g_free (tmp_filename);
+  g_free (tmp_filename_quoted);
 
 #ifdef G_OS_WIN32
   g_test_message ("Running spawn-test-win32-gui in various ways.");
@@ -148,7 +332,7 @@ test_spawn_basics (void)
 
   g_assert_no_error (err);
   g_assert_true (result);
-  g_assert_cmpstr (output, ==, "This is stdout\r\n");
+  g_assert_cmpstr (output, ==, "# This is stdout\r\n");
   g_assert_cmpstr (erroutput, ==, "This is stderr\r\n");
 
   g_free (output);
@@ -209,6 +393,30 @@ test_spawn_basics (void)
 
   buf[n] = '\0';
   g_assert_cmpstr (buf, ==, "See ya");
+
+  /* Test workaround for:
+   *
+   * https://developercommunity.visualstudio.com/t/UCRT-Crash-in-_wspawne-functions/10262748
+   */
+  cmd_shell_env_vars = find_cmd_shell_environment_variables ();
+  remove_environment_variables (cmd_shell_env_vars);
+
+  g_snprintf (full_cmdline, sizeof (full_cmdline),
+              "'%s\\sort.exe' non-existing-file.txt", system_directory);
+  g_assert_true (g_shell_parse_argv (full_cmdline, NULL, &argv, NULL));
+  g_assert_nonnull (argv);
+  g_spawn_sync (NULL, argv, envp, G_SPAWN_DEFAULT,
+                NULL, NULL, NULL, NULL, NULL, NULL);
+  g_free (argv);
+  argv = NULL;
+#endif
+
+#ifdef G_OS_WIN32
+  SetThreadUILanguage (old_lcid);
+  SetConsoleOutputCP (initial_cp); /* 437 means en-US codepage */
+  g_list_free_full (cmd_shell_env_vars, g_free);
+  g_strfreev (envp);
+  g_free (system_directory);
 #endif
 }
 
@@ -328,16 +536,23 @@ int
 main (int   argc,
       char *argv[])
 {
+  int ret_val;
+
 #ifdef G_OS_WIN32
   dirname = g_path_get_dirname (argv[0]);
 #endif
 
-  g_test_init (&argc, &argv, NULL);
+  g_test_init (&argc, &argv, G_TEST_OPTION_ISOLATE_DIRS, NULL);
 
   g_test_add_func ("/spawn/basics", test_spawn_basics);
 #ifdef G_OS_UNIX
   g_test_add_func ("/spawn/stdio-overwrite", test_spawn_stdio_overwrite);
 #endif
 
-  return g_test_run ();
+  ret_val = g_test_run ();
+
+#ifdef G_OS_WIN32
+  g_free (dirname);
+#endif
+  return ret_val;
 }

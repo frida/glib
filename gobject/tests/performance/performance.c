@@ -1,5 +1,6 @@
 /* GObject - GLib Type, Object, Parameter and Signal Library
  * Copyright (C) 2009 Red Hat, Inc.
+ * Copyright (C) 2022 Canonical Ltd.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -30,20 +31,30 @@
 #define TARGET_ROUND_TIME 0.008
 
 static gboolean verbose = FALSE;
-static int test_length = DEFAULT_TEST_TIME;
+static gboolean quiet = FALSE;
+static double test_length = DEFAULT_TEST_TIME;
+static double test_factor = 0;
+static GTimer *global_timer = NULL;
 
 static GOptionEntry cmd_entries[] = {
   {"verbose", 'v', 0, G_OPTION_ARG_NONE, &verbose,
    "Print extra information", NULL},
-  {"seconds", 's', 0, G_OPTION_ARG_INT, &test_length,
+  {"quiet", 'q', 0, G_OPTION_ARG_NONE, &quiet,
+   "Print extra information", NULL},
+  {"seconds", 's', 0, G_OPTION_ARG_DOUBLE, &test_length,
    "Time to run each test in seconds", NULL},
+  {"factor", 'f', 0, G_OPTION_ARG_DOUBLE, &test_factor,
+   "Use a fixed factor for sample runs (also $GLIB_PERFORMANCE_FACTOR)", NULL},
   G_OPTION_ENTRY_NULL
 };
 
 typedef struct _PerformanceTest PerformanceTest;
 struct _PerformanceTest {
   const char *name;
+
   gpointer extra_data;
+
+  guint base_factor;
 
   gpointer (*setup) (PerformanceTest *test);
   void (*init) (PerformanceTest *test,
@@ -66,9 +77,13 @@ run_test (PerformanceTest *test)
   gpointer data = NULL;
   guint64 i, num_rounds;
   double elapsed, min_elapsed, max_elapsed, avg_elapsed, factor;
+  double var_mean = 0;
+  double var_m2 = 0;
   GTimer *timer;
+  const double WARM_UP_ALWAYS_SEC = MIN (2.0, test_length / 20);
 
-  g_print ("Running test %s\n", test->name);
+  if (verbose)
+    g_print ("Running test %s\n", test->name);
 
   /* Set up test */
   timer = g_timer_new ();
@@ -80,11 +95,47 @@ run_test (PerformanceTest *test)
   g_timer_start (timer);
 
   /* Warm up the test by doing a few runs */
-  for (i = 0; i < WARM_UP_N_RUNS; i++)
+  for (i = 0; TRUE; i++)
     {
       test->init (test, data, 1.0);
       test->run (test, data);
       test->finish (test, data);
+
+      if (test_factor > 0)
+        {
+          /* The caller specified a constant factor. That makes mostly
+           * sense, to ensure that the test run is independent from
+           * external factors. In this case, don't make warm up dependent
+           * on WARM_UP_ALWAYS_SEC. */
+        }
+      else if (global_timer)
+        {
+          if (g_timer_elapsed (global_timer, NULL) < WARM_UP_ALWAYS_SEC)
+            {
+              /* We always warm up for a certain time where we keep the
+               * CPU busy.
+               *
+               * Note that when we run multiple tests, then this is only
+               * performed once for the first test. */
+              continue;
+            }
+          g_clear_pointer (&global_timer, g_timer_destroy);
+        }
+
+      if (i >= WARM_UP_N_RUNS)
+        break;
+
+      if (test_factor > 0 && i < ESTIMATE_ROUND_TIME_N_RUNS)
+        {
+          /* run at least this many times with fixed factor. */
+        }
+      else if (g_timer_elapsed (timer, NULL) > test_length / 10)
+        {
+          /* The warm up should not take longer than 10 % of the entire
+           * test run. Note that the warm up time for WARM_UP_ALWAYS_SEC
+           * already passed. */
+          break;
+        }
     }
 
   g_timer_stop (timer);
@@ -92,59 +143,74 @@ run_test (PerformanceTest *test)
 
   if (verbose)
     {
-      g_print ("Warm up time: %.2f secs\n", elapsed);
-      g_print ("Estimating round time\n");
+      g_print ("Warm up time: %.2f secs (%" G_GUINT64_FORMAT " rounds)\n", elapsed, i);
     }
 
-  /* Estimate time for one run by doing a few test rounds */
   min_elapsed = 0;
-  for (i = 0; i < ESTIMATE_ROUND_TIME_N_RUNS; i++)
+
+  if (test_factor > 0)
     {
-      test->init (test, data, 1.0);
-      g_timer_start (timer);
-      test->run (test, data);
-      g_timer_stop (timer);
-      test->finish (test, data);
-
-      elapsed = g_timer_elapsed (timer, NULL);
-      if (i == 0)
-	min_elapsed = elapsed;
-      else
-	min_elapsed = MIN (min_elapsed, elapsed);
+      factor = test_factor;
+      if (verbose)
+        g_print ("Fixed correction factor %.2f\n", factor);
     }
+  else
+    {
+      if (verbose)
+        g_print ("Estimating round time\n");
+      /* Estimate time for one run by doing a few test rounds. */
+      for (i = 0; i < ESTIMATE_ROUND_TIME_N_RUNS; i++)
+        {
+          test->init (test, data, 1.0);
+          g_timer_start (timer);
+          test->run (test, data);
+          g_timer_stop (timer);
+          test->finish (test, data);
 
-  factor = TARGET_ROUND_TIME / min_elapsed;
+          elapsed = g_timer_elapsed (timer, NULL);
+          if (i == 0)
+            min_elapsed = elapsed;
+          else
+            min_elapsed = MIN (min_elapsed, elapsed);
+        }
 
-  if (verbose)
-    g_print ("Uncorrected round time: %.4f msecs, correction factor %.2f\n", 1000*min_elapsed, factor);
+      factor = TARGET_ROUND_TIME / min_elapsed;
+      if (verbose)
+        g_print ("Uncorrected round time: %.4f msecs, correction factor %.2f\n", 1000 * min_elapsed, factor);
+    }
 
   /* Calculate number of rounds needed */
-  num_rounds = (test_length / TARGET_ROUND_TIME) + 1;
+  num_rounds = (guint64) (test_length / TARGET_ROUND_TIME) + 1;
 
   if (verbose)
     g_print ("Running %"G_GINT64_MODIFIER"d rounds\n", num_rounds);
 
   /* Run the test */
   avg_elapsed = 0.0;
-  min_elapsed = 0.0;
+  min_elapsed = 1e100;
   max_elapsed = 0.0;
   for (i = 0; i < num_rounds; i++)
     {
+      double delta;
+      double delta2;
+
       test->init (test, data, factor);
       g_timer_start (timer);
       test->run (test, data);
       g_timer_stop (timer);
       test->finish (test, data);
+
       elapsed = g_timer_elapsed (timer, NULL);
 
-      if (i == 0)
-	max_elapsed = min_elapsed = avg_elapsed = elapsed;
-      else
-        {
-          min_elapsed = MIN (min_elapsed, elapsed);
-          max_elapsed = MAX (max_elapsed, elapsed);
-          avg_elapsed += elapsed;
-        }
+      min_elapsed = MIN (min_elapsed, elapsed);
+      max_elapsed = MAX (max_elapsed, elapsed);
+      avg_elapsed += elapsed;
+
+      /* Iteratively compute standard deviation using Welford's online algorithm. */
+      delta = elapsed - var_mean;
+      var_mean += delta / (i + 1);
+      delta2 = elapsed - var_mean;
+      var_m2 += delta * delta2;
     }
 
   if (num_rounds > 1)
@@ -152,12 +218,20 @@ run_test (PerformanceTest *test)
 
   if (verbose)
     {
+      double sample_stddev;
+
+      if (num_rounds < 2)
+        sample_stddev = NAN;
+      else
+        sample_stddev = sqrt (var_m2 / (num_rounds - 1)) * 1000;
+
       g_print ("Minimum corrected round time: %.2f msecs\n", min_elapsed * 1000);
+      g_print ("Average corrected round time: %.2f msecs +/- %.3f stddev\n", avg_elapsed * 1000, sample_stddev);
       g_print ("Maximum corrected round time: %.2f msecs\n", max_elapsed * 1000);
-      g_print ("Average corrected round time: %.2f msecs\n", avg_elapsed * 1000);
     }
 
   /* Print the results */
+  g_print ("%s: ", test->name);
   test->print_result (test, data, min_elapsed);
 
   /* Tear down */
@@ -448,11 +522,9 @@ complex_object_init (ComplexObject *complex_object)
  * Test object construction performance
  *************************************************************/
 
-#define NUM_OBJECT_TO_CONSTRUCT 10000
-
 struct ConstructionTest {
   GObject **objects;
-  int n_objects;
+  unsigned int n_objects;
   GType type;
 };
 
@@ -473,9 +545,9 @@ test_construction_init (PerformanceTest *test,
 			double count_factor)
 {
   struct ConstructionTest *data = _data;
-  int n;
+  unsigned int n;
 
-  n = NUM_OBJECT_TO_CONSTRUCT * count_factor;
+  n = (unsigned int) (test->base_factor * count_factor);
   if (data->n_objects != n)
     {
       data->n_objects = n;
@@ -490,10 +562,10 @@ test_construction_run (PerformanceTest *test,
   struct ConstructionTest *data = _data;
   GObject **objects = data->objects;
   GType type = data->type;
-  int i, n_objects;
+  unsigned int n_objects;
 
   n_objects = data->n_objects;
-  for (i = 0; i < n_objects; i++)
+  for (unsigned int i = 0; i < n_objects; i++)
     objects[i] = g_object_new (type, NULL);
 }
 
@@ -503,10 +575,10 @@ test_construction_run1 (PerformanceTest *test,
 {
   struct ConstructionTest *data = _data;
   GObject **objects = data->objects;
-  int i, n_objects;
+  unsigned int n_objects;
 
   n_objects = data->n_objects;
-  for (i = 0; i < n_objects; i++)
+  for (unsigned int i = 0; i < n_objects; i++)
     objects[i] = (GObject *) g_slice_new0 (SimpleObject);
 }
 
@@ -517,10 +589,10 @@ test_complex_construction_run (PerformanceTest *test,
   struct ConstructionTest *data = _data;
   GObject **objects = data->objects;
   GType type = data->type;
-  int i, n_objects;
+  unsigned int n_objects;
 
   n_objects = data->n_objects;
-  for (i = 0; i < n_objects; i++)
+  for (unsigned int i = 0; i < n_objects; i++)
     objects[i] = g_object_new (type, "val1", 5, "val2", "thousand", NULL);
 }
 
@@ -531,10 +603,10 @@ test_complex_construction_run1 (PerformanceTest *test,
   struct ConstructionTest *data = _data;
   GObject **objects = data->objects;
   GType type = data->type;
-  int i, n_objects;
+  unsigned int n_objects;
 
   n_objects = data->n_objects;
-  for (i = 0; i < n_objects; i++)
+  for (unsigned int i = 0; i < n_objects; i++)
     {
       ComplexObject *object;
       object = (ComplexObject *)g_object_new (type, NULL);
@@ -551,10 +623,10 @@ test_complex_construction_run2 (PerformanceTest *test,
   struct ConstructionTest *data = _data;
   GObject **objects = data->objects;
   GType type = data->type;
-  int i, n_objects;
+  unsigned int n_objects;
 
   n_objects = data->n_objects;
-  for (i = 0; i < n_objects; i++)
+  for (unsigned int i = 0; i < n_objects; i++)
     {
       objects[i] = g_object_new (type, NULL);
     }
@@ -565,9 +637,8 @@ test_construction_finish (PerformanceTest *test,
 			  gpointer _data)
 {
   struct ConstructionTest *data = _data;
-  int i;
 
-  for (i = 0; i < data->n_objects; i++)
+  for (unsigned int i = 0; i < data->n_objects; i++)
     g_object_unref (data->objects[i]);
 }
 
@@ -576,9 +647,8 @@ test_construction_finish1 (PerformanceTest *test,
 			   gpointer _data)
 {
   struct ConstructionTest *data = _data;
-  int i;
 
-  for (i = 0; i < data->n_objects; i++)
+  for (unsigned int i = 0; i < data->n_objects; i++)
     g_slice_free (SimpleObject, (SimpleObject *)data->objects[i]);
 }
 
@@ -597,16 +667,16 @@ test_finalization_init (PerformanceTest *test,
 			double count_factor)
 {
   struct ConstructionTest *data = _data;
-  int n;
+  unsigned int n;
 
-  n = NUM_OBJECT_TO_CONSTRUCT * count_factor;
+  n = (unsigned int) (test->base_factor * count_factor);
   if (data->n_objects != n)
     {
       data->n_objects = n;
       data->objects = g_renew (GObject *, data->objects, n);
     }
 
-  for (int i = 0; i <  data->n_objects; i++)
+  for (unsigned int i = 0; i <  data->n_objects; i++)
     {
       data->objects[i] = g_object_new (data->type, NULL);
     }
@@ -618,10 +688,10 @@ test_finalization_run (PerformanceTest *test,
 {
   struct ConstructionTest *data = _data;
   GObject **objects = data->objects;
-  int i, n_objects;
+  unsigned int n_objects;
 
   n_objects = data->n_objects;
-  for (i = 0; i < n_objects; i++)
+  for (unsigned int i = 0; i < n_objects; i++)
     {
       g_object_unref (objects[i]);
     }
@@ -659,17 +729,22 @@ test_finalization_print_result (PerformanceTest *test,
  * Test runtime type check performance
  *************************************************************/
 
-#define NUM_KILO_CHECKS_PER_ROUND 50
+/* Work around g_type_check_instance_is_a being marked "pure",
+ * and thus only called once for the loop. */
+static gboolean (*my_type_check_instance_is_a) (GTypeInstance *type_instance,
+                                                GType iface_type);
 
 struct TypeCheckTest {
   GObject *object;
-  int n_checks;
+  unsigned int n_checks;
 };
 
 static gpointer
 test_type_check_setup (PerformanceTest *test)
 {
   struct TypeCheckTest *data;
+
+  my_type_check_instance_is_a = &g_type_check_instance_is_a;
 
   data = g_new0 (struct TypeCheckTest, 1);
   data->object = g_object_new (COMPLEX_TYPE_OBJECT, NULL);
@@ -684,14 +759,8 @@ test_type_check_init (PerformanceTest *test,
 {
   struct TypeCheckTest *data = _data;
 
-  data->n_checks = factor * NUM_KILO_CHECKS_PER_ROUND;
+  data->n_checks = (unsigned int) (test->base_factor * factor);
 }
-
-
-/* Work around g_type_check_instance_is_a being marked "pure",
-   and thus only called once for the loop. */
-gboolean (*my_type_check_instance_is_a) (GTypeInstance *type_instance,
-					 GType          iface_type) = &g_type_check_instance_is_a;
 
 static void
 test_type_check_run (PerformanceTest *test,
@@ -700,7 +769,6 @@ test_type_check_run (PerformanceTest *test,
   struct TypeCheckTest *data = _data;
   GObject *object = data->object;
   GType type, types[5];
-  int i, j;
 
   types[0] = test_iface1_get_type ();
   types[1] = test_iface2_get_type ();
@@ -708,10 +776,10 @@ test_type_check_run (PerformanceTest *test,
   types[3] = test_iface4_get_type ();
   types[4] = test_iface5_get_type ();
 
-  for (i = 0; i < data->n_checks; i++)
+  for (unsigned int i = 0; i < data->n_checks; i++)
     {
       type = types[i%5];
-      for (j = 0; j < 1000; j++)
+      for (unsigned int j = 0; j < 1000; j++)
 	{
 	  my_type_check_instance_is_a ((GTypeInstance *)object,
 				       type);
@@ -749,12 +817,10 @@ test_type_check_teardown (PerformanceTest *test,
  * Test signal emissions performance (common code)
  *************************************************************/
 
-#define NUM_EMISSIONS_PER_ROUND 10000
-
 struct EmissionTest {
   GObject *object;
-  int n_checks;
-  int signal_id;
+  unsigned int n_checks;
+  unsigned int signal_id;
 };
 
 static void
@@ -763,9 +829,8 @@ test_emission_run (PerformanceTest *test,
 {
   struct EmissionTest *data = _data;
   GObject *object = data->object;
-  int i;
 
-  for (i = 0; i < data->n_checks; i++)
+  for (unsigned int i = 0; i < data->n_checks; i++)
     g_signal_emit (object, data->signal_id, 0);
 }
 
@@ -775,9 +840,8 @@ test_emission_run_args (PerformanceTest *test,
 {
   struct EmissionTest *data = _data;
   GObject *object = data->object;
-  int i;
 
-  for (i = 0; i < data->n_checks; i++)
+  for (unsigned int i = 0; i < data->n_checks; i++)
     g_signal_emit (object, data->signal_id, 0, 0, NULL);
 }
 
@@ -792,7 +856,7 @@ test_emission_unhandled_setup (PerformanceTest *test)
 
   data = g_new0 (struct EmissionTest, 1);
   data->object = g_object_new (COMPLEX_TYPE_OBJECT, NULL);
-  data->signal_id = complex_signals[GPOINTER_TO_INT (test->extra_data)];
+  data->signal_id = complex_signals[GPOINTER_TO_UINT (test->extra_data)];
   return data;
 }
 
@@ -803,7 +867,7 @@ test_emission_unhandled_init (PerformanceTest *test,
 {
   struct EmissionTest *data = _data;
 
-  data->n_checks = factor * NUM_EMISSIONS_PER_ROUND;
+  data->n_checks = (unsigned int) (test->base_factor * factor);
 }
 
 static void
@@ -849,7 +913,7 @@ test_emission_handled_setup (PerformanceTest *test)
 
   data = g_new0 (struct EmissionTest, 1);
   data->object = g_object_new (COMPLEX_TYPE_OBJECT, NULL);
-  data->signal_id = complex_signals[GPOINTER_TO_INT (test->extra_data)];
+  data->signal_id = complex_signals[GPOINTER_TO_UINT (test->extra_data)];
   g_signal_connect (data->object, "signal",
                     G_CALLBACK (test_emission_handled_handler),
                     NULL);
@@ -876,7 +940,7 @@ test_emission_handled_init (PerformanceTest *test,
 {
   struct EmissionTest *data = _data;
 
-  data->n_checks = factor * NUM_EMISSIONS_PER_ROUND;
+  data->n_checks = (unsigned int) (test->base_factor * factor);
 }
 
 static void
@@ -907,15 +971,328 @@ test_emission_handled_teardown (PerformanceTest *test,
 }
 
 /*************************************************************
+ * Test object notify performance (common code)
+ *************************************************************/
+
+struct NotifyTest {
+  GObject *object;
+  unsigned int n_checks;
+};
+
+static void
+test_notify_run (PerformanceTest *test,
+                 void *_data)
+{
+  struct NotifyTest *data = _data;
+  GObject *object = data->object;
+
+  for (unsigned int i = 0; i < data->n_checks; i++)
+    g_object_notify (object, "val1");
+}
+
+static void
+test_notify_by_pspec_run (PerformanceTest *test,
+                          void *_data)
+{
+  struct NotifyTest *data = _data;
+  GObject *object = data->object;
+
+  for (unsigned int i = 0; i < data->n_checks; i++)
+    g_object_notify_by_pspec (object, pspecs[PROP_VAL1]);
+}
+
+/*************************************************************
+ * Test notify unhandled performance
+ *************************************************************/
+
+static void *
+test_notify_unhandled_setup (PerformanceTest *test)
+{
+  struct NotifyTest *data;
+
+  data = g_new0 (struct NotifyTest, 1);
+  data->object = g_object_new (COMPLEX_TYPE_OBJECT, NULL);
+  return data;
+}
+
+static void
+test_notify_unhandled_init (PerformanceTest *test,
+                            void *_data,
+                            double factor)
+{
+  struct NotifyTest *data = _data;
+
+  data->n_checks = (unsigned int) (test->base_factor * factor);
+}
+
+static void
+test_notify_unhandled_finish (PerformanceTest *test,
+                              void *data)
+{
+}
+
+static void
+test_notify_unhandled_print_result (PerformanceTest *test,
+                                    void *_data,
+                                    double time)
+{
+  struct NotifyTest *data = _data;
+
+  g_print ("Notify (unhandled) per second: %.0f\n",
+           data->n_checks / time);
+}
+
+static void
+test_notify_unhandled_teardown (PerformanceTest *test,
+                                void *_data)
+{
+  struct NotifyTest *data = _data;
+
+  g_object_unref (data->object);
+  g_free (data);
+}
+
+/*************************************************************
+ * Test notify handled performance
+ *************************************************************/
+
+static void
+test_notify_handled_handler (ComplexObject *obj, GParamSpec *pspec, void *data)
+{
+}
+
+static void *
+test_notify_handled_setup (PerformanceTest *test)
+{
+  struct NotifyTest *data;
+
+  data = g_new0 (struct NotifyTest, 1);
+  data->object = g_object_new (COMPLEX_TYPE_OBJECT, NULL);
+
+  g_signal_connect (data->object, "notify::val1",
+                    G_CALLBACK (test_notify_handled_handler), data);
+  g_signal_connect (data->object, "notify::val2",
+                    G_CALLBACK (test_notify_handled_handler), data);
+
+  return data;
+}
+
+static void
+test_notify_handled_init (PerformanceTest *test,
+                          void *_data,
+                          double factor)
+{
+  struct NotifyTest *data = _data;
+
+  data->n_checks = (unsigned int) (test->base_factor * factor);
+}
+
+static void
+test_notify_handled_finish (PerformanceTest *test,
+                            void *data)
+{
+}
+
+static void
+test_notify_handled_print_result (PerformanceTest *test,
+                                  void *_data,
+                                  double time)
+{
+  struct NotifyTest *data = _data;
+
+  g_print ("Notify per second: %.0f\n",
+           data->n_checks / time);
+}
+
+static void
+test_notify_handled_teardown (PerformanceTest *test,
+                              void *_data)
+{
+  struct NotifyTest *data = _data;
+
+  g_assert_cmpuint (
+    g_signal_handlers_disconnect_by_func (data->object,
+                                          test_notify_handled_handler,
+                                          data), ==, 2);
+  g_object_unref (data->object);
+  g_free (data);
+}
+
+/*************************************************************
+ * Test object set performance
+ *************************************************************/
+
+struct SetTest {
+  GObject *object;
+  unsigned int n_checks;
+};
+
+static void
+test_set_run (PerformanceTest *test,
+              void *_data)
+{
+  struct SetTest *data = _data;
+  GObject *object = data->object;
+
+  for (unsigned int i = 0; i < data->n_checks; i++)
+    g_object_set (object, "val1", i, NULL);
+}
+
+static void *
+test_set_setup (PerformanceTest *test)
+{
+  struct SetTest *data;
+
+  data = g_new0 (struct SetTest, 1);
+  data->object = g_object_new (COMPLEX_TYPE_OBJECT, NULL);
+
+  /* g_object_get() will take a reference. Increasing the ref count from 1 to 2
+   * is more expensive, due to the check for toggle notifications. We have a
+   * performance test for that already. Don't also test that overhead during
+   * "property-get" test and avoid this by taking an additional reference. */
+  g_object_ref (data->object);
+
+  if (g_str_equal (test->name, "property-set-signaled"))
+    {
+      /* If an object has a listener, then a property set will freeze notifications.
+       * That has an overhead, and we have a separate test for that. */
+      g_signal_connect (data->object, "notify::val2",
+                        G_CALLBACK (test_notify_handled_handler), NULL);
+    }
+
+  return data;
+}
+
+static void
+test_set_init (PerformanceTest *test,
+               void *_data,
+               double factor)
+{
+  struct SetTest *data = _data;
+
+  data->n_checks = (unsigned int) (test->base_factor * factor);
+}
+
+static void
+test_set_finish (PerformanceTest *test,
+                 void *data)
+{
+}
+
+static void
+test_set_print_result (PerformanceTest *test,
+                       void *_data,
+                       double time)
+{
+  struct SetTest *data = _data;
+
+  g_print ("Property set per second: %.0f\n",
+           data->n_checks / time);
+}
+
+static void
+test_set_teardown (PerformanceTest *test,
+                   void *_data)
+{
+  struct SetTest *data = _data;
+
+  g_object_unref (data->object);
+  g_object_unref (data->object);
+  g_free (data);
+}
+
+/*************************************************************
+ * Test object get performance
+ *************************************************************/
+
+struct GetTest {
+  GObject *object;
+  unsigned int n_checks;
+};
+
+static void
+test_get_run (PerformanceTest *test,
+              void *_data)
+{
+  struct GetTest *data = _data;
+  GObject *object = data->object;
+  int val;
+
+  for (unsigned int i = 0; i < data->n_checks; i++)
+    g_object_get (object, "val1", &val, NULL);
+}
+
+static void *
+test_get_setup (PerformanceTest *test)
+{
+  struct GetTest *data;
+
+  data = g_new0 (struct GetTest, 1);
+  data->object = g_object_new (COMPLEX_TYPE_OBJECT, NULL);
+
+  /* g_object_get() will take a reference. Increasing the ref count from 1 to 2
+   * is more expensive, due to the check for toggle notifications. We have a
+   * performance test for that already. Don't also test that overhead during
+   * "property-get" test and avoid this by taking an additional reference. */
+  g_object_ref (data->object);
+
+  return data;
+}
+
+static void
+test_get_init (PerformanceTest *test,
+               void *_data,
+               double factor)
+{
+  struct GetTest *data = _data;
+
+  data->n_checks = (unsigned int) (test->base_factor * factor);
+}
+
+static void
+test_get_finish (PerformanceTest *test,
+                 void *data)
+{
+}
+
+static void
+test_get_print_result (PerformanceTest *test,
+                       void *_data,
+                       double time)
+{
+  struct GetTest *data = _data;
+
+  g_print ("Property get per second: %.0f\n",
+           data->n_checks / time);
+}
+
+static void
+test_get_teardown (PerformanceTest *test,
+                   gpointer _data)
+{
+  struct GetTest *data = _data;
+
+  g_object_unref (data->object);
+  g_object_unref (data->object);
+  g_free (data);
+}
+
+/*************************************************************
  * Test object refcount performance
  *************************************************************/
 
-#define NUM_KILO_REFS_PER_ROUND 100000
-
 struct RefcountTest {
   GObject *object;
-  int n_checks;
+  unsigned int n_checks;
+  gboolean is_toggle_ref;
 };
+
+static void
+test_refcount_toggle_ref_cb (gpointer data,
+                             GObject *object,
+                             gboolean is_last_ref)
+{
+}
 
 static gpointer
 test_refcount_setup (PerformanceTest *test)
@@ -924,6 +1301,13 @@ test_refcount_setup (PerformanceTest *test)
 
   data = g_new0 (struct RefcountTest, 1);
   data->object = g_object_new (COMPLEX_TYPE_OBJECT, NULL);
+
+  if (g_str_equal (test->name, "refcount-toggle"))
+    {
+      g_object_add_toggle_ref (data->object, test_refcount_toggle_ref_cb, NULL);
+      g_object_unref (data->object);
+      data->is_toggle_ref = TRUE;
+    }
 
   return data;
 }
@@ -935,7 +1319,7 @@ test_refcount_init (PerformanceTest *test,
 {
   struct RefcountTest *data = _data;
 
-  data->n_checks = factor * NUM_KILO_REFS_PER_ROUND;
+  data->n_checks = (unsigned int) (test->base_factor * factor);
 }
 
 static void
@@ -944,9 +1328,8 @@ test_refcount_run (PerformanceTest *test,
 {
   struct RefcountTest *data = _data;
   GObject *object = data->object;
-  int i;
 
-  for (i = 0; i < data->n_checks; i++)
+  for (unsigned int i = 0; i < data->n_checks; i++)
     {
       g_object_ref (object);
       g_object_ref (object);
@@ -958,6 +1341,20 @@ test_refcount_run (PerformanceTest *test,
       g_object_ref (object);
       g_object_unref (object);
       g_object_unref (object);
+      g_object_unref (object);
+    }
+}
+
+static void
+test_refcount_1_run (PerformanceTest *test,
+                     gpointer _data)
+{
+  struct RefcountTest *data = _data;
+  GObject *object = data->object;
+
+  for (unsigned int i = 0; i < data->n_checks; i++)
+    {
+      g_object_ref (object);
       g_object_unref (object);
     }
 }
@@ -984,7 +1381,11 @@ test_refcount_teardown (PerformanceTest *test,
 {
   struct RefcountTest *data = _data;
 
-  g_object_unref (data->object);
+  if (data->is_toggle_ref)
+    g_object_remove_toggle_ref (data->object, test_refcount_toggle_ref_cb, NULL);
+  else
+    g_object_unref (data->object);
+
   g_free (data);
 }
 
@@ -996,6 +1397,7 @@ static PerformanceTest tests[] = {
   {
     "simple-construction",
     simple_object_get_type,
+    347800,
     test_construction_setup,
     test_construction_init,
     test_construction_run,
@@ -1006,6 +1408,7 @@ static PerformanceTest tests[] = {
   {
     "simple-construction1",
     simple_object_get_type,
+    1454500,
     test_construction_setup,
     test_construction_init,
     test_construction_run1,
@@ -1016,6 +1419,7 @@ static PerformanceTest tests[] = {
   {
     "complex-construction",
     complex_object_get_type,
+    110800,
     test_construction_setup,
     test_construction_init,
     test_complex_construction_run,
@@ -1026,6 +1430,7 @@ static PerformanceTest tests[] = {
   {
     "complex-construction1",
     complex_object_get_type,
+    204600,
     test_construction_setup,
     test_construction_init,
     test_complex_construction_run1,
@@ -1036,6 +1441,7 @@ static PerformanceTest tests[] = {
   {
     "complex-construction2",
     complex_object_get_type,
+    237400,
     test_construction_setup,
     test_construction_init,
     test_complex_construction_run2,
@@ -1046,6 +1452,7 @@ static PerformanceTest tests[] = {
   {
     "finalization",
     simple_object_get_type,
+    47400,
     test_construction_setup,
     test_finalization_init,
     test_finalization_run,
@@ -1056,6 +1463,7 @@ static PerformanceTest tests[] = {
   {
     "type-check",
     NULL,
+    1887,
     test_type_check_setup,
     test_type_check_init,
     test_type_check_run,
@@ -1065,7 +1473,8 @@ static PerformanceTest tests[] = {
   },
   {
     "emit-unhandled",
-    GINT_TO_POINTER (COMPLEX_SIGNAL),
+    GUINT_TO_POINTER (COMPLEX_SIGNAL),
+    56300,
     test_emission_unhandled_setup,
     test_emission_unhandled_init,
     test_emission_run,
@@ -1075,7 +1484,8 @@ static PerformanceTest tests[] = {
   },
   {
     "emit-unhandled-empty",
-    GINT_TO_POINTER (COMPLEX_SIGNAL_EMPTY),
+    GUINT_TO_POINTER (COMPLEX_SIGNAL_EMPTY),
+    496900,
     test_emission_unhandled_setup,
     test_emission_unhandled_init,
     test_emission_run,
@@ -1085,7 +1495,8 @@ static PerformanceTest tests[] = {
   },
   {
     "emit-unhandled-generic",
-    GINT_TO_POINTER (COMPLEX_SIGNAL_GENERIC),
+    GUINT_TO_POINTER (COMPLEX_SIGNAL_GENERIC),
+    71700,
     test_emission_unhandled_setup,
     test_emission_unhandled_init,
     test_emission_run,
@@ -1095,7 +1506,8 @@ static PerformanceTest tests[] = {
   },
   {
     "emit-unhandled-generic-empty",
-    GINT_TO_POINTER (COMPLEX_SIGNAL_GENERIC_EMPTY),
+    GUINT_TO_POINTER (COMPLEX_SIGNAL_GENERIC_EMPTY),
+    506300,
     test_emission_unhandled_setup,
     test_emission_unhandled_init,
     test_emission_run,
@@ -1105,7 +1517,8 @@ static PerformanceTest tests[] = {
   },
   {
     "emit-unhandled-args",
-    GINT_TO_POINTER (COMPLEX_SIGNAL_ARGS),
+    GUINT_TO_POINTER (COMPLEX_SIGNAL_ARGS),
+    52000,
     test_emission_unhandled_setup,
     test_emission_unhandled_init,
     test_emission_run_args,
@@ -1115,7 +1528,8 @@ static PerformanceTest tests[] = {
   },
   {
     "emit-handled",
-    GINT_TO_POINTER (COMPLEX_SIGNAL),
+    GUINT_TO_POINTER (COMPLEX_SIGNAL),
+    38600,
     test_emission_handled_setup,
     test_emission_handled_init,
     test_emission_run,
@@ -1125,7 +1539,8 @@ static PerformanceTest tests[] = {
   },
   {
     "emit-handled-empty",
-    GINT_TO_POINTER (COMPLEX_SIGNAL_EMPTY),
+    GUINT_TO_POINTER (COMPLEX_SIGNAL_EMPTY),
+    40100,
     test_emission_handled_setup,
     test_emission_handled_init,
     test_emission_run,
@@ -1135,7 +1550,8 @@ static PerformanceTest tests[] = {
   },
   {
     "emit-handled-generic",
-    GINT_TO_POINTER (COMPLEX_SIGNAL_GENERIC),
+    GUINT_TO_POINTER (COMPLEX_SIGNAL_GENERIC),
+    39600,
     test_emission_handled_setup,
     test_emission_handled_init,
     test_emission_run,
@@ -1145,7 +1561,8 @@ static PerformanceTest tests[] = {
   },
   {
     "emit-handled-generic-empty",
-    GINT_TO_POINTER (COMPLEX_SIGNAL_GENERIC_EMPTY),
+    GUINT_TO_POINTER (COMPLEX_SIGNAL_GENERIC_EMPTY),
+    70400,
     test_emission_handled_setup,
     test_emission_handled_init,
     test_emission_run,
@@ -1155,7 +1572,8 @@ static PerformanceTest tests[] = {
   },
   {
     "emit-handled-args",
-    GINT_TO_POINTER (COMPLEX_SIGNAL_ARGS),
+    GUINT_TO_POINTER (COMPLEX_SIGNAL_ARGS),
+    37800,
     test_emission_handled_setup,
     test_emission_handled_init,
     test_emission_run_args,
@@ -1164,22 +1582,121 @@ static PerformanceTest tests[] = {
     test_emission_handled_print_result
   },
   {
+    "notify-unhandled",
+    complex_object_get_type,
+    526300,
+    test_notify_unhandled_setup,
+    test_notify_unhandled_init,
+    test_notify_run,
+    test_notify_unhandled_finish,
+    test_notify_unhandled_teardown,
+    test_notify_unhandled_print_result
+  },
+  {
+    "notify-by-pspec-unhandled",
+    complex_object_get_type,
+    1568600,
+    test_notify_unhandled_setup,
+    test_notify_unhandled_init,
+    test_notify_by_pspec_run,
+    test_notify_unhandled_finish,
+    test_notify_unhandled_teardown,
+    test_notify_unhandled_print_result
+  },
+  {
+    "notify-handled",
+    complex_object_get_type,
+    25500,
+    test_notify_handled_setup,
+    test_notify_handled_init,
+    test_notify_run,
+    test_notify_handled_finish,
+    test_notify_handled_teardown,
+    test_notify_handled_print_result
+  },
+  {
+    "notify-by-pspec-handled",
+    complex_object_get_type,
+    26600,
+    test_notify_handled_setup,
+    test_notify_handled_init,
+    test_notify_by_pspec_run,
+    test_notify_handled_finish,
+    test_notify_handled_teardown,
+    test_notify_handled_print_result
+  },
+  {
+    "property-set",
+    complex_object_get_type,
+    346300,
+    test_set_setup,
+    test_set_init,
+    test_set_run,
+    test_set_finish,
+    test_set_teardown,
+    test_set_print_result
+  },
+  {
+    "property-set-signaled",
+    complex_object_get_type,
+    45019,
+    test_set_setup,
+    test_set_init,
+    test_set_run,
+    test_set_finish,
+    test_set_teardown,
+    test_set_print_result
+  },
+  {
+    "property-get",
+    complex_object_get_type,
+    329200,
+    test_get_setup,
+    test_get_init,
+    test_get_run,
+    test_get_finish,
+    test_get_teardown,
+    test_get_print_result
+  },
+  {
     "refcount",
     NULL,
+    83000,
     test_refcount_setup,
     test_refcount_init,
     test_refcount_run,
     test_refcount_finish,
     test_refcount_teardown,
     test_refcount_print_result
-  }
+  },
+  {
+    "refcount-1",
+    NULL,
+    230000,
+    test_refcount_setup,
+    test_refcount_init,
+    test_refcount_1_run,
+    test_refcount_finish,
+    test_refcount_teardown,
+    test_refcount_print_result
+  },
+  {
+    "refcount-toggle",
+    NULL,
+    133000,
+    test_refcount_setup,
+    test_refcount_init,
+    test_refcount_1_run,
+    test_refcount_finish,
+    test_refcount_teardown,
+    test_refcount_print_result
+  },
 };
 
 static PerformanceTest *
 find_test (const char *name)
 {
-  gsize i;
-  for (i = 0; i < G_N_ELEMENTS (tests); i++)
+  for (size_t i = 0; i < G_N_ELEMENTS (tests); i++)
     {
       if (strcmp (tests[i].name, name) == 0)
 	return &tests[i];
@@ -1193,7 +1710,12 @@ main (int   argc,
   PerformanceTest *test;
   GOptionContext *context;
   GError *error = NULL;
-  int i;
+  const char *str;
+
+  if ((str = g_getenv ("GLIB_PERFORMANCE_FACTOR")) && str[0])
+    {
+      test_factor = g_strtod (str, NULL);
+    }
 
   context = g_option_context_new ("GObject performance tests");
   g_option_context_add_main_entries (context, cmd_entries, NULL);
@@ -1203,9 +1725,17 @@ main (int   argc,
       return 1;
     }
 
+  if (test_factor < 0)
+    {
+      g_printerr ("%s: test factor must be positive\n", argv[0]);
+      return 1;
+    }
+
+  global_timer = g_timer_new ();
+
   if (argc > 1)
     {
-      for (i = 1; i < argc; i++)
+      for (int i = 1; i < argc; i++)
 	{
 	  test = find_test (argv[i]);
 	  if (test)
@@ -1214,11 +1744,11 @@ main (int   argc,
     }
   else
     {
-      gsize k;
-      for (k = 0; k < G_N_ELEMENTS (tests); k++)
+      for (size_t k = 0; k < G_N_ELEMENTS (tests); k++)
         run_test (&tests[k]);
     }
 
   g_option_context_free (context);
+  g_clear_pointer (&global_timer, g_timer_destroy);
   return 0;
 }

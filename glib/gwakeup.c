@@ -21,6 +21,7 @@
 
 #include "config.h"
 
+#include <stdint.h>
 
 /* gwakeup.c is special -- GIO and some test cases include it.  As such,
  * it cannot include other glib headers without triggering the single
@@ -28,7 +29,6 @@
  * (and at all other use sites).
  */
 #ifdef GLIB_COMPILATION
-#include "gplatformaudit.h"
 #include "gtypes.h"
 #include "gpoll.h"
 #else
@@ -38,11 +38,9 @@
 #include "gwakeup.h"
 
 /*< private >
- * SECTION:gwakeup
- * @title: GWakeup
- * @short_description: portable cross-thread event signal mechanism
+ * GWakeup:
  *
- * #GWakeup is a simple and portable way of signaling events between
+ * `GWakeup` is a simple and portable way of signaling events between
  * different threads in a way that integrates nicely with g_poll().
  * GLib uses it internally for cross-thread signalling in the
  * implementation of #GMainContext and #GCancellable.
@@ -59,7 +57,7 @@
  * is implemented with a pair of pipes.
  *
  * Since: 2.30
- **/
+ */
 #ifdef _WIN32
 
 #include <windows.h>
@@ -68,10 +66,6 @@
 #include "gmessages.h"
 #include "giochannel.h"
 #include "gwin32.h"
-#endif
-
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
 #endif
 
 GWakeup *
@@ -114,216 +108,13 @@ g_wakeup_free (GWakeup *wakeup)
   CloseHandle ((HANDLE) wakeup);
 }
 
-#elif defined (HAVE_KQUEUE)
-
-#include "glib-unix.h"
-#include "gwakeup-private.h"
-
-#include <sys/event.h>
-
-#define G_WAKEUP_LOCK(w)   g_mutex_lock (&(w)->mutex)
-#define G_WAKEUP_UNLOCK(w) g_mutex_unlock (&(w)->mutex)
-
-struct _GWakeup
-{
-  GMutex mutex;
-  gint kq;
-  guint pending;
-};
-
-static void g_wakeup_signal_unlocked (GWakeup *wakeup);
-
-GWakeup *
-g_wakeup_new (void)
-{
-  GWakeup *wakeup;
-
-  wakeup = g_slice_new (GWakeup);
-  g_mutex_init (&wakeup->mutex);
-  wakeup->kq = -1;
-  wakeup->pending = 0;
-
-  return wakeup;
-}
-
-void
-g_wakeup_get_pollfd (GWakeup *wakeup,
-                     GPollFD *poll_fd)
-{
-  poll_fd->fd = G_KQUEUE_WAKEUP_HANDLE;
-  poll_fd->events = G_IO_IN;
-  poll_fd->handle = wakeup;
-}
-
-void
-_g_wakeup_kqueue_realize (GWakeup *wakeup,
-			  gint kq)
-{
-  G_WAKEUP_LOCK (wakeup);
-
-  wakeup->kq = kq;
-
-  if (wakeup->pending != 0)
-    g_wakeup_signal_unlocked (wakeup);
-
-  G_WAKEUP_UNLOCK (wakeup);
-}
-
-void
-_g_wakeup_kqueue_unrealize (GWakeup *wakeup)
-{
-  G_WAKEUP_LOCK (wakeup);
-
-  wakeup->kq = -1;
-
-  G_WAKEUP_UNLOCK (wakeup);
-}
-
-void
-g_wakeup_acknowledge (GWakeup *wakeup)
-{
-  struct kevent ev[2];
-
-  G_WAKEUP_LOCK (wakeup);
-
-  EV_SET (&ev[0], GPOINTER_TO_SIZE (wakeup), EVFILT_USER, EV_DELETE,
-	  0, 0, NULL);
-  EV_SET (&ev[1], GPOINTER_TO_SIZE (wakeup), EVFILT_USER, EV_ADD,
-	  NOTE_FFCOPY, 0, NULL);
-  kevent (wakeup->kq, ev, G_N_ELEMENTS (ev), NULL, 0, NULL);
-
-  wakeup->pending = 0;
-
-  G_WAKEUP_UNLOCK (wakeup);
-}
-
-void
-g_wakeup_signal (GWakeup *wakeup)
-{
-  G_WAKEUP_LOCK (wakeup);
-
-  g_wakeup_signal_unlocked (wakeup);
-
-  G_WAKEUP_UNLOCK (wakeup);
-}
-
-static void
-g_wakeup_signal_unlocked (GWakeup *wakeup)
-{
-  if (wakeup->kq != -1)
-    {
-      struct kevent ev;
-
-      EV_SET (&ev, GPOINTER_TO_SIZE (wakeup), EVFILT_USER, 0, NOTE_TRIGGER,
-	      0, NULL);
-
-      kevent (wakeup->kq, &ev, 1, NULL, 0, NULL);
-    }
-
-  wakeup->pending++;
-}
-
-void
-g_wakeup_free (GWakeup *wakeup)
-{
-  g_mutex_clear (&wakeup->mutex);
-  g_slice_free (GWakeup, wakeup);
-}
-
-#elif defined (G_OS_NONE)
-
-#include "giochannel.h"
-#include "gslice.h"
-#include "gwait.h"
-#include "gwakeup-private.h"
-
-GWakeup *
-g_wakeup_new (void)
-{
-  GWakeup *wakeup;
-
-  wakeup = g_slice_new (GWakeup);
-  wakeup->signalled = FALSE;
-  wakeup->token = NULL;
-
-  return wakeup;
-}
-
-void
-g_wakeup_get_pollfd (GWakeup *wakeup,
-                     GPollFD *poll_fd)
-{
-  poll_fd->fd = G_WAIT_WAKEUP_HANDLE;
-  poll_fd->events = G_IO_IN;
-  poll_fd->user_data = wakeup;
-}
-
-void
-g_wakeup_acknowledge (GWakeup *wakeup)
-{
-  g_atomic_int_set (&wakeup->signalled, FALSE);
-}
-
-void
-g_wakeup_signal (GWakeup *wakeup)
-{
-  gpointer t;
-
-  g_atomic_int_set (&wakeup->signalled, TRUE);
-
-  t = g_atomic_pointer_get (&wakeup->token);
-  if (t != NULL)
-    g_wait_wake (t);
-}
-
-void
-g_wakeup_free (GWakeup *wakeup)
-{
-  g_slice_free (GWakeup, wakeup);
-}
-
 #else
 
 #include "glib-unix.h"
 #include <fcntl.h>
 
-#ifdef G_DISABLE_CHECKS
-#include "glib-nolog.h"
-#endif
-
 #if defined (HAVE_EVENTFD)
 #include <sys/eventfd.h>
-#elif defined (__linux__)
-# include <sys/syscall.h>
-# ifndef __NR_eventfd
-#  if defined (__i386__)
-#   define __NR_eventfd 323
-#  elif defined (__x86_64__)
-#   define __NR_eventfd 284
-#  elif defined (__arm__)
-#   define __NR_eventfd (__NR_SYSCALL_BASE + 351)
-#  elif defined (__mips__)
-#   if _MIPS_SIM == _MIPS_SIM_ABI32
-#    define __NR_eventfd 4319
-#   elif _MIPS_SIM == _MIPS_SIM_ABI64
-#    define __NR_eventfd 5278
-#   elif _MIPS_SIM == _MIPS_SIM_NABI32
-#    define __NR_eventfd 6282
-#   else
-#    error Unexpected MIPS ABI
-#   endif
-#  else
-#   error Please implement for your architecture
-#  endif
-# endif
-# ifndef EFD_CLOEXEC
-#  define EFD_CLOEXEC 0x80000
-# endif
-# ifndef EFD_NONBLOCK
-#  define EFD_NONBLOCK 0x800
-# endif
-# define eventfd g_try_eventfd
-static int g_try_eventfd (unsigned int count, int flags);
 #endif
 
 struct _GWakeup
@@ -331,7 +122,7 @@ struct _GWakeup
   gint fds[2];
 };
 
-/**
+/*< private >
  * g_wakeup_new:
  *
  * Creates a new #GWakeup.
@@ -351,7 +142,7 @@ g_wakeup_new (void)
   wakeup = g_slice_new (GWakeup);
 
   /* try eventfd first, if we think we can */
-#if defined (__linux__)
+#if defined (HAVE_EVENTFD)
 #ifndef TEST_EVENTFD_FALLBACK
   wakeup->fds[0] = eventfd (0, EFD_CLOEXEC | EFD_NONBLOCK);
 #else
@@ -360,7 +151,6 @@ g_wakeup_new (void)
 
   if (wakeup->fds[0] != -1)
     {
-      glib_fd_callbacks->on_fd_opened (wakeup->fds[0], "GWakeup");
       wakeup->fds[1] = -1;
       return wakeup;
     }
@@ -368,11 +158,8 @@ g_wakeup_new (void)
   /* for any failure, try a pipe instead */
 #endif
 
-  if (!g_unix_open_pipe (wakeup->fds, FD_CLOEXEC, &error))
+  if (!g_unix_open_pipe (wakeup->fds, O_CLOEXEC | O_NONBLOCK, &error))
     g_error ("Creating pipes for GWakeup: %s", error->message);
-
-  glib_fd_callbacks->on_fd_opened (wakeup->fds[0], "GWakeup");
-  glib_fd_callbacks->on_fd_opened (wakeup->fds[1], "GWakeup");
 
   if (!g_unix_set_fd_nonblocking (wakeup->fds[0], TRUE, &error) ||
       !g_unix_set_fd_nonblocking (wakeup->fds[1], TRUE, &error))
@@ -381,7 +168,7 @@ g_wakeup_new (void)
   return wakeup;
 }
 
-/**
+/*< private >
  * g_wakeup_get_pollfd:
  * @wakeup: a #GWakeup
  * @poll_fd: a #GPollFD
@@ -401,7 +188,7 @@ g_wakeup_get_pollfd (GWakeup *wakeup,
   poll_fd->events = G_IO_IN;
 }
 
-/**
+/*< private >
  * g_wakeup_acknowledge:
  * @wakeup: a #GWakeup
  *
@@ -418,13 +205,29 @@ g_wakeup_get_pollfd (GWakeup *wakeup,
 void
 g_wakeup_acknowledge (GWakeup *wakeup)
 {
-  char buffer[16];
+  int res;
 
-  /* read until it is empty */
-  while (read (wakeup->fds[0], buffer, sizeof buffer) == sizeof buffer);
+  if (wakeup->fds[1] == -1)
+    {
+      uint64_t value;
+
+      /* eventfd() read resets counter */
+      do
+        res = read (wakeup->fds[0], &value, sizeof (value));
+      while (G_UNLIKELY (res == -1 && errno == EINTR));
+    }
+  else
+    {
+      uint8_t value;
+
+      /* read until it is empty */
+      do
+        res = read (wakeup->fds[0], &value, sizeof (value));
+      while (res == sizeof (value) || G_UNLIKELY (res == -1 && errno == EINTR));
+    }
 }
 
-/**
+/*< private >
  * g_wakeup_signal:
  * @wakeup: a #GWakeup
  *
@@ -445,7 +248,7 @@ g_wakeup_signal (GWakeup *wakeup)
 
   if (wakeup->fds[1] == -1)
     {
-      guint64 one = 1;
+      uint64_t one = 1;
 
       /* eventfd() case. It requires a 64-bit counter increment value to be
        * written. */
@@ -455,7 +258,7 @@ g_wakeup_signal (GWakeup *wakeup)
     }
   else
     {
-      guint8 one = 1;
+      uint8_t one = 1;
 
       /* Non-eventfd() case. Only a single byte needs to be written, and it can
        * have an arbitrary value. */
@@ -465,7 +268,7 @@ g_wakeup_signal (GWakeup *wakeup)
     }
 }
 
-/**
+/*< private >
  * g_wakeup_free:
  * @wakeup: a #GWakeup
  *
@@ -478,26 +281,11 @@ void
 g_wakeup_free (GWakeup *wakeup)
 {
   close (wakeup->fds[0]);
-  glib_fd_callbacks->on_fd_closed (wakeup->fds[0], "GWakeup");
 
   if (wakeup->fds[1] != -1)
-    {
-      close (wakeup->fds[1]);
-      glib_fd_callbacks->on_fd_closed (wakeup->fds[1], "GWakeup");
-    }
+    close (wakeup->fds[1]);
 
   g_slice_free (GWakeup, wakeup);
 }
-
-#if defined (__linux__) && !defined (HAVE_EVENTFD)
-
-static int
-g_try_eventfd (unsigned int count,
-               int flags)
-{
-  return syscall (__NR_eventfd, count, flags);
-}
-
-#endif
 
 #endif /* !_WIN32 */

@@ -4,20 +4,19 @@ Simple install procedure
 ```sh
 tar xf glib-*.tar.gz                    # unpack the sources
 cd glib-*                               # change to the toplevel directory
-meson _build                            # configure the build
-ninja -C _build                         # build GLib
+meson setup _build                      # configure the build
+meson compile -C _build                 # build GLib
 
 # Become root if necessary
 
-ninja -C _build install                 # install GLib
+meson install -C _build                 # install GLib
 ```
 
 Requirements
 ============
 
-GLib requires a C90-compliant (but not necessarily C99-compliant) C
-compiler and libc. On UNIX-like systems, it also assumes compliance
-with at least the original 1990 version of POSIX.
+GLib requires a [basic C toolchain](./docs/toolchain-requirements.md) and
+support for a minimum version of the C standard.
 
 GLib-2.0 requires pkg-config, which is tool for tracking the
 compilation flags needed for libraries. (For each library, a small `.pc`
@@ -83,11 +82,11 @@ The Nitty-Gritty
 Complete information about installing GLib can be found
 in the file:
 
- docs/reference/glib/html/glib-building.html
+ docs/reference/glib/glib-2.0/building.html
 
 Or online at:
 
- https://developer.gnome.org/glib/stable/glib-building.html
+ https://docs.gtk.org/glib/building.html
 
 
 Installation directories
@@ -127,4 +126,4 @@ in the file:
 
 Or online at:
 
- https://developer.gnome.org/glib/stable/glib-cross-compiling.html
+ https://docs.gtk.org/glib/cross-compiling.html

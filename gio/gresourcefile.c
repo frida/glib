@@ -107,7 +107,7 @@ static GFileEnumerator *_g_resource_file_enumerator_new (GResourceFile *file,
 							 GError              **error);
 
 
-static GType              _g_resource_file_input_stream_get_type (void) G_GNUC_CONST;
+static GType              _g_resource_file_input_stream_get_type (void);
 
 static GFileInputStream *_g_resource_file_input_stream_new (GInputStream *stream, GFile *file);
 
@@ -238,6 +238,7 @@ g_resource_file_new_for_path (const char *path)
   return G_FILE (resource);
 }
 
+/* Will return %NULL if @uri is malformed */
 GFile *
 _g_resource_file_new (const char *uri)
 {
@@ -245,6 +246,9 @@ _g_resource_file_new (const char *uri)
   char *path;
 
   path = g_uri_unescape_string (uri + strlen ("resource:"), NULL);
+  if (path == NULL)
+    return NULL;
+
   resource = g_resource_file_new_for_path (path);
   g_free (path);
 
@@ -350,7 +354,7 @@ static const char *
 match_prefix (const char *path,
 	      const char *prefix)
 {
-  int prefix_len;
+  size_t prefix_len;
 
   prefix_len = strlen (prefix);
   if (strncmp (path, prefix, prefix_len) != 0)
@@ -451,21 +455,14 @@ g_resource_file_query_info (GFile                *file,
   gboolean res;
   gsize size = 0;
   guint32 resource_flags = 0;
-  char **children;
   gboolean is_dir;
   char *base;
-
-  is_dir = FALSE;
-  children = g_resources_enumerate_children (resource->path, 0, NULL);
-  if (children != NULL)
-    {
-      g_strfreev (children);
-      is_dir = TRUE;
-    }
 
   /* root is always there */
   if (strcmp ("/", resource->path) == 0)
     is_dir = TRUE;
+  else
+    is_dir = g_resources_has_children (resource->path);
 
   if (!is_dir)
     {
@@ -558,7 +555,8 @@ g_resource_file_query_filesystem_info (GFile         *file,
   if (g_file_attribute_matcher_matches (matcher, G_FILE_ATTRIBUTE_FILESYSTEM_TYPE))
     g_file_info_set_attribute_string (info, G_FILE_ATTRIBUTE_FILESYSTEM_TYPE, "resource");
 
-  if (g_file_attribute_matcher_matches (matcher, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY))    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY, TRUE);
+  if (g_file_attribute_matcher_matches (matcher, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY))
+    g_file_info_set_attribute_boolean (info, G_FILE_ATTRIBUTE_FILESYSTEM_READONLY, TRUE);
 
   g_file_attribute_matcher_unref (matcher);
 
@@ -659,6 +657,15 @@ g_resource_file_set_display_name (GFile         *file,
   return NULL;
 }
 
+static gboolean
+g_resource_file_query_exists (GFile        *file,
+                              GCancellable *cancellable)
+{
+  GResourceFile *resource = G_RESOURCE_FILE (file);
+
+  return g_resources_get_info (resource->path, 0, NULL, NULL, NULL);
+}
+
 static void
 g_resource_file_file_iface_init (GFileIface *iface)
 {
@@ -685,6 +692,7 @@ g_resource_file_file_iface_init (GFileIface *iface)
   iface->query_writable_namespaces = g_resource_file_query_writable_namespaces;
   iface->read_fn = g_resource_file_read;
   iface->monitor_file = g_resource_file_monitor_file;
+  iface->query_exists = g_resource_file_query_exists;
 
   iface->supports_thread_contexts = TRUE;
 }

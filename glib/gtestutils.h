@@ -44,89 +44,130 @@ typedef void (*GTestFixtureFunc) (gpointer      fixture,
 
 /* assertion API */
 #define g_assert_cmpstr(s1, cmp, s2)    G_STMT_START { \
-                                             const char *__s1 = (s1), *__s2 = (s2); \
-                                             if (g_strcmp0 (__s1, __s2) cmp 0) ; else \
+                                             const char *_s1 = (s1), *_s2 = (s2); \
+                                             if (g_strcmp0 (_s1, _s2) cmp 0) ; else \
                                                g_assertion_message_cmpstr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
-                                                 #s1 " " #cmp " " #s2, __s1, #cmp, __s2); \
+                                                 #s1 " " #cmp " " #s2, _s1, #cmp, _s2); \
                                         } G_STMT_END
+#if GLIB_VERSION_MIN_REQUIRED >= GLIB_VERSION_2_78
 #define g_assert_cmpint(n1, cmp, n2)    G_STMT_START { \
-                                             gint64 __n1 = (n1), __n2 = (n2); \
-                                             if (__n1 cmp __n2) ; else \
-                                               g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
-                                                 #n1 " " #cmp " " #n2, (long double) __n1, #cmp, (long double) __n2, 'i'); \
+                                             gint64 _n1 = (n1), _n2 = (n2); \
+                                             if (_n1 cmp _n2) ; else \
+                                               g_assertion_message_cmpint (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                 #n1 " " #cmp " " #n2, (guint64)_n1, #cmp, (guint64)_n2, 'i'); \
                                         } G_STMT_END
 #define g_assert_cmpuint(n1, cmp, n2)   G_STMT_START { \
-                                             guint64 __n1 = (n1), __n2 = (n2); \
-                                             if (__n1 cmp __n2) ; else \
+                                             guint64 _n1 = (n1), _n2 = (n2); \
+                                             if (_n1 cmp _n2) ; else \
+                                               g_assertion_message_cmpint (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                 #n1 " " #cmp " " #n2, _n1, #cmp, _n2, 'u'); \
+                                        } G_STMT_END
+#define g_assert_cmphex(n1, cmp, n2)    G_STMT_START { \
+                                             guint64 _n1 = (n1), _n2 = (n2); \
+                                             if (_n1 cmp _n2) ; else \
+                                               g_assertion_message_cmpint (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                 #n1 " " #cmp " " #n2, _n1, #cmp, _n2, 'x'); \
+                                        } G_STMT_END
+#else /* GLIB_VERSION_MIN_REQUIRED < GLIB_VERSION_2_78 */
+#define g_assert_cmpint(n1, cmp, n2)    G_STMT_START { \
+                                             gint64 _n1 = (n1), _n2 = (n2); \
+                                             if (_n1 cmp _n2) ; else \
                                                g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
-                                                 #n1 " " #cmp " " #n2, (long double) __n1, #cmp, (long double) __n2, 'i'); \
+                                                 #n1 " " #cmp " " #n2, (long double) _n1, #cmp, (long double) _n2, 'i'); \
+                                        } G_STMT_END
+#define g_assert_cmpuint(n1, cmp, n2)   G_STMT_START { \
+                                             guint64 _n1 = (n1), _n2 = (n2); \
+                                             if (_n1 cmp _n2) ; else \
+                                               g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                 #n1 " " #cmp " " #n2, (long double) _n1, #cmp, (long double) _n2, 'i'); \
                                         } G_STMT_END
 #define g_assert_cmphex(n1, cmp, n2)    G_STMT_START {\
-                                             guint64 __n1 = (n1), __n2 = (n2); \
-                                             if (__n1 cmp __n2) ; else \
+                                             guint64 _n1 = (n1), _n2 = (n2); \
+                                             if (_n1 cmp _n2) ; else \
                                                g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
-                                                 #n1 " " #cmp " " #n2, (long double) __n1, #cmp, (long double) __n2, 'x'); \
+                                                 #n1 " " #cmp " " #n2, (long double) _n1, #cmp, (long double) _n2, 'x'); \
                                         } G_STMT_END
+#endif /* GLIB_VERSION_MIN_REQUIRED >= GLIB_VERSION_2_78 */
 #define g_assert_cmpfloat(n1,cmp,n2)    G_STMT_START { \
-                                             long double __n1 = (long double) (n1), __n2 = (long double) (n2); \
-                                             if (__n1 cmp __n2) ; else \
+                                             long double _n1 = (long double) (n1), _n2 = (long double) (n2); \
+                                             if (_n1 cmp _n2) ; else \
                                                g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
-                                                 #n1 " " #cmp " " #n2, (long double) __n1, #cmp, (long double) __n2, 'f'); \
+                                                 #n1 " " #cmp " " #n2, (long double) _n1, #cmp, (long double) _n2, 'f'); \
                                         } G_STMT_END
 #define g_assert_cmpfloat_with_epsilon(n1,n2,epsilon) \
                                         G_STMT_START { \
-                                             double __n1 = (n1), __n2 = (n2), __epsilon = (epsilon); \
-                                             if (G_APPROX_VALUE (__n1,  __n2, __epsilon)) ; else \
+                                             double _n1 = (n1), _n2 = (n2), _epsilon = (epsilon); \
+                                             if (G_APPROX_VALUE (_n1,  _n2, _epsilon)) ; else \
                                                g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
-                                                 #n1 " == " #n2 " (+/- " #epsilon ")", __n1, "==", __n2, 'f'); \
+                                                 #n1 " == " #n2 " (+/- " #epsilon ")", _n1, "==", _n2, 'f'); \
                                         } G_STMT_END
+#if GLIB_VERSION_MIN_REQUIRED >= GLIB_VERSION_2_78
 #define g_assert_cmpmem(m1, l1, m2, l2) G_STMT_START {\
-                                             gconstpointer __m1 = m1, __m2 = m2; \
-                                             int __l1 = l1, __l2 = l2; \
-                                             if (__l1 != 0 && __m1 == NULL) \
+                                             gconstpointer _m1 = m1, _m2 = m2; \
+                                             size_t _l1 = (size_t) l1, _l2 = (size_t) l2; \
+                                             if (_l1 != 0 && _m1 == NULL) \
                                                g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                                     "assertion failed (" #l1 " == 0 || " #m1 " != NULL)"); \
-                                             else if (__l2 != 0 && __m2 == NULL) \
+                                             else if (_l2 != 0 && _m2 == NULL) \
                                                g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                                     "assertion failed (" #l2 " == 0 || " #m2 " != NULL)"); \
-                                             else if (__l1 != __l2) \
-                                               g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                             else if (_l1 != _l2) \
+                                               g_assertion_message_cmpint (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                                            #l1 " (len(" #m1 ")) == " #l2 " (len(" #m2 "))", \
-                                                                           (long double) __l1, "==", (long double) __l2, 'i'); \
-                                             else if (__l1 != 0 && __m2 != NULL && memcmp (__m1, __m2, __l1) != 0) \
+                                                                           _l1, "==", _l2, 'u'); \
+                                             else if (_l1 != 0 && _m2 != NULL && memcmp (_m1, _m2, _l1) != 0) \
                                                g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                                     "assertion failed (" #m1 " == " #m2 ")"); \
                                         } G_STMT_END
+#else /* GLIB_VERSION_MIN_REQUIRED < GLIB_VERSION_2_78 */
+#define g_assert_cmpmem(m1, l1, m2, l2) G_STMT_START {\
+                                             gconstpointer _m1 = m1, _m2 = m2; \
+                                             size_t _l1 = (size_t) l1, _l2 = (size_t) l2; \
+                                             if (_l1 != 0 && _m1 == NULL) \
+                                               g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                                    "assertion failed (" #l1 " == 0 || " #m1 " != NULL)"); \
+                                             else if (_l2 != 0 && _m2 == NULL) \
+                                               g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                                    "assertion failed (" #l2 " == 0 || " #m2 " != NULL)"); \
+                                             else if (_l1 != _l2) \
+                                               g_assertion_message_cmpnum (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                                           #l1 " (len(" #m1 ")) == " #l2 " (len(" #m2 "))", \
+                                                                           (long double) _l1, "==", (long double) _l2, 'i'); \
+                                             else if (_l1 != 0 && _m2 != NULL && memcmp (_m1, _m2, _l1) != 0) \
+                                               g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                                    "assertion failed (" #m1 " == " #m2 ")"); \
+                                        } G_STMT_END
+#endif /* GLIB_VERSION_MIN_REQUIRED >= GLIB_VERSION_2_78 */
 #define g_assert_cmpvariant(v1, v2) \
   G_STMT_START \
   { \
-    GVariant *__v1 = (v1), *__v2 = (v2); \
-    if (!g_variant_equal (__v1, __v2)) \
+    GVariant *_v1 = (v1), *_v2 = (v2); \
+    if (!g_variant_equal (_v1, _v2)) \
       { \
-        gchar *__s1, *__s2, *__msg; \
-        __s1 = g_variant_print (__v1, TRUE); \
-        __s2 = g_variant_print (__v2, TRUE); \
-        __msg = g_strdup_printf ("assertion failed (" #v1 " == " #v2 "): %s does not equal %s", __s1, __s2); \
-        g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, __msg); \
-        g_free (__s1); \
-        g_free (__s2); \
-        g_free (__msg); \
+        gchar *_s1, *_s2, *_msg; \
+        _s1 = g_variant_print (_v1, TRUE); \
+        _s2 = g_variant_print (_v2, TRUE); \
+        _msg = g_strdup_printf ("assertion failed (" #v1 " == " #v2 "): %s does not equal %s", _s1, _s2); \
+        g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, _msg); \
+        g_free (_s1); \
+        g_free (_s2); \
+        g_free (_msg); \
       } \
   } \
   G_STMT_END
 #define g_assert_cmpstrv(strv1, strv2) \
   G_STMT_START \
   { \
-    const char * const *__strv1 = (const char * const *) (strv1); \
-    const char * const *__strv2 = (const char * const *) (strv2); \
-    if (!__strv1 || !__strv2) \
+    const char * const *_strv1 = (const char * const *) (strv1); \
+    const char * const *_strv2 = (const char * const *) (strv2); \
+    if (!_strv1 || !_strv2) \
       { \
-        if (__strv1) \
+        if (_strv1) \
           { \
             g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                  "assertion failed (" #strv1 " == " #strv2 "): " #strv2 " is NULL, but " #strv1 " is not"); \
           } \
-        else if (__strv2) \
+        else if (_strv2) \
           { \
             g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                  "assertion failed (" #strv1 " == " #strv2 "): " #strv1 " is NULL, but " #strv2 " is not"); \
@@ -134,25 +175,25 @@ typedef void (*GTestFixtureFunc) (gpointer      fixture,
       } \
     else \
       { \
-        guint __l1 = g_strv_length ((char **) __strv1); \
-        guint __l2 = g_strv_length ((char **) __strv2); \
-        if (__l1 != __l2) \
+        guint _l1 = g_strv_length ((char **) _strv1); \
+        guint _l2 = g_strv_length ((char **) _strv2); \
+        if (_l1 != _l2) \
           { \
-            char *__msg; \
-            __msg = g_strdup_printf ("assertion failed (" #strv1 " == " #strv2 "): length %u does not equal length %u", __l1, __l2); \
-            g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, __msg); \
-            g_free (__msg); \
+            char *_msg; \
+            _msg = g_strdup_printf ("assertion failed (" #strv1 " == " #strv2 "): length %u does not equal length %u", _l1, _l2); \
+            g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, _msg); \
+            g_free (_msg); \
           } \
         else \
           { \
-            guint __i; \
-            for (__i = 0; __i < __l1; __i++) \
+            guint _i; \
+            for (_i = 0; _i < _l1; _i++) \
               { \
-                if (g_strcmp0 (__strv1[__i], __strv2[__i]) != 0) \
+                if (g_strcmp0 (_strv1[_i], _strv2[_i]) != 0) \
                   { \
                     g_assertion_message_cmpstrv (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                  #strv1 " == " #strv2, \
-                                                 __strv1, __strv2, __i); \
+                                                 _strv1, _strv2, _i); \
                   } \
               } \
           } \
@@ -160,16 +201,16 @@ typedef void (*GTestFixtureFunc) (gpointer      fixture,
   } \
   G_STMT_END
 #define g_assert_no_errno(expr)         G_STMT_START { \
-                                             int __ret, __errsv; \
+                                             int _ret, _errsv; \
                                              errno = 0; \
-                                             __ret = expr; \
-                                             __errsv = errno; \
-                                             if (__ret < 0) \
+                                             _ret = expr; \
+                                             _errsv = errno; \
+                                             if (_ret < 0) \
                                                { \
-                                                 gchar *__msg; \
-                                                 __msg = g_strdup_printf ("assertion failed (" #expr " >= 0): errno %i: %s", __errsv, g_strerror (__errsv)); \
-                                                 g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, __msg); \
-                                                 g_free (__msg); \
+                                                 gchar *_msg; \
+                                                 _msg = g_strdup_printf ("assertion failed (" #expr " >= 0): errno %i: %s", _errsv, g_strerror (_errsv)); \
+                                                 g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, _msg); \
+                                                 g_free (_msg); \
                                                } \
                                         } G_STMT_END \
                                         GLIB_AVAILABLE_MACRO_IN_2_66
@@ -195,7 +236,7 @@ typedef void (*GTestFixtureFunc) (gpointer      fixture,
                                         } G_STMT_END
 
 /* Use nullptr in C++ to catch misuse of these macros. */
-#if defined(__cplusplus) && __cplusplus >= 201100L
+#if G_CXX_STD_CHECK_VERSION (11)
 #define g_assert_null(expr)             G_STMT_START { if G_LIKELY ((expr) == nullptr) ; else \
                                                g_assertion_message (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
                                                                     "'" #expr "' should be nullptr"); \
@@ -219,8 +260,8 @@ typedef void (*GTestFixtureFunc) (gpointer      fixture,
 
 #ifdef G_DISABLE_ASSERT
 /* https://gcc.gnu.org/onlinedocs/gcc-8.3.0/gcc/Other-Builtins.html#index-_005f_005fbuiltin_005funreachable
- * GCC 4.5 is not a strict lower bound for versions of GCC which provide __builtin_unreachable(). */
-#if G_GNUC_CHECK_VERSION (4, 5) || g_macro__has_builtin (__builtin_unreachable)
+ * GCC 5 is not a strict lower bound for versions of GCC which provide __builtin_unreachable(). */
+#if __GNUC__ >= 5 || g_macro__has_builtin(__builtin_unreachable)
 #define g_assert_not_reached()          G_STMT_START { (void) 0; __builtin_unreachable (); } G_STMT_END
 #elif defined (_MSC_VER)
 #define g_assert_not_reached()          G_STMT_START { (void) 0; __assume (0); } G_STMT_END
@@ -261,33 +302,60 @@ void    g_test_init                     (int            *argc,
 /**
  * G_TEST_OPTION_ISOLATE_DIRS:
  *
- * Creates a unique temporary directory for each unit test and uses
- * g_set_user_dirs() to set XDG directories to point into subdirectories of it
- * for the duration of the unit test. The directory tree is cleaned up after the
- * test finishes successfully. Note that this doesn’t take effect until
- * g_test_run() is called, so calls to (for example) g_get_user_home_dir() will
- * return the system-wide value when made in a test program’s main() function.
+ * A value that can be passed as an option to [func@GLib.test_init].
+ *
+ * Creates a unique temporary directory for each unit test and uses sets
+ * XDG directories to point into subdirectories of it for the duration of
+ * the unit test. The directory tree is cleaned up after the test finishes
+ * successfully.
+ *
+ * Note that this doesn’t take effect until [func@GLib.test_run] is called,
+ * so calls to (for example) [func@GLib.get_home_dir] will return the
+ * system-wide value when made in a test program’s main() function.
  *
  * The following functions will return subdirectories of the temporary directory
  * when this option is used. The specific subdirectory paths in use are not
  * guaranteed to be stable API — always use a getter function to retrieve them.
  *
- *  - g_get_home_dir()
- *  - g_get_user_cache_dir()
- *  - g_get_system_config_dirs()
- *  - g_get_user_config_dir()
- *  - g_get_system_data_dirs()
- *  - g_get_user_data_dir()
- *  - g_get_user_state_dir()
- *  - g_get_user_runtime_dir()
+ *  - [func@GLib.get_home_dir]
+ *  - [func@GLib.get_user_cache_dir]
+ *  - [func@GLib.get_system_config_dirs]
+ *  - [func@GLib.get_user_config_dir]
+ *  - [func@GLib.get_system_data_dirs]
+ *  - [func@GLib.get_user_data_dir]
+ *  - [func@GLib.get_user_state_dir]
+ *  - [func@GLib.get_user_runtime_dir]
  *
  * The subdirectories may not be created by the test harness; as with normal
- * calls to functions like g_get_user_cache_dir(), the caller must be prepared
- * to create the directory if it doesn’t exist.
+ * calls to functions like [func@GLib.get_user_cache_dir], the caller must
+ * be prepared to create the directory if it doesn’t exist.
  *
  * Since: 2.60
  */
 #define G_TEST_OPTION_ISOLATE_DIRS "isolate_dirs"
+
+/**
+ * G_TEST_OPTION_NO_PRGNAME:
+ *
+ * A value that can be passed as an option to [func@GLib.test_init].
+ *
+ * If this option is given, [func@GLib.test_init] will not call [func@GLib.set_prgname].
+ *
+ * Since: 2.84
+ */
+#define G_TEST_OPTION_NO_PRGNAME "no_g_set_prgname"
+
+/**
+ * G_TEST_OPTION_NONFATAL_ASSERTIONS:
+ *
+ * A value that can be passed as an option to [func@GLib.test_init].
+ *
+ * If this option is given, assertions will not abort the process, but
+ * call [func@GLib.test_fail]. Equivalent to [func@GLib.test_set_nonfatal_assertions].
+ *
+ * Since: 2.84
+ */
+#define G_TEST_OPTION_NONFATAL_ASSERTIONS "nonfatal-assertions"
 
 /* While we discourage its use, g_assert() is often used in unit tests
  * (especially in legacy code). g_assert_*() should really be used instead.
@@ -366,23 +434,29 @@ GLIB_AVAILABLE_IN_2_38
 gboolean g_test_failed                  (void);
 GLIB_AVAILABLE_IN_2_38
 void    g_test_set_nonfatal_assertions  (void);
+GLIB_AVAILABLE_IN_2_78
+void    g_test_disable_crash_reporting  (void);
 
 /**
  * g_test_add:
- * @testpath:  The test path for a new test case.
- * @Fixture:   The type of a fixture data structure.
- * @tdata:     Data argument for the test functions.
- * @fsetup:    The function to set up the fixture data.
- * @ftest:     The actual test function.
- * @fteardown: The function to tear down the fixture data.
+ * @testpath: the test path for a new test case
+ * @Fixture: the type of a fixture data structure
+ * @tdata: data argument for the test functions
+ * @fsetup: the function to set up the fixture data
+ * @ftest: the actual test function
+ * @fteardown: the function to tear down the fixture data
  *
- * Hook up a new test case at @testpath, similar to g_test_add_func().
- * A fixture data structure with setup and teardown functions may be provided,
- * similar to g_test_create_case().
+ * Hooks up a new test case at @testpath.
  *
- * g_test_add() is implemented as a macro, so that the fsetup(), ftest() and
- * fteardown() callbacks can expect a @Fixture pointer as their first argument
- * in a type safe manner. They otherwise have type #GTestFixtureFunc.
+ * This function is similar to [func@GLib.test_add_func].
+ *
+ * A fixture data structure with setup and teardown functions
+ * may be provided, similar to [func@GLib.test_create_case].
+ *
+ * `g_test_add()` is implemented as a macro, so that the @fsetup,
+ * @ftest and @fteardown callbacks can expect a @Fixture pointer
+ * as their first argument in a type safe manner. They otherwise
+ * have type `GTestFixtureFunc`.
  *
  * Since: 2.16
  */
@@ -426,7 +500,6 @@ void    g_test_queue_destroy            (GDestroyNotify destroy_func,
 
 /**
  * GTestTrapFlags:
- * @G_TEST_TRAP_DEFAULT: Default behaviour. Since: 2.74
  * @G_TEST_TRAP_SILENCE_STDOUT: Redirect stdout of the test child to
  *     `/dev/null` so it cannot be observed on the console during test
  *     runs. The actual output is still captured though to allow later
@@ -439,19 +512,27 @@ void    g_test_queue_destroy            (GDestroyNotify destroy_func,
  *     child process is shared with stdin of its parent process.
  *     It is redirected to `/dev/null` otherwise.
  *
- * Test traps are guards around forked tests.
- * These flags determine what traps to set.
+ * Flags to pass to [func@GLib.test_trap_fork] to control input and output.
  *
- * Deprecated: 2.38: #GTestTrapFlags is used only with g_test_trap_fork(),
- * which is deprecated. g_test_trap_subprocess() uses
- * #GTestSubprocessFlags.
+ * Test traps are guards around forked tests. These flags determine what traps to set.
+ *
+ * Deprecated: 2.38: `GTestTrapFlags` is used only with [func@GLib.test_trap_fork],
+ *   which is deprecated. Its replacement, [func@GLib.test_trap_subprocess] uses
+ *   [flags@GLib.TestSubprocessFlags].
  */
 typedef enum {
+  /**
+   * G_TEST_TRAP_DEFAULT:
+   *
+   * Default behaviour.
+   *
+   * Since: 2.74
+   * */
   G_TEST_TRAP_DEFAULT GLIB_AVAILABLE_ENUMERATOR_IN_2_74 = 0,
   G_TEST_TRAP_SILENCE_STDOUT    = 1 << 7,
   G_TEST_TRAP_SILENCE_STDERR    = 1 << 8,
   G_TEST_TRAP_INHERIT_STDIN     = 1 << 9
-} GTestTrapFlags GLIB_DEPRECATED_TYPE_IN_2_38_FOR(GTestSubprocessFlags);
+} G_GNUC_FLAG_ENUM GTestTrapFlags GLIB_DEPRECATED_TYPE_IN_2_38_FOR(GTestSubprocessFlags);
 
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 
@@ -461,20 +542,57 @@ gboolean g_test_trap_fork               (guint64              usec_timeout,
 
 G_GNUC_END_IGNORE_DEPRECATIONS
 
+/**
+ * GTestSubprocessFlags:
+ * @G_TEST_SUBPROCESS_INHERIT_STDIN: If this flag is given, the child
+ *   process will inherit the parent's stdin. Otherwise, the child's
+ *   stdin is redirected to `/dev/null`.
+ * @G_TEST_SUBPROCESS_INHERIT_STDOUT: If this flag is given, the child
+ *   process will inherit the parent's stdout. Otherwise, the child's
+ *   stdout will not be visible, but it will be captured to allow
+ *   later tests with [func@GLib.test_trap_assert_stdout].
+ * @G_TEST_SUBPROCESS_INHERIT_STDERR: If this flag is given, the child
+ *   process will inherit the parent's stderr. Otherwise, the child's
+ *   stderr will not be visible, but it will be captured to allow
+ *   later tests with [func@GLib.test_trap_assert_stderr].
+ * @G_TEST_SUBPROCESS_INHERIT_DESCRIPTORS: If this flag is given, the
+ *   child process will inherit the parent’s open file descriptors.
+ *
+ * Flags to pass to [func@GLib.test_trap_subprocess] to control input and output.
+ *
+ * Note that in contrast with [func@GLib.test_trap_fork], the default
+ * behavior of [func@GLib.test_trap_subprocess] is to not show stdout
+ * and stderr.
+ */
 typedef enum {
+  /**
+   * G_TEST_SUBPROCESS_DEFAULT:
+   *
+   * Default behaviour.
+   *
+   * Since: 2.74
+   */
   G_TEST_SUBPROCESS_DEFAULT GLIB_AVAILABLE_ENUMERATOR_IN_2_74 = 0,
   G_TEST_SUBPROCESS_INHERIT_STDIN  = 1 << 0,
   G_TEST_SUBPROCESS_INHERIT_STDOUT = 1 << 1,
-  G_TEST_SUBPROCESS_INHERIT_STDERR = 1 << 2
-} GTestSubprocessFlags;
+  G_TEST_SUBPROCESS_INHERIT_STDERR = 1 << 2,
+  G_TEST_SUBPROCESS_INHERIT_DESCRIPTORS GLIB_AVAILABLE_ENUMERATOR_IN_2_88 = 1 << 3,
+} G_GNUC_FLAG_ENUM GTestSubprocessFlags;
 
 GLIB_AVAILABLE_IN_2_38
 void     g_test_trap_subprocess         (const char           *test_path,
                                          guint64               usec_timeout,
                                          GTestSubprocessFlags  test_flags);
+GLIB_AVAILABLE_IN_2_80
+void     g_test_trap_subprocess_with_envp (const char           *test_path,
+                                           const char * const   *envp,
+                                           guint64               usec_timeout,
+                                           GTestSubprocessFlags  test_flags);
 
 GLIB_AVAILABLE_IN_ALL
 gboolean g_test_trap_has_passed         (void);
+GLIB_AVAILABLE_IN_2_88
+gboolean g_test_trap_has_skipped        (void);
 GLIB_AVAILABLE_IN_ALL
 gboolean g_test_trap_reached_timeout    (void);
 #define  g_test_trap_assert_passed()                      g_test_trap_assertions (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, 0, 0)
@@ -541,8 +659,8 @@ void    g_assertion_message             (const char     *domain,
                                          int             line,
                                          const char     *func,
                                          const char     *message) G_ANALYZER_NORETURN;
-GLIB_AVAILABLE_IN_ALL
 G_NORETURN
+GLIB_AVAILABLE_IN_ALL
 void    g_assertion_message_expr        (const char     *domain,
                                          const char     *file,
                                          int             line,
@@ -567,6 +685,16 @@ void    g_assertion_message_cmpstrv     (const char         *domain,
                                          const char * const *arg1,
                                          const char * const *arg2,
                                          gsize               first_wrong_idx) G_ANALYZER_NORETURN;
+GLIB_AVAILABLE_IN_2_78
+void    g_assertion_message_cmpint      (const char     *domain,
+                                         const char     *file,
+                                         int             line,
+                                         const char     *func,
+                                         const char     *expr,
+                                         guint64         arg1,
+                                         const char     *cmp,
+                                         guint64         arg2,
+                                         char            numtype) G_ANALYZER_NORETURN;
 GLIB_AVAILABLE_IN_ALL
 void    g_assertion_message_cmpnum      (const char     *domain,
                                          const char     *file,

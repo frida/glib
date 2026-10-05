@@ -147,7 +147,8 @@ test_thread4 (void)
   nl.rlim_cur = 1;
 
   if (prlimit (getpid (), RLIMIT_NPROC, &nl, &ol) != 0)
-    g_error ("prlimit failed: %s", g_strerror (errno));
+    g_error ("setting RLIMIT_NPROC to {cur=%ld,max=%ld} failed: %s",
+             (long) nl.rlim_cur, (long) nl.rlim_max, g_strerror (errno));
 
   error = NULL;
   thread = g_thread_try_new ("a", thread1_func, NULL, &error);
@@ -193,10 +194,15 @@ thread6_func (gpointer data)
 {
 #if defined (HAVE_PTHREAD_SETNAME_NP_WITH_TID) && defined (HAVE_PTHREAD_GETNAME_NP)
   char name[16];
+  const char *name2;
 
   pthread_getname_np (pthread_self(), name, 16);
 
   g_assert_cmpstr (name, ==, data);
+
+  name2 = g_thread_get_name (g_thread_self ());
+
+  g_assert_cmpstr (name2, ==, data);
 #endif
 
   return NULL;
@@ -211,6 +217,47 @@ test_thread6 (void)
   g_thread_join (thread);
 }
 
+#if defined(_SC_NPROCESSORS_ONLN) && defined(THREADS_POSIX) && defined(HAVE_PTHREAD_GETAFFINITY_NP)
+static gpointer
+thread7_func (gpointer data)
+{
+  int idx = 0, err;
+  int ncores = sysconf (_SC_NPROCESSORS_ONLN);
+
+  cpu_set_t old_mask, new_mask;
+
+  err = pthread_getaffinity_np (pthread_self (), sizeof (old_mask), &old_mask);
+  CPU_ZERO (&new_mask);
+  g_assert_cmpint (err, ==, 0);
+
+  for (idx = 0; idx < ncores; ++idx)
+    if (CPU_ISSET (idx, &old_mask))
+      {
+        CPU_SET (idx, &new_mask);
+        break;
+      }
+
+  err = pthread_setaffinity_np (pthread_self (), sizeof (new_mask), &new_mask);
+  g_assert_cmpint (err, ==, 0);
+
+  int af_count = g_get_num_processors ();
+  return GINT_TO_POINTER (af_count);
+}
+#endif
+
+static void
+test_thread7 (void)
+{
+#if defined(_SC_NPROCESSORS_ONLN) && defined(THREADS_POSIX) && defined(HAVE_PTHREAD_GETAFFINITY_NP)
+  GThread *thread = g_thread_new ("mask", thread7_func, NULL);
+  gpointer result = g_thread_join (thread);
+
+  g_assert_cmpint (GPOINTER_TO_INT (result), ==, 1);
+#else
+  g_test_skip ("Skipping because pthread_getaffinity_np() is not available");
+#endif
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -222,6 +269,7 @@ main (int argc, char *argv[])
   g_test_add_func ("/thread/thread4", test_thread4);
   g_test_add_func ("/thread/thread5", test_thread5);
   g_test_add_func ("/thread/thread6", test_thread6);
+  g_test_add_func ("/thread/thread7", test_thread7);
 
   return g_test_run ();
 }

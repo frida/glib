@@ -75,7 +75,7 @@ struct _GActionEntry
 };
 
 GIO_AVAILABLE_IN_2_32
-GType                   g_action_map_get_type                           (void) G_GNUC_CONST;
+GType                   g_action_map_get_type                           (void);
 
 GIO_AVAILABLE_IN_2_32
 GAction *               g_action_map_lookup_action                      (GActionMap         *action_map,
@@ -91,6 +91,10 @@ void                    g_action_map_add_action_entries                 (GAction
                                                                          const GActionEntry *entries,
                                                                          gint                n_entries,
                                                                          gpointer            user_data);
+GIO_AVAILABLE_IN_2_78
+void                    g_action_map_remove_action_entries              (GActionMap         *action_map,
+                                                                         const GActionEntry *entries,
+                                                                         gint                n_entries);
 
 G_END_DECLS
 

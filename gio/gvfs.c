@@ -31,12 +31,9 @@
 
 
 /**
- * SECTION:gvfs
- * @short_description: Virtual File System
- * @include: gio/gio.h
+ * GVfs:
  *
  * Entry point for using GIO functionality.
- *
  */
 
 static GRWLock additional_schemes_lock;
@@ -147,7 +144,7 @@ g_vfs_is_active (GVfs *vfs)
 /**
  * g_vfs_get_file_for_path:
  * @vfs: a #GVfs.
- * @path: a string containing a VFS path.
+ * @path: (type filename): a string containing a VFS path.
  *
  * Gets a #GFile for @path.
  *
@@ -355,7 +352,7 @@ g_vfs_get_default (void)
   if (GLIB_PRIVATE_CALL (g_check_setuid) ())
     return g_vfs_get_local ();
 
-  if (g_once_init_enter (&vfs_default_singleton))
+  if (g_once_init_enter_pointer (&vfs_default_singleton))
     {
       GVfs *singleton;
 
@@ -363,7 +360,7 @@ g_vfs_get_default (void)
                                             "GIO_USE_VFS",
                                             (GIOModuleVerifyFunc) g_vfs_is_active);
 
-      g_once_init_leave (&vfs_default_singleton, singleton);
+      g_once_init_leave_pointer (&vfs_default_singleton, singleton);
     }
 
   return vfs_default_singleton;
@@ -379,12 +376,12 @@ g_vfs_get_default (void)
 GVfs *
 g_vfs_get_local (void)
 {
-  static gsize vfs = 0;
+  static GVfs *vfs = 0;
 
-  if (g_once_init_enter (&vfs))
-    g_once_init_leave (&vfs, (gsize)_g_local_vfs_new ());
+  if (g_once_init_enter_pointer (&vfs))
+    g_once_init_leave_pointer (&vfs, _g_local_vfs_new ());
 
-  return G_VFS (vfs);
+  return vfs;
 }
 
 /**

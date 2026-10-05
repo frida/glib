@@ -91,7 +91,31 @@ typedef gint64 GTimeSpan;
 /**
  * GDateTime:
  *
- * An opaque structure that represents a date and time, including a time zone.
+ * `GDateTime` is a structure that combines a Gregorian date and time
+ * into a single structure.
+ *
+ * `GDateTime` provides many conversion and methods to manipulate dates and times.
+ * Time precision is provided down to microseconds and the time can range
+ * (proleptically) from 0001-01-01 00:00:00 to 9999-12-31 23:59:59.999999.
+ * `GDateTime` follows POSIX time in the sense that it is oblivious to leap
+ * seconds.
+ *
+ * `GDateTime` is an immutable object; once it has been created it cannot
+ * be modified further. All modifiers will create a new `GDateTime`.
+ * Nearly all such functions can fail due to the date or time going out
+ * of range, in which case %NULL will be returned.
+ *
+ * `GDateTime` is reference counted: the reference count is increased by calling
+ * [method@GLib.DateTime.ref] and decreased by calling [method@GLib.DateTime.unref].
+ * When the reference count drops to 0, the resources allocated by the `GDateTime`
+ * structure are released.
+ *
+ * Many parts of the API may produce non-obvious results. As an
+ * example, adding two months to January 31st will yield March 31st
+ * whereas adding one month and then one month again will yield either
+ * March 28th or March 29th.  Also note that adding 24 hours is not
+ * always the same as adding one day (since days containing daylight
+ * savings time transitions are either 23 or 25 hours in length).
  *
  * Since: 2.26
  */
@@ -113,6 +137,11 @@ GLIB_AVAILABLE_IN_ALL
 GDateTime *             g_date_time_new_from_unix_local                 (gint64          t);
 GLIB_AVAILABLE_IN_ALL
 GDateTime *             g_date_time_new_from_unix_utc                   (gint64          t);
+
+GLIB_AVAILABLE_IN_2_80
+GDateTime *             g_date_time_new_from_unix_local_usec            (gint64          usecs);
+GLIB_AVAILABLE_IN_2_80
+GDateTime *             g_date_time_new_from_unix_utc_usec              (gint64          usecs);
 
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 GLIB_DEPRECATED_IN_2_62_FOR(g_date_time_new_from_unix_local)
@@ -241,6 +270,9 @@ gdouble                 g_date_time_get_seconds                         (GDateTi
 
 GLIB_AVAILABLE_IN_ALL
 gint64                  g_date_time_to_unix                             (GDateTime      *datetime);
+GLIB_AVAILABLE_IN_2_80
+gint64                  g_date_time_to_unix_usec                        (GDateTime      *datetime);
+
 G_GNUC_BEGIN_IGNORE_DEPRECATIONS
 GLIB_DEPRECATED_IN_2_62_FOR(g_date_time_to_unix)
 gboolean                g_date_time_to_timeval                          (GDateTime      *datetime,
@@ -269,6 +301,67 @@ gchar *                 g_date_time_format                              (GDateTi
                                                                          const gchar    *format) G_GNUC_MALLOC;
 GLIB_AVAILABLE_IN_2_62
 gchar *                 g_date_time_format_iso8601                      (GDateTime      *datetime) G_GNUC_MALLOC;
+
+/**
+ * g_set_date_time: (skip)
+ * @date_time_pointer: (inout) (not optional) (nullable): a pointer to either
+ *   a date-time or `NULL`
+ * @new_date_time: (nullable): a date-time to assign to @date_time_pointer
+ *
+ * Updates a pointer to a date-time to @new_date_time and returns whether
+ * @date_time_pointer was changed.
+ *
+ * If @new_date_time matches the previous date time, this function is a no-op.
+ * If @new_date_time is different, its ref-count will be increased and it will
+ * be assigned to @date_time_pointer.
+ * The previous date time pointed to by @date_time_pointer will have its
+ * ref-count decreased.
+ *
+ * Note two date-time objects that represent the same instant in different
+ * timezones are not considered equal.
+ *
+ * @date_time_pointer must not be `NULL`, but can point to a `NULL` value.
+ *
+ * Returns: true if the value of @date_time_pointer changed, false otherwise
+ *
+ * Since: 2.90
+ */
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_90
+static inline gboolean g_set_date_time (GDateTime **date_time_pointer,
+                                        GDateTime  *new_date_time);
+
+GLIB_AVAILABLE_STATIC_INLINE_IN_2_90
+static inline gboolean
+g_set_date_time (GDateTime **date_time_pointer,
+                 GDateTime  *new_date_time)
+{
+  GDateTime *old_date_time;
+
+  if (*date_time_pointer == new_date_time ||
+      (*date_time_pointer != NULL &&
+       new_date_time != NULL &&
+       g_date_time_compare (*date_time_pointer, new_date_time) == 0 &&
+       (g_date_time_get_timezone_abbreviation (*date_time_pointer) ==
+        g_date_time_get_timezone_abbreviation (new_date_time))))
+    {
+      return FALSE;
+    }
+
+  if (new_date_time != NULL)
+    {
+      g_date_time_ref (new_date_time);
+    }
+
+  old_date_time = *date_time_pointer;
+  *date_time_pointer = new_date_time;
+
+  if (old_date_time != NULL)
+    {
+      g_date_time_unref (old_date_time);
+    }
+
+  return TRUE;
+}
 
 G_END_DECLS
 

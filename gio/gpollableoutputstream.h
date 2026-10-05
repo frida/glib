@@ -34,13 +34,6 @@ G_BEGIN_DECLS
 #define G_IS_POLLABLE_OUTPUT_STREAM(obj)            (G_TYPE_CHECK_INSTANCE_TYPE ((obj), G_TYPE_POLLABLE_OUTPUT_STREAM))
 #define G_POLLABLE_OUTPUT_STREAM_GET_INTERFACE(obj) (G_TYPE_INSTANCE_GET_INTERFACE ((obj), G_TYPE_POLLABLE_OUTPUT_STREAM, GPollableOutputStreamInterface))
 
-/**
- * GPollableOutputStream:
- *
- * An interface for a #GOutputStream that can be polled for writeability.
- *
- * Since: 2.28
- */
 typedef struct _GPollableOutputStreamInterface GPollableOutputStreamInterface;
 
 /**
@@ -95,7 +88,7 @@ struct _GPollableOutputStreamInterface
 };
 
 GIO_AVAILABLE_IN_ALL
-GType    g_pollable_output_stream_get_type          (void) G_GNUC_CONST;
+GType    g_pollable_output_stream_get_type          (void);
 
 GIO_AVAILABLE_IN_ALL
 gboolean g_pollable_output_stream_can_poll          (GPollableOutputStream  *stream);

@@ -220,8 +220,8 @@ test_threaded_object_init (void)
 }
 
 typedef struct {
-    MyTester0 *strong;
-    guint unref_delay;
+  MyTester0 *strong;
+  gulong unref_delay;
 } UnrefInThreadData;
 
 static gpointer
@@ -269,7 +269,7 @@ test_threaded_weak_ref (void)
       gpointer weak;
 #endif
       MyTester0 *strengthened;
-      guint get_delay;
+      gulong get_delay;
       GThread *thread;
       GError *error = NULL;
 
@@ -290,8 +290,8 @@ test_threaded_weak_ref (void)
        * timing. Ideally, we want each side to win half the races; on
        * smcv's laptop, these timings are about right.
        */
-      data.unref_delay = g_random_int_range (SLEEP_MIN_USEC / 2, SLEEP_MAX_USEC / 2);
-      get_delay = g_random_int_range (SLEEP_MIN_USEC, SLEEP_MAX_USEC);
+      data.unref_delay = (gulong) g_random_int_range (SLEEP_MIN_USEC / 2, SLEEP_MAX_USEC / 2);
+      get_delay = (gulong) g_random_int_range (SLEEP_MIN_USEC, SLEEP_MAX_USEC);
 
       /* One half of the race is to unref the shared object */
       thread = g_thread_create (unref_in_thread, &data, TRUE, &error);
@@ -480,6 +480,7 @@ test_threaded_toggle_notify (void)
   ToggleNotifyThreadData data = { object, FALSE, 0 };
   GThread *threads[3];
   gsize i;
+  const int n_iterations = g_test_thorough () ? 1000000 : 100000;
 
   g_test_bug ("https://gitlab.gnome.org/GNOME/glib/issues/2394");
   g_test_summary ("Test that toggle reference notifications can be changed "
@@ -498,7 +499,7 @@ test_threaded_toggle_notify (void)
    * race to happen, so we wait for an high number of toggle changes to be met
    * so that we can be consistent on each platform.
    */
-  while (g_atomic_int_get (&data.toggles) < 1000000)
+  while (g_atomic_int_get (&data.toggles) < n_iterations)
     ;
   g_atomic_int_set (&data.done, TRUE);
 
@@ -507,6 +508,81 @@ test_threaded_toggle_notify (void)
 
   g_assert_cmpint (object->ref_count, ==, 1);
   g_clear_object (&object);
+}
+
+static void
+test_threaded_g_pointer_bit_unlock_and_set (void)
+{
+  GObject *obj;
+  gpointer plock;
+  gpointer ptr;
+  guintptr ptr2;
+  gpointer mangled_obj;
+
+#if defined(__GNUC__)
+  /* We should have at least one bit we can use safely for bit-locking */
+  G_STATIC_ASSERT (__alignof (GObject) > 1);
+#endif
+
+  obj = g_object_new (G_TYPE_OBJECT, NULL);
+
+  g_assert_true (g_pointer_bit_lock_mask_ptr (obj, 0, 0, 0, NULL) == obj);
+  g_assert_true (g_pointer_bit_lock_mask_ptr (obj, 0, 0, 0x2, obj) == obj);
+  g_assert_true (g_pointer_bit_lock_mask_ptr (obj, 0, 1, 0, NULL) != obj);
+
+  mangled_obj = obj;
+  g_assert_true (g_pointer_bit_lock_mask_ptr (obj, 0, 0, 0x2, mangled_obj) == obj);
+  g_assert_true (g_pointer_bit_lock_mask_ptr (obj, 0, 0, 0x3, mangled_obj) == obj);
+  g_atomic_pointer_and (&mangled_obj, ~((gsize) 0x7));
+  g_atomic_pointer_or (&mangled_obj, 0x2);
+  g_assert_true (g_pointer_bit_lock_mask_ptr (obj, 0, 0, 0x2, mangled_obj) != obj);
+  g_assert_true (g_pointer_bit_lock_mask_ptr (obj, 0, 0, 0x2, mangled_obj) == (gpointer) (((guintptr) obj) | ((guintptr) mangled_obj)));
+  g_assert_true (g_pointer_bit_lock_mask_ptr (obj, 0, 0, 0x3, mangled_obj) == (gpointer) (((guintptr) obj) | ((guintptr) mangled_obj)));
+  g_assert_true (g_pointer_bit_lock_mask_ptr (obj, 0, TRUE, 0x3, mangled_obj) == (gpointer) (((guintptr) obj) | ((guintptr) mangled_obj) | ((guintptr) 1)));
+  g_atomic_pointer_and (&mangled_obj, ~((gsize) 0x2));
+  g_assert_true (g_pointer_bit_lock_mask_ptr (obj, 0, 0, 0x2, mangled_obj) == obj);
+  g_atomic_pointer_or (&mangled_obj, 0x2);
+
+  plock = obj;
+  g_pointer_bit_lock (&plock, 0);
+  g_assert_true (plock != obj);
+  g_pointer_bit_unlock_and_set (&plock, 0, obj, 0);
+  g_assert_true (plock == obj);
+
+  plock = obj;
+  g_pointer_bit_lock_and_get (&plock, 0, &ptr2);
+  g_assert_true ((gpointer) ptr2 == plock);
+  g_assert_true (plock != obj);
+  g_atomic_pointer_set (&plock, mangled_obj);
+  g_pointer_bit_unlock_and_set (&plock, 0, obj, 0);
+  g_assert_true (plock == obj);
+
+  plock = obj;
+  g_pointer_bit_lock_and_get (&plock, 0, NULL);
+  g_assert_true (plock != obj);
+  g_atomic_pointer_set (&plock, mangled_obj);
+  g_pointer_bit_unlock_and_set (&plock, 0, obj, 0x7);
+  g_assert_true (plock != obj);
+  g_assert_true (plock == (gpointer) (((guintptr) obj) | ((guintptr) mangled_obj)));
+
+  plock = NULL;
+  g_pointer_bit_lock (&plock, 0);
+  g_assert_true (plock != NULL);
+  g_pointer_bit_unlock_and_set (&plock, 0, NULL, 0);
+  g_assert_true (plock == NULL);
+
+  ptr = ((char *) obj) + 1;
+  plock = obj;
+  g_pointer_bit_lock (&plock, 0);
+  g_assert_true (plock == ptr);
+  g_test_expect_message ("GLib", G_LOG_LEVEL_CRITICAL,
+                         "*assertion 'ptr == pointer_bit_lock_mask_ptr (ptr, lock_bit, FALSE, 0, NULL)' failed*");
+  g_pointer_bit_unlock_and_set (&plock, 0, ptr, 0);
+  g_test_assert_expected_messages ();
+  g_assert_true (plock != ptr);
+  g_assert_true (plock == obj);
+
+  g_object_unref (obj);
 }
 
 int
@@ -522,6 +598,8 @@ main (int   argc,
                    test_threaded_weak_ref_finalization);
   g_test_add_func ("/GObject/threaded-toggle-notify",
                    test_threaded_toggle_notify);
+  g_test_add_func ("/GObject/threaded-g-pointer-bit-unlock-and-set",
+                   test_threaded_g_pointer_bit_unlock_and_set);
 
   return g_test_run();
 }

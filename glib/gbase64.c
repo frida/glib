@@ -31,30 +31,6 @@
 #include "gtestutils.h"
 #include "glibintl.h"
 
-
-/**
- * SECTION:base64
- * @title: Base64 Encoding
- * @short_description: encodes and decodes data in Base64 format
- *
- * Base64 is an encoding that allows a sequence of arbitrary bytes to be
- * encoded as a sequence of printable ASCII characters. For the definition
- * of Base64, see 
- * [RFC 1421](http://www.ietf.org/rfc/rfc1421.txt)
- * or
- * [RFC 2045](http://www.ietf.org/rfc/rfc2045.txt).
- * Base64 is most commonly used as a MIME transfer encoding
- * for email.
- *
- * GLib supports incremental encoding using g_base64_encode_step() and
- * g_base64_encode_close(). Incremental decoding can be done with
- * g_base64_decode_step(). To encode or decode data in one go, use
- * g_base64_encode() or g_base64_decode(). To avoid memory allocation when
- * decoding, you can use g_base64_decode_inplace().
- *
- * Support for Base64 encoding has been added in GLib 2.12.
- */
-
 static const char base64_alphabet[] =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -264,8 +240,10 @@ g_base64_encode (const guchar *data,
                  gsize         len)
 {
   gchar *out;
-  gint state = 0, outlen;
+  gint state = 0;
   gint save = 0;
+  gsize outlen;
+  gsize allocsize;
 
   g_return_val_if_fail (data != NULL || len == 0, NULL);
 
@@ -273,10 +251,15 @@ g_base64_encode (const guchar *data,
      +1 is needed for trailing \0, also check for unlikely integer overflow */
   g_return_val_if_fail (len < ((G_MAXSIZE - 1) / 4 - 1) * 3, NULL);
 
-  out = g_malloc ((len / 3 + 1) * 4 + 1);
+  allocsize = (len / 3 + 1) * 4 + 1;
+  out = g_malloc (allocsize);
 
   outlen = g_base64_encode_step (data, len, FALSE, out, &state, &save);
+  g_assert (outlen <= allocsize);
+
   outlen += g_base64_encode_close (FALSE, out + outlen, &state, &save);
+  g_assert (outlen <= allocsize);
+
   out[outlen] = '\0';
 
   return (gchar *) out;
@@ -303,7 +286,7 @@ static const unsigned char mime_base64_rank[256] = {
 
 /**
  * g_base64_decode_step: (skip)
- * @in: (array length=len) (element-type guint8): binary input data
+ * @in: (array length=len): base-64 encoded input data
  * @len: max length of @in data to decode
  * @out: (out caller-allocates) (array) (element-type guint8): output buffer
  * @state: (inout): Saved state between steps, initialize to 0
@@ -448,7 +431,8 @@ guchar *
 g_base64_decode_inplace (gchar *text,
                          gsize *out_len)
 {
-  gint input_length, state = 0;
+  gint state = 0;
+  size_t input_length;
   guint save = 0;
 
   g_return_val_if_fail (text != NULL, NULL);

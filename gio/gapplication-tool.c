@@ -299,10 +299,13 @@ app_get_platform_data (void)
   GVariantBuilder builder;
   const gchar *startup_id;
 
-  g_variant_builder_init (&builder, G_VARIANT_TYPE_VARDICT);
+  g_variant_builder_init_static (&builder, G_VARIANT_TYPE_VARDICT);
 
   if ((startup_id = g_getenv ("DESKTOP_STARTUP_ID")))
     g_variant_builder_add (&builder, "{sv}", "desktop-startup-id", g_variant_new_string (startup_id));
+
+  if ((startup_id = g_getenv ("XDG_ACTIVATION_TOKEN")))
+    g_variant_builder_add (&builder, "{sv}", "activation-token", g_variant_new_string (startup_id));
 
   return g_variant_builder_end (&builder);
 }
@@ -331,7 +334,7 @@ app_action (gchar **args)
       return 1;
     }
 
-  g_variant_builder_init (&params, G_VARIANT_TYPE ("av"));
+  g_variant_builder_init_static (&params, G_VARIANT_TYPE ("av"));
 
   if (args[2])
     {
@@ -384,7 +387,7 @@ app_launch (gchar **args)
   if (args[1] == NULL)
     return app_activate (args[0]);
 
-  g_variant_builder_init (&files, G_VARIANT_TYPE_STRING_ARRAY);
+  g_variant_builder_init_static (&files, G_VARIANT_TYPE_STRING_ARRAY);
 
   for (i = 1; args[i]; i++)
     {
@@ -439,8 +442,6 @@ app_list_actions (gchar **args)
 int
 main (int argc, char **argv)
 {
-  glib_init ();
-
   setlocale (LC_ALL, "");
   textdomain (GETTEXT_PACKAGE);
   bindtextdomain (GETTEXT_PACKAGE, GLIB_LOCALE_DIR);
@@ -469,7 +470,7 @@ main (int argc, char **argv)
   if (g_str_equal (argv[1], "list-actions"))
     return app_list_actions (argv + 2);
 
-  g_printerr (_("unrecognised command: %s\n\n"), argv[1]);
+  g_printerr (_("unrecognized command: %s\n\n"), argv[1]);
 
   return app_help (FALSE, NULL);
 }

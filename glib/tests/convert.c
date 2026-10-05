@@ -949,6 +949,45 @@ test_no_conv (void)
   g_error_free (error);
 }
 
+static void
+test_filename_from_uri_helper (const gchar *uri,
+			       const gchar *expected_filename)
+{
+  gchar *filename;
+  gchar *expected_platform_filename;
+  GError *error = NULL;
+
+  expected_platform_filename = g_strdup (expected_filename);
+#ifdef G_OS_WIN32
+  for (gchar *p = expected_platform_filename; *p; p++)
+    {
+      if (*p == '/')
+	*p = '\\';
+    }
+#endif
+
+  filename = g_filename_from_uri (uri, NULL, &error);
+  g_assert_no_error (error);
+  g_assert_cmpstr (filename, ==, expected_platform_filename);
+  g_free (filename);
+  g_free (expected_platform_filename);
+}
+
+static void
+test_filename_from_uri_query_is_ignored (void)
+{
+  test_filename_from_uri_helper ("file:///tmp/foo?bar", "/tmp/foo");
+  test_filename_from_uri_helper ("file:///tmp/foo?bar#baz", "/tmp/foo");
+}
+
+static void
+test_filename_from_uri_fragment_is_ignored (void)
+{
+  test_filename_from_uri_helper ("file:///tmp/foo#bar", "/tmp/foo");
+  /* this doesn't have a query, only a bizarre anchor */
+  test_filename_from_uri_helper ("file:///tmp/foo#bar?baz", "/tmp/foo");
+}
+
 int
 main (int argc, char *argv[])
 {
@@ -974,6 +1013,8 @@ main (int argc, char *argv[])
   g_test_add_func ("/conversion/filename-from-utf8/embedded-nul", test_filename_from_utf8_embedded_nul);
   g_test_add_func ("/conversion/filename-from-utf8/embedded-nul/subprocess/utf8", test_filename_from_utf8_embedded_nul_utf8);
   g_test_add_func ("/conversion/filename-from-utf8/embedded-nul/subprocess/iconv", test_filename_from_utf8_embedded_nul_iconv);
+  g_test_add_func ("/conversion/filename-from-uri/query-is-ignored", test_filename_from_uri_query_is_ignored);
+  g_test_add_func ("/conversion/filename-from-uri/fragment-is-ignored", test_filename_from_uri_fragment_is_ignored);
 
   return g_test_run ();
 }

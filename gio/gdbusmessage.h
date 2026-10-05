@@ -36,7 +36,7 @@ G_BEGIN_DECLS
 #define G_IS_DBUS_MESSAGE(o)        (G_TYPE_CHECK_INSTANCE_TYPE ((o), G_TYPE_DBUS_MESSAGE))
 
 GIO_AVAILABLE_IN_ALL
-GType                     g_dbus_message_get_type           (void) G_GNUC_CONST;
+GType                     g_dbus_message_get_type           (void);
 GIO_AVAILABLE_IN_ALL
 GDBusMessage             *g_dbus_message_new                (void);
 GIO_AVAILABLE_IN_ALL
@@ -176,7 +176,8 @@ void                      g_dbus_message_set_num_unix_fds   (GDBusMessage       
 
 GIO_AVAILABLE_IN_ALL
 const gchar              *g_dbus_message_get_arg0           (GDBusMessage             *message);
-
+GIO_AVAILABLE_IN_2_80
+const gchar              *g_dbus_message_get_arg0_path      (GDBusMessage             *message);
 
 GIO_AVAILABLE_IN_ALL
 GDBusMessage             *g_dbus_message_new_from_blob      (guchar                   *blob,

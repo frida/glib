@@ -4,6 +4,8 @@
 #
 # Copyright (C) 2008-2011 Red Hat, Inc.
 #
+# SPDX-License-Identifier: LGPL-2.1-or-later
+#
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
 # License as published by the Free Software Foundation; either
@@ -20,6 +22,7 @@
 # Author: David Zeuthen <davidz@redhat.com>
 
 import re
+import textwrap
 from os import path
 
 from . import utils
@@ -340,12 +343,12 @@ class DocbookCodeGenerator:
         return s
 
     def expand_paras(self, s, expandParamsAndConstants):
-        s = self.expand(s, expandParamsAndConstants).strip()
+        s = textwrap.dedent(self.expand(s, expandParamsAndConstants)).rstrip()
         res = []
         if not s.startswith("<para>"):
             res.append("<para>")
         for line in s.split("\n"):
-            line = line.strip()
+            line = line.rstrip()
             if not line:
                 line = "</para><para>"
             res.append(line)

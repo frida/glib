@@ -27,18 +27,14 @@
 
 G_BEGIN_DECLS
 
+typedef struct _GFileDescriptorBased        GFileDescriptorBased;
+typedef struct _GFileDescriptorBasedIface   GFileDescriptorBasedIface;
+
 #define G_TYPE_FILE_DESCRIPTOR_BASED            (g_file_descriptor_based_get_type ())
 #define G_FILE_DESCRIPTOR_BASED(obj)            (G_TYPE_CHECK_INSTANCE_CAST ((obj), G_TYPE_FILE_DESCRIPTOR_BASED, GFileDescriptorBased))
 #define G_IS_FILE_DESCRIPTOR_BASED(obj)         (G_TYPE_CHECK_INSTANCE_TYPE ((obj), G_TYPE_FILE_DESCRIPTOR_BASED))
 #define G_FILE_DESCRIPTOR_BASED_GET_IFACE(obj)  (G_TYPE_INSTANCE_GET_INTERFACE ((obj), G_TYPE_FILE_DESCRIPTOR_BASED, GFileDescriptorBasedIface))
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(GFileDescriptorBased, g_object_unref)
-
-/**
- * GFileDescriptorBased:
- *
- * An interface for file descriptor based io objects.
- **/
-typedef struct _GFileDescriptorBasedIface   GFileDescriptorBasedIface;
 
 /**
  * GFileDescriptorBasedIface:
@@ -56,7 +52,7 @@ struct _GFileDescriptorBasedIface
 };
 
 GIO_AVAILABLE_IN_ALL
-GType    g_file_descriptor_based_get_type     (void) G_GNUC_CONST;
+GType    g_file_descriptor_based_get_type     (void);
 
 GIO_AVAILABLE_IN_ALL
 int      g_file_descriptor_based_get_fd       (GFileDescriptorBased *fd_based);

@@ -193,7 +193,7 @@ typedef enum
   G_LOCAL_FILE_STAT_FIELD_SIZE = (1 << 9),
   G_LOCAL_FILE_STAT_FIELD_BLOCKS = (1 << 10),
   G_LOCAL_FILE_STAT_FIELD_BTIME = (1 << 11),
-} GLocalFileStatField;
+} G_GNUC_FLAG_ENUM GLocalFileStatField;
 
 #define G_LOCAL_FILE_STAT_FIELD_BASIC_STATS \
   (G_LOCAL_FILE_STAT_FIELD_TYPE | G_LOCAL_FILE_STAT_FIELD_MODE | \
@@ -316,18 +316,26 @@ inline static blkcnt_t  _g_stat_blocks    (const GLocalFileStat *buf) { return b
 #endif
 
 #ifndef G_OS_WIN32
-inline static time_t    _g_stat_atime     (const GLocalFileStat *buf) { return buf->st_atime; }
-inline static time_t    _g_stat_ctime     (const GLocalFileStat *buf) { return buf->st_ctime; }
-inline static time_t    _g_stat_mtime     (const GLocalFileStat *buf) { return buf->st_mtime; }
+inline static guint64   _g_stat_atime     (const GLocalFileStat *buf) { return buf->st_atime; }
+inline static guint64   _g_stat_ctime     (const GLocalFileStat *buf) { return buf->st_ctime; }
+inline static guint64   _g_stat_mtime     (const GLocalFileStat *buf) { return buf->st_mtime; }
 #else
-inline static time_t    _g_stat_atime     (const GLocalFileStat *buf) { return buf->st_atim.tv_sec; }
-inline static time_t    _g_stat_ctime     (const GLocalFileStat *buf) { return buf->st_ctim.tv_sec; }
-inline static time_t    _g_stat_mtime     (const GLocalFileStat *buf) { return buf->st_mtim.tv_sec; }
+inline static guint64   _g_stat_atime     (const GLocalFileStat *buf) { return buf->st_atim.tv_sec; }
+inline static guint64   _g_stat_ctime     (const GLocalFileStat *buf) { return buf->st_ctim.tv_sec; }
+inline static guint64   _g_stat_mtime     (const GLocalFileStat *buf) { return buf->st_mtim.tv_sec; }
 #endif
 #if defined(HAVE_STRUCT_STAT_ST_MTIM_TV_NSEC) || defined(G_OS_WIN32)
 inline static guint32   _g_stat_atim_nsec (const GLocalFileStat *buf) { return buf->st_atim.tv_nsec; }
 inline static guint32   _g_stat_ctim_nsec (const GLocalFileStat *buf) { return buf->st_ctim.tv_nsec; }
 inline static guint32   _g_stat_mtim_nsec (const GLocalFileStat *buf) { return buf->st_mtim.tv_nsec; }
+#elif defined(HAVE_STRUCT_STAT_ST_MTIMENSEC)
+inline static guint32   _g_stat_atim_nsec (const GLocalFileStat *buf) { return buf->st_atimensec; }
+inline static guint32   _g_stat_ctim_nsec (const GLocalFileStat *buf) { return buf->st_ctimensec; }
+inline static guint32   _g_stat_mtim_nsec (const GLocalFileStat *buf) { return buf->st_mtimensec; }
+#elif defined(__APPLE__)
+inline static guint32   _g_stat_atim_nsec (const GLocalFileStat *buf) { return buf->st_atimespec.tv_nsec; }
+inline static guint32   _g_stat_ctim_nsec (const GLocalFileStat *buf) { return buf->st_ctimespec.tv_nsec; }
+inline static guint32   _g_stat_mtim_nsec (const GLocalFileStat *buf) { return buf->st_mtimespec.tv_nsec; }
 #else
 inline static guint32   _g_stat_atim_nsec (const GLocalFileStat *buf) { return 0; }
 inline static guint32   _g_stat_ctim_nsec (const GLocalFileStat *buf) { return 0; }

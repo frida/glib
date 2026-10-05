@@ -22,6 +22,8 @@
  * if advised of the possibility of such damage.
  */
 
+#define _POSIX_C_SOURCE 200809L  /* for F_DUPFD_CLOEXEC */
+
 #include "config.h"
 
 /* We want to distinguish between messages originating from libglib
@@ -34,6 +36,15 @@
 #include <locale.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef G_OS_UNIX
+#include <fcntl.h>
+#include <glib-unix.h>
+#include <unistd.h>
+#endif
+
+#define TAP_VERSION G_STRINGIFY (14)
+#define TAP_SUBTEST_PREFIX "    "
 
 /* test assertion variants */
 static void
@@ -327,7 +338,7 @@ static void
 test_fork_timeout (void)
 {
   /* allow child to run for only a fraction of a second */
-  if (g_test_trap_fork (0.11 * 1000000, G_TEST_TRAP_DEFAULT))
+  if (g_test_trap_fork ((guint64) (0.11 * G_USEC_PER_SEC), G_TEST_TRAP_DEFAULT))
     {
       /* loop and sleep forever */
       while (TRUE)
@@ -352,6 +363,20 @@ test_subprocess_fail (void)
   g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*ERROR*test_subprocess_fail*should not be reached*");
+}
+
+static void
+test_subprocess_skip (void)
+{
+  if (g_test_subprocess ())
+    {
+      g_test_skip ("");
+      return;
+    }
+
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_DEFAULT);
+  g_assert_true (g_test_trap_has_skipped ());
+  g_assert_true (!g_test_trap_has_passed ());
 }
 
 static void
@@ -392,13 +417,82 @@ test_subprocess_timeout (void)
     {
       /* loop and sleep forever */
       while (TRUE)
-        g_usleep (1000 * 1000);
+        g_usleep (G_USEC_PER_SEC);
       return;
     }
   /* allow child to run for only a fraction of a second */
-  g_test_trap_subprocess (NULL, 0.11 * 1000000, G_TEST_SUBPROCESS_DEFAULT);
+  g_test_trap_subprocess (NULL, (guint64) (0.05 * G_USEC_PER_SEC), G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_assert_true (g_test_trap_reached_timeout ());
+}
+
+static void
+test_subprocess_envp (void)
+{
+  char **envp = NULL;
+
+  if (g_test_subprocess ())
+    {
+      g_assert_cmpstr (g_getenv ("TEST_SUBPROCESS_VARIABLE"), ==, "definitely set");
+      return;
+    }
+
+  envp = g_get_environ ();
+  envp = g_environ_setenv (g_steal_pointer (&envp), "TEST_SUBPROCESS_VARIABLE", "definitely set", TRUE);
+  g_test_trap_subprocess_with_envp (NULL, (const gchar * const *) envp,
+                                    0, G_TEST_SUBPROCESS_DEFAULT);
+  g_test_trap_assert_passed ();
+  g_strfreev (envp);
+}
+
+static void
+test_subprocess_stdin (void)
+{
+#ifdef G_OS_UNIX
+  int old_stdin_fd = -1;
+  int pipe_fd[2] = { -1, -1 };
+  const char *test_string = "*hello there*";
+  GError *local_error = NULL;
+
+  if (g_test_subprocess ())
+    {
+      char buf[100];
+      ssize_t n_read;
+
+      g_assert_no_errno (n_read = read (STDIN_FILENO, buf, sizeof (buf)));
+      g_assert_cmpint (n_read, >, 0);
+
+      g_print ("Read: %.*s\n", (int) n_read, buf);
+
+      return;
+    }
+
+  /* Temporarily override this process’ stdin with a pipe. */
+  old_stdin_fd = fcntl (STDIN_FILENO, F_DUPFD_CLOEXEC, 0);
+  g_assert_cmpint (old_stdin_fd, >=, 0);
+
+  g_unix_open_pipe (pipe_fd, O_CLOEXEC, &local_error);
+  g_assert_no_error (local_error);
+
+  g_assert_no_errno (dup2 (pipe_fd[0], STDIN_FILENO));
+
+  /* Write something into it for the subprocess to read. */
+  g_assert_no_errno (write (pipe_fd[1], test_string, strlen (test_string) + 1));
+
+  /* Run the subprocess. */
+  g_test_trap_subprocess (NULL, 0, G_TEST_SUBPROCESS_INHERIT_STDIN);
+  g_test_trap_assert_passed ();
+  g_test_trap_assert_stdout (test_string);
+
+  /* Restore the old stdin */
+  g_assert_no_errno (dup2 (old_stdin_fd, STDIN_FILENO));
+
+  g_assert_no_errno (close (old_stdin_fd));
+  g_assert_no_errno (close (pipe_fd[0]));
+  g_assert_no_errno (close (pipe_fd[1]));
+#else
+  g_test_skip ("Testing stdin for subprocesses can only be done on Unix at the moment");
+#endif
 }
 
 /* run a test with fixture setup and teardown */
@@ -483,7 +577,7 @@ test_random_conversions (void)
   int vint = g_test_rand_int();
   char *err, *str = g_strdup_printf ("%d", vint);
   gint64 vint64 = g_ascii_strtoll (str, &err, 10);
-  g_assert_cmphex (vint, ==, vint64);
+  g_assert_cmpint (vint, ==, vint64);
   g_assert_true (!err || *err == 0);
   g_free (str);
 }
@@ -668,6 +762,23 @@ test_expected_messages (void)
                           G_TEST_SUBPROCESS_DEFAULT);
   g_test_trap_assert_failed ();
   g_test_trap_assert_stderr ("*GLib:ERROR*Did not see expected message testing-CRITICAL*nope*");
+}
+
+static void
+test_messages (void)
+{
+  g_test_trap_subprocess ("/misc/messages/subprocess/use-stderr", 0,
+                          G_TEST_SUBPROCESS_DEFAULT);
+  g_test_trap_assert_stderr ("*message is in stderr*");
+  g_test_trap_assert_stderr ("*warning is in stderr*");
+  g_test_trap_has_passed ();
+}
+
+static void
+test_messages_use_stderr (void)
+{
+  g_message ("message is in stderr");
+  g_warning ("warning is in stderr");
 }
 
 static void
@@ -859,18 +970,6 @@ test_incomplete (void)
    * causes nonzero exit status 77, which is treated as failure by
    * g_test_trap_subprocess(). */
   g_test_trap_assert_failed ();
-}
-
-static void
-test_subprocess_timed_out (void)
-{
-  if (g_test_subprocess ())
-    {
-      g_usleep (1000000);
-      return;
-    }
-  g_test_trap_subprocess (NULL, 50000, G_TEST_SUBPROCESS_DEFAULT);
-  g_assert_true (g_test_trap_reached_timeout ());
 }
 
 static void
@@ -1089,6 +1188,7 @@ test_tap (void)
   GError *error = NULL;
   int status;
   gchar *output;
+  char **envp;
 
   testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
 
@@ -1099,7 +1199,12 @@ test_tap (void)
   g_ptr_array_add (argv, "--tap");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  /* Remove the G_TEST_ROOT_PROCESS env so it will be considered a standalone test */
+  envp = g_get_environ ();
+  g_assert_nonnull (g_environ_getenv (envp, "G_TEST_ROOT_PROCESS"));
+  envp = g_environ_unsetenv (g_steal_pointer (&envp), "G_TEST_ROOT_PROCESS");
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
@@ -1107,6 +1212,8 @@ test_tap (void)
 
   g_spawn_check_wait_status (status, &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "\nok 1 /pass\n"));
   g_free (output);
   g_ptr_array_unref (argv);
@@ -1118,7 +1225,7 @@ test_tap (void)
   g_ptr_array_add (argv, "--tap");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
@@ -1126,6 +1233,8 @@ test_tap (void)
 
   g_spawn_check_wait_status (status, &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "\nok 1 /skip # SKIP not enough tea\n"));
   g_free (output);
   g_ptr_array_unref (argv);
@@ -1137,7 +1246,7 @@ test_tap (void)
   g_ptr_array_add (argv, "--tap");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
@@ -1145,6 +1254,8 @@ test_tap (void)
 
   g_spawn_check_wait_status (status, &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "\nok 1 /skip-printf # SKIP not enough coffee\n"));
   g_free (output);
   g_ptr_array_unref (argv);
@@ -1156,7 +1267,7 @@ test_tap (void)
   g_ptr_array_add (argv, "--tap");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
@@ -1164,6 +1275,8 @@ test_tap (void)
 
   g_spawn_check_wait_status (status, &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "\nnot ok 1 /incomplete # TODO mind reading not implemented yet\n"));
   g_free (output);
   g_ptr_array_unref (argv);
@@ -1175,7 +1288,7 @@ test_tap (void)
   g_ptr_array_add (argv, "--tap");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
@@ -1183,6 +1296,8 @@ test_tap (void)
 
   g_spawn_check_wait_status (status, &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "\nnot ok 1 /incomplete-printf # TODO telekinesis not implemented yet\n"));
   g_free (output);
   g_ptr_array_unref (argv);
@@ -1194,7 +1309,7 @@ test_tap (void)
   g_ptr_array_add (argv, "--tap");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
@@ -1202,6 +1317,8 @@ test_tap (void)
 
   g_spawn_check_wait_status (status, &error);
   g_assert_error (error, G_SPAWN_EXIT_ERROR, 1);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "\nnot ok 1 /fail\n"));
   g_free (output);
   g_clear_error (&error);
@@ -1214,7 +1331,7 @@ test_tap (void)
   g_ptr_array_add (argv, "--tap");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
@@ -1222,6 +1339,8 @@ test_tap (void)
 
   g_spawn_check_wait_status (status, &error);
   g_assert_error (error, G_SPAWN_EXIT_ERROR, 1);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "\nnot ok 1 /fail-printf - this test intentionally left failing\n"));
   g_free (output);
   g_clear_error (&error);
@@ -1234,7 +1353,7 @@ test_tap (void)
   g_ptr_array_add (argv, "--tap");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, NULL, NULL, &status,
                 &error);
@@ -1252,7 +1371,7 @@ test_tap (void)
   g_ptr_array_add (argv, "--tap");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, NULL, NULL, &status,
                 &error);
@@ -1272,11 +1391,13 @@ test_tap (void)
   g_ptr_array_add (argv, "2");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "1..10\n"));
   g_assert_nonnull (strstr (output, "\nok 1 /a # SKIP\n"));
   g_assert_nonnull (strstr (output, "\nok 2 /b # SKIP\n"));
@@ -1304,11 +1425,13 @@ test_tap (void)
   g_ptr_array_add (argv, "0");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "1..10\n"));
   g_assert_nonnull (strstr (output, "\nok 1 /a\n"));
   g_assert_nonnull (strstr (output, "\nok 2 /b\n"));
@@ -1336,11 +1459,13 @@ test_tap (void)
   g_ptr_array_add (argv, "11");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "1..10\n"));
   g_assert_nonnull (strstr (output, "\nok 1 /a # SKIP\n"));
   g_assert_nonnull (strstr (output, "\nok 2 /b # SKIP\n"));
@@ -1372,11 +1497,13 @@ test_tap (void)
   g_ptr_array_add (argv, "/b");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "\nok 1 /c/a\n"));
   g_assert_nonnull (strstr (output, "\nok 2 /c/a\n"));
   g_assert_nonnull (strstr (output, "\nok 3 /b\n"));
@@ -1403,11 +1530,13 @@ test_tap (void)
   g_ptr_array_add (argv, "/b");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "\nok 1 /c/a\n"));
   g_assert_nonnull (strstr (output, "\nok 2 /c/a\n"));
   g_assert_nonnull (strstr (output, "\nok 3 /b\n"));
@@ -1433,11 +1562,13 @@ test_tap (void)
   g_ptr_array_add (argv, "/b/b");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "\nok 1 /b/b\n"));
   g_assert_nonnull (strstr (output, "\nok 2 /b/b/a\n"));
   g_assert_nonnull (strstr (output, "\n1..2\n"));
@@ -1461,13 +1592,14 @@ test_tap (void)
   g_ptr_array_add (argv, "/b");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
   g_assert_no_error (error);
   g_spawn_check_wait_status (status, &error);
   g_assert_nonnull (error);
+  g_assert_false (g_str_has_prefix (output, "TAP version " TAP_VERSION));
   g_assert_nonnull (strstr (output, "do not mix [-r | --run-prefix] with '-p'\n"));
   g_clear_error (&error);
 
@@ -1489,11 +1621,13 @@ test_tap (void)
   g_ptr_array_add (argv, "/c/a");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "1..10\n"));
   g_assert_nonnull (strstr (output, "\nok 1 /a # SKIP by request"));
   g_assert_nonnull (strstr (output, "\nok 2 /b # SKIP by request"));
@@ -1527,11 +1661,13 @@ test_tap (void)
   g_ptr_array_add (argv, "/c/a");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
   g_assert_no_error (error);
+  g_assert_true (g_str_has_prefix (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "# Subtest: "));
   g_assert_nonnull (strstr (output, "1..10\n"));
   g_assert_nonnull (strstr (output, "\nok 1 /a # SKIP by request"));
   g_assert_nonnull (strstr (output, "\nok 2 /b\n"));
@@ -1564,15 +1700,599 @@ test_tap (void)
   g_ptr_array_add (argv, "/c/a");
   g_ptr_array_add (argv, NULL);
 
-  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
                 G_SPAWN_STDERR_TO_DEV_NULL,
                 NULL, NULL, &output, NULL, &status,
                 &error);
   g_assert_no_error (error);
   g_spawn_check_wait_status (status, &error);
   g_assert_nonnull (error);
+  g_assert_false (g_str_has_prefix (output, "TAP version " TAP_VERSION));
   g_assert_nonnull (strstr (output, "do not mix [-x | --skip-prefix] with '-s'\n"));
   g_clear_error (&error);
+
+  g_free (output);
+  g_ptr_array_unref (argv);
+  g_strfreev (envp);
+}
+
+/* Test the TAP output when a test suite is run with --tap. */
+static void
+test_tap_subtest (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+  char** envp = NULL;
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  g_test_message ("pass");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "pass");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  envp = g_get_environ ();
+  g_assert_nonnull (g_environ_getenv (envp, "G_TEST_ROOT_PROCESS"));
+  g_clear_pointer (&envp, g_strfreev);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_true (g_str_has_prefix (output, "# Subtest: "));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 1 /pass\n"));
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("skip");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "skip");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_true (g_str_has_prefix (output, "# Subtest: "));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 1 /skip # SKIP not enough tea\n"));
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("skip with printf format");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "skip-printf");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_true (g_str_has_prefix (output, "# Subtest: "));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 1 /skip-printf # SKIP not enough coffee\n"));
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("incomplete");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "incomplete");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null (strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "not ok 1 /incomplete # TODO mind reading not implemented yet\n"));
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("incomplete with printf format");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "incomplete-printf");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null( strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "not ok 1 /incomplete-printf # TODO telekinesis not implemented yet\n"));
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("fail");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "fail");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_error (error, G_SPAWN_EXIT_ERROR, 1);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null( strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "not ok 1 /fail\n"));
+  g_free (output);
+  g_clear_error (&error);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("fail with message");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "fail-printf");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_error (error, G_SPAWN_EXIT_ERROR, 1);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null( strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "not ok 1 /fail-printf - this test intentionally left failing\n"));
+  g_free (output);
+  g_clear_error (&error);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("all");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "all");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, NULL, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_error (error, G_SPAWN_EXIT_ERROR, 1);
+  g_clear_error (&error);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("all-non-failures");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "all-non-failures");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDOUT_TO_DEV_NULL | G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, NULL, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  g_ptr_array_unref (argv);
+
+  g_test_message ("--GTestSkipCount");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "skip-options");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, "--GTestSkipCount");
+  g_ptr_array_add (argv, "2");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null( strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output, TAP_SUBTEST_PREFIX "1..10\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 1 /a # SKIP\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 2 /b # SKIP\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 3 /b/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 4 /b/b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 5 /b/b/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 6 /prefix/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 7 /prefix/b/b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 8 /prefix-long/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 9 /c/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 10 /d/a\n"));
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("--GTestSkipCount=0 is the same as omitting it");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "skip-options");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, "--GTestSkipCount");
+  g_ptr_array_add (argv, "0");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null( strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output, TAP_SUBTEST_PREFIX "1..10\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 1 /a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 2 /b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 3 /b/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 4 /b/b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 5 /b/b/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 6 /prefix/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 7 /prefix/b/b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 8 /prefix-long/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 9 /c/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 10 /d/a\n"));
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("--GTestSkipCount > number of tests skips all");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "skip-options");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, "--GTestSkipCount");
+  g_ptr_array_add (argv, "11");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null( strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output, TAP_SUBTEST_PREFIX "1..10\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 1 /a # SKIP\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 2 /b # SKIP\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 3 /b/a # SKIP\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 4 /b/b # SKIP\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 5 /b/b/a # SKIP\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 6 /prefix/a # SKIP\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 7 /prefix/b/b # SKIP\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 8 /prefix-long/a # SKIP\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 9 /c/a # SKIP\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 10 /d/a # SKIP\n"));
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("-p");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "skip-options");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, "-p");
+  g_ptr_array_add (argv, "/c/a");
+  g_ptr_array_add (argv, "-p");
+  g_ptr_array_add (argv, "/c/a");
+  g_ptr_array_add (argv, "-p");
+  g_ptr_array_add (argv, "/b");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null( strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 1 /c/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 2 /c/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 3 /b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 4 /b/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 5 /b/b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "1..5\n"));
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("--run-prefix");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "skip-options");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, "-r");
+  g_ptr_array_add (argv, "/c/a");
+  g_ptr_array_add (argv, "-r");
+  g_ptr_array_add (argv, "/c/a");
+  g_ptr_array_add (argv, "--run-prefix");
+  g_ptr_array_add (argv, "/b");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null( strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 1 /c/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 2 /c/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 3 /b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 4 /b/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 5 /b/b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 6 /b/b/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "1..6\n"));
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("--run-prefix 2");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "skip-options");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, "-r");
+  g_ptr_array_add (argv, "/pre");
+  g_ptr_array_add (argv, "--run-prefix");
+  g_ptr_array_add (argv, "/b/b");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null( strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 1 /b/b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 2 /b/b/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "1..2\n"));
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("--run-prefix conflict");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "skip-options");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, "-r");
+  g_ptr_array_add (argv, "/c/a");
+  g_ptr_array_add (argv, "-p");
+  g_ptr_array_add (argv, "/c/a");
+  g_ptr_array_add (argv, "--run-prefix");
+  g_ptr_array_add (argv, "/b");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+  g_spawn_check_wait_status (status, &error);
+  g_assert_nonnull (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null( strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output, "do not mix [-r | --run-prefix] with '-p'\n"));
+  g_clear_error (&error);
+
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("-s");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "skip-options");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, "-s");
+  g_ptr_array_add (argv, "/a");
+  g_ptr_array_add (argv, "-s");
+  g_ptr_array_add (argv, "/b");
+  g_ptr_array_add (argv, "-s");
+  g_ptr_array_add (argv, "/pre");
+  g_ptr_array_add (argv, "-s");
+  g_ptr_array_add (argv, "/c/a");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_null( strstr (output, "\n# Subtest: "));
+  g_assert_nonnull (strstr (output, TAP_SUBTEST_PREFIX "1..10\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 1 /a # SKIP by request"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 2 /b # SKIP by request"));
+  /* "-s /b" would skip a test named exactly /b, but not a test named
+   * /b/anything */
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 3 /b/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 4 /b/b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 5 /b/b/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 6 /prefix/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 7 /prefix/b/b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 8 /prefix-long/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 9 /c/a # SKIP by request"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 10 /d/a\n"));
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  g_free (output);
+  g_ptr_array_unref (argv);
+
+  g_test_message ("--skip-prefix");
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "skip-options");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, "-x");
+  g_ptr_array_add (argv, "/a");
+  g_ptr_array_add (argv, "--skip-prefix");
+  g_ptr_array_add (argv, "/pre");
+  g_ptr_array_add (argv, "-x");
+  g_ptr_array_add (argv, "/c/a");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "TAP version " TAP_VERSION));
+  g_assert_true (g_str_has_prefix (output, "# Subtest: "));
+  g_assert_nonnull (strstr (output, TAP_SUBTEST_PREFIX "1..10\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 1 /a # SKIP by request"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 2 /b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 3 /b/a\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 4 /b/b\n"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 5 /b/b/a\n"));
+  /* "--skip-prefix /pre" will skip all test path which begins with /pre */
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 6 /prefix/a # SKIP by request"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 7 /prefix/b/b # SKIP by request"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 8 /prefix-long/a # SKIP by request"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 9 /c/a # SKIP by request"));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX "ok 10 /d/a\n"));
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
 
   g_free (output);
   g_ptr_array_unref (argv);
@@ -1580,6 +2300,52 @@ test_tap (void)
 
 static void
 test_tap_summary (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+  char **envp;
+
+  g_test_summary ("Test the output of g_test_summary() from the TAP output of a test.");
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "summary");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  /* Remove the G_TEST_ROOT_PROCESS env so it will be considered a standalone test */
+  envp = g_get_environ ();
+  g_assert_nonnull (g_environ_getenv (envp, "G_TEST_ROOT_PROCESS"));
+  envp = g_environ_unsetenv (g_steal_pointer (&envp), "G_TEST_ROOT_PROCESS");
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+  g_assert_null (strstr (output, "# Subtest: "));
+
+  /* Note: The test path in the output is not `/tap/summary` because it’s the
+   * test path from testing-helper, not from this function. */g_assert_null (strstr (output, "# Subtest: "));
+  g_assert_nonnull (strstr (output, "\n# /summary summary: Tests that g_test_summary() "
+                                    "works with TAP, by outputting a known "
+                                    "summary message in testing-helper, and "
+                                    "checking for it in the TAP output later.\n"));
+  g_free (output);
+  g_ptr_array_unref (argv);
+  g_strfreev (envp);
+}
+
+static void
+test_tap_subtest_summary (void)
 {
   const char *testing_helper;
   GPtrArray *argv;
@@ -1607,12 +2373,535 @@ test_tap_summary (void)
   g_assert_no_error (error);
   /* Note: The test path in the output is not `/tap/summary` because it’s the
    * test path from testing-helper, not from this function. */
-  g_assert_nonnull (strstr (output, "\n# /summary summary: Tests that g_test_summary() "
-                                    "works with TAP, by outputting a known "
-                                    "summary message in testing-helper, and "
-                                    "checking for it in the TAP output later.\n"));
+  g_assert_true (g_str_has_prefix (output, "# Subtest: "));
+  g_assert_nonnull (strstr (output,
+    "\n" TAP_SUBTEST_PREFIX
+    "# /summary summary: Tests that g_test_summary() "
+    "works with TAP, by outputting a known "
+    "summary message in testing-helper, and "
+    "checking for it in the TAP output later.\n"));
   g_free (output);
   g_ptr_array_unref (argv);
+}
+
+static void
+test_tap_message (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+  char **output_lines;
+  char **envp;
+
+  g_test_summary ("Test the output of g_test_message() from the TAP output of a test.");
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "message");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  /* Remove the G_TEST_ROOT_PROCESS env so it will be considered a standalone test */
+  envp = g_get_environ ();
+  g_assert_nonnull (g_environ_getenv (envp, "G_TEST_ROOT_PROCESS"));
+  envp = g_environ_unsetenv (g_steal_pointer (&envp), "G_TEST_ROOT_PROCESS");
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  g_assert_null (strstr (output, "# Subtest: "));
+
+  const char *expected_tap_header = "\n1..1\n";
+  const char *interesting_lines = strstr (output, expected_tap_header);
+  g_assert_nonnull (interesting_lines);
+  interesting_lines += strlen (expected_tap_header);
+
+  output_lines = g_strsplit (interesting_lines, "\n", -1);
+  g_assert_cmpuint (g_strv_length (output_lines), >=, 12);
+
+  guint i = 0;
+  g_assert_cmpstr (output_lines[i++], ==, "# Tests that single line message works");
+  g_assert_cmpstr (output_lines[i++], ==, "# Tests that multi");
+  g_assert_cmpstr (output_lines[i++], ==, "# ");
+  g_assert_cmpstr (output_lines[i++], ==, "# line");
+  g_assert_cmpstr (output_lines[i++], ==, "# message");
+  g_assert_cmpstr (output_lines[i++], ==, "# works");
+  g_assert_cmpstr (output_lines[i++], ==, "# ");
+  g_assert_cmpstr (output_lines[i++], ==, "# Tests that multi");
+  g_assert_cmpstr (output_lines[i++], ==, "# line");
+  g_assert_cmpstr (output_lines[i++], ==, "# message");
+  g_assert_cmpstr (output_lines[i++], ==, "# works with leading and trailing too");
+  g_assert_cmpstr (output_lines[i++], ==, "# ");
+
+  g_free (output);
+  g_strfreev (output_lines);
+  g_strfreev (envp);
+  g_ptr_array_unref (argv);
+}
+
+static void
+test_tap_subtest_message (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+  char **output_lines;
+
+  g_test_summary ("Test the output of g_test_message() from the TAP output of a sub-test.");
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "message");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  g_assert_true (g_str_has_prefix (output, "# Subtest: "));
+
+  const char *expected_tap_header = "\n" TAP_SUBTEST_PREFIX "1..1\n";
+  const char *interesting_lines = strstr (output, expected_tap_header);
+  g_assert_nonnull (interesting_lines);
+  interesting_lines += strlen (expected_tap_header);
+
+  output_lines = g_strsplit (interesting_lines, "\n", -1);
+  g_assert_cmpuint (g_strv_length (output_lines), >=, 12);
+
+  guint i = 0;
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# Tests that single line message works");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# Tests that multi");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# ");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# line");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# message");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# works");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# ");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# Tests that multi");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# line");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# message");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# works with leading and trailing too");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# ");
+
+  g_free (output);
+  g_strfreev (output_lines);
+  g_ptr_array_unref (argv);
+}
+
+static void
+test_tap_print (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+  char **output_lines;
+  char **envp;
+
+  g_test_summary ("Test the output of g_print() from the TAP output of a test.");
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "print");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  /* Remove the G_TEST_ROOT_PROCESS env so it will be considered a standalone test */
+  envp = g_get_environ ();
+  g_assert_nonnull (g_environ_getenv (envp, "G_TEST_ROOT_PROCESS"));
+  envp = g_environ_unsetenv (g_steal_pointer (&envp), "G_TEST_ROOT_PROCESS");
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  const char *expected_tap_header = "\n1..1\n";
+  const char *interesting_lines = strstr (output, expected_tap_header);
+  g_assert_nonnull (interesting_lines);
+  interesting_lines += strlen (expected_tap_header);
+
+  output_lines = g_strsplit (interesting_lines, "\n", -1);
+  g_assert_cmpuint (g_strv_length (output_lines), >=, 3);
+
+  guint i = 0;
+  g_assert_cmpstr (output_lines[i++], ==, "# Tests that single line message works");
+  g_assert_cmpstr (output_lines[i++], ==, "# test that multiple");
+  g_assert_cmpstr (output_lines[i++], ==, "# lines can be written separately");
+
+  g_free (output);
+  g_strfreev (envp);
+  g_strfreev (output_lines);
+  g_ptr_array_unref (argv);
+}
+
+static void
+test_tap_subtest_print (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+  char **output_lines;
+
+  g_test_summary ("Test the output of g_test_print() from the TAP output of a sub-test.");
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "print");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  const char *expected_tap_header = "\n" TAP_SUBTEST_PREFIX "1..1\n";
+  const char *interesting_lines = strstr (output, expected_tap_header);
+  g_assert_nonnull (interesting_lines);
+  interesting_lines += strlen (expected_tap_header);
+
+  output_lines = g_strsplit (interesting_lines, "\n", -1);
+  g_assert_cmpuint (g_strv_length (output_lines), >=, 3);
+
+  guint i = 0;
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# Tests that single line message works");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# test that multiple");
+  g_assert_cmpstr (output_lines[i++], ==, TAP_SUBTEST_PREFIX "# lines can be written separately");
+
+  g_free (output);
+  g_strfreev (output_lines);
+  g_ptr_array_unref (argv);
+}
+
+static void
+test_tap_subtest_stdout (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+  char **output_lines;
+
+  g_test_summary ("Test the stdout from the TAP output of a sub-test.");
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "subprocess-stdout");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  const char *expected_tap_header = "\n" TAP_SUBTEST_PREFIX "1..1\n";
+  const char *interesting_lines = strstr (output, expected_tap_header);
+  g_assert_nonnull (interesting_lines);
+
+  interesting_lines = strstr (interesting_lines, TAP_SUBTEST_PREFIX "# /sub-stdout");
+  g_assert_nonnull (interesting_lines);
+
+  output_lines = g_strsplit (interesting_lines, "\n", -1);
+  g_assert_cmpuint (g_strv_length (output_lines), >=, 5);
+
+  guint i = 0;
+  g_assert_cmpstr (output_lines[i++], ==,
+                   TAP_SUBTEST_PREFIX "# /sub-stdout: Tests that single line message works");
+  g_assert_cmpstr (output_lines[i++], ==,
+                   TAP_SUBTEST_PREFIX "# test that multiple");
+  g_assert_cmpstr (output_lines[i++], ==,
+                   TAP_SUBTEST_PREFIX "# lines can be written separately");
+  g_assert_cmpstr (output_lines[i++], ==,
+                   TAP_SUBTEST_PREFIX "# And another line has been put");
+  g_assert_cmpstr (output_lines[i++], ==,
+                   TAP_SUBTEST_PREFIX "ok 1 /sub-stdout");
+
+  g_free (output);
+  g_strfreev (output_lines);
+  g_ptr_array_unref (argv);
+}
+
+static void
+test_tap_subtest_stdout_no_new_line (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+  char **output_lines;
+
+  g_test_summary ("Test the stdout from the TAP output of a sub-test.");
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "subprocess-stdout-no-nl");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_no_error (error);
+
+  const char *expected_tap_header = "\n" TAP_SUBTEST_PREFIX "1..1\n";
+  const char *interesting_lines = strstr (output, expected_tap_header);
+  g_assert_nonnull (interesting_lines);
+
+  interesting_lines = strstr (interesting_lines, TAP_SUBTEST_PREFIX "# /sub-stdout-no-nl");
+  g_assert_nonnull (interesting_lines);
+
+  output_lines = g_strsplit (interesting_lines, "\n", -1);
+  g_assert_cmpuint (g_strv_length (output_lines), >=, 2);
+
+  guint i = 0;
+  g_assert_cmpstr (output_lines[i++], ==,
+                   TAP_SUBTEST_PREFIX "# /sub-stdout-no-nl: A message without trailing new line");
+  g_assert_cmpstr (output_lines[i++], ==,
+                   TAP_SUBTEST_PREFIX "ok 1 /sub-stdout-no-nl");
+
+  g_free (output);
+  g_strfreev (output_lines);
+  g_ptr_array_unref (argv);
+}
+
+static void
+test_tap_error (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+  char **envp;
+
+  g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "error");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  /* Remove the G_TEST_ROOT_PROCESS env so it will be considered a standalone test */
+  envp = g_get_environ ();
+  g_assert_nonnull (g_environ_getenv (envp, "G_TEST_ROOT_PROCESS"));
+  envp = g_environ_unsetenv (g_steal_pointer (&envp), "G_TEST_ROOT_PROCESS");
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_nonnull (error);
+
+  g_assert_false (g_str_has_prefix (output, "# Subtest: "));
+
+  const char *expected_tap_header = "\n1..1\n";
+  const char *interesting_lines = strstr (output, expected_tap_header);
+  g_assert_nonnull (interesting_lines);
+  interesting_lines += strlen (expected_tap_header);
+
+  g_assert_cmpstr (interesting_lines, ==, "not ok /error - GLib-FATAL-ERROR: This should error out "
+                   "Because it's just wrong!\n"
+                   "Bail out!\n");
+
+  g_free (output);
+  g_strfreev (envp);
+  g_ptr_array_unref (argv);
+  g_clear_error (&error);
+}
+
+static void
+test_tap_subtest_error (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+
+  g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "error");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_nonnull (error);
+
+  g_assert_true (g_str_has_prefix (output, "# Subtest: "));
+
+  const char *expected_tap_header = "\n" TAP_SUBTEST_PREFIX "1..1\n";
+  const char *interesting_lines = strstr (output, expected_tap_header);
+  g_assert_nonnull (interesting_lines);
+  interesting_lines += strlen (expected_tap_header);
+
+  g_assert_cmpstr (interesting_lines, ==,
+                   TAP_SUBTEST_PREFIX "not ok /error - GLib-FATAL-ERROR: This should error out "
+                   "Because it's just wrong!\n"
+                   TAP_SUBTEST_PREFIX "Bail out!\n");
+
+  g_free (output);
+  g_ptr_array_unref (argv);
+  g_clear_error (&error);
+}
+
+static void
+test_tap_error_and_pass (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+  char **envp;
+
+  g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  /* Remove the G_TEST_ROOT_PROCESS env so it will be considered a standalone test */
+  envp = g_get_environ ();
+  g_assert_nonnull (g_environ_getenv (envp, "G_TEST_ROOT_PROCESS"));
+  envp = g_environ_unsetenv (g_steal_pointer (&envp), "G_TEST_ROOT_PROCESS");
+
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "error-and-pass");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, envp,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_nonnull (error);
+
+  const char *expected_tap_header = "\n1..2\n";
+  const char *interesting_lines = strstr (output, expected_tap_header);
+  g_assert_nonnull (interesting_lines);
+  interesting_lines += strlen (expected_tap_header);
+
+  g_assert_cmpstr (interesting_lines, ==, "not ok /error - GLib-FATAL-ERROR: This should error out "
+                   "Because it's just wrong!\n"
+                   "Bail out!\n");
+
+  g_free (output);
+  g_strfreev (envp);
+  g_ptr_array_unref (argv);
+  g_clear_error (&error);
+}
+
+static void
+test_tap_subtest_error_and_pass (void)
+{
+  const char *testing_helper;
+  GPtrArray *argv;
+  GError *error = NULL;
+  int status;
+  gchar *output;
+
+  g_test_summary ("Test that g_error() generates Bail out TAP output of a test.");
+
+  testing_helper = g_test_get_filename (G_TEST_BUILT, "testing-helper" EXEEXT, NULL);
+
+  argv = g_ptr_array_new ();
+  g_ptr_array_add (argv, (char *) testing_helper);
+  g_ptr_array_add (argv, "error-and-pass");
+  g_ptr_array_add (argv, "--tap");
+  g_ptr_array_add (argv, NULL);
+
+  g_spawn_sync (NULL, (char **) argv->pdata, NULL,
+                G_SPAWN_STDERR_TO_DEV_NULL,
+                NULL, NULL, &output, NULL, &status,
+                &error);
+  g_assert_no_error (error);
+
+  g_spawn_check_wait_status (status, &error);
+  g_assert_nonnull (error);
+
+  g_assert_true (g_str_has_prefix (output, "# Subtest: "));
+
+  const char *expected_tap_header = "\n" TAP_SUBTEST_PREFIX "1..2\n";
+  const char *interesting_lines = strstr (output, expected_tap_header);
+  g_assert_nonnull (interesting_lines);
+  interesting_lines += strlen (expected_tap_header);
+
+  g_assert_cmpstr (interesting_lines, ==,
+                   TAP_SUBTEST_PREFIX "not ok /error - GLib-FATAL-ERROR: This should error out "
+                   "Because it's just wrong!\n"
+                   TAP_SUBTEST_PREFIX "Bail out!\n");
+
+  g_free (output);
+  g_ptr_array_unref (argv);
+  g_clear_error (&error);
 }
 
 static void
@@ -1696,9 +2985,11 @@ main (int   argc,
 #endif
 
   g_test_add_func ("/trap_subprocess/fail", test_subprocess_fail);
+  g_test_add_func ("/trap_subprocess/skip", test_subprocess_skip);
   g_test_add_func ("/trap_subprocess/no-such-test", test_subprocess_no_such_test);
-  if (g_test_slow ())
-    g_test_add_func ("/trap_subprocess/timeout", test_subprocess_timeout);
+  g_test_add_func ("/trap_subprocess/timeout", test_subprocess_timeout);
+  g_test_add_func ("/trap_subprocess/envp", test_subprocess_envp);
+  g_test_add_func ("/trap_subprocess/stdin", test_subprocess_stdin);
 
   g_test_add_func ("/trap_subprocess/patterns", test_subprocess_patterns);
 
@@ -1717,6 +3008,9 @@ main (int   argc,
   g_test_add_func ("/misc/expected-messages/subprocess/unexpected-extra-warning", test_expected_messages_unexpected_extra_warning);
   g_test_add_func ("/misc/expected-messages/expect-error", test_expected_messages_expect_error);
   g_test_add_func ("/misc/expected-messages/skip-debug", test_expected_messages_debug);
+
+  g_test_add_func ("/misc/messages", test_messages);
+  g_test_add_func ("/misc/messages/subprocess/use-stderr", test_messages_use_stderr);
 
   g_test_add_func ("/misc/dash-p", test_dash_p);
   g_test_add_func ("/misc/dash-p/child", test_dash_p_child);
@@ -1738,13 +3032,24 @@ main (int   argc,
   g_test_add_func ("/misc/combining/subprocess/pass", test_pass);
   g_test_add_func ("/misc/fail", test_fail);
   g_test_add_func ("/misc/incomplete", test_incomplete);
-  g_test_add_func ("/misc/timeout", test_subprocess_timed_out);
 
   g_test_add_func ("/misc/path/first", test_path_first);
   g_test_add_func ("/misc/path/second", test_path_second);
 
   g_test_add_func ("/tap", test_tap);
+  g_test_add_func ("/tap/subtest", test_tap_subtest);
   g_test_add_func ("/tap/summary", test_tap_summary);
+  g_test_add_func ("/tap/subtest/summary", test_tap_subtest_summary);
+  g_test_add_func ("/tap/message", test_tap_message);
+  g_test_add_func ("/tap/subtest/message", test_tap_subtest_message);
+  g_test_add_func ("/tap/print", test_tap_print);
+  g_test_add_func ("/tap/subtest/print", test_tap_subtest_print);
+  g_test_add_func ("/tap/subtest/stdout", test_tap_subtest_stdout);
+  g_test_add_func ("/tap/subtest/stdout-no-new-line", test_tap_subtest_stdout_no_new_line);
+  g_test_add_func ("/tap/error", test_tap_error);
+  g_test_add_func ("/tap/subtest/error", test_tap_subtest_error);
+  g_test_add_func ("/tap/error-and-pass", test_tap_error_and_pass);
+  g_test_add_func ("/tap/subtest/error-and-pass", test_tap_subtest_error_and_pass);
 
   g_test_add_func ("/init/no_argv0", test_init_no_argv0);
 

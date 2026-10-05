@@ -36,61 +36,10 @@
 #include "gslice.h"
 
 /**
- * SECTION:linked_lists_single
- * @title: Singly-Linked Lists
- * @short_description: linked lists that can be iterated in one direction
- *
- * The #GSList structure and its associated functions provide a
- * standard singly-linked list data structure. The benefit of this
- * data-structure is to provide insertion/deletion operations in O(1)
- * complexity where access/search operations are in O(n). The benefit
- * of #GSList over #GList (doubly linked list) is that they are lighter
- * in space as they only need to retain one pointer but it double the
- * cost of the worst case access/search operations.
- *
- * Each element in the list contains a piece of data, together with a
- * pointer which links to the next element in the list. Using this
- * pointer it is possible to move through the list in one direction
- * only (unlike the [double-linked lists][glib-Doubly-Linked-Lists],
- * which allow movement in both directions).
- *
- * The data contained in each element can be either integer values, by
- * using one of the [Type Conversion Macros][glib-Type-Conversion-Macros],
- * or simply pointers to any type of data.
- *
- * List elements are allocated from the [slice allocator][glib-Memory-Slices],
- * which is more efficient than allocating elements individually.
- *
- * Note that most of the #GSList functions expect to be passed a
- * pointer to the first element in the list. The functions which insert
- * elements return the new start of the list, which may have changed.
- *
- * There is no function to create a #GSList. %NULL is considered to be
- * the empty list so you simply set a #GSList* to %NULL.
- *
- * To add elements, use g_slist_append(), g_slist_prepend(),
- * g_slist_insert() and g_slist_insert_sorted().
- *
- * To remove elements, use g_slist_remove().
- *
- * To find elements in the list use g_slist_last(), g_slist_next(),
- * g_slist_nth(), g_slist_nth_data(), g_slist_find() and
- * g_slist_find_custom().
- *
- * To find the index of an element use g_slist_position() and
- * g_slist_index().
- *
- * To call a function for each element in the list use
- * g_slist_foreach().
- *
- * To free the entire list, use g_slist_free().
- **/
-
-/**
  * GSList:
  * @data: holds the element's data, which can be a pointer to any kind
  *        of data, or any integer value using the
- *        [Type Conversion Macros][glib-Type-Conversion-Macros]
+ *        [Type Conversion Macros](conversion-macros.html#conversion-macros)
  * @next: contains the link to the next element in the list.
  *
  * The #GSList struct is used for each element in the singly-linked
@@ -203,13 +152,13 @@ g_slist_free_full (GSList         *list,
 
 /**
  * g_slist_append:
- * @list: a #GSList
+ * @list: (nullable): a #GSList
  * @data: the data for the new element
  *
  * Adds a new element on to the end of the list.
  *
- * The return value is the new start of the list, which may
- * have changed, so make sure you store the new value.
+ * Note that the return value is the new start of the list
+ * if @list was empty; make sure you store the new value.
  *
  * Note that g_slist_append() has to traverse the entire list
  * to find the end, which is inefficient when adding multiple
@@ -229,7 +178,7 @@ g_slist_free_full (GSList         *list,
  * number_list = g_slist_append (number_list, GINT_TO_POINTER (14));
  * ]|
  *
- * Returns: the new start of the #GSList
+ * Returns: either @list or the new start of the #GSList if @list was %NULL
  */
 GSList*
 g_slist_append (GSList   *list,
@@ -256,13 +205,13 @@ g_slist_append (GSList   *list,
 
 /**
  * g_slist_prepend:
- * @list: a #GSList
+ * @list: (nullable): a #GSList
  * @data: the data for the new element
  *
  * Adds a new element on to the start of the list.
  *
- * The return value is the new start of the list, which
- * may have changed, so make sure you store the new value.
+ * Note that the return value is the new start of the list, 
+ * which will have changed, so make sure you store the new value.
  *
  * |[<!-- language="C" --> 
  * // Notice that it is initialized to the empty list.
@@ -271,7 +220,8 @@ g_slist_append (GSList   *list,
  * list = g_slist_prepend (list, "first");
  * ]|
  *
- * Returns: the new start of the #GSList
+ * Returns: a pointer to the newly prepended element, 
+ * which is the new start of the #GSList
  */
 GSList*
 g_slist_prepend (GSList   *list,
@@ -288,7 +238,7 @@ g_slist_prepend (GSList   *list,
 
 /**
  * g_slist_insert:
- * @list: a #GSList
+ * @list: (nullable): a #GSList
  * @data: the data for the new element
  * @position: the position to insert the element.
  *     If this is negative, or is larger than the number
@@ -297,7 +247,7 @@ g_slist_prepend (GSList   *list,
  *
  * Inserts a new element into the list at the given position.
  *
- * Returns: the new start of the #GSList
+ * Returns: the (possibly changed) start of the #GSList
  */
 GSList*
 g_slist_insert (GSList   *list,
@@ -339,7 +289,7 @@ g_slist_insert (GSList   *list,
 
 /**
  * g_slist_insert_before:
- * @slist: a #GSList
+ * @slist: (nullable): a #GSList
  * @sibling: node to insert @data before
  * @data: data to put in the newly-inserted node
  *
@@ -572,7 +522,7 @@ g_slist_copy (GSList *list)
 /**
  * g_slist_copy_deep:
  * @list: a #GSList
- * @func: a copy function used to copy every element in the list
+ * @func: (scope call): a copy function used to copy every element in the list
  * @user_data: user data passed to the copy function @func, or #NULL
  *
  * Makes a full (deep) copy of a #GSList.
@@ -728,7 +678,7 @@ g_slist_find (GSList        *list,
  * g_slist_find_custom:
  * @list: a #GSList
  * @data: user data passed to the function
- * @func: the function to call for each element.
+ * @func: (scope call): the function to call for each element.
  *     It should return 0 when the desired element is found
  *
  * Finds an element in a #GSList, using a supplied function to
@@ -868,7 +818,7 @@ g_slist_length (GSList *list)
 /**
  * g_slist_foreach:
  * @list: a #GSList
- * @func: the function to call with each element's data
+ * @func: (scope call): the function to call with each element's data
  * @user_data: user data to pass to the function
  *
  * Calls a function for each element of a #GSList.
@@ -947,7 +897,7 @@ g_slist_insert_sorted_real (GSList   *list,
  * g_slist_insert_sorted:
  * @list: a #GSList
  * @data: the data for the new element
- * @func: the function to compare elements in the list.
+ * @func: (scope call): the function to compare elements in the list.
  *     It should return a number > 0 if the first parameter
  *     comes after the second parameter in the sort order.
  *
@@ -968,7 +918,7 @@ g_slist_insert_sorted (GSList       *list,
  * g_slist_insert_sorted_with_data:
  * @list: a #GSList
  * @data: the data for the new element
- * @func: the function to compare elements in the list.
+ * @func: (scope call): the function to compare elements in the list.
  *     It should return a number > 0 if the first parameter
  *     comes after the second parameter in the sort order.
  * @user_data: data to pass to comparison function
@@ -1053,7 +1003,7 @@ g_slist_sort_real (GSList   *list,
 /**
  * g_slist_sort:
  * @list: a #GSList
- * @compare_func: the comparison function used to sort the #GSList.
+ * @compare_func: (scope call): the comparison function used to sort the #GSList.
  *     This function is passed the data from 2 elements of the #GSList
  *     and should return 0 if they are equal, a negative value if the
  *     first element comes before the second, or a positive value if
@@ -1074,7 +1024,7 @@ g_slist_sort (GSList       *list,
 /**
  * g_slist_sort_with_data:
  * @list: a #GSList
- * @compare_func: comparison function
+ * @compare_func: (scope call): comparison function
  * @user_data: data to pass to comparison function
  *
  * Like g_slist_sort(), but the sort function accepts a user data argument.

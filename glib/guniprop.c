@@ -573,7 +573,7 @@ g_unichar_toupper (gunichar c)
       gunichar val = ATTTABLE (c >> 8, c & 0xff);
       if (val >= 0x1000000)
 	{
-	  const gchar *p = special_case_table + val - 0x1000000;
+          const gchar *p = special_case_table + (val - 0x1000000);
           val = g_utf8_get_char (p);
 	}
       /* Some lowercase letters, e.g., U+000AA, FEMININE ORDINAL INDICATOR,
@@ -613,8 +613,8 @@ g_unichar_tolower (gunichar c)
       gunichar val = ATTTABLE (c >> 8, c & 0xff);
       if (val >= 0x1000000)
 	{
-	  const gchar *p = special_case_table + val - 0x1000000;
-	  return g_utf8_get_char (p);
+          const gchar *p = special_case_table + (val - 0x1000000);
+          return g_utf8_get_char (p);
 	}
       else
 	{
@@ -772,22 +772,47 @@ get_locale_type (void)
   return LOCALE_NORMAL;
 }
 
-static gint
-output_marks (const char **p_inout,
-	      char        *out_buffer,
-	      gboolean     remove_dot)
+G_ALWAYS_INLINE static inline void
+increase_size (size_t *sizeptr, size_t add)
+{
+  g_assert (G_MAXSIZE - *(sizeptr) >= add);
+  *(sizeptr) += add;
+}
+
+G_ALWAYS_INLINE static inline void
+append_utf8_char_to_buffer (gunichar  c,
+                            char     *out_buffer,
+                            size_t   *in_out_len)
+{
+  gint utf8_len;
+  char *buffer;
+
+  buffer = out_buffer ? out_buffer + *(in_out_len) : NULL;
+  utf8_len = g_unichar_to_utf8 (c, buffer);
+
+  g_assert (utf8_len >= 0);
+  increase_size (in_out_len, utf8_len);
+}
+
+static void
+append_mark (const char **p_inout,
+             char        *out_buffer,
+             size_t      *in_out_len,
+             const char  *limit,
+             gboolean     remove_dot)
 {
   const char *p = *p_inout;
-  gint len = 0;
-  
-  while (*p)
+
+  while (p < limit && *p)
     {
       gunichar c = g_utf8_get_char (p);
       
       if (ISMARK (TYPE (c)))
 	{
+          if (g_utf8_next_char (p) > limit)
+            break;
 	  if (!remove_dot || c != 0x307 /* COMBINING DOT ABOVE */)
-	    len += g_unichar_to_utf8 (c, out_buffer ? out_buffer + len : NULL);
+            append_utf8_char_to_buffer (c, out_buffer, in_out_len);
 	  p = g_utf8_next_char (p);
 	}
       else
@@ -795,17 +820,17 @@ output_marks (const char **p_inout,
     }
 
   *p_inout = p;
-  return len;
 }
 
-static gint
-output_special_case (gchar *out_buffer,
-		     int    offset,
-		     int    type,
-		     int    which)
+static void
+append_special_case (char   *out_buffer,
+                     size_t *in_out_len,
+                     int     offset,
+                     int     type,
+                     int     which)
 {
   const gchar *p = special_case_table + offset;
-  gint len;
+  size_t len;
 
   if (type != G_UNICODE_TITLECASE_LETTER)
     p = g_utf8_next_char (p);
@@ -814,10 +839,12 @@ output_special_case (gchar *out_buffer,
     p += strlen (p) + 1;
 
   len = strlen (p);
-  if (out_buffer)
-    memcpy (out_buffer, p, len);
+  g_assert (len < G_MAXSIZE - *in_out_len);
 
-  return len;
+  if (out_buffer)
+    memcpy (out_buffer + *in_out_len, p, len);
+
+  increase_size (in_out_len, len);
 }
 
 static gsize
@@ -827,6 +854,7 @@ real_toupper (const gchar *str,
 	      LocaleType   locale_type)
 {
   const gchar *p = str;
+  const gchar *limit = (max_len < 0) ? (gpointer) G_MAXSIZE : str + max_len;
   const char *last = NULL;
   gsize len = 0;
   gboolean last_was_i = FALSE;
@@ -858,11 +886,13 @@ real_toupper (const gchar *str,
 		  decomp_len = g_unichar_fully_decompose (c, FALSE, decomp, G_N_ELEMENTS (decomp));
 		  for (i=0; i < decomp_len; i++)
 		    {
+
 		      if (decomp[i] != 0x307 /* COMBINING DOT ABOVE */)
-			len += g_unichar_to_utf8 (g_unichar_toupper (decomp[i]), out_buffer ? out_buffer + len : NULL);
+                        append_utf8_char_to_buffer (g_unichar_toupper (decomp[i]),
+                                                    out_buffer, &len);
 		    }
-		  
-		  len += output_marks (&p, out_buffer ? out_buffer + len : NULL, TRUE);
+
+                  append_mark (&p, out_buffer, &len, limit, TRUE);
 
 		  continue;
 		}
@@ -875,17 +905,17 @@ real_toupper (const gchar *str,
       if (locale_type == LOCALE_TURKIC && c == 'i')
 	{
 	  /* i => LATIN CAPITAL LETTER I WITH DOT ABOVE */
-	  len += g_unichar_to_utf8 (0x130, out_buffer ? out_buffer + len : NULL); 
+          append_utf8_char_to_buffer (0x130, out_buffer, &len);
 	}
       else if (c == 0x0345)	/* COMBINING GREEK YPOGEGRAMMENI */
 	{
 	  /* Nasty, need to move it after other combining marks .. this would go away if
 	   * we normalized first.
 	   */
-	  len += output_marks (&p, out_buffer ? out_buffer + len : NULL, FALSE);
+          append_mark (&p, out_buffer, &len, limit, TRUE);
 
 	  /* And output as GREEK CAPITAL LETTER IOTA */
-	  len += g_unichar_to_utf8 (0x399, out_buffer ? out_buffer + len : NULL); 	  
+          append_utf8_char_to_buffer (0x399, out_buffer, &len);
 	}
       else if (IS (t,
 		   OR (G_UNICODE_LOWERCASE_LETTER,
@@ -896,8 +926,8 @@ real_toupper (const gchar *str,
 
 	  if (val >= 0x1000000)
 	    {
-	      len += output_special_case (out_buffer ? out_buffer + len : NULL, val - 0x1000000, t,
-					  t == G_UNICODE_LOWERCASE_LETTER ? 0 : 1);
+              append_special_case (out_buffer, &len, val - 0x1000000, t,
+                                   t == G_UNICODE_LOWERCASE_LETTER ? 0 : 1);
 	    }
 	  else
 	    {
@@ -917,7 +947,7 @@ real_toupper (const gchar *str,
 	      /* Some lowercase letters, e.g., U+000AA, FEMININE ORDINAL INDICATOR,
 	       * do not have an uppercase equivalent, in which case val will be
 	       * zero. */
-	      len += g_unichar_to_utf8 (val ? val : c, out_buffer ? out_buffer + len : NULL);
+              append_utf8_char_to_buffer (val ? val : c, out_buffer, &len);
 	    }
 	}
       else
@@ -927,7 +957,7 @@ real_toupper (const gchar *str,
 	  if (out_buffer)
 	    memcpy (out_buffer + len, last, char_len);
 
-	  len += char_len;
+          increase_size (&len, char_len);
 	}
 
     }
@@ -958,6 +988,7 @@ g_utf8_strup (const gchar *str,
   gchar *result;
 
   g_return_val_if_fail (str != NULL, NULL);
+  g_return_val_if_fail (len < 0 || (gsize) len <= G_MAXSIZE - (guintptr) str, NULL);
 
   locale_type = get_locale_type ();
   
@@ -965,6 +996,8 @@ g_utf8_strup (const gchar *str,
    * We use a two pass approach to keep memory management simple
    */
   result_len = real_toupper (str, len, NULL, locale_type);
+  g_assert (result_len < G_MAXSIZE);
+
   result = g_malloc (result_len + 1);
   real_toupper (str, len, result, locale_type);
   result[result_len] = '\0';
@@ -975,19 +1008,21 @@ g_utf8_strup (const gchar *str,
 /* traverses the string checking for characters with combining class == 230
  * until a base character is found */
 static gboolean
-has_more_above (const gchar *str)
+has_more_above (const gchar *str,
+                const gchar *limit)
 {
   const gchar *p = str;
   gint combining_class;
 
-  while (*p)
+  while (p < limit && *p)
     {
       combining_class = g_unichar_combining_class (g_utf8_get_char (p));
       if (combining_class == 230)
         return TRUE;
       else if (combining_class == 0)
         break;
-
+      if (g_utf8_next_char (p) > limit)
+        break;
       p = g_utf8_next_char (p);
     }
 
@@ -1001,6 +1036,7 @@ real_tolower (const gchar *str,
 	      LocaleType   locale_type)
 {
   const gchar *p = str;
+  const gchar *limit = (max_len < 0) ? (gpointer) G_MAXSIZE : str + max_len;
   const char *last = NULL;
   gsize len = 0;
 
@@ -1016,20 +1052,22 @@ real_tolower (const gchar *str,
       if (locale_type == LOCALE_TURKIC && (c == 'I' || c == 0x130 ||
                                            c == G_UNICHAR_FULLWIDTH_I))
         {
-          gboolean combining_dot = (c == 'I' || c == G_UNICHAR_FULLWIDTH_I) &&
+          gboolean combining_dot = (p < limit) &&
+                                   (c == 'I' || c == G_UNICHAR_FULLWIDTH_I) &&
                                    g_utf8_get_char (p) == 0x0307;
           if (combining_dot || c == 0x130)
             {
               /* I + COMBINING DOT ABOVE => i (U+0069)
                * LATIN CAPITAL LETTER I WITH DOT ABOVE => i (U+0069) */
-              len += g_unichar_to_utf8 (0x0069, out_buffer ? out_buffer + len : NULL);
+              append_utf8_char_to_buffer (0x0069, out_buffer, &len);
+
               if (combining_dot)
                 p = g_utf8_next_char (p);
             }
           else
             {
               /* I => LATIN SMALL LETTER DOTLESS I */
-              len += g_unichar_to_utf8 (0x131, out_buffer ? out_buffer + len : NULL); 
+              append_utf8_char_to_buffer (0x131, out_buffer, &len);
             }
         }
       /* Introduce an explicit dot above when lowercasing capital I's and J's
@@ -1037,29 +1075,29 @@ real_tolower (const gchar *str,
       else if (locale_type == LOCALE_LITHUANIAN && 
                (c == 0x00cc || c == 0x00cd || c == 0x0128))
         {
-          len += g_unichar_to_utf8 (0x0069, out_buffer ? out_buffer + len : NULL); 
-          len += g_unichar_to_utf8 (0x0307, out_buffer ? out_buffer + len : NULL); 
+          append_utf8_char_to_buffer (0x0069, out_buffer, &len);
+          append_utf8_char_to_buffer (0x0307, out_buffer, &len);
 
           switch (c)
             {
             case 0x00cc: 
-              len += g_unichar_to_utf8 (0x0300, out_buffer ? out_buffer + len : NULL); 
+              append_utf8_char_to_buffer (0x0300, out_buffer, &len);
               break;
             case 0x00cd: 
-              len += g_unichar_to_utf8 (0x0301, out_buffer ? out_buffer + len : NULL); 
+              append_utf8_char_to_buffer (0x0301, out_buffer, &len);
               break;
             case 0x0128: 
-              len += g_unichar_to_utf8 (0x0303, out_buffer ? out_buffer + len : NULL); 
+              append_utf8_char_to_buffer (0x0303, out_buffer, &len);
               break;
             }
         }
       else if (locale_type == LOCALE_LITHUANIAN && 
                (c == 'I' || c == G_UNICHAR_FULLWIDTH_I ||
                 c == 'J' || c == G_UNICHAR_FULLWIDTH_J || c == 0x012e) &&
-               has_more_above (p))
+               has_more_above (p, limit))
         {
-          len += g_unichar_to_utf8 (g_unichar_tolower (c), out_buffer ? out_buffer + len : NULL); 
-          len += g_unichar_to_utf8 (0x0307, out_buffer ? out_buffer + len : NULL); 
+          append_utf8_char_to_buffer (g_unichar_tolower (c), out_buffer, &len);
+          append_utf8_char_to_buffer (0x0307, out_buffer, &len);
         }
       else if (c == 0x03A3)	/* GREEK CAPITAL LETTER SIGMA */
 	{
@@ -1082,7 +1120,7 @@ real_tolower (const gchar *str,
 	  else
 	    val = 0x3c2;	/* GREEK SMALL FINAL SIGMA */
 
-	  len += g_unichar_to_utf8 (val, out_buffer ? out_buffer + len : NULL);
+          append_utf8_char_to_buffer (val, out_buffer, &len);
 	}
       else if (IS (t,
 		   OR (G_UNICODE_UPPERCASE_LETTER,
@@ -1093,7 +1131,7 @@ real_tolower (const gchar *str,
 
 	  if (val >= 0x1000000)
 	    {
-	      len += output_special_case (out_buffer ? out_buffer + len : NULL, val - 0x1000000, t, 0);
+              append_special_case (out_buffer, &len, val - 0x1000000, t, 0);
 	    }
 	  else
 	    {
@@ -1112,7 +1150,7 @@ real_tolower (const gchar *str,
 
 	      /* Not all uppercase letters are guaranteed to have a lowercase
 	       * equivalent.  If this is the case, val will be zero. */
-	      len += g_unichar_to_utf8 (val ? val : c, out_buffer ? out_buffer + len : NULL);
+              append_utf8_char_to_buffer (val ? val : c, out_buffer, &len);
 	    }
 	}
       else
@@ -1122,7 +1160,7 @@ real_tolower (const gchar *str,
 	  if (out_buffer)
 	    memcpy (out_buffer + len, last, char_len);
 
-	  len += char_len;
+          increase_size (&len, char_len);
 	}
 
     }
@@ -1152,6 +1190,7 @@ g_utf8_strdown (const gchar *str,
   gchar *result;
 
   g_return_val_if_fail (str != NULL, NULL);
+  g_return_val_if_fail (len < 0 || (gsize) len <= G_MAXSIZE - (guintptr) str, NULL);
 
   locale_type = get_locale_type ();
   
@@ -1159,6 +1198,8 @@ g_utf8_strdown (const gchar *str,
    * We use a two pass approach to keep memory management simple
    */
   result_len = real_tolower (str, len, NULL, locale_type);
+  g_assert (result_len < G_MAXSIZE);
+
   result = g_malloc (result_len + 1);
   real_tolower (str, len, result, locale_type);
   result[result_len] = '\0';
@@ -1194,6 +1235,7 @@ g_utf8_casefold (const gchar *str,
   const char *p;
 
   g_return_val_if_fail (str != NULL, NULL);
+  g_return_val_if_fail (len < 0 || (gsize) len <= G_MAXSIZE - (guintptr) str, NULL);
 
   result = g_string_new (NULL);
   p = str;
@@ -1236,7 +1278,7 @@ g_utf8_casefold (const gchar *str,
 /**
  * g_unichar_get_mirror_char:
  * @ch: a Unicode character
- * @mirrored_ch: location to store the mirrored character
+ * @mirrored_ch: (out): location to store the mirrored character
  * 
  * In Unicode, some characters are "mirrored". This means that their
  * images are mirrored horizontally in text that is laid out from right
@@ -1526,6 +1568,20 @@ static const guint32 iso15924_tags[] =
     /* Unicode 15.0 additions */
     PACK ('K', 'a', 'w', 'i'), /* G_UNICODE_SCRIPT_KAWI */
     PACK ('N', 'a', 'g', 'm'), /* G_UNICODE_SCRIPT_NAG_MUNDARI */
+
+    /* Unicode 16.0 additions */
+    PACK ('T', 'o', 'd', 'r'), /* G_UNICODE_SCRIPT_TODHRI */
+    PACK ('G', 'a', 'r', 'a'), /* G_UNICODE_SCRIPT_GARAY */
+    PACK ('T', 'u', 't', 'g'), /* G_UNICODE_SCRIPT_TULU_TIGALARI */
+    PACK ('S', 'u', 'n', 'u'), /* G_UNICODE_SCRIPT_SUNUWAR */
+    PACK ('G', 'u', 'k', 'h'), /* G_UNICODE_SCRIPT_GURUNG_KHEMA */
+    PACK ('K', 'r', 'a', 'i'), /* G_UNICODE_SCRIPT_KIRAT_RAI */
+    PACK ('O', 'n', 'a', 'o'), /* G_UNICODE_SCRIPT_OL_ONAL */
+
+    PACK ('S', 'i', 'd', 't'), /* G_UNICODE_SCRIPT_SIDETIC */
+    PACK ('T', 'o', 'l', 's'), /* G_UNICODE_SCRIPT_TOLONG_SIKI */
+    PACK ('T', 'a', 'y', 'o'), /* G_UNICODE_SCRIPT_TAI_YO */
+    PACK ('B', 'e', 'r', 'f'), /* G_UNICODE_SCRIPT_BERIA_ERFE */
 
 #undef PACK
 };

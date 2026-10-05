@@ -40,7 +40,7 @@ G_BEGIN_DECLS
  * G_PROXY_RESOLVER_EXTENSION_POINT_NAME:
  *
  * Extension point for proxy resolving functionality.
- * See [Extending GIO][extending-gio].
+ * See [Extending GIO](overview.html#extending-gio).
  */
 #define G_PROXY_RESOLVER_EXTENSION_POINT_NAME "gio-proxy-resolver"
 
@@ -69,7 +69,7 @@ struct _GProxyResolverInterface {
 };
 
 GIO_AVAILABLE_IN_ALL
-GType		g_proxy_resolver_get_type       (void) G_GNUC_CONST;
+GType		g_proxy_resolver_get_type       (void);
 GIO_AVAILABLE_IN_ALL
 GProxyResolver *g_proxy_resolver_get_default    (void);
 

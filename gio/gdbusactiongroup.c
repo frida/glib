@@ -29,22 +29,13 @@
 #include "gactiongroup.h"
 
 /**
- * SECTION:gdbusactiongroup
- * @title: GDBusActionGroup
- * @short_description: A D-Bus GActionGroup implementation
- * @include: gio/gio.h
- * @see_also: [GActionGroup exporter][gio-GActionGroup-exporter]
- *
- * #GDBusActionGroup is an implementation of the #GActionGroup
- * interface that can be used as a proxy for an action group
- * that is exported over D-Bus with g_dbus_connection_export_action_group().
- */
-
-/**
  * GDBusActionGroup:
  *
- * #GDBusActionGroup is an opaque data structure and can only be accessed
- * using the following functions.
+ * `GDBusActionGroup` is an implementation of the [iface@Gio.ActionGroup]
+ * interface.
+ *
+ * `GDBusActionGroup` can be used as a proxy for an action group
+ * that is exported over D-Bus with [method@Gio.DBusConnection.export_action_group].
  */
 
 struct _GDBusActionGroup
@@ -73,8 +64,6 @@ struct _GDBusActionGroup
    */
   gboolean         strict;
 };
-
-typedef GObjectClass GDBusActionGroupClass;
 
 typedef struct
 {
@@ -305,7 +294,7 @@ g_dbus_action_group_list_actions (GActionGroup *g_group)
   if (group->actions != NULL)
     {
       GHashTableIter iter;
-      gint n, i = 0;
+      unsigned int n, i = 0;
       gpointer key;
 
       n = g_hash_table_size (group->actions);
@@ -314,7 +303,7 @@ g_dbus_action_group_list_actions (GActionGroup *g_group)
       g_hash_table_iter_init (&iter, group->actions);
       while (g_hash_table_iter_next (&iter, &key, NULL))
         keys[i++] = g_strdup (key);
-      g_assert_cmpint (i, ==, n);
+      g_assert (i == n);
       keys[n] = NULL;
     }
   else
@@ -385,7 +374,7 @@ g_dbus_action_group_activate_action_full (GRemoteActionGroup *remote,
   GDBusActionGroup *group = G_DBUS_ACTION_GROUP (remote);
   GVariantBuilder builder;
 
-  g_variant_builder_init (&builder, G_VARIANT_TYPE ("av"));
+  g_variant_builder_init_static (&builder, G_VARIANT_TYPE ("av"));
 
   if (parameter)
     g_variant_builder_add (&builder, "v", parameter);
@@ -432,7 +421,7 @@ g_dbus_action_group_finalize (GObject *object)
   GDBusActionGroup *group = G_DBUS_ACTION_GROUP (object);
 
   if (group->subscription_id)
-    g_dbus_connection_signal_unsubscribe (group->connection, group->subscription_id);
+    g_dbus_connection_signal_unsubscribe (group->connection, g_steal_handle_id (&group->subscription_id));
 
   if (group->actions)
     g_hash_table_unref (group->actions);

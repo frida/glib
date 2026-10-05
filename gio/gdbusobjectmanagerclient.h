@@ -37,14 +37,6 @@ G_BEGIN_DECLS
 typedef struct _GDBusObjectManagerClientClass   GDBusObjectManagerClientClass;
 typedef struct _GDBusObjectManagerClientPrivate GDBusObjectManagerClientPrivate;
 
-/**
- * GDBusObjectManagerClient:
-  *
- * The #GDBusObjectManagerClient structure contains private data and should
- * only be accessed using the provided API.
- *
- * Since: 2.30
- */
 struct _GDBusObjectManagerClient
 {
   /*< private >*/
@@ -85,7 +77,7 @@ struct _GDBusObjectManagerClientClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType                         g_dbus_object_manager_client_get_type           (void) G_GNUC_CONST;
+GType                         g_dbus_object_manager_client_get_type           (void);
 GIO_AVAILABLE_IN_ALL
 void                          g_dbus_object_manager_client_new                (GDBusConnection               *connection,
                                                                                GDBusObjectManagerClientFlags  flags,

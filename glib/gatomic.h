@@ -83,16 +83,16 @@ GLIB_AVAILABLE_IN_2_74
 gpointer                g_atomic_pointer_exchange             (void           *atomic,
                                                                gpointer        newval);
 GLIB_AVAILABLE_IN_ALL
-gssize                  g_atomic_pointer_add                  (volatile void  *atomic,
+gintptr                 g_atomic_pointer_add                  (volatile void  *atomic,
                                                                gssize          val);
 GLIB_AVAILABLE_IN_2_30
-gsize                   g_atomic_pointer_and                  (volatile void  *atomic,
+guintptr                g_atomic_pointer_and                  (volatile void  *atomic,
                                                                gsize           val);
 GLIB_AVAILABLE_IN_2_30
-gsize                   g_atomic_pointer_or                   (volatile void  *atomic,
+guintptr                g_atomic_pointer_or                   (volatile void  *atomic,
                                                                gsize           val);
 GLIB_AVAILABLE_IN_ALL
-gsize                   g_atomic_pointer_xor                  (volatile void  *atomic,
+guintptr                g_atomic_pointer_xor                  (volatile void  *atomic,
                                                                gsize           val);
 
 GLIB_DEPRECATED_IN_2_30_FOR(g_atomic_int_add)
@@ -144,7 +144,7 @@ G_END_DECLS
   (G_GNUC_EXTENSION ({                                                       \
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
     gpointer gapg_temp_newval;                                               \
-    gpointer *gapg_temp_atomic G_GNUC_UNUSED = (gpointer *)(atomic);         \
+    gpointer *gapg_temp_atomic = (gpointer *)(atomic);                       \
     __atomic_load (gapg_temp_atomic, &gapg_temp_newval, __ATOMIC_SEQ_CST);   \
     gapg_temp_newval;                                                        \
   }))
@@ -170,7 +170,7 @@ G_END_DECLS
     (void) (0 ? *(atomic) ^ *(atomic) : 1);                                  \
     __atomic_fetch_sub ((atomic), 1, __ATOMIC_SEQ_CST) == 1;                 \
   }))
-#if defined(glib_typeof) && defined(__cplusplus)
+#if defined(glib_typeof) && defined(G_CXX_STD_VERSION)
 /* See comments below about equivalent g_atomic_pointer_compare_and_exchange()
  * shenanigans for type-safety when compiling in C++ mode. */
 #define g_atomic_int_compare_and_exchange(atomic, oldval, newval) \
@@ -180,7 +180,7 @@ G_END_DECLS
     (void) (0 ? *(atomic) ^ (newval) ^ (oldval) : 1);                        \
     __atomic_compare_exchange_n ((atomic), &gaicae_oldval, (newval), FALSE, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST) ? TRUE : FALSE; \
   }))
-#else /* if !(defined(glib_typeof) && defined(__cplusplus)) */
+#else /* if !(defined(glib_typeof) && defined(G_CXX_STD_VERSION)) */
 #define g_atomic_int_compare_and_exchange(atomic, oldval, newval) \
   (G_GNUC_EXTENSION ({                                                       \
     gint gaicae_oldval = (oldval);                                           \
@@ -230,7 +230,7 @@ G_END_DECLS
     (guint) __atomic_fetch_xor ((atomic), (val), __ATOMIC_SEQ_CST);          \
   }))
 
-#if defined(glib_typeof) && defined(__cplusplus)
+#if defined(glib_typeof) && defined(G_CXX_STD_VERSION)
 /* This is typesafe because we check we can assign oldval to the type of
  * (*atomic). Unfortunately it can only be done in C++ because gcc/clang warn
  * when atomic is volatile and not oldval, or when atomic is gsize* and oldval
@@ -248,7 +248,7 @@ G_END_DECLS
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
     __atomic_compare_exchange_n ((atomic), &gapcae_oldval, (newval), FALSE, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST) ? TRUE : FALSE; \
   }))
-#else /* if !(defined(glib_typeof) && defined(__cplusplus) */
+#else /* if !(defined(glib_typeof) && defined(G_CXX_STD_VERSION) */
 #define g_atomic_pointer_compare_and_exchange(atomic, oldval, newval) \
   (G_GNUC_EXTENSION ({                                                       \
     G_STATIC_ASSERT (sizeof (oldval) == sizeof (gpointer));                  \
@@ -280,34 +280,34 @@ G_END_DECLS
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
     (void) (0 ? (val) ^ (val) : 1);                                          \
-    (gssize) __atomic_fetch_add ((atomic), (val), __ATOMIC_SEQ_CST);         \
+    (gintptr) __atomic_fetch_add ((atomic), (val), __ATOMIC_SEQ_CST);        \
   }))
 #define g_atomic_pointer_and(atomic, val) \
   (G_GNUC_EXTENSION ({                                                       \
-    gsize *gapa_atomic = (gsize *) (atomic);                                 \
+    guintptr *gapa_atomic = (guintptr *) (atomic);                           \
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
-    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gsize));                    \
+    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (guintptr));                 \
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
     (void) (0 ? (val) ^ (val) : 1);                                          \
-    (gsize) __atomic_fetch_and (gapa_atomic, (val), __ATOMIC_SEQ_CST);       \
+    (guintptr) __atomic_fetch_and (gapa_atomic, (val), __ATOMIC_SEQ_CST);    \
   }))
 #define g_atomic_pointer_or(atomic, val) \
   (G_GNUC_EXTENSION ({                                                       \
-    gsize *gapo_atomic = (gsize *) (atomic);                                 \
+    guintptr *gapo_atomic = (guintptr *) (atomic);                           \
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
-    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gsize));                    \
+    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (guintptr));                 \
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
     (void) (0 ? (val) ^ (val) : 1);                                          \
-    (gsize) __atomic_fetch_or (gapo_atomic, (val), __ATOMIC_SEQ_CST);        \
+    (guintptr) __atomic_fetch_or (gapo_atomic, (val), __ATOMIC_SEQ_CST);     \
   }))
 #define g_atomic_pointer_xor(atomic, val) \
   (G_GNUC_EXTENSION ({                                                       \
-    gsize *gapx_atomic = (gsize *) (atomic);                                 \
+    guintptr *gapx_atomic = (guintptr *) (atomic);                           \
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
-    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gsize));                    \
+    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (guintptr));                 \
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
     (void) (0 ? (val) ^ (val) : 1);                                          \
-    (gsize) __atomic_fetch_xor (gapx_atomic, (val), __ATOMIC_SEQ_CST);       \
+    (guintptr) __atomic_fetch_xor (gapx_atomic, (val), __ATOMIC_SEQ_CST);    \
   }))
 
 #else /* defined(__ATOMIC_SEQ_CST) */
@@ -350,6 +350,14 @@ G_END_DECLS
     __asm__ __volatile__ ("" : : : "memory");                                \
     gaig_result;                                                             \
   }))
+#if defined(_GLIB_GCC_HAVE_SYNC_SWAP)
+#define g_atomic_int_set(atomic, newval) \
+  (G_GNUC_EXTENSION ({                                                       \
+    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gint));                     \
+    (void) (0 ? *(atomic) ^ (newval) : 1);                                   \
+    (void) __sync_swap ((atomic), (newval));                                 \
+  }))
+#else /* !_GLIB_GCC_HAVE_SYNC_SWAP */
 #define g_atomic_int_set(atomic, newval) \
   (G_GNUC_EXTENSION ({                                                       \
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gint));                     \
@@ -357,7 +365,10 @@ G_END_DECLS
     __sync_synchronize ();                                                   \
     __asm__ __volatile__ ("" : : : "memory");                                \
     *(atomic) = (newval);                                                    \
+    __asm__ __volatile__ ("" : : : "memory");                                \
+    __sync_synchronize ();                                                   \
   }))
+#endif /* !_GLIB_GCC_HAVE_SYNC_SWAP */
 #define g_atomic_pointer_get(atomic) \
   (G_GNUC_EXTENSION ({                                                       \
     gpointer gapg_result;                                                    \
@@ -367,6 +378,14 @@ G_END_DECLS
     __asm__ __volatile__ ("" : : : "memory");                                \
     gapg_result;                                                             \
   }))
+#if defined(_GLIB_GCC_HAVE_SYNC_SWAP)
+#define g_atomic_pointer_set(atomic, newval) \
+  (G_GNUC_EXTENSION ({                                                       \
+    G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
+    (void) (0 ? (gpointer) *(atomic) : NULL);                                \
+    (void) __sync_swap ((atomic), (newval));                                 \
+  }))
+#else /* ! _GLIB_GCC_HAVE_SYNC_SWAP */
 #if defined(glib_typeof)
 #define g_atomic_pointer_set(atomic, newval) \
   (G_GNUC_EXTENSION ({                                                       \
@@ -374,18 +393,23 @@ G_END_DECLS
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
     __sync_synchronize ();                                                   \
     __asm__ __volatile__ ("" : : : "memory");                                \
-    *(atomic) = (glib_typeof (*(atomic))) (gsize) (newval);                  \
+    *(atomic) = (glib_typeof (*(atomic))) (guintptr) (newval);               \
+    __asm__ __volatile__ ("" : : : "memory");                                \
+    __sync_synchronize ();                                                   \
   }))
-#else /* if !(defined(glib_typeof) */
+#else /* ! glib_typeof */
 #define g_atomic_pointer_set(atomic, newval) \
   (G_GNUC_EXTENSION ({                                                       \
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
     __sync_synchronize ();                                                   \
     __asm__ __volatile__ ("" : : : "memory");                                \
-    *(atomic) = (gpointer) (gsize) (newval);                                         \
+    *(atomic) = (gpointer) (guintptr) (newval);                              \
+    __asm__ __volatile__ ("" : : : "memory");                                \
+    __sync_synchronize ();                                                   \
   }))
-#endif /* if defined(glib_typeof) */
+#endif /* ! glib_typeof */
+#endif /* ! _GLIB_GCC_HAVE_SYNC_SWAP */
 
 #define g_atomic_int_inc(atomic) \
   (G_GNUC_EXTENSION ({                                                       \
@@ -498,28 +522,28 @@ G_END_DECLS
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
     (void) (0 ? (val) ^ (val) : 1);                                          \
-    (gssize) __sync_fetch_and_add ((atomic), (val));                         \
+    (gintptr) __sync_fetch_and_add ((atomic), (val));                        \
   }))
 #define g_atomic_pointer_and(atomic, val) \
   (G_GNUC_EXTENSION ({                                                       \
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
     (void) (0 ? (val) ^ (val) : 1);                                          \
-    (gsize) __sync_fetch_and_and ((atomic), (val));                          \
+    (guintptr) __sync_fetch_and_and ((atomic), (val));                       \
   }))
 #define g_atomic_pointer_or(atomic, val) \
   (G_GNUC_EXTENSION ({                                                       \
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
     (void) (0 ? (val) ^ (val) : 1);                                          \
-    (gsize) __sync_fetch_and_or ((atomic), (val));                           \
+    (guintptr) __sync_fetch_and_or ((atomic), (val));                        \
   }))
 #define g_atomic_pointer_xor(atomic, val) \
   (G_GNUC_EXTENSION ({                                                       \
     G_STATIC_ASSERT (sizeof *(atomic) == sizeof (gpointer));                 \
     (void) (0 ? (gpointer) *(atomic) : NULL);                                \
     (void) (0 ? (val) ^ (val) : 1);                                          \
-    (gsize) __sync_fetch_and_xor ((atomic), (val));                          \
+    (guintptr) __sync_fetch_and_xor ((atomic), (val));                       \
   }))
 
 #endif /* !defined(__ATOMIC_SEQ_CST) */

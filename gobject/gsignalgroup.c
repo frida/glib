@@ -28,13 +28,12 @@
 #include "gvaluetypes.h"
 
 /**
- * SECTION:gsignalgroup
- * @Title: GSignalGroup
- * @Short_description: Manage a collection of signals on a GObject
+ * GSignalGroup:
  *
- * #GSignalGroup manages to simplify the process of connecting
- * many signals to a #GObject as a group. As such there is no API
- * to disconnect a signal from the group.
+ * `GSignalGroup` manages a collection of signals on a `GObject`.
+ *
+ * `GSignalGroup` simplifies the process of connecting  many signals to a `GObject`
+ * as a group. As such there is no API to disconnect a signal from the group.
  *
  * In particular, this allows you to:
  *
@@ -43,12 +42,12 @@
  *  - Block and unblock signals as a group
  *  - Ensuring that blocked state transfers across target instances.
  *
- * One place you might want to use such a structure is with #GtkTextView and
- * #GtkTextBuffer. Often times, you'll need to connect to many signals on
- * #GtkTextBuffer from a #GtkTextView subclass. This allows you to create a
+ * One place you might want to use such a structure is with `GtkTextView` and
+ * `GtkTextBuffer`. Often times, you'll need to connect to many signals on
+ * `GtkTextBuffer` from a `GtkTextView` subclass. This allows you to create a
  * signal group during instance construction, simply bind the
- * #GtkTextView:buffer property to #GSignalGroup:target and connect
- * all the signals you need. When the #GtkTextView:buffer property changes
+ * `GtkTextView:buffer` property to `GSignalGroup:target` and connect
+ * all the signals you need. When the `GtkTextView:buffer` property changes
  * all of the signals will be transitioned correctly.
  *
  * Since: 2.72
@@ -528,7 +527,7 @@ g_signal_group_dispose (GObject *object)
   if (self->has_bound_at_least_once)
     g_signal_group_unbind (self);
 
-  g_clear_pointer (&self->handlers, g_ptr_array_unref);
+  g_ptr_array_set_size (self->handlers, 0);
 
   g_rec_mutex_unlock (&self->mutex);
 
@@ -542,6 +541,7 @@ g_signal_group_finalize (GObject *object)
 
   g_weak_ref_clear (&self->target_ref);
   g_rec_mutex_clear (&self->mutex);
+  g_ptr_array_unref (self->handlers);
 
   G_OBJECT_CLASS (g_signal_group_parent_class)->finalize (object);
 }
@@ -611,9 +611,7 @@ g_signal_group_class_init (GSignalGroupClass *klass)
    * Since: 2.72
    */
   properties[PROP_TARGET] =
-      g_param_spec_object ("target",
-                           "Target",
-                           "The target instance used when connecting signals.",
+      g_param_spec_object ("target", NULL, NULL,
                            G_TYPE_OBJECT,
                            (G_PARAM_READWRITE | G_PARAM_EXPLICIT_NOTIFY | G_PARAM_STATIC_STRINGS));
 
@@ -625,9 +623,7 @@ g_signal_group_class_init (GSignalGroupClass *klass)
    * Since: 2.72
    */
   properties[PROP_TARGET_TYPE] =
-      g_param_spec_gtype ("target-type",
-                          "Target Type",
-                          "The GType of the target property.",
+      g_param_spec_gtype ("target-type", NULL, NULL,
                           G_TYPE_OBJECT,
                           (G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY | G_PARAM_STATIC_STRINGS));
 
@@ -713,16 +709,19 @@ g_signal_group_connect_closure_ (GSignalGroup   *self,
 {
   GObject *target;
   SignalHandler *handler;
-  gboolean name_is_valid;
   guint signal_id;
   GQuark signal_detail;
 
   g_return_val_if_fail (G_IS_SIGNAL_GROUP (self), FALSE);
   g_return_val_if_fail (detailed_signal != NULL, FALSE);
-  name_is_valid = g_signal_parse_name (detailed_signal, self->target_type,
-                                       &signal_id, &signal_detail, TRUE);
-  g_return_val_if_fail (name_is_valid, FALSE);
   g_return_val_if_fail (closure != NULL, FALSE);
+
+  if (!g_signal_parse_name (detailed_signal, self->target_type,
+                            &signal_id, &signal_detail, TRUE))
+    {
+      g_critical ("Invalid signal name “%s”", detailed_signal);
+      return FALSE;
+    }
 
   g_rec_mutex_lock (&self->mutex);
 
@@ -738,7 +737,7 @@ g_signal_group_connect_closure_ (GSignalGroup   *self,
   handler->signal_id = signal_id;
   handler->signal_detail = signal_detail;
   handler->closure = g_closure_ref (closure);
-  handler->connect_after = after;
+  handler->connect_after = (guint) after;
 
   g_closure_sink (closure);
 

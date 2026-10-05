@@ -45,21 +45,12 @@
 
 
 /**
- * SECTION:gsocketaddress
- * @short_description: Abstract base class representing endpoints
- *     for socket communication
- * @include: gio/gio.h
- *
- * #GSocketAddress is the equivalent of struct sockaddr in the BSD
- * sockets API. This is an abstract class; use #GInetSocketAddress
- * for internet sockets, or #GUnixSocketAddress for UNIX domain sockets.
- */
-
-/**
  * GSocketAddress:
  *
- * A socket endpoint address, corresponding to struct sockaddr
- * or one of its subtypes.
+ * `GSocketAddress` is the equivalent of
+ * [`struct sockaddr`](man:sockaddr(3type)) and its subtypes in the BSD sockets
+ * API. This is an abstract class; use [class@Gio.InetSocketAddress] for
+ * internet sockets, or [class@Gio.UnixSocketAddress] for UNIX domain sockets.
  */
 
 enum
@@ -118,10 +109,15 @@ g_socket_address_class_init (GSocketAddressClass *klass)
 
   gobject_class->get_property = g_socket_address_get_property;
 
+  /**
+   * GSocketAddress:family:
+   *
+   * The family of the socket address.
+   *
+   * Since: 2.22
+   */
   g_object_class_install_property (gobject_class, PROP_FAMILY,
-                                   g_param_spec_enum ("family",
-						      P_("Address family"),
-						      P_("The family of the socket address"),
+                                   g_param_spec_enum ("family", NULL, NULL,
 						      G_TYPE_SOCKET_FAMILY,
 						      G_SOCKET_FAMILY_INVALID,
 						      G_PARAM_READABLE |
@@ -151,7 +147,8 @@ g_socket_address_init (GSocketAddress *address)
  * g_socket_address_to_native().
  *
  * Returns: the size of the native struct sockaddr that
- *     @address represents
+ *     @address represents, or `-1` if @address
+ *     is not valid
  *
  * Since: 2.22
  */
@@ -211,9 +208,13 @@ GSocketAddress *
 g_socket_address_new_from_native (gpointer native,
 				  gsize    len)
 {
-  gshort family;
+#ifdef G_OS_WIN32
+  ADDRESS_FAMILY family;
+#else
+  sa_family_t family;
+#endif
 
-  if (len < sizeof (gshort))
+  if (len < sizeof (family))
     return NULL;
 
   family = ((struct sockaddr *) native)->sa_family;
@@ -230,7 +231,7 @@ g_socket_address_new_from_native (gpointer native,
       if (len < sizeof (*addr))
 	return NULL;
 
-      iaddr = g_inet_address_new_from_bytes ((guint8 *) &(addr->sin_addr), AF_INET);
+      iaddr = g_inet_address_new_from_bytes ((guint8 *) &(addr->sin_addr), G_SOCKET_FAMILY_IPV4);
       sockaddr = g_inet_socket_address_new (iaddr, g_ntohs (addr->sin_port));
       g_object_unref (iaddr);
       return sockaddr;
@@ -252,18 +253,16 @@ g_socket_address_new_from_native (gpointer native,
 	  sin_addr.sin_family = AF_INET;
 	  sin_addr.sin_port = addr->sin6_port;
 	  memcpy (&(sin_addr.sin_addr.s_addr), addr->sin6_addr.s6_addr + 12, 4);
-	  iaddr = g_inet_address_new_from_bytes ((guint8 *) &(sin_addr.sin_addr), AF_INET);
+	  iaddr = g_inet_address_new_from_bytes ((guint8 *) &(sin_addr.sin_addr), G_SOCKET_FAMILY_IPV4);
 	}
       else
-	{
-	  iaddr = g_inet_address_new_from_bytes ((guint8 *) &(addr->sin6_addr), AF_INET6);
-	}
+        {
+          iaddr = g_inet_address_new_from_bytes_with_ipv6_info ((guint8 *) &(addr->sin6_addr), G_SOCKET_FAMILY_IPV6, addr->sin6_flowinfo, addr->sin6_scope_id);
+        }
 
       sockaddr = g_object_new (G_TYPE_INET_SOCKET_ADDRESS,
 			       "address", iaddr,
 			       "port", g_ntohs (addr->sin6_port),
-			       "flowinfo", addr->sin6_flowinfo,
-			       "scope_id", addr->sin6_scope_id,
 			       NULL);
       g_object_unref (iaddr);
       return sockaddr;
@@ -273,6 +272,9 @@ g_socket_address_new_from_native (gpointer native,
     {
       struct sockaddr_un *addr = (struct sockaddr_un *) native;
       gint path_len = len - G_STRUCT_OFFSET (struct sockaddr_un, sun_path);
+
+      if (len < G_STRUCT_OFFSET (struct sockaddr_un, sun_path))
+        return NULL;
 
       if (path_len == 0)
 	{
@@ -300,7 +302,11 @@ g_socket_address_new_from_native (gpointer native,
 	    }
 	}
       else
-	return g_unix_socket_address_new (addr->sun_path);
+        {
+	  return g_unix_socket_address_new_with_type (addr->sun_path,
+                                                      path_len,
+                                                      G_UNIX_SOCKET_ADDRESS_PATH);
+        }
     }
 
   return g_native_socket_address_new (native, len);

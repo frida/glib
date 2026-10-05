@@ -41,11 +41,6 @@ G_BEGIN_DECLS
 typedef struct _GFileMonitorClass       GFileMonitorClass;
 typedef struct _GFileMonitorPrivate	GFileMonitorPrivate;
 
-/**
- * GFileMonitor:
- *
- * Watches for changes to a file.
- **/
 struct _GFileMonitor
 {
   GObject parent_instance;
@@ -77,7 +72,7 @@ struct _GFileMonitorClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType    g_file_monitor_get_type       (void) G_GNUC_CONST;
+GType    g_file_monitor_get_type       (void);
 
 GIO_AVAILABLE_IN_ALL
 gboolean g_file_monitor_cancel         (GFileMonitor      *monitor);

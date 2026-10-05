@@ -31,16 +31,15 @@
 
 
 /**
- * SECTION:gthemedicon
- * @short_description: Icon theming support
- * @include: gio/gio.h
- * @see_also: #GIcon, #GLoadableIcon
+ * GThemedIcon:
  *
- * #GThemedIcon is an implementation of #GIcon that supports icon themes.
- * #GThemedIcon contains a list of all of the icons present in an icon
- * theme, so that icons can be looked up quickly. #GThemedIcon does
+ * `GThemedIcon` is an implementation of [iface@Gio.Icon] that supports icon
+ * themes.
+ *
+ * `GThemedIcon` contains a list of all of the icons present in an icon
+ * theme, so that icons can be looked up quickly. `GThemedIcon` does
  * not provide actual pixmaps for icons, just the icon names.
- * Ideally something like gtk_icon_theme_choose_icon() should be used to
+ * Ideally something like [method@Gtk.IconTheme.choose_icon] should be used to
  * resolve the list of names so that fallback icons work nicely with
  * themes that inherit other themes.
  **/
@@ -180,9 +179,7 @@ g_themed_icon_class_init (GThemedIconClass *klass)
    * The icon name.
    */
   g_object_class_install_property (gobject_class, PROP_NAME,
-                                   g_param_spec_string ("name",
-                                                        P_("name"),
-                                                        P_("The name of the icon"),
+                                   g_param_spec_string ("name", NULL, NULL,
                                                         NULL,
                                                         G_PARAM_CONSTRUCT_ONLY | G_PARAM_WRITABLE | G_PARAM_STATIC_NAME | G_PARAM_STATIC_BLURB | G_PARAM_STATIC_NICK));
 
@@ -192,9 +189,7 @@ g_themed_icon_class_init (GThemedIconClass *klass)
    * A %NULL-terminated array of icon names.
    */
   g_object_class_install_property (gobject_class, PROP_NAMES,
-                                   g_param_spec_boxed ("names",
-                                                       P_("names"),
-                                                       P_("An array containing the icon names"),
+                                   g_param_spec_boxed ("names", NULL, NULL,
                                                        G_TYPE_STRV,
                                                        G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_STATIC_BLURB | G_PARAM_STATIC_NICK));
 
@@ -218,9 +213,7 @@ g_themed_icon_class_init (GThemedIconClass *klass)
    * ]|
    */
   g_object_class_install_property (gobject_class, PROP_USE_DEFAULT_FALLBACKS,
-                                   g_param_spec_boolean ("use-default-fallbacks",
-                                                         P_("use default fallbacks"),
-                                                         P_("Whether to use default fallbacks found by shortening the name at “-” characters. Ignores names after the first if multiple names are given."),
+                                   g_param_spec_boolean ("use-default-fallbacks", NULL, NULL,
                                                          FALSE,
                                                          G_PARAM_CONSTRUCT_ONLY | G_PARAM_READWRITE | G_PARAM_STATIC_NAME | G_PARAM_STATIC_BLURB | G_PARAM_STATIC_NICK));
 }
@@ -240,6 +233,7 @@ g_themed_icon_init (GThemedIcon *themed)
  * construction, or later added with g_themed_icon_prepend_name() and
  * g_themed_icon_append_name()).
  * The order of the list matters, indicating priority:
+ *
  * - The first requested icon is first in priority.
  * - If "use-default-fallbacks" is #TRUE, then it is followed by all its
  *   fallbacks (starting from top to lower context levels).
@@ -302,7 +296,7 @@ g_themed_icon_update_names (GThemedIcon *themed)
               gchar *tmp = last;
               gchar *fallback;
 
-              last = g_strndup (last, dashp - last);
+              last = g_strndup (last, (size_t) (dashp - last));
               if (is_symbolic)
                 {
                   g_free (tmp);
@@ -397,11 +391,11 @@ g_themed_icon_new_from_names (char **iconnames,
   if (len >= 0)
     {
       char **names;
-      int i;
+      size_t i;
 
-      names = g_new (char *, len + 1);
+      names = g_new (char *, (size_t) len + 1);
 
-      for (i = 0; i < len; i++)
+      for (i = 0; i < (size_t) len; i++)
         names[i] = iconnames[i];
 
       names[i] = NULL;
@@ -585,7 +579,10 @@ g_themed_icon_from_tokens (gchar  **tokens,
 {
   GIcon *icon;
   gchar **names;
-  int n;
+  size_t n;
+
+  /* This is guaranteed by the GIcon interface */
+  g_assert (num_tokens >= 0);
 
   icon = NULL;
 
@@ -599,8 +596,8 @@ g_themed_icon_from_tokens (gchar  **tokens,
       goto out;
     }
   
-  names = g_new0 (gchar *, num_tokens + 1);
-  for (n = 0; n < num_tokens; n++)
+  names = g_new0 (gchar *, (size_t) num_tokens + 1);
+  for (n = 0; n < (size_t) num_tokens; n++)
     names[n] = tokens[n];
   names[n] = NULL;
 

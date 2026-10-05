@@ -95,8 +95,11 @@ struct _GApplicationClass
                                                      gchar                   ***arguments,
                                                      int                       *exit_status);
 
+  /* @platform_data comes from an external process and is untrusted. All value types
+   * must be validated before being used. */
   void                      (* before_emit)         (GApplication              *application,
                                                      GVariant                  *platform_data);
+  /* Same as for @before_emit. */
   void                      (* after_emit)          (GApplication              *application,
                                                      GVariant                  *platform_data);
   void                      (* add_platform_data)   (GApplication              *application,
@@ -121,7 +124,7 @@ struct _GApplicationClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType                   g_application_get_type                          (void) G_GNUC_CONST;
+GType                   g_application_get_type                          (void);
 
 GIO_AVAILABLE_IN_ALL
 gboolean                g_application_id_is_valid                       (const gchar              *application_id);
@@ -135,6 +138,12 @@ const gchar *           g_application_get_application_id                (GApplic
 GIO_AVAILABLE_IN_ALL
 void                    g_application_set_application_id                (GApplication             *application,
                                                                          const gchar              *application_id);
+
+GIO_AVAILABLE_IN_2_80
+const gchar *           g_application_get_version                       (GApplication             *application);
+GIO_AVAILABLE_IN_2_80
+void                    g_application_set_version                       (GApplication             *application,
+                                                                         const gchar              *version);
 
 GIO_AVAILABLE_IN_2_34
 GDBusConnection *       g_application_get_dbus_connection               (GApplication             *application);

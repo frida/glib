@@ -40,11 +40,6 @@ G_BEGIN_DECLS
 typedef struct _GIOStreamPrivate                            GIOStreamPrivate;
 typedef struct _GIOStreamClass                              GIOStreamClass;
 
-/**
- * GIOStream:
- *
- * Base class for read-write streams.
- **/
 struct _GIOStream
 {
   GObject parent_instance;
@@ -86,7 +81,7 @@ struct _GIOStreamClass
 };
 
 GIO_AVAILABLE_IN_ALL
-GType          g_io_stream_get_type          (void)  G_GNUC_CONST;
+GType          g_io_stream_get_type          (void) ;
 
 GIO_AVAILABLE_IN_ALL
 GInputStream * g_io_stream_get_input_stream  (GIOStream            *stream);

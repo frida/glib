@@ -28,22 +28,115 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "glib/glib-private.h"
 #include "gthreadedresolver.h"
+#include "gthreadedresolver-private.h"
 #include "gnetworkingprivate.h"
 
 #include "gcancellable.h"
 #include "ginetaddress.h"
 #include "ginetsocketaddress.h"
+#include "gnetworkmonitorbase.h"
 #include "gtask.h"
 #include "gsocketaddress.h"
 #include "gsrvtarget.h"
 
+#if HAVE_GETIFADDRS
+#include <ifaddrs.h>
+#endif
+
+/*
+ * GThreadedResolver is a threaded wrapper around the system libc’s
+ * `getaddrinfo()`.
+ *
+ * It has to be threaded, as `getaddrinfo()` is synchronous. libc does provide
+ * `getaddrinfo_a()` as an asynchronous version of `getaddrinfo()`, but it does
+ * not integrate with a poll loop. It requires use of sigevent to notify of
+ * completion of an asynchronous operation. That either emits a signal, or calls
+ * a callback function in a newly spawned thread.
+ *
+ * A signal (`SIGEV_SIGNAL`) can’t be used for completion as (aside from being
+ * another expensive round trip into the kernel) GLib cannot pick a `SIG*`
+ * number which is guaranteed to not be in use elsewhere in the process. Various
+ * other things could be interfering with signal dispositions, such as gdb or
+ * other libraries in the process. Using a `signalfd()`
+ * [cannot improve this situation](https://ldpreload.com/blog/signalfd-is-useless).
+ *
+ * A callback function in a newly spawned thread (`SIGEV_THREAD`) could be used,
+ * but that is very expensive. Internally, glibc currently also just implements
+ * `getaddrinfo_a()`
+ * [using its own thread pool](https://github.com/bminor/glibc/blob/master/resolv/gai_misc.c),
+ * and then
+ * [spawns an additional thread for each completion callback](https://github.com/bminor/glibc/blob/master/resolv/gai_notify.c).
+ * That is very expensive.
+ *
+ * No other appropriate sigevent callback types
+ * [currently exist](https://sourceware.org/bugzilla/show_bug.cgi?id=30287), and
+ * [others agree that sigevent is not great](http://davmac.org/davpage/linux/async-io.html#posixaio).
+ *
+ * Hence, #GThreadedResolver calls the normal synchronous `getaddrinfo()` in its
+ * own thread pool. Previously, #GThreadedResolver used the thread pool which is
+ * internal to #GTask by calling g_task_run_in_thread(). That lead to exhaustion
+ * of the #GTask thread pool in some situations, though, as DNS lookups are
+ * quite frequent leaf operations in some use cases. Now, #GThreadedResolver
+ * uses its own private thread pool.
+ *
+ * This is similar to what
+ * [libasyncns](http://git.0pointer.net/libasyncns.git/tree/libasyncns/asyncns.h)
+ * and other multi-threaded users of `getaddrinfo()` do.
+ */
+
+struct _GThreadedResolver
+{
+  GResolver parent_instance;
+
+  GThreadPool *thread_pool;  /* (owned) */
+
+  GMutex interface_mutex;
+  GNetworkMonitor *network_monitor; /* (owned) */
+  gboolean monitor_supports_caching;
+  int network_is_loopback_only;
+};
 
 G_DEFINE_TYPE (GThreadedResolver, g_threaded_resolver, G_TYPE_RESOLVER)
 
+static void run_task_in_thread_pool_async (GThreadedResolver *self,
+                                           GTask             *task);
+static void run_task_in_thread_pool_sync (GThreadedResolver *self,
+                                          GTask             *task);
+static void threaded_resolver_worker_cb (gpointer task_data,
+                                         gpointer user_data);
+
 static void
-g_threaded_resolver_init (GThreadedResolver *gtr)
+g_threaded_resolver_init (GThreadedResolver *self)
 {
+  self->thread_pool = g_thread_pool_new_full (threaded_resolver_worker_cb,
+                                              self,
+                                              (GDestroyNotify) g_object_unref,
+                                              20,
+                                              FALSE,
+                                              NULL);
+
+  self->network_is_loopback_only = -1;
+
+  g_mutex_init (&self->interface_mutex);
+}
+
+static void
+g_threaded_resolver_finalize (GObject *object)
+{
+  GThreadedResolver *self = G_THREADED_RESOLVER (object);
+
+  g_thread_pool_free (self->thread_pool, TRUE, FALSE);
+  self->thread_pool = NULL;
+
+  if (self->network_monitor)
+    g_signal_handlers_disconnect_by_data (self->network_monitor, object);
+
+  g_clear_object (&self->network_monitor);
+  g_mutex_clear (&self->interface_mutex);
+
+  G_OBJECT_CLASS (g_threaded_resolver_parent_class)->finalize (object);
 }
 
 static GResolverError
@@ -67,42 +160,228 @@ g_resolver_error_from_addrinfo_error (gint err)
 }
 
 typedef struct {
-  char *hostname;
-  int address_family;
+  enum {
+    LOOKUP_BY_NAME,
+    LOOKUP_BY_ADDRESS,
+    LOOKUP_RECORDS,
+  } lookup_type;
+
+  union {
+    struct {
+      char *hostname;
+      int address_family;
+    } lookup_by_name;
+    struct {
+      GInetAddress *address;  /* (owned) */
+    } lookup_by_address;
+    struct {
+      char *rrname;
+      GResolverRecordType record_type;
+    } lookup_records;
+  };
+
+  GCond cond;  /* used for signalling completion of the task when running it sync */
+  GMutex lock;
+
+  GSource *timeout_source;  /* (nullable) (owned) */
+  GSource *cancellable_source;  /* (nullable) (owned) */
+
+  /* This enum indicates that a particular code path has claimed the
+   * task and is shortly about to call g_task_return_*() on it.
+   * This must be accessed with GThreadedResolver.lock held. */
+  enum
+    {
+      NOT_YET,
+      COMPLETED,  /* libc lookup call has completed successfully or errored */
+      TIMED_OUT,
+      CANCELLED,
+    } will_return;
+
+  /* Whether the thread pool thread executing this lookup has finished executing
+   * it and g_task_return_*() has been called on it already.
+   * This must be accessed with GThreadedResolver.lock held. */
+  gboolean has_returned;
 } LookupData;
 
 static LookupData *
-lookup_data_new (const char *hostname,
-                 int         address_family)
+lookup_data_new_by_name (const char *hostname,
+                         int         address_family)
 {
-  LookupData *data = g_new (LookupData, 1);
-  data->hostname = g_strdup (hostname);
-  data->address_family = address_family;
-  return data;
+  LookupData *data = g_new0 (LookupData, 1);
+  data->lookup_type = LOOKUP_BY_NAME;
+  g_cond_init (&data->cond);
+  g_mutex_init (&data->lock);
+  data->lookup_by_name.hostname = g_strdup (hostname);
+  data->lookup_by_name.address_family = address_family;
+  return g_steal_pointer (&data);
+}
+
+static LookupData *
+lookup_data_new_by_address (GInetAddress *address)
+{
+  LookupData *data = g_new0 (LookupData, 1);
+  data->lookup_type = LOOKUP_BY_ADDRESS;
+  g_cond_init (&data->cond);
+  g_mutex_init (&data->lock);
+  data->lookup_by_address.address = g_object_ref (address);
+  return g_steal_pointer (&data);
+}
+
+static LookupData *
+lookup_data_new_records (const gchar         *rrname,
+                         GResolverRecordType  record_type)
+{
+  LookupData *data = g_new0 (LookupData, 1);
+  data->lookup_type = LOOKUP_RECORDS;
+  g_cond_init (&data->cond);
+  g_mutex_init (&data->lock);
+  data->lookup_records.rrname = g_strdup (rrname);
+  data->lookup_records.record_type = record_type;
+  return g_steal_pointer (&data);
 }
 
 static void
 lookup_data_free (LookupData *data)
 {
-  g_free (data->hostname);
+  switch (data->lookup_type) {
+  case LOOKUP_BY_NAME:
+    g_free (data->lookup_by_name.hostname);
+    break;
+  case LOOKUP_BY_ADDRESS:
+    g_clear_object (&data->lookup_by_address.address);
+    break;
+  case LOOKUP_RECORDS:
+    g_free (data->lookup_records.rrname);
+    break;
+  default:
+    g_assert_not_reached ();
+  }
+
+  if (data->timeout_source != NULL)
+    {
+      g_source_destroy (data->timeout_source);
+      g_clear_pointer (&data->timeout_source, g_source_unref);
+    }
+
+  if (data->cancellable_source != NULL)
+    {
+      g_source_destroy (data->cancellable_source);
+      g_clear_pointer (&data->cancellable_source, g_source_unref);
+    }
+
+  g_mutex_clear (&data->lock);
+  g_cond_clear (&data->cond);
+
   g_free (data);
 }
 
-static void
-do_lookup_by_name (GTask         *task,
-                   gpointer       source_object,
-                   gpointer       task_data,
-                   GCancellable  *cancellable)
+static gboolean
+check_only_has_loopback_interfaces (void)
 {
-  LookupData *lookup_data = task_data;
-  const char *hostname = lookup_data->hostname;
+#if HAVE_GETIFADDRS
+  struct ifaddrs *addrs;
+  gboolean only_loopback = TRUE;
+
+  if (getifaddrs (&addrs) != 0)
+    {
+      int saved_errno = errno;
+      g_debug ("getifaddrs() failed: %s", g_strerror (saved_errno));
+      return FALSE;
+    }
+
+  for (struct ifaddrs *addr = addrs; addr; addr = addr->ifa_next)
+    {
+      struct sockaddr *sa = addr->ifa_addr;
+      size_t addrlen;
+      GSocketAddress *saddr;
+      if (!sa)
+        continue;
+
+      if (sa->sa_family == AF_INET)
+        addrlen = sizeof (struct sockaddr_in);
+      else if (sa->sa_family == AF_INET6)
+        addrlen = sizeof (struct sockaddr_in6);
+      else
+        continue;
+
+      saddr = g_socket_address_new_from_native (sa, addrlen);
+      if (!saddr)
+        continue;
+
+      if (!G_IS_INET_SOCKET_ADDRESS (saddr))
+        {
+          g_object_unref (saddr);
+          continue;
+        }
+
+      GInetAddress *inetaddr = g_inet_socket_address_get_address (G_INET_SOCKET_ADDRESS (saddr));
+      if (!g_inet_address_get_is_loopback (inetaddr))
+        {
+          only_loopback = FALSE;
+          g_object_unref (saddr);
+          break;
+        }
+
+      g_object_unref (saddr);
+    }
+
+  freeifaddrs (addrs);
+  return only_loopback;
+#else /* FIXME: Check GetAdaptersAddresses() on win32. */
+  return FALSE;
+#endif
+}
+
+static void
+network_changed_cb (GNetworkMonitor   *monitor,
+                    gboolean           network_available,
+                    GThreadedResolver *resolver)
+{
+  g_mutex_lock (&resolver->interface_mutex);
+  resolver->network_is_loopback_only = -1;
+  g_mutex_unlock (&resolver->interface_mutex);
+}
+
+static gboolean
+only_has_loopback_interfaces_cached (GThreadedResolver *resolver)
+{
+  g_mutex_lock (&resolver->interface_mutex);
+
+  if (!resolver->network_monitor)
+    {
+      resolver->network_monitor = g_object_ref (g_network_monitor_get_default ());
+      resolver->monitor_supports_caching = G_TYPE_FROM_INSTANCE (resolver->network_monitor) != G_TYPE_NETWORK_MONITOR_BASE;
+      g_signal_connect_object (resolver->network_monitor, "network-changed", G_CALLBACK (network_changed_cb), resolver, G_CONNECT_DEFAULT);
+    }
+
+  if (!resolver->monitor_supports_caching || resolver->network_is_loopback_only == -1)
+    resolver->network_is_loopback_only = check_only_has_loopback_interfaces ();
+
+  g_mutex_unlock (&resolver->interface_mutex);
+
+  return resolver->network_is_loopback_only;
+}
+
+static GList *
+do_lookup_by_name (GThreadedResolver  *resolver,
+                   const gchar        *hostname,
+                   int                 address_family,
+                   GCancellable       *cancellable,
+                   GError            **error)
+{
   struct addrinfo *res = NULL;
   GList *addresses;
   gint retval;
   struct addrinfo addrinfo_hints = { 0 };
 
+  /* In general we only want IPs for valid interfaces.
+   * However this will return nothing if you only have loopback interfaces.
+   * Instead in this case we will manually filter out invalid IPs. */
+  gboolean only_loopback = only_has_loopback_interfaces_cached (resolver);
+
 #ifdef AI_ADDRCONFIG
-  addrinfo_hints.ai_flags = AI_ADDRCONFIG;
+  if (!only_loopback)
+    addrinfo_hints.ai_flags = AI_ADDRCONFIG;
 #endif
   /* socktype and protocol don't actually matter, they just get copied into the
   * returned addrinfo structures (and then we ignore them). But if
@@ -111,19 +390,17 @@ do_lookup_by_name (GTask         *task,
   addrinfo_hints.ai_socktype = SOCK_STREAM;
   addrinfo_hints.ai_protocol = IPPROTO_TCP;
 
-  addrinfo_hints.ai_family = lookup_data->address_family;
+  addrinfo_hints.ai_family = address_family;
   retval = getaddrinfo (hostname, NULL, &addrinfo_hints, &res);
 
   if (retval == 0)
     {
-      struct addrinfo *ai;
-      GSocketAddress *sockaddr;
-      GInetAddress *addr;
-
       addresses = NULL;
-      for (ai = res; ai; ai = ai->ai_next)
+      for (struct addrinfo *ai = res; ai; ai = ai->ai_next)
         {
-          sockaddr = g_socket_address_new_from_native (ai->ai_addr, ai->ai_addrlen);
+          GInetAddress *addr;
+          GSocketAddress *sockaddr = g_socket_address_new_from_native (ai->ai_addr, ai->ai_addrlen);
+
           if (!sockaddr)
             continue;
           if (!G_IS_INET_SOCKET_ADDRESS (sockaddr))
@@ -132,26 +409,34 @@ do_lookup_by_name (GTask         *task,
               continue;
             }
 
-          addr = g_object_ref (g_inet_socket_address_get_address ((GInetSocketAddress *)sockaddr));
-          addresses = g_list_prepend (addresses, addr);
+          addr = g_inet_socket_address_get_address ((GInetSocketAddress *) sockaddr);
+          if (only_loopback && !g_inet_address_get_is_loopback (addr))
+            {
+              g_object_unref (sockaddr);
+              continue;
+            }
+
+          addresses = g_list_prepend (addresses, g_object_ref (addr));
           g_object_unref (sockaddr);
         }
+
+      g_clear_pointer (&res, freeaddrinfo);
 
       if (addresses != NULL)
         {
           addresses = g_list_reverse (addresses);
-          g_task_return_pointer (task, addresses,
-                                 (GDestroyNotify)g_resolver_free_addresses);
+          return g_steal_pointer (&addresses);
         }
       else
         {
           /* All addresses failed to be converted to GSocketAddresses. */
-          g_task_return_new_error (task,
-                                   G_RESOLVER_ERROR,
-                                   G_RESOLVER_ERROR_NOT_FOUND,
-                                   _("Error resolving “%s”: %s"),
-                                   hostname,
-                                   _("No valid addresses were found"));
+          g_set_error (error,
+                       G_RESOLVER_ERROR,
+                       G_RESOLVER_ERROR_NOT_FOUND,
+                       _("Error resolving “%s”: %s"),
+                       hostname,
+                       _("No valid addresses were found"));
+          return NULL;
         }
     }
   else
@@ -164,16 +449,17 @@ do_lookup_by_name (GTask         *task,
         error_message = g_strdup ("[Invalid UTF-8]");
 #endif
 
-      g_task_return_new_error (task,
-                               G_RESOLVER_ERROR,
-                               g_resolver_error_from_addrinfo_error (retval),
-                               _("Error resolving “%s”: %s"),
-                               hostname, error_message);
-      g_free (error_message);
-    }
+      g_clear_pointer (&res, freeaddrinfo);
 
-  if (res)
-    freeaddrinfo (res);
+      g_set_error (error,
+                   G_RESOLVER_ERROR,
+                   g_resolver_error_from_addrinfo_error (retval),
+                   _("Error resolving “%s”: %s"),
+                   hostname, error_message);
+      g_free (error_message);
+
+      return NULL;
+    }
 }
 
 static GList *
@@ -182,17 +468,19 @@ lookup_by_name (GResolver     *resolver,
                 GCancellable  *cancellable,
                 GError       **error)
 {
+  GThreadedResolver *self = G_THREADED_RESOLVER (resolver);
   GTask *task;
   GList *addresses;
   LookupData *data;
 
-  data = lookup_data_new (hostname, AF_UNSPEC);
+  data = lookup_data_new_by_name (hostname, AF_UNSPEC);
   task = g_task_new (resolver, cancellable, NULL, NULL);
   g_task_set_source_tag (task, lookup_by_name);
   g_task_set_name (task, "[gio] resolver lookup");
-  g_task_set_task_data (task, data, (GDestroyNotify)lookup_data_free);
-  g_task_set_return_on_cancel (task, TRUE);
-  g_task_run_in_thread_sync (task, do_lookup_by_name);
+  g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) lookup_data_free);
+
+  run_task_in_thread_pool_sync (self, task);
+
   addresses = g_task_propagate_pointer (task, error);
   g_object_unref (task);
 
@@ -224,17 +512,19 @@ lookup_by_name_with_flags (GResolver                 *resolver,
                            GCancellable              *cancellable,
                            GError                   **error)
 {
+  GThreadedResolver *self = G_THREADED_RESOLVER (resolver);
   GTask *task;
   GList *addresses;
   LookupData *data;
 
-  data = lookup_data_new (hostname, flags_to_family (flags));
+  data = lookup_data_new_by_name (hostname, flags_to_family (flags));
   task = g_task_new (resolver, cancellable, NULL, NULL);
   g_task_set_source_tag (task, lookup_by_name_with_flags);
   g_task_set_name (task, "[gio] resolver lookup");
-  g_task_set_task_data (task, data, (GDestroyNotify)lookup_data_free);
-  g_task_set_return_on_cancel (task, TRUE);
-  g_task_run_in_thread_sync (task, do_lookup_by_name);
+  g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) lookup_data_free);
+
+  run_task_in_thread_pool_sync (self, task);
+
   addresses = g_task_propagate_pointer (task, error);
   g_object_unref (task);
 
@@ -249,16 +539,22 @@ lookup_by_name_with_flags_async (GResolver                *resolver,
                                  GAsyncReadyCallback       callback,
                                  gpointer                  user_data)
 {
+  GThreadedResolver *self = G_THREADED_RESOLVER (resolver);
   GTask *task;
   LookupData *data;
 
-  data = lookup_data_new (hostname, flags_to_family (flags));
+  data = lookup_data_new_by_name (hostname, flags_to_family (flags));
   task = g_task_new (resolver, cancellable, callback, user_data);
+
+  g_debug ("%s: starting new lookup for %s with GTask %p, LookupData %p",
+           G_STRFUNC, hostname, task, data);
+
   g_task_set_source_tag (task, lookup_by_name_with_flags_async);
   g_task_set_name (task, "[gio] resolver lookup");
-  g_task_set_task_data (task, data, (GDestroyNotify)lookup_data_free);
-  g_task_set_return_on_cancel (task, TRUE);
-  g_task_run_in_thread (task, do_lookup_by_name);
+  g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) lookup_data_free);
+
+  run_task_in_thread_pool_async (self, task);
+
   g_object_unref (task);
 }
 
@@ -297,13 +593,11 @@ lookup_by_name_with_flags_finish (GResolver     *resolver,
   return g_task_propagate_pointer (G_TASK (result), error);
 }
 
-static void
-do_lookup_by_address (GTask         *task,
-                      gpointer       source_object,
-                      gpointer       task_data,
-                      GCancellable  *cancellable)
+static gchar *
+do_lookup_by_address (GInetAddress  *address,
+                      GCancellable  *cancellable,
+                      GError       **error)
 {
-  GInetAddress *address = task_data;
   struct sockaddr_storage sockaddr_address;
   gsize sockaddr_address_size;
   GSocketAddress *gsockaddr;
@@ -319,7 +613,7 @@ do_lookup_by_address (GTask         *task,
   retval = getnameinfo ((struct sockaddr *) &sockaddr_address, sockaddr_address_size,
                         name, sizeof (name), NULL, 0, NI_NAMEREQD);
   if (retval == 0)
-    g_task_return_pointer (task, g_strdup (name), g_free);
+    return g_strdup (name);
   else
     {
       gchar *phys;
@@ -333,14 +627,16 @@ do_lookup_by_address (GTask         *task,
 #endif
 
       phys = g_inet_address_to_string (address);
-      g_task_return_new_error (task,
-                               G_RESOLVER_ERROR,
-                               g_resolver_error_from_addrinfo_error (retval),
-                               _("Error reverse-resolving “%s”: %s"),
-                               phys ? phys : "(unknown)",
-                               error_message);
+      g_set_error (error,
+                   G_RESOLVER_ERROR,
+                   g_resolver_error_from_addrinfo_error (retval),
+                   _("Error reverse-resolving “%s”: %s"),
+                   phys ? phys : "(unknown)",
+                   error_message);
       g_free (phys);
       g_free (error_message);
+
+      return NULL;
     }
 }
 
@@ -350,15 +646,19 @@ lookup_by_address (GResolver        *resolver,
                    GCancellable     *cancellable,
                    GError          **error)
 {
+  GThreadedResolver *self = G_THREADED_RESOLVER (resolver);
+  LookupData *data = NULL;
   GTask *task;
   gchar *name;
 
+  data = lookup_data_new_by_address (address);
   task = g_task_new (resolver, cancellable, NULL, NULL);
   g_task_set_source_tag (task, lookup_by_address);
   g_task_set_name (task, "[gio] resolver lookup");
-  g_task_set_task_data (task, g_object_ref (address), g_object_unref);
-  g_task_set_return_on_cancel (task, TRUE);
-  g_task_run_in_thread_sync (task, do_lookup_by_address);
+  g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) lookup_data_free);
+
+  run_task_in_thread_pool_sync (self, task);
+
   name = g_task_propagate_pointer (task, error);
   g_object_unref (task);
 
@@ -372,14 +672,18 @@ lookup_by_address_async (GResolver           *resolver,
                          GAsyncReadyCallback  callback,
                          gpointer             user_data)
 {
+  GThreadedResolver *self = G_THREADED_RESOLVER (resolver);
+  LookupData *data = NULL;
   GTask *task;
 
+  data = lookup_data_new_by_address (address);
   task = g_task_new (resolver, cancellable, callback, user_data);
   g_task_set_source_tag (task, lookup_by_address_async);
   g_task_set_name (task, "[gio] resolver lookup");
-  g_task_set_task_data (task, g_object_ref (address), g_object_unref);
-  g_task_set_return_on_cancel (task, TRUE);
-  g_task_run_in_thread (task, do_lookup_by_address);
+  g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) lookup_data_free);
+
+  run_task_in_thread_pool_async (self, task);
+
   g_object_unref (task);
 }
 
@@ -395,318 +699,6 @@ lookup_by_address_finish (GResolver     *resolver,
 
 
 #if defined(G_OS_UNIX)
-
-#ifdef __GLIBC__
-
-#include "gconstructor.h"
-
-#include <dlfcn.h>
-
-#undef dn_expand
-#undef res_nquery
-#define dn_expand g_dn_expand
-#define res_nquery g_res_nquery
-
-typedef struct _GResolvApi GResolvApi;
-
-struct _GResolvApi
-{
-  int (* expand) (const unsigned char *msg,
-                  const unsigned char *eomorig,
-                  const unsigned char *comp_dn,
-                  char                *exp_dn,
-                  int                  length);
-  int (* nquery) (res_state            statep,
-                  const char          *dname,
-                  int                  klass,
-                  int                  type,
-                  unsigned char       *answer,
-                  int                  anslen);
-};
-
-#ifdef G_HAS_CONSTRUCTORS
-#ifdef G_DEFINE_DESTRUCTOR_NEEDS_PRAGMA
-#pragma G_DEFINE_DESTRUCTOR_PRAGMA_ARGS(g_resolv_api_deinit)
-#endif
-G_DEFINE_DESTRUCTOR(g_resolv_api_deinit)
-#endif /* G_HAS_CONSTRUCTORS */
-
-static gpointer libresolv = NULL;
-
-static void
-g_resolv_api_deinit (void)
-{
-  g_clear_pointer (&libresolv, dlclose);
-}
-
-static GResolvApi *
-g_get_resolv_api (void)
-{
-  static GResolvApi api;
-  static gsize initialized = 0;
-
-  if (g_once_init_enter (&initialized))
-    {
-      api.expand = dlsym (RTLD_NEXT, "dn_expand");
-      if (api.expand != NULL)
-        {
-          api.nquery = dlsym (RTLD_NEXT, "res_nquery");
-        }
-      else
-        {
-          libresolv = dlopen ("libresolv.so.2", RTLD_GLOBAL | RTLD_LAZY);
-          api.expand = dlsym (libresolv, "__dn_expand");
-          api.nquery = dlsym (libresolv, "__res_nquery");
-        }
-
-      g_once_init_leave (&initialized, 1);
-    }
-
-  return &api;
-}
-
-static int
-g_dn_expand (const unsigned char *msg,
-             const unsigned char *eomorig,
-             const unsigned char *comp_dn,
-             char                *exp_dn,
-             int                  length)
-{
-  return g_get_resolv_api ()->expand (msg, eomorig, comp_dn, exp_dn, length);
-}
-
-static int
-g_res_nquery (res_state      statep,
-              const char    *dname,
-              int            klass,
-              int            type,
-              unsigned char *answer,
-              int            anslen)
-{
-  return g_get_resolv_api ()->nquery (statep, dname, klass, type, answer,
-                                      anslen);
-}
-
-#endif
-
-#ifdef __PROSPERO__
-
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
-
-#undef dn_expand
-#undef res_query
-#define dn_expand g_dn_expand
-#define res_query g_res_query
-
-extern int sceNetGetDnsInfo (void *info, int reserved);
-
-#define G_PROSPERO_DNS_PORT 53
-#define G_PROSPERO_DNS_TIMEOUT 5
-#define G_PROSPERO_DNS_MAX_SERVERS 8
-
-static int
-g_dn_expand (const unsigned char *msg,
-             const unsigned char *eomorig,
-             const unsigned char *comp_dn,
-             char                *exp_dn,
-             int                  length)
-{
-  const unsigned char *p = comp_dn;
-  char *out = exp_dn;
-  const char *out_end = exp_dn + length;
-  int consumed = -1;
-  guint hops = 0;
-
-  while (p < eomorig)
-    {
-      guint len = *p;
-
-      if ((len & 0xc0) == 0xc0)
-        {
-          if (p + 1 >= eomorig || ++hops > G_MAXUINT8)
-            return -1;
-          if (consumed < 0)
-            consumed = (int) (p + 2 - comp_dn);
-          p = msg + (((len & 0x3f) << 8) | p[1]);
-          continue;
-        }
-
-      if ((len & 0xc0) != 0)
-        return -1;
-
-      p++;
-
-      if (len == 0)
-        {
-          if (out >= out_end)
-            return -1;
-          *out = '\0';
-          return (consumed < 0) ? (int) (p - comp_dn) : consumed;
-        }
-
-      if (p + len > eomorig)
-        return -1;
-
-      if (out != exp_dn)
-        {
-          if (out >= out_end)
-            return -1;
-          *out++ = '.';
-        }
-
-      if (out + len >= out_end)
-        return -1;
-      memcpy (out, p, len);
-      out += len;
-      p += len;
-    }
-
-  return -1;
-}
-
-static int
-g_prospero_build_query (const char    *dname,
-                        int            klass,
-                        int            type,
-                        guint16        id,
-                        unsigned char *query,
-                        int            query_size)
-{
-  unsigned char *p = query;
-  const unsigned char *end = query + query_size;
-  const char *label = dname;
-
-  if (query_size < 12)
-    return -1;
-
-  memset (p, 0, 12);
-  p[0] = id >> 8;
-  p[1] = id & 0xff;
-  p[2] = 0x01;  /* recursion desired */
-  p[5] = 0x01;  /* one question */
-  p += 12;
-
-  while (*label != '\0')
-    {
-      const char *dot = strchr (label, '.');
-      gsize len = (dot != NULL) ? (gsize) (dot - label) : strlen (label);
-
-      if (len == 0 || len > 63 || p + 1 + len >= end)
-        return -1;
-
-      *p++ = (unsigned char) len;
-      memcpy (p, label, len);
-      p += len;
-
-      label += len;
-      if (*label == '.')
-        label++;
-    }
-
-  if (p + 5 > end)
-    return -1;
-  *p++ = 0;
-  *p++ = type >> 8;
-  *p++ = type & 0xff;
-  *p++ = klass >> 8;
-  *p++ = klass & 0xff;
-
-  return (int) (p - query);
-}
-
-static int
-g_res_query (const char    *dname,
-             int            klass,
-             int            type,
-             unsigned char *answer,
-             int            anslen)
-{
-  unsigned char servers[64];
-  int num_servers, i;
-  unsigned char query[512];
-  int query_len;
-  guint16 id;
-
-  memset (servers, 0, sizeof (servers));
-  num_servers = sceNetGetDnsInfo (servers, 0);
-  if (num_servers <= 0)
-    {
-      h_errno = NO_RECOVERY;
-      return -1;
-    }
-  num_servers = MIN (num_servers, G_PROSPERO_DNS_MAX_SERVERS);
-
-  id = (guint16) g_random_int_range (0, G_MAXUINT16);
-  query_len = g_prospero_build_query (dname, klass, type, id, query, sizeof (query));
-  if (query_len < 0)
-    {
-      h_errno = NO_RECOVERY;
-      return -1;
-    }
-
-  h_errno = TRY_AGAIN;
-
-  for (i = 0; i != num_servers; i++)
-    {
-      struct sockaddr_in addr;
-      struct timeval timeout;
-      int fd;
-      gssize n;
-      guint16 flags;
-
-      memset (&addr, 0, sizeof (addr));
-      addr.sin_family = AF_INET;
-      addr.sin_port = g_htons (G_PROSPERO_DNS_PORT);
-      memcpy (&addr.sin_addr, servers + (i * 4), 4);
-
-      fd = socket (AF_INET, SOCK_DGRAM, 0);
-      if (fd < 0)
-        continue;
-
-      timeout.tv_sec = G_PROSPERO_DNS_TIMEOUT;
-      timeout.tv_usec = 0;
-      setsockopt (fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof (timeout));
-
-      if (sendto (fd, query, query_len, 0, (struct sockaddr *) &addr, sizeof (addr)) != query_len)
-        {
-          close (fd);
-          continue;
-        }
-
-      n = recv (fd, answer, anslen, 0);
-      close (fd);
-
-      if (n < 12 || (answer[0] << 8 | answer[1]) != id)
-        continue;
-
-      flags = answer[2] << 8 | answer[3];
-      switch (flags & 0x0f)
-        {
-          case 0:
-            if ((answer[6] << 8 | answer[7]) == 0)
-              {
-                h_errno = NO_DATA;
-                return -1;
-              }
-            return (int) n;
-          case 3:
-            h_errno = HOST_NOT_FOUND;
-            return -1;
-          case 2:
-            h_errno = TRY_AGAIN;
-            continue;
-          default:
-            h_errno = NO_RECOVERY;
-            return -1;
-        }
-    }
-
-  return -1;
-}
-
-#endif /* __PROSPERO__ */
 
 #if defined __BIONIC__ && !defined BIND_4_COMPAT
 /* Copy from bionic/libc/private/arpa_nameser_compat.h
@@ -1199,13 +1191,13 @@ g_resolver_records_from_res_query (const gchar      *rrname,
           record = parse_res_txt (answer, p + rdlength, &p, &parsing_error);
           break;
         default:
-          g_debug ("Unrecognised DNS record type %u", rrtype);
+          g_debug ("Unrecognized DNS record type %u", rrtype);
           record = NULL;
           break;
         }
 
       if (record != NULL)
-        records = g_list_prepend (records, record);
+        records = g_list_prepend (records, g_variant_ref_sink (record));
 
       if (parsing_error != NULL)
         break;
@@ -1231,7 +1223,7 @@ g_resolver_records_from_res_query (const gchar      *rrname,
 #elif defined(G_OS_WIN32)
 
 static GVariant *
-parse_dns_srv (DNS_RECORD *rec)
+parse_dns_srv (DNS_RECORDA *rec)
 {
   return g_variant_new ("(qqqs)",
                         (guint16)rec->Data.SRV.wPriority,
@@ -1241,7 +1233,7 @@ parse_dns_srv (DNS_RECORD *rec)
 }
 
 static GVariant *
-parse_dns_soa (DNS_RECORD *rec)
+parse_dns_soa (DNS_RECORDA *rec)
 {
   return g_variant_new ("(ssuuuuu)",
                         rec->Data.SOA.pNamePrimaryServer,
@@ -1254,13 +1246,13 @@ parse_dns_soa (DNS_RECORD *rec)
 }
 
 static GVariant *
-parse_dns_ns (DNS_RECORD *rec)
+parse_dns_ns (DNS_RECORDA *rec)
 {
   return g_variant_new ("(s)", rec->Data.NS.pNameHost);
 }
 
 static GVariant *
-parse_dns_mx (DNS_RECORD *rec)
+parse_dns_mx (DNS_RECORDA *rec)
 {
   return g_variant_new ("(qs)",
                         (guint16)rec->Data.MX.wPreference,
@@ -1268,7 +1260,7 @@ parse_dns_mx (DNS_RECORD *rec)
 }
 
 static GVariant *
-parse_dns_txt (DNS_RECORD *rec)
+parse_dns_txt (DNS_RECORDA *rec)
 {
   GVariant *record;
   GPtrArray *array;
@@ -1306,10 +1298,10 @@ static GList *
 g_resolver_records_from_DnsQuery (const gchar  *rrname,
                                   WORD          dnstype,
                                   DNS_STATUS    status,
-                                  DNS_RECORD   *results,
+                                  DNS_RECORDA  *results,
                                   GError      **error)
 {
-  DNS_RECORD *rec;
+  DNS_RECORDA *rec;
   gpointer record;
   GList *records;
 
@@ -1378,18 +1370,6 @@ g_resolver_records_from_DnsQuery (const gchar  *rrname,
 
 #endif
 
-typedef struct {
-  char *rrname;
-  GResolverRecordType record_type;
-} LookupRecordsData;
-
-static void
-free_lookup_records_data (LookupRecordsData *lrd)
-{
-  g_free (lrd->rrname);
-  g_slice_free (LookupRecordsData, lrd);
-}
-
 static void
 free_records (GList *records)
 {
@@ -1405,15 +1385,13 @@ int res_query(const char *, int, int, u_char *, int);
 #endif
 #endif
 
-static void
-do_lookup_records (GTask         *task,
-                   gpointer       source_object,
-                   gpointer       task_data,
-                   GCancellable  *cancellable)
+static GList *
+do_lookup_records (const gchar          *rrname,
+                   GResolverRecordType   record_type,
+                   GCancellable         *cancellable,
+                   GError              **error)
 {
-  LookupRecordsData *lrd = task_data;
   GList *records;
-  GError *error = NULL;
 
 #if defined(G_OS_UNIX)
   gint len = 512;
@@ -1437,25 +1415,25 @@ do_lookup_records (GTask         *task,
   struct __res_state res = { 0, };
   if (res_ninit (&res) != 0)
     {
-      g_task_return_new_error (task, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
-                               _("Error resolving “%s”"), lrd->rrname);
-      return;
+      g_set_error (error, G_RESOLVER_ERROR, G_RESOLVER_ERROR_INTERNAL,
+                   _("Error resolving “%s”"), rrname);
+      return NULL;
     }
 #endif
 
-  rrtype = g_resolver_record_type_to_rrtype (lrd->record_type);
+  rrtype = g_resolver_record_type_to_rrtype (record_type);
   answer = g_byte_array_new ();
   for (;;)
     {
       g_byte_array_set_size (answer, len * 2);
 #if defined(HAVE_RES_NQUERY)
-      len = res_nquery (&res, lrd->rrname, C_IN, rrtype, answer->data, answer->len);
+      len = res_nquery (&res, rrname, C_IN, rrtype, answer->data, answer->len);
 #else
-      len = res_query (lrd->rrname, C_IN, rrtype, answer->data, answer->len);
+      len = res_query (rrname, C_IN, rrtype, answer->data, answer->len);
 #endif
 
       /* If answer fit in the buffer then we're done */
-      if (len < 0 || len < (gint)answer->len)
+      if (len < 0 || (guint) len < answer->len)
         break;
 
       /*
@@ -1465,7 +1443,7 @@ do_lookup_records (GTask         *task,
     }
 
   herr = h_errno;
-  records = g_resolver_records_from_res_query (lrd->rrname, rrtype, answer->data, len, herr, &error);
+  records = g_resolver_records_from_res_query (rrname, rrtype, answer->data, len, herr, error);
   g_byte_array_free (answer, TRUE);
 
 #ifdef HAVE_RES_NQUERY
@@ -1483,21 +1461,25 @@ do_lookup_records (GTask         *task,
 #else
 
   DNS_STATUS status;
-  DNS_RECORD *results = NULL;
+  DNS_RECORDA *results = NULL;
   WORD dnstype;
 
-  dnstype = g_resolver_record_type_to_dnstype (lrd->record_type);
-  status = DnsQuery_A (lrd->rrname, dnstype, DNS_QUERY_STANDARD, NULL, &results, NULL);
-  records = g_resolver_records_from_DnsQuery (lrd->rrname, dnstype, status, results, &error);
+  /* Work around differences in Windows SDK and mingw-w64 headers */
+#ifdef _MSC_VER
+  typedef DNS_RECORDW * PDNS_RECORD_UTF8_;
+#else
+  typedef DNS_RECORDA * PDNS_RECORD_UTF8_;
+#endif
+
+  dnstype = g_resolver_record_type_to_dnstype (record_type);
+  status = DnsQuery_UTF8 (rrname, dnstype, DNS_QUERY_STANDARD, NULL, (PDNS_RECORD_UTF8_*)&results, NULL);
+  records = g_resolver_records_from_DnsQuery (rrname, dnstype, status, results, error);
   if (results != NULL)
     DnsRecordListFree (results, DnsFreeRecordList);
 
 #endif
 
-  if (records)
-    g_task_return_pointer (task, records, (GDestroyNotify) free_records);
-  else
-    g_task_return_error (task, error);
+  return g_steal_pointer (&records);
 }
 
 static GList *
@@ -1507,21 +1489,20 @@ lookup_records (GResolver              *resolver,
                 GCancellable           *cancellable,
                 GError                **error)
 {
+  GThreadedResolver *self = G_THREADED_RESOLVER (resolver);
   GTask *task;
   GList *records;
-  LookupRecordsData *lrd;
+  LookupData *data = NULL;
 
   task = g_task_new (resolver, cancellable, NULL, NULL);
   g_task_set_source_tag (task, lookup_records);
   g_task_set_name (task, "[gio] resolver lookup records");
 
-  lrd = g_slice_new (LookupRecordsData);
-  lrd->rrname = g_strdup (rrname);
-  lrd->record_type = record_type;
-  g_task_set_task_data (task, lrd, (GDestroyNotify) free_lookup_records_data);
+  data = lookup_data_new_records (rrname, record_type);
+  g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) lookup_data_free);
 
-  g_task_set_return_on_cancel (task, TRUE);
-  g_task_run_in_thread_sync (task, do_lookup_records);
+  run_task_in_thread_pool_sync (self, task);
+
   records = g_task_propagate_pointer (task, error);
   g_object_unref (task);
 
@@ -1536,20 +1517,19 @@ lookup_records_async (GResolver           *resolver,
                       GAsyncReadyCallback  callback,
                       gpointer             user_data)
 {
+  GThreadedResolver *self = G_THREADED_RESOLVER (resolver);
   GTask *task;
-  LookupRecordsData *lrd;
+  LookupData *data = NULL;
 
   task = g_task_new (resolver, cancellable, callback, user_data);
   g_task_set_source_tag (task, lookup_records_async);
   g_task_set_name (task, "[gio] resolver lookup records");
 
-  lrd = g_slice_new (LookupRecordsData);
-  lrd->rrname = g_strdup (rrname);
-  lrd->record_type = record_type;
-  g_task_set_task_data (task, lrd, (GDestroyNotify) free_lookup_records_data);
+  data = lookup_data_new_records (rrname, record_type);
+  g_task_set_task_data (task, g_steal_pointer (&data), (GDestroyNotify) lookup_data_free);
 
-  g_task_set_return_on_cancel (task, TRUE);
-  g_task_run_in_thread (task, do_lookup_records);
+  run_task_in_thread_pool_async (self, task);
+
   g_object_unref (task);
 }
 
@@ -1563,11 +1543,244 @@ lookup_records_finish (GResolver     *resolver,
   return g_task_propagate_pointer (G_TASK (result), error);
 }
 
+/* Will be called in the GLib worker thread, so must lock all accesses to shared
+ * data. */
+static gboolean
+timeout_cb (gpointer user_data)
+{
+  GWeakRef *weak_task = user_data;
+  GTask *task = NULL;  /* (owned) */
+  LookupData *data;
+  gboolean should_return;
+
+  task = g_weak_ref_get (weak_task);
+  if (task == NULL)
+    return G_SOURCE_REMOVE;
+
+  data = g_task_get_task_data (task);
+
+  g_mutex_lock (&data->lock);
+
+  should_return = g_atomic_int_compare_and_exchange (&data->will_return, NOT_YET, TIMED_OUT);
+  g_clear_pointer (&data->timeout_source, g_source_unref);
+
+  g_mutex_unlock (&data->lock);
+
+  if (should_return)
+    {
+      g_task_return_new_error_literal (task, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                                       _("Socket I/O timed out"));
+    }
+
+  /* Signal completion of the task. */
+  g_mutex_lock (&data->lock);
+  data->has_returned = TRUE;
+  g_cond_broadcast (&data->cond);
+  g_mutex_unlock (&data->lock);
+
+  g_object_unref (task);
+
+  return G_SOURCE_REMOVE;
+}
+
+/* Will be called in the GLib worker thread, so must lock all accesses to shared
+ * data. */
+static gboolean
+cancelled_cb (GCancellable *cancellable,
+              gpointer      user_data)
+{
+  GWeakRef *weak_task = user_data;
+  GTask *task = NULL;  /* (owned) */
+  LookupData *data;
+  gboolean should_return;
+
+  task = g_weak_ref_get (weak_task);
+  if (task == NULL)
+    return G_SOURCE_REMOVE;
+
+  data = g_task_get_task_data (task);
+
+  g_mutex_lock (&data->lock);
+
+  g_assert (g_cancellable_is_cancelled (cancellable));
+  should_return = g_atomic_int_compare_and_exchange (&data->will_return, NOT_YET, CANCELLED);
+  g_clear_pointer (&data->cancellable_source, g_source_unref);
+
+  g_mutex_unlock (&data->lock);
+
+  if (should_return)
+    g_task_return_error_if_cancelled (task);
+
+  /* Signal completion of the task. */
+  g_mutex_lock (&data->lock);
+  data->has_returned = TRUE;
+  g_cond_broadcast (&data->cond);
+  g_mutex_unlock (&data->lock);
+
+  g_object_unref (task);
+
+  return G_SOURCE_REMOVE;
+}
+
+static void
+weak_ref_clear_and_free (GWeakRef *weak_ref)
+{
+  g_weak_ref_clear (weak_ref);
+  g_free (weak_ref);
+}
+
+static void
+run_task_in_thread_pool_async (GThreadedResolver *self,
+                               GTask             *task)
+{
+  LookupData *data = g_task_get_task_data (task);
+  guint timeout_ms = g_resolver_get_timeout (G_RESOLVER (self));
+  GCancellable *cancellable = g_task_get_cancellable (task);
+
+  g_mutex_lock (&data->lock);
+
+  g_thread_pool_push (self->thread_pool, g_object_ref (task), NULL);
+
+  if (timeout_ms != 0)
+    {
+      GWeakRef *weak_task = g_new0 (GWeakRef, 1);
+      g_weak_ref_set (weak_task, task);
+
+      data->timeout_source = g_timeout_source_new (timeout_ms);
+      g_source_set_static_name (data->timeout_source, "[gio] threaded resolver timeout");
+      g_source_set_callback (data->timeout_source, G_SOURCE_FUNC (timeout_cb), g_steal_pointer (&weak_task), (GDestroyNotify) weak_ref_clear_and_free);
+      g_source_attach (data->timeout_source, GLIB_PRIVATE_CALL (g_get_worker_context) ());
+    }
+
+  if (cancellable != NULL)
+    {
+      GWeakRef *weak_task = g_new0 (GWeakRef, 1);
+      g_weak_ref_set (weak_task, task);
+
+      data->cancellable_source = g_cancellable_source_new (cancellable);
+      g_source_set_static_name (data->cancellable_source, "[gio] threaded resolver cancellable");
+      g_source_set_callback (data->cancellable_source, G_SOURCE_FUNC (cancelled_cb), g_steal_pointer (&weak_task), (GDestroyNotify) weak_ref_clear_and_free);
+      g_source_attach (data->cancellable_source, GLIB_PRIVATE_CALL (g_get_worker_context) ());
+    }
+
+  g_mutex_unlock (&data->lock);
+}
+
+static void
+run_task_in_thread_pool_sync (GThreadedResolver *self,
+                              GTask             *task)
+{
+  LookupData *data = g_task_get_task_data (task);
+
+  run_task_in_thread_pool_async (self, task);
+
+  g_mutex_lock (&data->lock);
+  while (!data->has_returned)
+    g_cond_wait (&data->cond, &data->lock);
+  g_mutex_unlock (&data->lock);
+}
+
+static void
+threaded_resolver_worker_cb (gpointer task_data,
+                             gpointer user_data)
+{
+  GTask *task = G_TASK (g_steal_pointer (&task_data));
+  LookupData *data = g_task_get_task_data (task);
+  GCancellable *cancellable = g_task_get_cancellable (task);
+  GThreadedResolver *resolver = G_THREADED_RESOLVER (user_data);
+  GError *local_error = NULL;
+  gboolean should_return;
+
+  switch (data->lookup_type) {
+  case LOOKUP_BY_NAME:
+    {
+      GList *addresses = do_lookup_by_name (resolver,
+                                            data->lookup_by_name.hostname,
+                                            data->lookup_by_name.address_family,
+                                            cancellable,
+                                            &local_error);
+
+      g_mutex_lock (&data->lock);
+      should_return = g_atomic_int_compare_and_exchange (&data->will_return, NOT_YET, COMPLETED);
+      g_mutex_unlock (&data->lock);
+
+      if (should_return)
+        {
+          if (addresses != NULL)
+            g_task_return_pointer (task, g_steal_pointer (&addresses), (GDestroyNotify) g_resolver_free_addresses);
+          else
+            g_task_return_error (task, g_steal_pointer (&local_error));
+        }
+
+      g_clear_pointer (&addresses, g_resolver_free_addresses);
+      g_clear_error (&local_error);
+    }
+    break;
+  case LOOKUP_BY_ADDRESS:
+    {
+      gchar *name = do_lookup_by_address (data->lookup_by_address.address,
+                                          cancellable,
+                                          &local_error);
+
+      g_mutex_lock (&data->lock);
+      should_return = g_atomic_int_compare_and_exchange (&data->will_return, NOT_YET, COMPLETED);
+      g_mutex_unlock (&data->lock);
+
+      if (should_return)
+        {
+          if (name != NULL)
+            g_task_return_pointer (task, g_steal_pointer (&name), g_free);
+          else
+            g_task_return_error (task, g_steal_pointer (&local_error));
+        }
+
+      g_clear_pointer (&name, g_free);
+      g_clear_error (&local_error);
+    }
+    break;
+  case LOOKUP_RECORDS:
+    {
+      GList *records = do_lookup_records (data->lookup_records.rrname,
+                                          data->lookup_records.record_type,
+                                          cancellable,
+                                          &local_error);
+
+      g_mutex_lock (&data->lock);
+      should_return = g_atomic_int_compare_and_exchange (&data->will_return, NOT_YET, COMPLETED);
+      g_mutex_unlock (&data->lock);
+
+      if (should_return)
+        {
+          if (records != NULL)
+            g_task_return_pointer (task, g_steal_pointer (&records), (GDestroyNotify) free_records);
+          else
+            g_task_return_error (task, g_steal_pointer (&local_error));
+        }
+
+      g_clear_pointer (&records, free_records);
+      g_clear_error (&local_error);
+    }
+    break;
+  default:
+    g_assert_not_reached ();
+  }
+
+  /* Signal completion of a task. */
+  g_mutex_lock (&data->lock);
+  data->has_returned = TRUE;
+  g_cond_broadcast (&data->cond);
+  g_mutex_unlock (&data->lock);
+
+  g_object_unref (task);
+}
 
 static void
 g_threaded_resolver_class_init (GThreadedResolverClass *threaded_class)
 {
+  GObjectClass *object_class = G_OBJECT_CLASS (threaded_class);
   GResolverClass *resolver_class = G_RESOLVER_CLASS (threaded_class);
+
+  object_class->finalize = g_threaded_resolver_finalize;
 
   resolver_class->lookup_by_name                   = lookup_by_name;
   resolver_class->lookup_by_name_async             = lookup_by_name_async;

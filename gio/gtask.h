@@ -39,7 +39,7 @@ G_BEGIN_DECLS
 typedef struct _GTaskClass   GTaskClass;
 
 GIO_AVAILABLE_IN_2_36
-GType         g_task_get_type              (void) G_GNUC_CONST;
+GType         g_task_get_type              (void);
 
 GIO_AVAILABLE_IN_2_36
 GTask        *g_task_new                   (gpointer             source_object,
@@ -163,12 +163,24 @@ void          g_task_return_int                (GTask           *task,
 GIO_AVAILABLE_IN_2_36
 void          g_task_return_error              (GTask           *task,
                                                 GError          *error);
+GIO_AVAILABLE_IN_2_80
+void          g_task_return_prefixed_error     (GTask           *task,
+                                                GError          *error,
+                                                const char      *format,
+                                                ...) G_GNUC_PRINTF (3, 4);
+
 GIO_AVAILABLE_IN_2_36
 void          g_task_return_new_error          (GTask           *task,
                                                 GQuark           domain,
                                                 gint             code,
                                                 const char      *format,
                                                 ...) G_GNUC_PRINTF (4, 5);
+
+GIO_AVAILABLE_IN_2_80
+void          g_task_return_new_error_literal  (GTask           *task,
+                                                GQuark           domain,
+                                                gint             code,
+                                                const char      *message);
 GIO_AVAILABLE_IN_2_64
 void          g_task_return_value              (GTask           *task,
                                                 GValue          *result);
@@ -196,8 +208,10 @@ gboolean      g_task_get_completed             (GTask           *task);
 
 /*< private >*/
 #ifndef __GTK_DOC_IGNORE__
+#ifndef __GI_SCANNER__
 /* Debugging API, not part of the public API */
 void g_task_print_alive_tasks (void);
+#endif /* !__GI_SCANNER__ */
 #endif  /* !__GTK_DOC_IGNORE__ */
 
 G_END_DECLS

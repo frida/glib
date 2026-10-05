@@ -36,12 +36,6 @@ G_BEGIN_DECLS
 #define G_IS_LOADABLE_ICON(obj)	        (G_TYPE_CHECK_INSTANCE_TYPE ((obj), G_TYPE_LOADABLE_ICON))
 #define G_LOADABLE_ICON_GET_IFACE(obj)  (G_TYPE_INSTANCE_GET_INTERFACE ((obj), G_TYPE_LOADABLE_ICON, GLoadableIconIface))
 
-/**
- * GLoadableIcon:
- *
- * Generic type for all kinds of icons that can be loaded
- * as a stream.
- **/
 typedef struct _GLoadableIconIface    		GLoadableIconIface;
 
 /**
@@ -76,7 +70,7 @@ struct _GLoadableIconIface
 };
 
 GIO_AVAILABLE_IN_ALL
-GType         g_loadable_icon_get_type    (void) G_GNUC_CONST;
+GType         g_loadable_icon_get_type    (void);
 
 GIO_AVAILABLE_IN_ALL
 GInputStream *g_loadable_icon_load        (GLoadableIcon        *icon,

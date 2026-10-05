@@ -53,27 +53,36 @@
 #include "gtestutils.h"
 #include "gthread.h"
 #include "gunicode.h"
+#include "gutilsprivate.h"
 
 #ifdef G_OS_WIN32
 #include "garray.h"
 #endif
 
 /**
- * SECTION:date
- * @title: Date and Time Functions
- * @short_description: calendrical calculations and miscellaneous time stuff
+ * GDate:
+ * @julian_days: the Julian representation of the date
+ * @julian: this bit is set if @julian_days is valid
+ * @dmy: this is set if @day, @month and @year are valid
+ * @day: the day of the day-month-year representation of the date,
+ *   as a number between 1 and 31
+ * @month: the month of the day-month-year representation of the date,
+ *   as a number between 1 and 12
+ * @year: the year of the day-month-year representation of the date
  *
- * The #GDate data structure represents a day between January 1, Year 1,
+ * `GDate` is a struct for calendrical calculations.
+ *
+ * The `GDate` data structure represents a day between January 1, Year 1,
  * and sometime a few thousand years in the future (right now it will go
- * to the year 65535 or so, but g_date_set_parse() only parses up to the
- * year 8000 or so - just count on "a few thousand"). #GDate is meant to
+ * to the year 65535 or so, but [method@GLib.Date.set_parse] only parses up to the
+ * year 8000 or so - just count on "a few thousand"). `GDate` is meant to
  * represent everyday dates, not astronomical dates or historical dates
  * or ISO timestamps or the like. It extrapolates the current Gregorian
  * calendar forward and backward in time; there is no attempt to change
- * the calendar to match time periods or locations. #GDate does not store
+ * the calendar to match time periods or locations. `GDate` does not store
  * time information; it represents a day.
  *
- * The #GDate implementation has several nice features; it is only a
+ * The `GDate` implementation has several nice features; it is only a
  * 64-bit struct, so storing large numbers of dates is very efficient. It
  * can keep both a Julian and day-month-year representation of the date,
  * since some calculations are much easier with one representation or the
@@ -83,25 +92,23 @@
  * technical sense; technically, Julian dates count from the start of the
  * Julian period, Jan 1, 4713 BC).
  *
- * #GDate is simple to use. First you need a "blank" date; you can get a
- * dynamically allocated date from g_date_new(), or you can declare an
- * automatic variable or array and initialize it by
- * calling g_date_clear(). A cleared date is safe; it's safe to call
- * g_date_set_dmy() and the other mutator functions to initialize the
- * value of a cleared date. However, a cleared date is initially
- * invalid, meaning that it doesn't represent a day that exists.
- * It is undefined to call any of the date calculation routines on an
- * invalid date. If you obtain a date from a user or other
- * unpredictable source, you should check its validity with the
- * g_date_valid() predicate. g_date_valid() is also used to check for
- * errors with g_date_set_parse() and other functions that can
- * fail. Dates can be invalidated by calling g_date_clear() again.
+ * `GDate` is simple to use. First you need a "blank" date; you can get a
+ * dynamically allocated date from [ctor@GLib.Date.new], or you can declare an
+ * automatic variable or array and initialize it by calling [method@GLib.Date.clear].
+ * A cleared date is safe; it's safe to call [method@GLib.Date.set_dmy] and the other
+ * mutator functions to initialize the value of a cleared date. However, a cleared date
+ * is initially invalid, meaning that it doesn't represent a day that exists.
+ * It is undefined to call any of the date calculation routines on an invalid date.
+ * If you obtain a date from a user or other unpredictable source, you should check
+ * its validity with the [method@GLib.Date.valid] predicate. [method@GLib.Date.valid]
+ * is also used to check for errors with [method@GLib.Date.set_parse] and other functions
+ * that can fail. Dates can be invalidated by calling [method@GLib.Date.clear] again.
  *
- * It is very important to use the API to access the #GDate
- * struct. Often only the day-month-year or only the Julian
- * representation is valid. Sometimes neither is valid. Use the API.
+ * It is very important to use the API to access the `GDate` struct. Often only the
+ * day-month-year or only the Julian representation is valid. Sometimes neither is valid.
+ * Use the API.
  *
- * GLib also features #GDateTime which represents a precise time.
+ * GLib also features `GDateTime` which represents a precise time.
  */
 
 /**
@@ -109,6 +116,15 @@
  *
  * Number of microseconds in one second (1 million).
  * This macro is provided for code readability.
+ */
+
+/**
+ * G_NSEC_PER_SEC:
+ *
+ * Number of nanoseconds in one second (1 billion).
+ * This macro is provided for code readability.
+ *
+ * Since: 2.88
  */
 
 /**
@@ -128,30 +144,6 @@
  * problem.
  *
  * Deprecated: 2.62: Use #GDateTime or #guint64 instead.
- */
-
-/**
- * GDate:
- * @julian_days: the Julian representation of the date
- * @julian: this bit is set if @julian_days is valid
- * @dmy: this is set if @day, @month and @year are valid
- * @day: the day of the day-month-year representation of the date,
- *   as a number between 1 and 31
- * @month: the day of the day-month-year representation of the date,
- *   as a number between 1 and 12
- * @year: the day of the day-month-year representation of the date
- *
- * Represents a day between January 1, Year 1 and a few thousand years in
- * the future. None of its members should be accessed directly.
- *
- * If the `GDate` is obtained from g_date_new(), it will be safe
- * to mutate but invalid and thus not safe for calendrical computations.
- *
- * If it's declared on the stack, it will contain garbage so must be
- * initialized with g_date_clear(). g_date_clear() makes the date invalid
- * but safe. An invalid date doesn't represent a day, it's "empty." A date
- * becomes valid after you set it to a Julian day or you set a day, month,
- * and year.
  */
 
 /**
@@ -759,27 +751,9 @@ g_date_get_day_of_year (const GDate *d)
  * Returns: week of the year
  */
 guint        
-g_date_get_monday_week_of_year (const GDate *d)
+g_date_get_monday_week_of_year (const GDate *date)
 {
-  GDateWeekday wd;
-  guint day;
-  GDate first;
-  
-  g_return_val_if_fail (g_date_valid (d), 0);
-  
-  if (!d->dmy) 
-    g_date_update_dmy (d);
-
-  g_return_val_if_fail (d->dmy, 0);  
-  
-  g_date_clear (&first, 1);
-  
-  g_date_set_dmy (&first, 1, 1, d->year);
-  
-  wd = g_date_get_weekday (&first) - 1; /* make Monday day 0 */
-  day = g_date_get_day_of_year (d) - 1;
-  
-  return ((day + wd)/7U + (wd == 0 ? 1 : 0));
+  return g_date_get_week_of_year (date, G_DATE_MONDAY);
 }
 
 /**
@@ -793,28 +767,52 @@ g_date_get_monday_week_of_year (const GDate *d)
  * Returns: week number
  */
 guint        
-g_date_get_sunday_week_of_year (const GDate *d)
+g_date_get_sunday_week_of_year (const GDate *date)
 {
-  GDateWeekday wd;
-  guint day;
-  GDate first;
-  
-  g_return_val_if_fail (g_date_valid (d), 0);
-  
-  if (!d->dmy) 
-    g_date_update_dmy (d);
+  return g_date_get_week_of_year (date, G_DATE_SUNDAY);
+}
 
-  g_return_val_if_fail (d->dmy, 0);  
-  
-  g_date_clear (&first, 1);
-  
-  g_date_set_dmy (&first, 1, 1, d->year);
-  
-  wd = g_date_get_weekday (&first);
-  if (wd == 7) wd = 0; /* make Sunday day 0 */
-  day = g_date_get_day_of_year (d) - 1;
-  
-  return ((day + wd)/7U + (wd == 0 ? 1 : 0));
+/**
+ * g_date_get_week_of_year:
+ * @date: a [struct@GLib.Date]
+ * @first_day_of_week: the day which is considered the first day of the week
+ *    (for example, this would be [enum@GLib.DateWeekday.SUNDAY] in US locales,
+ *    [enum@GLib.DateWeekday.MONDAY] in British locales, and
+ *    [enum@GLib.DateWeekday.SATURDAY] in Egyptian locales
+ *
+ * Calculates the week of the year during which this date falls.
+ *
+ * The result depends on which day is considered the first day of the week,
+ * which varies by locale. Both `date` and `first_day_of_week` must be valid.
+ *
+ * If @date is before the start of the first week of the year (for example,
+ * before the first Monday in January if @first_day_of_week is
+ * [enum@GLib.DateWeekday.MONDAY]) then zero will be returned.
+ *
+ * Returns: week number (starting from 1), or `0` if @date is before the start
+ *    of the first week of the year
+ * Since: 2.86
+ */
+unsigned int
+g_date_get_week_of_year (const GDate  *date,
+                         GDateWeekday  first_day_of_week)
+{
+  GDate first_day_of_year;
+  unsigned int n_days_before_first_week;
+
+  g_return_val_if_fail (g_date_valid (date), 0);
+  g_return_val_if_fail (first_day_of_week != G_DATE_BAD_WEEKDAY, 0);
+
+  if (!date->dmy)
+    g_date_update_dmy (date);
+
+  g_return_val_if_fail (date->dmy, 0);
+
+  g_date_clear (&first_day_of_year, 1);
+  g_date_set_dmy (&first_day_of_year, 1, 1, date->year);
+
+  n_days_before_first_week = (first_day_of_week - g_date_get_weekday (&first_day_of_year) + 7) % 7;
+  return (g_date_get_day_of_year (date) + 6 - n_days_before_first_week) / 7;
 }
 
 /**
@@ -1245,10 +1243,10 @@ convert_twodigit_year (guint y)
  * @str: string to parse
  *
  * Parses a user-inputted string @str, and try to figure out what date it
- * represents, taking the [current locale][setlocale] into account. If the
- * string is successfully parsed, the date will be valid after the call.
- * Otherwise, it will be invalid. You should check using g_date_valid()
- * to see whether the parsing succeeded.
+ * represents, taking the [current locale](running.html#locale)
+ * into account. If the string is successfully parsed, the date will be
+ * valid after the call. Otherwise, it will be invalid. You should check
+ * using g_date_valid() to see whether the parsing succeeded.
  *
  * This function is not appropriate for file formats and the like; it
  * isn't very precise, and its exact behavior varies with the locale.
@@ -1403,6 +1401,34 @@ g_date_set_parse (GDate       *d,
   G_UNLOCK (g_date_global);
 }
 
+gboolean
+_g_localtime (time_t timet, struct tm *out_tm)
+{
+  gboolean success = TRUE;
+
+#ifdef HAVE_LOCALTIME_R
+  tzset ();
+  if (!localtime_r (&timet, out_tm))
+    success = FALSE;
+#else
+  {
+    struct tm *ptm = localtime (&timet);
+
+    if (ptm == NULL)
+      {
+        /* Happens at least in Microsoft's C library if you pass a
+         * negative time_t.
+         */
+        success = FALSE;
+      }
+    else
+      memcpy (out_tm, ptm, sizeof (struct tm));
+  }
+#endif
+
+  return success;
+}
+
 /**
  * g_date_set_time_t:
  * @date: a #GDate 
@@ -1427,33 +1453,21 @@ g_date_set_time_t (GDate *date,
 		   time_t timet)
 {
   struct tm tm;
-  
+  gboolean success;
+
   g_return_if_fail (date != NULL);
-  
-#ifdef HAVE_LOCALTIME_R
-  localtime_r (&timet, &tm);
-#else
-  {
-    struct tm *ptm = localtime (&timet);
 
-    if (ptm == NULL)
-      {
-	/* Happens at least in Microsoft's C library if you pass a
-	 * negative time_t. Use 2000-01-01 as default date.
-	 */
-#ifndef G_DISABLE_CHECKS
-	g_return_if_fail_warning (G_LOG_DOMAIN, "g_date_set_time", "ptm != NULL");
-#endif
+  success = _g_localtime (timet, &tm);
+  if (!success)
+    {
+      /* Still set a default date, 2000-01-01.
+       *
+       * We may assert out below. */
+      tm.tm_mon = 0;
+      tm.tm_mday = 1;
+      tm.tm_year = 100;
+    }
 
-	tm.tm_mon = 0;
-	tm.tm_mday = 1;
-	tm.tm_year = 100;
-      }
-    else
-      memcpy ((void *) &tm, (void *) ptm, sizeof(struct tm));
-  }
-#endif
-  
   date->julian = FALSE;
   
   date->month = tm.tm_mon + 1;
@@ -1463,6 +1477,11 @@ g_date_set_time_t (GDate *date,
   g_return_if_fail (g_date_valid_dmy (date->day, date->month, date->year));
   
   date->dmy    = TRUE;
+
+#ifndef G_DISABLE_CHECKS
+  if (!success)
+    g_return_if_fail_warning (G_LOG_DOMAIN, "g_date_set_time", "localtime() == NULL");
+#endif
 }
 
 
@@ -1961,23 +1980,7 @@ g_date_get_days_in_month (GDateMonth month,
 guint8       
 g_date_get_monday_weeks_in_year (GDateYear year)
 {
-  GDate d;
-  
-  g_return_val_if_fail (g_date_valid_year (year), 0);
-  
-  g_date_clear (&d, 1);
-  g_date_set_dmy (&d, 1, 1, year);
-  if (g_date_get_weekday (&d) == G_DATE_MONDAY) return 53;
-  g_date_set_dmy (&d, 31, 12, year);
-  if (g_date_get_weekday (&d) == G_DATE_MONDAY) return 53;
-  if (g_date_is_leap_year (year)) 
-    {
-      g_date_set_dmy (&d, 2, 1, year);
-      if (g_date_get_weekday (&d) == G_DATE_MONDAY) return 53;
-      g_date_set_dmy (&d, 30, 12, year);
-      if (g_date_get_weekday (&d) == G_DATE_MONDAY) return 53;
-    }
-  return 52;
+  return g_date_get_weeks_in_year (year, G_DATE_MONDAY);
 }
 
 /**
@@ -1997,21 +2000,50 @@ g_date_get_monday_weeks_in_year (GDateYear year)
 guint8       
 g_date_get_sunday_weeks_in_year (GDateYear year)
 {
+  return g_date_get_weeks_in_year (year, G_DATE_SUNDAY);
+}
+
+/**
+ * g_date_get_weeks_in_year:
+ * @year: year to count weeks in
+ * @first_day_of_week: the day which is considered the first day of the week
+ *    (for example, this would be [enum@GLib.DateWeekday.SUNDAY] in US locales,
+ *    [enum@GLib.DateWeekday.MONDAY] in British locales, and
+ *    [enum@GLib.DateWeekday.SATURDAY] in Egyptian locales
+ *
+ * Calculates the number of weeks in the year.
+ *
+ * The result depends on which day is considered the first day of the week,
+ * which varies by locale. `first_day_of_week` must be valid.
+ *
+ * The result will be either 52 or 53. Years always have 52 seven-day periods,
+ * plus one or two extra days depending on whether it’s a leap year. This
+ * function effectively calculates how many @first_day_of_week days there are in
+ * the year.
+ *
+ * Returns: the number of weeks in @year
+ * Since: 2.86
+ */
+guint8
+g_date_get_weeks_in_year (GDateYear    year,
+                          GDateWeekday first_day_of_week)
+{
   GDate d;
-  
+
   g_return_val_if_fail (g_date_valid_year (year), 0);
-  
+  g_return_val_if_fail (first_day_of_week != G_DATE_BAD_WEEKDAY, 0);
+
   g_date_clear (&d, 1);
   g_date_set_dmy (&d, 1, 1, year);
-  if (g_date_get_weekday (&d) == G_DATE_SUNDAY) return 53;
+  if (g_date_get_weekday (&d) == first_day_of_week) return 53;
   g_date_set_dmy (&d, 31, 12, year);
-  if (g_date_get_weekday (&d) == G_DATE_SUNDAY) return 53;
-  if (g_date_is_leap_year (year)) 
+  if (g_date_get_weekday (&d) == first_day_of_week) return 53;
+  if (g_date_is_leap_year (year))
     {
       g_date_set_dmy (&d, 2, 1, year);
-      if (g_date_get_weekday (&d) == G_DATE_SUNDAY) return 53;
+      if (g_date_get_weekday (&d) == first_day_of_week) return 53;
       g_date_set_dmy (&d, 30, 12, year);
-      if (g_date_get_weekday (&d) == G_DATE_SUNDAY) return 53;
+      if (g_date_get_weekday (&d) == first_day_of_week) return 53;
     }
   return 52;
 }
@@ -2255,6 +2287,7 @@ win32_strftime_helper (const GDate     *d,
   gchar *convbuf;
   glong convlen = 0;
   gsize retval;
+  size_t format_len = strlen (format);
 
   systemtime.wYear = tm->tm_year + 1900;
   systemtime.wMonth = tm->tm_mon + 1;
@@ -2266,7 +2299,8 @@ win32_strftime_helper (const GDate     *d,
   systemtime.wMilliseconds = 0;
   
   lcid = GetThreadLocale ();
-  result = g_array_sized_new (FALSE, FALSE, sizeof (wchar_t), MAX (128, strlen (format) * 2));
+  result = g_array_sized_new (FALSE, FALSE, sizeof (wchar_t),
+                              (format_len <= 64) ? (guint) format_len * 2 : 128);
 
   p = format;
   while (*p)
@@ -2625,7 +2659,7 @@ win32_strftime_helper (const GDate     *d,
  * @date: valid #GDate
  *
  * Generates a printed representation of the date, in a
- * [locale][setlocale]-specific way.
+ * [locale](running.html#locale)-specific way.
  * Works just like the platform's C library strftime() function,
  * but only accepts date-related formats; time-related formats
  * give undefined results. Date must be valid. Unlike strftime()
@@ -2638,7 +2672,7 @@ win32_strftime_helper (const GDate     *d,
  * make the \%F provided by the C99 strftime() work on Windows
  * where the C library only complies to C89.
  *
- * Returns: number of characters written to the buffer, or 0 the buffer was too small
+ * Returns: number of characters written to the buffer, or `0` if the buffer was too small
  */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"

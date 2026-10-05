@@ -33,18 +33,6 @@
 
 #include "glibintl.h"
 
-/**
- * SECTION:gdbusnamewatching
- * @title: Watching Bus Names
- * @short_description: Simple API for watching bus names
- * @include: gio/gio.h
- *
- * Convenience API for watching bus names.
- *
- * A simple example for watching a name can be found in
- * [gdbus-example-watch-name.c](https://gitlab.gnome.org/GNOME/glib/-/blob/HEAD/gio/tests/gdbus-example-watch-name.c)
- */
-
 G_LOCK_DEFINE_STATIC (lock);
 
 /* ---------------------------------------------------------------------------------------------------- */
@@ -107,7 +95,7 @@ client_unref (Client *client)
       if (client->connection != NULL)
         {
           if (client->name_owner_changed_subscription_id > 0)
-            g_dbus_connection_signal_unsubscribe (client->connection, client->name_owner_changed_subscription_id);
+            g_dbus_connection_signal_unsubscribe (client->connection, g_steal_handle_id (&client->name_owner_changed_subscription_id));
           if (client->disconnected_signal_handler_id > 0)
             g_signal_handler_disconnect (client->connection, client->disconnected_signal_handler_id);
           g_object_unref (client->connection);
@@ -318,12 +306,11 @@ on_connection_disconnected (GDBusConnection *connection,
     return;
 
   if (client->name_owner_changed_subscription_id > 0)
-    g_dbus_connection_signal_unsubscribe (client->connection, client->name_owner_changed_subscription_id);
+    g_dbus_connection_signal_unsubscribe (client->connection, g_steal_handle_id (&client->name_owner_changed_subscription_id));
   if (client->disconnected_signal_handler_id > 0)
     g_signal_handler_disconnect (client->connection, client->disconnected_signal_handler_id);
   g_object_unref (client->connection);
   client->disconnected_signal_handler_id = 0;
-  client->name_owner_changed_subscription_id = 0;
   client->connection = NULL;
 
   call_vanished_handler (client);
@@ -356,9 +343,9 @@ on_name_owner_changed (GDBusConnection *connection,
   if (!client->initialized)
     goto out;
 
-  if (g_strcmp0 (object_path, "/org/freedesktop/DBus") != 0 ||
-      g_strcmp0 (interface_name, "org.freedesktop.DBus") != 0 ||
-      g_strcmp0 (sender_name, "org.freedesktop.DBus") != 0)
+  if (g_strcmp0 (object_path, DBUS_PATH_DBUS) != 0 ||
+      g_strcmp0 (interface_name, DBUS_INTERFACE_DBUS) != 0 ||
+      g_strcmp0 (sender_name, DBUS_SERVICE_DBUS) != 0)
     goto out;
 
   g_variant_get (parameters,
@@ -436,9 +423,9 @@ static void
 invoke_get_name_owner (Client *client)
 {
   g_dbus_connection_call (client->connection,
-                          "org.freedesktop.DBus",  /* bus name */
-                          "/org/freedesktop/DBus", /* object path */
-                          "org.freedesktop.DBus",  /* interface name */
+                          DBUS_SERVICE_DBUS,
+                          DBUS_PATH_DBUS,
+                          DBUS_INTERFACE_DBUS,
                           "GetNameOwner",          /* method name */
                           g_variant_new ("(s)", client->name),
                           G_VARIANT_TYPE ("(s)"),
@@ -469,11 +456,11 @@ start_service_by_name_cb (GObject      *source_object,
       guint32 start_service_result;
       g_variant_get (result, "(u)", &start_service_result);
 
-      if (start_service_result == 1) /* DBUS_START_REPLY_SUCCESS */
+      if (start_service_result == DBUS_START_REPLY_SUCCESS)
         {
           invoke_get_name_owner (client);
         }
-      else if (start_service_result == 2) /* DBUS_START_REPLY_ALREADY_RUNNING */
+      else if (start_service_result == DBUS_START_REPLY_ALREADY_RUNNING)
         {
           invoke_get_name_owner (client);
         }
@@ -516,10 +503,10 @@ has_connection (Client *client)
 
   /* start listening to NameOwnerChanged messages immediately */
   client->name_owner_changed_subscription_id = g_dbus_connection_signal_subscribe (client->connection,
-                                                                                   "org.freedesktop.DBus",  /* name */
-                                                                                   "org.freedesktop.DBus",  /* if */
+                                                                                   DBUS_SERVICE_DBUS,
+                                                                                   DBUS_INTERFACE_DBUS,
                                                                                    "NameOwnerChanged",      /* signal */
-                                                                                   "/org/freedesktop/DBus", /* path */
+                                                                                   DBUS_PATH_DBUS,
                                                                                    client->name,
                                                                                    G_DBUS_SIGNAL_FLAGS_NONE,
                                                                                    on_name_owner_changed,
@@ -529,9 +516,9 @@ has_connection (Client *client)
   if (client->flags & G_BUS_NAME_WATCHER_FLAGS_AUTO_START)
     {
       g_dbus_connection_call (client->connection,
-                              "org.freedesktop.DBus",  /* bus name */
-                              "/org/freedesktop/DBus", /* object path */
-                              "org.freedesktop.DBus",  /* interface name */
+                              DBUS_SERVICE_DBUS,
+                              DBUS_PATH_DBUS,
+                              DBUS_INTERFACE_DBUS,
                               "StartServiceByName",    /* method name */
                               g_variant_new ("(su)", client->name, 0),
                               G_VARIANT_TYPE ("(u)"),
@@ -576,16 +563,18 @@ connection_get_cb (GObject      *source_object,
  * @bus_type: The type of bus to watch a name on.
  * @name: The name (well-known or unique) to watch.
  * @flags: Flags from the #GBusNameWatcherFlags enumeration.
- * @name_appeared_handler: (nullable): Handler to invoke when @name is known to exist or %NULL.
- * @name_vanished_handler: (nullable): Handler to invoke when @name is known to not exist or %NULL.
+ * @name_appeared_handler: (nullable) (scope notified): Handler to invoke when
+ *   @name is known to exist or %NULL.
+ * @name_vanished_handler: (nullable) (scope notified): Handler to invoke when
+ *   @name is known to not exist or %NULL.
  * @user_data: User data to pass to handlers.
  * @user_data_free_func: (nullable): Function for freeing @user_data or %NULL.
  *
  * Starts watching @name on the bus specified by @bus_type and calls
  * @name_appeared_handler and @name_vanished_handler when the name is
  * known to have an owner respectively known to lose its
- * owner. Callbacks will be invoked in the
- * [thread-default main context][g-main-context-push-thread-default]
+ * owner. Callbacks will be invoked in the thread-default main context
+ * (see [method@GLib.MainContext.push_thread_default])
  * of the thread you are calling this function from.
  *
  * You are guaranteed that one of the handlers will be invoked after
@@ -606,7 +595,7 @@ connection_get_cb (GObject      *source_object,
  * will be @name_vanished_handler. The reverse is also true.
  *
  * This behavior makes it very simple to write applications that want
- * to take action when a certain [name exists][gdbus-watching-names].
+ * to take action when a certain [name exists](dbus-name-watching.html#d-bus-name-watching).
  * Basically, the application should create object proxies in
  * @name_appeared_handler and destroy them again (if any) in
  * @name_vanished_handler.
@@ -665,8 +654,10 @@ g_bus_watch_name (GBusType                  bus_type,
  * @connection: A #GDBusConnection.
  * @name: The name (well-known or unique) to watch.
  * @flags: Flags from the #GBusNameWatcherFlags enumeration.
- * @name_appeared_handler: (nullable): Handler to invoke when @name is known to exist or %NULL.
- * @name_vanished_handler: (nullable): Handler to invoke when @name is known to not exist or %NULL.
+ * @name_appeared_handler: (nullable) (scope notified): Handler to invoke when
+ *   @name is known to exist or %NULL.
+ * @name_vanished_handler: (nullable) (scope notified): Handler to invoke when
+ *   @name is known to not exist or %NULL.
  * @user_data: User data to pass to handlers.
  * @user_data_free_func: (nullable): Function for freeing @user_data or %NULL.
  *

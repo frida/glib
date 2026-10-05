@@ -28,13 +28,13 @@
 #include "gaction.h"
 
 /**
- * SECTION:gsimpleactiongroup
- * @title: GSimpleActionGroup
- * @short_description: A simple GActionGroup implementation
- * @include: gio/gio.h
+ * GSimpleActionGroup:
  *
- * #GSimpleActionGroup is a hash table filled with #GAction objects,
- * implementing the #GActionGroup and #GActionMap interfaces.
+ * `GSimpleActionGroup` is a hash table filled with [iface@Gio.Action] objects,
+ * implementing the [iface@Gio.ActionGroup] and [iface@Gio.ActionMap]
+ * interfaces.
+ *
+ * Since: 2.28
  **/
 
 struct _GSimpleActionGroupPrivate
@@ -67,7 +67,7 @@ g_simple_action_group_list_actions (GActionGroup *group)
   g_hash_table_iter_init (&iter, simple->priv->table);
   while (g_hash_table_iter_next (&iter, &key, NULL))
     keys[i++] = g_strdup (key);
-  g_assert_cmpint (i, ==, n);
+  g_assert (i == n);
   keys[n] = NULL;
 
   return keys;
