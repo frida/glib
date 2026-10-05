@@ -1,6 +1,6 @@
 [wrap-git]
 url=https://github.com/frida/libiconv.git
-revision=cc24563b2c9c43727242e3bcc55bfcc210926ff2
+revision=2d7dbd28979f0f1ec200d0f23c0c0e403015b160
 depth=1
 
 [provide]
