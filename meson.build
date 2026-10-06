@@ -779,7 +779,6 @@ functions = [
   'mmap',
   'newlocale',
   'opendir',
-  'pipe2',
   'poll',
   'prlimit',
   'readlink',
@@ -809,6 +808,10 @@ functions = [
   'wcsnlen',
   'sysctlbyname',
 ]
+
+if host_system != 'darwin'
+  functions += ['pipe2']
+endif
 
 # _NSGetEnviron is available on iOS too, but its usage gets apps rejected from
 # the app store since it's considered 'private API'
