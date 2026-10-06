@@ -71,7 +71,7 @@
 #include "gutils.h"
 
 /* Default to using LLDB for backtraces on macOS. */
-#ifdef __APPLE__
+#if defined(__APPLE__) && __has_include(<TargetConditionals.h>)
 #include <TargetConditionals.h>
 #define USE_LLDB
 #endif

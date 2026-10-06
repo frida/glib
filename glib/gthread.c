@@ -61,9 +61,9 @@
 #include <windows.h>
 #endif /* G_OS_WIN32 */
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && __has_include(<sys/sysctl.h>)
 #include <sys/sysctl.h>
-#endif /*__APPLE__*/
+#endif
 
 #include "gqueue.h"
 #include "gslice.h"
@@ -1429,7 +1429,7 @@ g_get_num_processors (void)
 
   if (count > 0)
     return count;
-#elif defined(__APPLE__)
+#elif defined(__APPLE__) && __has_include(<sys/sysctl.h>)
   /* On Apple Silicon, prefer the number of performance cores to
    * avoid scheduling work on slower efficiency cores.
    */

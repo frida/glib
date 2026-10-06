@@ -160,7 +160,7 @@
 #define G_CREDENTIALS_SOCKET_GET_CREDENTIALS_SUPPORTED 1
 #define G_CREDENTIALS_HAS_PID 1
 
-#elif defined(__APPLE__)
+#elif defined(__APPLE__) && __has_include(<sys/ucred.h>)
 #include <sys/ucred.h>
 #define G_CREDENTIALS_SUPPORTED 1
 #define G_CREDENTIALS_USE_APPLE_XUCRED 1
