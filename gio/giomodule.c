@@ -74,7 +74,7 @@
 #include "gosxappinfo.h"
 #endif
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && __has_include(<AvailabilityMacros.h>)
 #include <AvailabilityMacros.h>
 #include <TargetConditionals.h>
 #if TARGET_OS_OSX

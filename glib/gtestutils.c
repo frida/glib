@@ -57,7 +57,7 @@
 #endif /* HAVE_SYS_SELECT_H */
 #include <glib/gstdio.h>
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && __has_include(<TargetConditionals.h>)
 #include <TargetConditionals.h>
 #endif
 
