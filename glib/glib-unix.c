@@ -985,7 +985,7 @@ g_unix_fd_query_path (int      fd,
   g_free (proc_path);
 
   return g_steal_pointer (&path);
-#elif defined (__FreeBSD__) || defined(__DragonFly__)
+#elif (defined (__FreeBSD__) || defined(__DragonFly__)) && defined (F_KINFO)
   struct kinfo_file kf = {0};
 
   kf.kf_structsize = sizeof (kf);
@@ -1025,6 +1025,8 @@ g_unix_fd_query_path (int      fd,
                "g_unix_fd_query_path() not supported on HURD");
   return NULL;
 #else
-  #error "g_unix_fd_query_path() not supported on this platform"
+  g_set_error (error, G_FILE_ERROR, G_FILE_ERROR_NOSYS,
+               "g_unix_fd_query_path() not supported on this platform");
+  return NULL;
 #endif
 }
