@@ -78,6 +78,7 @@ source_closure_marshal_BOOLEAN__VOID (GClosure     *closure,
   g_value_set_boolean (return_value, v_return);
 }
 
+#if defined (G_OS_UNIX) || defined (G_OS_WIN32)
 static gboolean
 io_watch_closure_callback (GIOChannel   *channel,
 			   GIOCondition  condition,
@@ -105,6 +106,7 @@ io_watch_closure_callback (GIOChannel   *channel,
 
   return result;
 }
+#endif
 
 static gboolean
 g_child_watch_closure_callback (GPid     pid,
@@ -200,10 +202,12 @@ closure_callback_get (gpointer     cb_data,
 
   if (!closure_callback)
     {
-      if (source->source_funcs == &g_io_watch_funcs)
-        closure_callback = (GSourceFunc)io_watch_closure_callback;
-      else if (source->source_funcs == &g_child_watch_funcs)
+      if (source->source_funcs == &g_child_watch_funcs)
         closure_callback = (GSourceFunc)g_child_watch_closure_callback;
+#if defined (G_OS_UNIX) || defined (G_OS_WIN32)
+      else if (source->source_funcs == &g_io_watch_funcs)
+        closure_callback = (GSourceFunc)io_watch_closure_callback;
+#endif
 #ifdef G_OS_UNIX
       else if (source->source_funcs == &g_unix_fd_source_funcs)
         closure_callback = (GSourceFunc)g_unix_fd_source_closure_callback;
@@ -257,7 +261,9 @@ g_source_set_closure (GSource  *source,
       source->source_funcs != &g_unix_signal_funcs &&
 #endif
       source->source_funcs != &g_child_watch_funcs &&
+#if defined (G_OS_UNIX) || defined (G_OS_WIN32)
       source->source_funcs != &g_io_watch_funcs &&
+#endif
       source->source_funcs != &g_timeout_funcs &&
       source->source_funcs != &g_idle_funcs)
     {
