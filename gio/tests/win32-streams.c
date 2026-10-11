@@ -22,6 +22,7 @@
  */
 
 #include <glib/glib.h>
+#include <glib/gstdio.h>
 #include <gio/gio.h>
 #include <gio/gwin32inputstream.h>
 #include <gio/gwin32outputstream.h>
@@ -541,6 +542,66 @@ test_pipe_io_cancel (void)
   g_free (name_utf16);
 }
 
+static HANDLE
+open_data_file (const gchar *path,
+                DWORD        access,
+                LONG         offset)
+{
+  wchar_t *path_utf16;
+  HANDLE handle;
+
+  path_utf16 = g_utf8_to_utf16 (path, -1, NULL, NULL, NULL);
+  handle = CreateFile (path_utf16, access, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+                       OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+  g_assert (handle != INVALID_HANDLE_VALUE);
+  g_free (path_utf16);
+
+  g_assert_cmpuint (SetFilePointer (handle, offset, NULL, FILE_BEGIN), ==, offset);
+
+  return handle;
+}
+
+static void
+test_file_read_from_offset (void)
+{
+  gchar *path;
+  GInputStream *in;
+  gchar buf[sizeof (DATA)] = { 0, };
+  gsize n;
+
+  path = g_build_filename (g_get_tmp_dir (), "gtest-read-offset", NULL);
+  g_assert_true (g_file_set_contents (path, DATA, -1, NULL));
+
+  in = g_win32_input_stream_new (open_data_file (path, GENERIC_READ, 10), TRUE);
+  g_assert_true (g_input_stream_read_all (in, buf, sizeof (buf) - 1, &n, NULL, NULL));
+  g_assert_cmpstr (buf, ==, DATA + 10);
+  g_object_unref (in);
+
+  g_remove (path);
+  g_free (path);
+}
+
+static void
+test_file_write_from_offset (void)
+{
+  gchar *path, *contents;
+  GOutputStream *out;
+
+  path = g_build_filename (g_get_tmp_dir (), "gtest-write-offset", NULL);
+  g_assert_true (g_file_set_contents (path, DATA, -1, NULL));
+
+  out = g_win32_output_stream_new (open_data_file (path, GENERIC_WRITE, 3), TRUE);
+  g_assert_true (g_output_stream_write_all (out, "XYZ", 3, NULL, NULL, NULL));
+  g_object_unref (out);
+
+  g_assert_true (g_file_get_contents (path, &contents, NULL, NULL));
+  g_assert_cmpstr (contents, ==, "abcXYZghijklmnopqrstuvwxyz");
+  g_free (contents);
+
+  g_remove (path);
+  g_free (path);
+}
+
 int
 main (int   argc,
       char *argv[])
@@ -551,6 +612,8 @@ main (int   argc,
   g_test_add_func ("/win32-streams/pipe-io-cancel-test", test_pipe_io_cancel);
   g_test_add_func ("/win32-streams/pipe-io-overlap-test", test_pipe_io_overlap);
   g_test_add_func ("/win32-streams/pipe-io-concurrent-test", test_pipe_io_concurrent);
+  g_test_add_func ("/win32-streams/file-read-from-offset-test", test_file_read_from_offset);
+  g_test_add_func ("/win32-streams/file-write-from-offset-test", test_file_write_from_offset);
 
   return g_test_run();
 }

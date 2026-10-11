@@ -82,4 +82,18 @@ end:
 
   return result;
 }
+
+guint64
+_g_win32_query_file_offset (HANDLE hfile)
+{
+  LONG high = 0;
+  DWORD low;
+
+  SetLastError (NO_ERROR);
+  low = SetFilePointer (hfile, 0, &high, FILE_CURRENT);
+  if (low == INVALID_SET_FILE_POINTER && GetLastError () != NO_ERROR)
+    return 0;
+
+  return ((guint64) (DWORD) high << 32) | low;
+}
 #endif

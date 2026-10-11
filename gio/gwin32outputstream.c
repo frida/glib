@@ -81,6 +81,8 @@ g_win32_output_stream_set_property (GObject         *object,
     case PROP_HANDLE:
       win32_stream->priv->handle = g_value_get_pointer (value);
       win32_stream->priv->file_type = GetFileType (win32_stream->priv->handle);
+      if (win32_stream->priv->file_type == FILE_TYPE_DISK)
+        win32_stream->priv->file_offset = _g_win32_query_file_offset (win32_stream->priv->handle);
       break;
     case PROP_CLOSE_HANDLE:
       win32_stream->priv->close_handle = g_value_get_boolean (value);

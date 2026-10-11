@@ -36,6 +36,7 @@ gboolean _g_win32_overlap_wait_result (HANDLE           hfile,
                                        OVERLAPPED      *overlap,
                                        DWORD           *transferred,
                                        GCancellable    *cancellable);
+guint64 _g_win32_query_file_offset (HANDLE hfile);
 #endif
 
 G_END_DECLS
