@@ -298,6 +298,14 @@ glibconfig_conf = configuration_data()
 # use them later in test programs (autoconf does this automatically)
 glib_conf_prefix = ''
 
+if not cc.compiles('''
+#ifndef __has_include
+#error no __has_include
+#endif
+''', name : '__has_include')
+  glib_conf.set('__has_include(x)', '0')
+endif
+
 glib_conf.set('GLIB_MAJOR_VERSION', major_version)
 glib_conf.set('GLIB_MINOR_VERSION', minor_version)
 glib_conf.set('GLIB_MICRO_VERSION', micro_version)
