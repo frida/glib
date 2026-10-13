@@ -2403,7 +2403,7 @@ endif
 
 # Try again with the fallback
 if not pcre2.found()
-  pcre2 = dependency('libpcre2-8', version: pcre2_req, allow_fallback: true, default_options: pcre2_options)
+  pcre2 = dependency('libpcre2-8', version: pcre2_req, fallback: ['pcre2', 'libpcre2_8'], default_options: pcre2_options)
   assert(pcre2.type_name() == 'internal')
   # static flags are automatically enabled by the subproject if it's built
   # with default_library=static
