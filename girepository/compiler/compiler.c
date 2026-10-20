@@ -162,6 +162,8 @@ main (int argc, char **argv)
   GIIrParser *parser;
   GIIrModule *module;
 
+  glib_init ();
+
   setlocale (LC_ALL, "");
 
   /* Translators: commandline placeholder */

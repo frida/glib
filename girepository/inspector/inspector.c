@@ -77,6 +77,8 @@ main (gint   argc,
   };
   GOptionContext *context = NULL;
 
+  glib_init ();
+
   setlocale (LC_ALL, "");
 
   context = g_option_context_new (_("- Inspect GI typelib"));
