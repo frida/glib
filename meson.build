@@ -1159,14 +1159,17 @@ if cc.links('''#define _GNU_SOURCE
 endif
 
 # Check for pidfd_open(2)
-if cc.links('''#include <sys/syscall.h>
+#
+# The kernel headers may predate pidfd, in which case gmain.c provides
+# SYS_pidfd_open and P_PIDFD. Kernel support is detected at runtime.
+if host_system in ['linux', 'android'] and cc.links('''#include <sys/syscall.h>
                #include <sys/wait.h>
                #include <linux/wait.h>
                #include <unistd.h>
                int main (int argc, char ** argv) {
                  siginfo_t child_info = { 0, };
-                 syscall (SYS_pidfd_open, 0, 0);
-                 waitid (P_PIDFD, 0, &child_info, WEXITED | WNOHANG);
+                 syscall (SYS_getpid);
+                 waitid (P_PID, 0, &child_info, WEXITED | WNOHANG);
                  return 0;
                }''', name : 'pidfd_open(2) system call')
   glib_conf.set('HAVE_PIDFD', 1)

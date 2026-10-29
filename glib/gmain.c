@@ -78,6 +78,29 @@
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <linux/wait.h>  /* P_PIDFD */
+#ifndef SYS_pidfd_open
+/* The kernel headers predate pidfd, but the running kernel may support it. */
+# if defined (__alpha__)
+#  define SYS_pidfd_open 544
+# elif defined (__ia64__)
+#  define SYS_pidfd_open 1458
+# elif defined (__mips__) && _MIPS_SIM == _MIPS_SIM_ABI32
+#  define SYS_pidfd_open 4434
+# elif defined (__mips__) && _MIPS_SIM == _MIPS_SIM_ABI64
+#  define SYS_pidfd_open 5434
+# elif defined (__mips__) && _MIPS_SIM == _MIPS_SIM_NABI32
+#  define SYS_pidfd_open 6434
+# elif defined (__arm__) && defined (__NR_SYSCALL_BASE)
+#  define SYS_pidfd_open (__NR_SYSCALL_BASE + 434)
+# elif defined (__x86_64__) && defined (__ILP32__)
+#  define SYS_pidfd_open (0x40000000 + 434)
+# else
+#  define SYS_pidfd_open 434
+# endif
+#endif
+#ifndef P_PIDFD
+#define P_PIDFD 3
+#endif
 #ifndef W_EXITCODE
 #define W_EXITCODE(ret, sig) ((ret) << 8 | (sig))
 #endif
@@ -6714,6 +6737,11 @@ g_child_watch_dispatch (GSource    *source,
                          child_watch_source->pid);
                 return TRUE;
               }
+          }
+        else if (errno == EINVAL)
+          {
+            /* No P_PIDFD support in waitid() (Linux < 5.4, or an old libc),
+             * so let waitpid() below reap the child. */
           }
         else
           {
