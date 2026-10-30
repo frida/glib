@@ -6,7 +6,7 @@ wrappers, and interfaces for such runtime functionality as an event loop,
 threads, dynamic loading, and an object system.
 
 The Frida GLib location is:
-  <https://github.com/frida/glib>
+  <https://github.com/frida-forks/glib>
 
 The official GLib locations are:
   <https://download.gnome.org/sources/glib>
